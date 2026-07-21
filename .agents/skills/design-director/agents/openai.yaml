@@ -1,0 +1,9 @@
+# Codex skill metadata
+name: design-director
+description: >-
+  Run the original-design process from brief to audited design system:
+  three art directions, one thesis, original colour/typography/logo,
+  signature moment, re-composed mobile, accessibility, anti-template and
+  anti-copy audits. Process and quality bar; the venture's DESIGN_BRIEF.md
+  governs identity.
+entrypoint: SKILL.md

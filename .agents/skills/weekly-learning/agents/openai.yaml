@@ -1,0 +1,8 @@
+# Codex skill metadata
+name: weekly-learning
+description: >-
+  The weekly demand/funnel/pricing/SEO review: aggregate the week's
+  evidence deterministically, write the weekly report, and propose at most
+  one evidence-cited conceptual change. Never merges, deploys, publishes,
+  or sends.
+entrypoint: SKILL.md

@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: harness-engineering
+description: >-
+  Make the repository easier for the next agent run: audit drift and
+  friction, promote repeated corrections into docs, config, tests, evals,
+  scripts, or lint rules — not into an ever-growing AGENTS.md.
+entrypoint: SKILL.md

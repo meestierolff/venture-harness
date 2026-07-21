@@ -1,0 +1,4 @@
+name: agent-parity
+kind: deterministic
+description: Canonical skills valid, generated Codex/Claude copies exact, routing bijective, adapters thin and command-accurate.
+command: pnpm agents:check

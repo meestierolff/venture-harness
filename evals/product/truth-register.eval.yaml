@@ -1,0 +1,4 @@
+name: truth-register
+kind: deterministic
+description: The PRODUCT_TRUTH claims register parses, rows are complete, and no forbidden-status claim reaches public surfaces.
+command: pnpm validate:claims

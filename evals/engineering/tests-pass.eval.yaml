@@ -1,0 +1,4 @@
+name: tests-pass
+kind: deterministic
+description: The unit and integration test suite passes (taxonomy, experiments, consent, qualification, config schemas).
+command: pnpm test

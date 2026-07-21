@@ -1,0 +1,34 @@
+# Offer contract — the commercial hypothesis, reviewable in diffs.
+# Schema: lib/config/schemas.ts (offerSchema). Validated by pnpm verify.
+# Narrative and evidence live in docs/business/OFFER.md; this file holds the
+# numbers and structure that scripts consume (thirty-day cash calculator,
+# pricing-recording checks).
+# TEMPLATE STATE: filled by $offer-architect. Do not invent values.
+
+icp:
+  description: null # "We help [specific customer] ..." — the specific customer
+  disqualifiers: [] # who this is explicitly NOT for
+
+offer:
+  sentence: null # "We help X achieve Y without Z."
+  day_one_win: null # what the customer gets on day one
+  guarantee: null # conditional guarantee, or null
+
+pricing:
+  currency: EUR
+  monthly_price: null # number
+  annual_price: null # number (yearly total)
+  implementation_fee: null # one-time setup fee, waived on annual if desired
+  annual_waives_implementation_fee: false
+  usage_price: null # metered component, or null
+  upsell: null # day-one upsell description + price, or null
+
+# Assumptions feeding scripts/ thirty-day cash calculator
+# (skills/offer-architect/scripts/thirty-day-cash.ts). State them; the
+# calculator prints them with every result.
+economics:
+  cac_assumption: null # expected blended CAC, currency units
+  delivery_cost_monthly: null # marginal cost to serve one customer / month
+  onboarding_cost: null # one-time cost to onboard one customer
+  target_contribution_margin: 0.7 # fraction of revenue after delivery cost
+  payback_target_days: 30 # the thirty-day cash principle

@@ -1,0 +1,43 @@
+# Venture contract — who this venture is and where it stands.
+# Schema: lib/config/schemas.ts (ventureSchema). Validated by pnpm verify.
+# TEMPLATE STATE: nulls below are filled by pnpm init:venture and
+# $venture-bootstrap. Do not invent values.
+
+venture:
+  name: null # short machine name, e.g. "metermate"
+  legal_name: null # trading entity, or null before incorporation
+  domain: null # production domain, e.g. "example.com"
+  market: null # one line, e.g. "small property managers, DACH"
+  language: en
+  currency: EUR
+  timezone: Europe/Berlin
+  stage: template # template | ideation | demand_validation | build | iterate | reposition | stopped
+  repository_visibility: private # private | public
+  production_status: none # none | validation_site_live | product_live
+
+# The 30-to-90-day demand-validation operating model. Thresholds are
+# hypotheses: set them at bootstrap, before launch, and change them only via
+# a recorded decision (docs/decisions/).
+validation:
+  stage: demand_validation
+  minimum_days: 30
+  target_days: 60
+  maximum_days: 90
+  launch_date: null # ISO date the validation site went live
+  decision_date: null # launch_date + target_days, set at launch
+  primary_conversion: null # one event name from config/analytics.yaml
+  qualification_rule: null # what makes a submission "qualified"
+  build_threshold: null # e.g. ">= 10 qualified pilots at target price"
+  iterate_threshold: null # evidence level that justifies another cycle
+  stop_threshold: null # explicit kill criteria — write them before launch
+
+# Operational independence checklist. Every venture has its OWN instances.
+# Booleans flip to true only when verified by a human.
+infrastructure:
+  domain_registered: false
+  vercel_project_created: false
+  neon_database_created: false
+  ga4_property_created: false
+  vercel_analytics_enabled: false
+  google_search_console_verified: false
+  bing_webmaster_verified: false

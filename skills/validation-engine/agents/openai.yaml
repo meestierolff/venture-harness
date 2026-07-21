@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: validation-engine
+description: >-
+  Design and maintain demand hypotheses, validation tests, thresholds, stop
+  rules, and build/iterate/reposition/kill decision rules. Decides WHAT to
+  test; experiment-analytics-engine decides HOW it is tracked and analysed.
+entrypoint: SKILL.md

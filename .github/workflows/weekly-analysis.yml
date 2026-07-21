@@ -1,0 +1,32 @@
+name: weekly-analysis
+
+# Deterministic aggregation only. The workflow uploads the report as an
+# artifact — it does NOT commit, publish, or send anything. A human (or an
+# explicitly invoked $weekly-learning session) takes it from there.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Aggregate weekly demand data
+        run: pnpm weekly
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-demand-report
+          path: reports/weekly/
+          retention-days: 90

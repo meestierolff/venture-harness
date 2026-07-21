@@ -1,0 +1,20 @@
+thirty-day-cash — deterministic calculator
+
+Assumptions (state them; do not trust silently):
+  monthly price        : 149 EUR
+  setup fee (one-time) : 400 EUR
+  CAC assumption       : 320 EUR
+  delivery cost / 30d  : 25 EUR
+  onboarding cost      : 50 EUR
+
+Result (one customer, first 30 days):
+  cash collected       : 549 EUR
+  delivery + onboarding: 75 EUR
+  contribution         : 474 EUR (margin 86%)
+  after CAC            : 154 EUR
+  payback period       : <= 30 days
+
+THIRTY-DAY CASH: RECOVERED — CAC is repaid within the first 30 days under these assumptions.
+
+Limitations: single-customer model; ignores churn, refunds, payment
+timing, and taxes. Assumptions above are hypotheses until evidenced.

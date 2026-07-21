@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: workflow-graph-engineering
+description: >-
+  Design explicit multi-node agent workflow graphs with bounded nodes,
+  real data-dependency edges, deterministic plumbing, and human-approval
+  nodes. Explicit invocation only; never for small tasks.
+entrypoint: SKILL.md

@@ -1,0 +1,44 @@
+# Distribution contract — channel priorities and non-negotiable boundaries.
+# Schema: lib/config/schemas.ts (distributionSchema). Strategy narrative
+# lives in docs/growth/DISTRIBUTION.md; this file holds the enforceable rules.
+
+# Acquisition order. Paid comes last and only after organic proof.
+channel_priority:
+  - warm_outreach
+  - useful_content
+  - value_first_cold_outreach
+  - paid_after_proof
+
+# Every outbound action is human-gated. No exceptions, no automation.
+approval:
+  human_approval_required_for:
+    - sending_any_message
+    - publishing_any_post
+    - publishing_any_article
+    - launching_paid_campaigns
+    - submitting_to_directories
+  agents_may:
+    - draft
+    - research_channels
+    - prepare_calendars
+    - analyse_results
+
+outreach_rules:
+  mass_generic_messages: forbidden
+  scraping_contacts_against_platform_rules: forbidden
+  automated_sending: forbidden
+  personalisation_required: true
+  value_before_pitch: true
+  max_follow_ups: 2
+
+posting_rules:
+  automated_posting: forbidden
+  engagement_manipulation: forbidden # no vote rings, no fake accounts
+  disclosure: founder identity disclosed when promoting own product
+  community_rules_review_required: true # read and record rules before posting
+
+community_rules:
+  reddit:
+    self_promo_review_required: true # per-subreddit rules recorded in docs/growth/CHANNELS.md
+    value_post_ratio_min: 5 # value posts per promotional post, minimum
+    link_dropping: forbidden

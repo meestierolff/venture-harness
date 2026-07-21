@@ -1,0 +1,11 @@
+name: offer-coherence
+kind: rubric
+description: Judge whether the offer would survive contact with a skeptical buyer. Applied after $offer-architect runs, before validation launch.
+applied_by: offer-critic subagent or human reviewer
+criteria:
+  - The offer sentence follows the required structure with a genuinely specific customer.
+  - Every market-quality score cites evidence or is labeled an assumption.
+  - The day-one win is real on day one, not a euphemism for onboarding.
+  - Thirty-day cash output is pasted verbatim and matches a fresh run.
+  - Unpriced service work is absent or explicitly priced.
+  - Kill criteria exist and would actually trigger (not vanity thresholds).

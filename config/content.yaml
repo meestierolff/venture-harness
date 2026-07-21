@@ -1,0 +1,48 @@
+# Content contract — tone and structure rules for all public copy.
+# Schema: lib/config/schemas.ts (contentSchema). Consumed by
+# scripts/validate-claims.ts and the $seo-aeo-engine / content workflows.
+
+tone:
+  voice: plain, specific, confident without hype
+  person: second person for the customer, first person plural for the venture
+  sentence_length: short by default; vary for rhythm
+  jargon: only terms the ICP uses themselves (see memory/customer-language.jsonl)
+
+# Phrases that fail validate:claims anywhere in public copy or docs meant
+# for publication. Extend per venture; never shrink without a decision record.
+banned_phrases:
+  - "Successfully implemented"
+  - "cutting-edge"
+  - "revolutionary"
+  - "game-changing"
+  - "world-class"
+  - "best-in-class"
+  - "unlock the power"
+  - "supercharge"
+  - "10x your"
+  - "trusted by thousands" # unless PRODUCT_TRUTH has the evidence
+  - "loved by customers" # unless PRODUCT_TRUTH has the evidence
+  - "AI-powered magic"
+
+article_structure:
+  - answer_block_first # direct answer in the first 120 words
+  - one_h1_matching_primary_query
+  - h2_per_subquestion
+  - evidence_or_example_per_section
+  - internal_links_to_commercial_page
+  - author_and_updated_date
+
+answer_block_rules:
+  max_words: 120
+  must_be_plain_html: true # no JS-rendered answers
+  includes_price_when_commercial: true
+
+internal_linking:
+  min_links_per_article: 2
+  commercial_page_link_required: true
+  orphan_pages_forbidden: true
+
+author_requirements:
+  byline_required: true
+  real_person_or_org: true # no invented author personas
+  updated_date_required: true

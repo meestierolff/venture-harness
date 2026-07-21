@@ -1,0 +1,4 @@
+name: static-crawlability
+kind: deterministic
+description: Static SEO invariants hold - robots, sitemap, per-page metadata with canonicals, structured data on the home page.
+command: pnpm verify:seo

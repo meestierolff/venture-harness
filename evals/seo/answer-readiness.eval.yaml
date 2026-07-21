@@ -1,0 +1,10 @@
+name: answer-readiness
+kind: rubric
+description: Judge answer-engine readability of commercial pages. Applied by seo-auditor before launch and on page changes.
+applied_by: seo-auditor subagent
+criteria:
+  - The first viewport answers the primary query directly in plain HTML.
+  - Product and price facts are readable without JavaScript.
+  - Exactly one page owns each material query (no cannibalisation).
+  - Structured data describes reality and matches PRODUCT_TRUTH.
+  - Organisation and author transparency present (entity anchoring).

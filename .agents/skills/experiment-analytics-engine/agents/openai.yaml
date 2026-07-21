@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: experiment-analytics-engine
+description: >-
+  Design, implement, verify, and analyse behavioural tracking, consent,
+  attribution, and controlled experiments across the three analytics layers
+  (Vercel aggregate, GA4 consented, Neon first-party evidence).
+entrypoint: SKILL.md

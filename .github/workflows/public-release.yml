@@ -1,0 +1,29 @@
+name: public-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  release-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Mechanical release-safety checks
+        run: pnpm release:check
+      - name: Full gate
+        run: pnpm verify
+      - name: Human checklist reminder
+        run: |
+          echo "Mechanical checks passed. The HUMAN half of the checklist"
+          echo "(docs/public/PUBLIC_RELEASE_CHECKLIST.md) still applies:"
+          echo "README review, legal review, no confidential material."

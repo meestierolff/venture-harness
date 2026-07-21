@@ -1,0 +1,57 @@
+# Quality contract — what "done" is allowed to mean.
+# Schema: lib/config/schemas.ts (qualitySchema). Consumed by
+# scripts/framework-health.ts and the $quality-gate skill.
+
+# Commands that must exit 0 before completion is reported.
+required_commands:
+  always: # fast, no server needed — this is `pnpm verify`
+    - pnpm agents:check
+    - pnpm validate:skills
+    - pnpm validate:docs
+    - pnpm validate:links
+    - pnpm validate:claims
+    - pnpm verify:seo
+    - pnpm verify:consent
+    - pnpm verify:analytics-events
+    - pnpm verify:analytics-pii
+    - pnpm verify:experiment-assignment
+    - pnpm verify:pricing-recording
+    - pnpm typecheck
+    - pnpm test
+  ci_additional: # slower, run in .github/workflows/quality.yml
+    - pnpm lint
+    - pnpm format:check
+    - pnpm build
+    - pnpm verify:raw-html # requires a running production build
+
+# Documents that must exist and pass validate:docs.
+required_documents:
+  - PROJECT.md
+  - docs/business/OFFER.md
+  - docs/product/VALIDATION.md
+  - docs/product/EXPERIMENTS.md
+  - docs/product/PRODUCT_TRUTH.md
+  - docs/brand/DESIGN.md
+  - docs/engineering/ANALYTICS.md
+  - docs/legal/ANALYTICS_AND_CONSENT.md
+
+thresholds:
+  performance:
+    lcp_ms: 2500 # largest contentful paint, mobile, p75
+    cls: 0.1
+    inp_ms: 200
+  accessibility:
+    standard: WCAG 2.1 AA
+    min_contrast_normal_text: 4.5
+    min_contrast_large_text: 3.0
+    keyboard_navigable: true
+  crawler:
+    raw_html_must_contain: [title, canonical, h1, core_content, internal_links]
+    user_agents: [browser, googlebot-like, bingbot-like]
+
+release_checks:
+  no_secrets: true
+  no_real_pii: true
+  no_unlabeled_synthetic_data: true
+  license_present: true
+  generated_dirs_in_sync: true

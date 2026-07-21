@@ -1,0 +1,47 @@
+# Graph plan template — copy into docs/plans/active/ and fill in.
+# An edge exists ONLY when downstream work consumes upstream data.
+
+graph:
+  name: "" # short, e.g. comparison-pages-batch-1
+  goal: "" # one sentence
+  authorised_by: "" # the active plan or human that authorised this run
+  implicit_invocation: false # always false
+
+nodes:
+  - id: "" # unique, kebab-case
+    kind: model | code | human_approval
+    purpose: "" # one bounded job
+    model_tier: cheap | capable | none # none for code/human nodes
+    inputs: # structured; name -> source (node id or file)
+      {}
+    output:
+      artifact: "" # file path or in-memory contract
+      validator: "" # script/test that validates the output
+    isolation: none | worktree
+    retries: 1
+    est_latency: "" # e.g. "2m"
+    est_cost: "" # e.g. "low", or a number
+
+edges:
+  - from: ""
+    to: ""
+    carries: "" # the data consumed downstream — justify the edge
+
+patterns:
+  fan_out: [] # node ids run in parallel
+  fan_in: "" # aggregation node id, code-based
+  barriers: [] # node ids that wait for ALL inputs
+  verifier_nodes: [] # adversarial check nodes; diverse lenses, not copies
+  convergent_cycle:
+    nodes: []
+    stability_condition: "" # when the cycle stops
+    dedup: "code compares against ALL previously seen results"
+
+human_approval:
+  nodes: [] # explicit approval node ids
+  gates: [sending, publishing, charging, deploying, merging]
+
+run_summary: # filled after execution
+  outcomes: null
+  cost_vs_estimate: null
+  structure_lessons: null

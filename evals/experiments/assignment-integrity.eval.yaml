@@ -1,0 +1,4 @@
+name: assignment-integrity
+kind: deterministic
+description: Experiment definitions validate, weights sum to one, assignment is deterministic, and distribution matches declared weights.
+command: pnpm verify:experiment-assignment

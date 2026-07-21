@@ -1,0 +1,201 @@
+/*
+ * Deliberately neutral base styles. The $design-director skill replaces
+ * this per venture with an original system; nothing here is a design
+ * identity. Keep: accessibility affordances (focus rings, reduced motion,
+ * contrast) and the operational classes (consent banner, sample labels).
+ */
+:root {
+  --ink: #1a1a1a;
+  --paper: #ffffff;
+  --muted: #555555;
+  --line: #dddddd;
+  --accent: #1a1a1a;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.6;
+}
+
+main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+.site-header,
+.site-footer {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.wordmark {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+nav a {
+  color: var(--ink);
+  margin-left: 1rem;
+}
+
+section {
+  margin: 3rem 0;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.85;
+}
+
+:focus-visible {
+  outline: 3px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+form label {
+  display: block;
+  margin: 0.75rem 0;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  display: block;
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.4rem;
+  border: 1px solid var(--line);
+  margin-top: 0.25rem;
+}
+
+.consent-banner {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  background: var(--paper);
+  border-top: 2px solid var(--ink);
+  padding: 1rem;
+  max-width: 100%;
+}
+
+.consent-banner p {
+  max-width: 44rem;
+  margin: 0 auto 0.75rem;
+  font-size: 0.9rem;
+}
+
+.consent-actions {
+  max-width: 44rem;
+  margin: 0 auto;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.consent-actions button:last-child {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  text-decoration: underline;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sample-label {
+  display: inline-block;
+  background: #fff3cd;
+  color: #664d03;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #ffe69c;
+}
+
+.honeypot {
+  position: absolute;
+  left: -9999px;
+  height: 1px;
+  width: 1px;
+  overflow: hidden;
+}
+
+.billing-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.billing-toggle button[aria-pressed="false"] {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.plan-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .plan-grid {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+}
+
+.plan {
+  border: 1px solid var(--line);
+  padding: 1rem;
+}
+
+.plan-price {
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

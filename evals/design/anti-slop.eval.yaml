@@ -1,0 +1,10 @@
+name: anti-slop
+kind: rubric
+description: The full anti-template and anti-copy audit for rendered pages. Applied by visual-reviewer at design sign-off.
+applied_by: visual-reviewer subagent, desktop and mobile screenshots in hand
+criteria:
+  - Every item in skills/design-director/references/anti-slop-checklist.md is PASS or has founder-signed justification.
+  - The design thesis in docs/brand/DESIGN.md is recognisable in the rendered pages.
+  - Mobile is re-composed, not stacked desktop.
+  - One signature moment exists and works.
+  - No reference site is recognisably copied.

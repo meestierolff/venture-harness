@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: quality-gate
+description: >-
+  Pre-completion verification: run the full check suite (pnpm verify plus
+  build/browser/crawler checks), exercise real flows on desktop and
+  mobile, and report honestly what passed, failed, or could not run.
+entrypoint: SKILL.md

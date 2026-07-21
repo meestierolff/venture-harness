@@ -1,0 +1,64 @@
+# Experiment register — every controlled test, declared before it runs.
+# Schema: lib/config/schemas.ts (experimentsSchema). Verified by
+# pnpm verify:experiment-assignment. Analysis rules live in
+# docs/product/EXPERIMENTS.md and skills/experiment-analytics-engine/.
+#
+# Rules encoded here:
+# - one core concept per experiment
+# - stopping rules and minimum observations declared BEFORE start
+# - variants carry the exact offer/price text they display
+# - status transitions: draft -> approved -> running -> stopped -> decided
+
+defaults:
+  assignment_scope: visitor # visitor | session
+  persistence_method: first_party_cookie # cookie name: vh_exp
+  consent_requirement: none # assignment itself stores no personal data
+  min_duration_days: 14
+  max_duration_days: 45
+  min_observations_per_variant: 100 # exposures with opportunity to convert
+
+experiments:
+  # --------------------------------------------------------------------
+  # EXAMPLE (synthetic, status: draft). Kept as living documentation of
+  # the required shape. Replace at bootstrap; never run as-is.
+  # --------------------------------------------------------------------
+  - id: exp-000-example-pricing-anchor
+    name: "EXAMPLE — monthly price anchor"
+    owner: founder
+    status: draft # draft | approved | running | stopped | decided
+    type: pricing # icp | hero | proof | cta | pricing | fake_door
+    hypothesis: >-
+      SYNTHETIC EXAMPLE: Showing the annual plan first (with the
+      implementation fee waived) increases qualified pilot applications
+      without reducing displayed-price acceptance.
+    target_audience: all first-time visitors to /pricing
+    routes: [/pricing]
+    eligibility: no prior vh_exp assignment for this id
+    activation_event: pricing_page_view
+    exposure_event: pricing_variant_exposed
+    variants:
+      - key: control
+        weight: 0.5
+        displayed_offer: "Monthly plan first; implementation fee shown"
+        displayed_price: "EUR 199/month + EUR 500 setup"
+      - key: annual_anchor
+        weight: 0.5
+        displayed_offer: "Annual plan first; implementation fee waived"
+        displayed_price: "EUR 1990/year, setup waived"
+    primary_metric: qualification_completed
+    secondary_metrics: [plan_selected, checkout_intent]
+    guardrails:
+      - metric: form_abandoned
+        rule: "must not rise more than 20% relative to control"
+    qualification_rule: "company size and budget fields pass docs/product/VALIDATION.md rules"
+    min_duration_days: 14
+    max_duration_days: 45
+    min_observations_per_variant: 100
+    start_date: null
+    decision_date: null
+    stop_rule: >-
+      Stop early only for guardrail breach or implementation error.
+      Otherwise run to min_observations_per_variant AND min_duration_days.
+    result: null # filled at decision time; requires exposure counts + limitations
+    limitations: null
+    final_decision: null # adopt | reject | rerun | inconclusive

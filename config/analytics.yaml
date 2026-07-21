@@ -1,0 +1,620 @@
+# Analytics contract — providers, consent, and the required event taxonomy.
+# Schema: lib/config/schemas.ts (analyticsSchema).
+# The typed implementation lives in lib/analytics/taxonomy.ts;
+# scripts/verify-analytics-events.ts fails the build if the two drift apart.
+#
+# Three-layer architecture (see docs/engineering/ANALYTICS.md):
+#   vercel  — Layer 1: aggregate site analytics
+#   ga4     — Layer 2: consented behavioural analytics
+#   neon    — Layer 3: first-party commercial evidence (source of truth)
+
+providers:
+  vercel:
+    layer: 1
+    purpose: page traffic, routes, referrers, broad geography, devices, trends
+    per_venture_project_required: true
+  ga4:
+    layer: 2
+    purpose: acquisition, campaigns, consented funnels, cohorts, return behaviour
+    per_venture_property_required: true
+    advertising_features: false
+  neon:
+    layer: 3
+    purpose: assignments, exposures, exact offers/prices, qualified submissions, conversions
+    per_venture_database_required: true
+    source_of_truth_for_commercial_evidence: true
+
+consent:
+  default_mode: strict # strict: nothing third-party before opt-in
+  google_analytics: opt_in
+  vercel_analytics: opt_in
+  allow_withdrawal: true
+  settings_link_required: true
+
+collection:
+  track_material_behaviour: true
+  collect_keystrokes: false
+  collect_mouse_movement: false
+  session_replay: false
+  send_form_values_to_analytics: false
+  send_search_text_to_third_parties: false
+  send_email_to_analytics: false
+  enable_advertising_features: false
+
+attribution:
+  model: first_touch_plus_last_touch # store both; report both
+  utm_parameters: [utm_source, utm_medium, utm_campaign, utm_content]
+  referrer: domain_only # never full referrer URLs with paths/queries
+  persisted_with: qualified submissions and conversions in neon
+
+persistence:
+  high_intent_survives_analytics_failure: true # form POST is independent of tracking
+  anonymous_pageviews_in_neon: false # no clear reason -> not stored
+  price_displayed_must_equal_price_stored: true
+
+# Properties that may NEVER appear in any analytics payload, any provider.
+# scripts/verify-analytics-pii.ts greps code and taxonomy for these.
+prohibited_properties:
+  - email
+  - name
+  - first_name
+  - last_name
+  - phone
+  - address
+  - message
+  - search_query # raw text; safe categories/counts are allowed
+  - form_value
+  - password
+  - token
+  - session_recording
+  - idea
+
+# ---------------------------------------------------------------------------
+# EVENT TAXONOMY
+# Each event: purpose, trigger, destinations, consent (none = allowed before
+# opt-in because no third party receives it / it is anonymous first-party),
+# props (allowed properties), neon (persisted as commercial evidence),
+# experiment (used in experiment analysis).
+# Default validation test: tests/analytics-taxonomy.test.ts
+# ---------------------------------------------------------------------------
+events:
+  # --- site and routes -----------------------------------------------------
+  site_visit:
+    purpose: count distinct visits for traffic trend
+    trigger: first page load of a visit
+    destinations: [vercel, ga4]
+    consent: analytics
+    props: [landing_route, referrer_domain, utm_source, utm_medium, utm_campaign]
+    neon: false
+    experiment: false
+  page_view:
+    purpose: route popularity
+    trigger: any page render
+    destinations: [vercel, ga4]
+    consent: analytics
+    props: [route]
+    neon: false
+    experiment: false
+  landing_page_view:
+    purpose: entry-page performance by acquisition source
+    trigger: first page_view of a visit
+    destinations: [ga4]
+    consent: analytics
+    props: [route, referrer_domain, utm_source, utm_medium, utm_campaign]
+    neon: false
+    experiment: true
+  route_change:
+    purpose: client-side navigation depth
+    trigger: App Router navigation
+    destinations: [ga4]
+    consent: analytics
+    props: [from_route, to_route]
+    neon: false
+    experiment: false
+  outbound_link_click:
+    purpose: interest in external references
+    trigger: click on external link
+    destinations: [ga4]
+    consent: analytics
+    props: [target_domain, route]
+    neon: false
+    experiment: false
+  navigation_click:
+    purpose: which nav items matter
+    trigger: header/footer nav click
+    destinations: [ga4]
+    consent: analytics
+    props: [nav_item, route]
+    neon: false
+    experiment: false
+  mobile_navigation_open:
+    purpose: mobile menu engagement
+    trigger: mobile menu opened
+    destinations: [ga4]
+    consent: analytics
+    props: [route]
+    neon: false
+    experiment: false
+  page_error:
+    purpose: detect broken experiences
+    trigger: rendering/runtime error boundary
+    destinations: [ga4]
+    consent: analytics
+    props: [route, error_type]
+    neon: false
+    experiment: false
+
+  # --- content engagement --------------------------------------------------
+  section_view:
+    purpose: which sections earn attention (preferred over scroll telemetry)
+    trigger: section 50% visible for 1s
+    destinations: [ga4]
+    consent: analytics
+    props: [section_id, route]
+    neon: false
+    experiment: true
+  proof_view:
+    purpose: exposure to proof elements
+    trigger: proof section visible
+    destinations: [ga4]
+    consent: analytics
+    props: [proof_id, route]
+    neon: false
+    experiment: true
+  sample_open:
+    purpose: interest in labeled sample material
+    trigger: sample opened
+    destinations: [ga4]
+    consent: analytics
+    props: [sample_id]
+    neon: false
+    experiment: false
+  sample_download:
+    purpose: stronger sample interest
+    trigger: sample downloaded
+    destinations: [ga4]
+    consent: analytics
+    props: [sample_id]
+    neon: false
+    experiment: false
+  demo_interaction:
+    purpose: engagement with labeled demo interfaces
+    trigger: demo control used
+    destinations: [ga4]
+    consent: analytics
+    props: [demo_id, interaction_type]
+    neon: false
+    experiment: false
+  comparison_view:
+    purpose: competitive evaluation intent
+    trigger: comparison page/section viewed
+    destinations: [ga4]
+    consent: analytics
+    props: [comparison_id, route]
+    neon: false
+    experiment: false
+  faq_open:
+    purpose: objection discovery
+    trigger: FAQ item expanded
+    destinations: [ga4]
+    consent: analytics
+    props: [faq_id]
+    neon: false
+    experiment: false
+  video_start:
+    purpose: video engagement
+    trigger: video playback started
+    destinations: [ga4]
+    consent: analytics
+    props: [video_id]
+    neon: false
+    experiment: false
+  video_complete:
+    purpose: message completion
+    trigger: video watched to end
+    destinations: [ga4]
+    consent: analytics
+    props: [video_id]
+    neon: false
+    experiment: false
+  resource_open:
+    purpose: content resource interest
+    trigger: resource opened
+    destinations: [ga4]
+    consent: analytics
+    props: [resource_id]
+    neon: false
+    experiment: false
+
+  # --- proposition ---------------------------------------------------------
+  hero_variant_exposed:
+    purpose: record which hero message a visitor actually saw
+    trigger: hero rendered with assigned variant
+    destinations: [ga4, neon]
+    consent: none # neon leg is first-party, anonymous visitor id only
+    props: [experiment_id, variant_key, route]
+    neon: true
+    experiment: true
+  icp_variant_exposed:
+    purpose: record which ICP framing a visitor saw
+    trigger: ICP block rendered with assigned variant
+    destinations: [ga4, neon]
+    consent: none
+    props: [experiment_id, variant_key, route]
+    neon: true
+    experiment: true
+  hero_primary_cta_click:
+    purpose: primary proposition pull
+    trigger: hero primary CTA clicked
+    destinations: [ga4]
+    consent: analytics
+    props: [route, variant_key]
+    neon: false
+    experiment: true
+  hero_secondary_cta_click:
+    purpose: secondary path pull
+    trigger: hero secondary CTA clicked
+    destinations: [ga4]
+    consent: analytics
+    props: [route, variant_key]
+    neon: false
+    experiment: true
+  proposition_detail_open:
+    purpose: depth of proposition interest
+    trigger: proposition detail expanded
+    destinations: [ga4]
+    consent: analytics
+    props: [detail_id]
+    neon: false
+    experiment: false
+  how_it_works_view:
+    purpose: mechanism comprehension interest
+    trigger: how-it-works section visible
+    destinations: [ga4]
+    consent: analytics
+    props: [route]
+    neon: false
+    experiment: false
+  use_case_view:
+    purpose: which use case resonates
+    trigger: use-case section/page viewed
+    destinations: [ga4]
+    consent: analytics
+    props: [use_case_id]
+    neon: false
+    experiment: true
+
+  # --- pricing -------------------------------------------------------------
+  pricing_page_view:
+    purpose: commercial evaluation entry
+    trigger: /pricing rendered
+    destinations: [ga4]
+    consent: analytics
+    props: [route, referrer_domain]
+    neon: false
+    experiment: true
+  pricing_section_view:
+    purpose: pricing exposure on other pages
+    trigger: pricing section visible
+    destinations: [ga4]
+    consent: analytics
+    props: [route]
+    neon: false
+    experiment: true
+  pricing_variant_exposed:
+    purpose: record the exact pricing presentation a visitor saw
+    trigger: pricing table rendered with assigned variant
+    destinations: [ga4, neon]
+    consent: none
+    props: [experiment_id, variant_key, displayed_price, billing_period]
+    neon: true
+    experiment: true
+  billing_period_changed:
+    purpose: monthly/annual preference signal
+    trigger: billing toggle used
+    destinations: [ga4]
+    consent: analytics
+    props: [to_period]
+    neon: false
+    experiment: true
+  pricing_details_open:
+    purpose: depth of pricing scrutiny
+    trigger: pricing details expanded
+    destinations: [ga4]
+    consent: analytics
+    props: [detail_id]
+    neon: false
+    experiment: false
+  setup_fee_explanation_open:
+    purpose: setup-fee objection signal
+    trigger: setup fee explainer opened
+    destinations: [ga4]
+    consent: analytics
+    props: []
+    neon: false
+    experiment: true
+  guarantee_explanation_open:
+    purpose: risk-reversal interest
+    trigger: guarantee explainer opened
+    destinations: [ga4]
+    consent: analytics
+    props: []
+    neon: false
+    experiment: true
+  plan_selected:
+    purpose: commercial intent — a plan was chosen
+    trigger: plan CTA clicked
+    destinations: [ga4, neon]
+    consent: none
+    props: [plan_key, displayed_price, billing_period, experiment_id, variant_key]
+    neon: true
+    experiment: true
+  monthly_plan_selected:
+    purpose: monthly plan preference
+    trigger: monthly plan chosen
+    destinations: [ga4, neon]
+    consent: none
+    props: [plan_key, displayed_price]
+    neon: true
+    experiment: true
+  annual_plan_selected:
+    purpose: annual plan preference
+    trigger: annual plan chosen
+    destinations: [ga4, neon]
+    consent: none
+    props: [plan_key, displayed_price]
+    neon: true
+    experiment: true
+  pilot_selected:
+    purpose: pilot-offer intent
+    trigger: pilot CTA clicked
+    destinations: [ga4, neon]
+    consent: none
+    props: [displayed_offer, displayed_price]
+    neon: true
+    experiment: true
+  enterprise_contact_selected:
+    purpose: enterprise-path intent
+    trigger: enterprise contact CTA clicked
+    destinations: [ga4, neon]
+    consent: none
+    props: [route]
+    neon: true
+    experiment: false
+  checkout_intent:
+    purpose: strongest pre-payment signal
+    trigger: checkout/reserve flow entered
+    destinations: [ga4, neon]
+    consent: none
+    props: [plan_key, displayed_price, billing_period]
+    neon: true
+    experiment: true
+  reservation_intent:
+    purpose: reservation commitment signal
+    trigger: reservation confirmed by visitor
+    destinations: [ga4, neon]
+    consent: none
+    props: [plan_key, displayed_price]
+    neon: true
+    experiment: true
+
+  # --- forms ---------------------------------------------------------------
+  form_view:
+    purpose: form funnel top
+    trigger: form visible
+    destinations: [ga4]
+    consent: analytics
+    props: [form_id, route]
+    neon: false
+    experiment: true
+  form_started:
+    purpose: form engagement
+    trigger: first field focused
+    destinations: [ga4]
+    consent: analytics
+    props: [form_id]
+    neon: false
+    experiment: true
+  form_step_completed:
+    purpose: multi-step progress
+    trigger: step submitted
+    destinations: [ga4]
+    consent: analytics
+    props: [form_id, step_index]
+    neon: false
+    experiment: false
+  form_validation_error:
+    purpose: friction location — NEVER the entered value
+    trigger: field validation failed
+    destinations: [ga4]
+    consent: analytics
+    props: [form_id, field_id, error_type]
+    neon: false
+    experiment: false
+  form_abandoned:
+    purpose: funnel leak location
+    trigger: form left after start without submit
+    destinations: [ga4]
+    consent: analytics
+    props: [form_id, last_field_id]
+    neon: false
+    experiment: true
+  form_submitted:
+    purpose: submission attempt (client)
+    trigger: submit clicked, client validation passed
+    destinations: [ga4]
+    consent: analytics
+    props: [form_id]
+    neon: false
+    experiment: true
+  form_submission_confirmed:
+    purpose: server-confirmed submission — commercial evidence
+    trigger: server 200 on submission
+    destinations: [ga4, neon]
+    consent: none
+    props: [form_id, qualified]
+    neon: true
+    experiment: true
+  qualification_completed:
+    purpose: qualified lead — the default primary conversion
+    trigger: submission passes qualification rule server-side
+    destinations: [ga4, neon]
+    consent: none
+    props: [form_id, qualification_tier, experiment_id, variant_key]
+    neon: true
+    experiment: true
+
+  # --- search --------------------------------------------------------------
+  site_search_started:
+    purpose: search feature engagement
+    trigger: search input focused
+    destinations: [ga4]
+    consent: analytics
+    props: []
+    neon: false
+    experiment: false
+  site_search_submitted:
+    purpose: search demand volume — category only, never raw text
+    trigger: search submitted
+    destinations: [ga4]
+    consent: analytics
+    props: [query_category, result_count]
+    neon: false
+    experiment: false
+  site_search_no_results:
+    purpose: content gap signal
+    trigger: search returned nothing
+    destinations: [ga4]
+    consent: analytics
+    props: [query_category]
+    neon: false
+    experiment: false
+  site_search_result_selected:
+    purpose: search satisfaction
+    trigger: result clicked
+    destinations: [ga4]
+    consent: analytics
+    props: [result_route, result_position]
+    neon: false
+    experiment: false
+
+  # --- experiments ---------------------------------------------------------
+  experiment_eligible:
+    purpose: denominator integrity — who could have entered
+    trigger: eligibility rule passed
+    destinations: [neon]
+    consent: none
+    props: [experiment_id]
+    neon: true
+    experiment: true
+  experiment_assigned:
+    purpose: assignment record
+    trigger: variant assigned (deterministic hash)
+    destinations: [neon]
+    consent: none
+    props: [experiment_id, variant_key, assignment_scope]
+    neon: true
+    experiment: true
+  experiment_exposed:
+    purpose: exposure record — analysis denominators use THIS, not assignment
+    trigger: assigned variant actually rendered
+    destinations: [ga4, neon]
+    consent: none
+    props: [experiment_id, variant_key, route]
+    neon: true
+    experiment: true
+  experiment_primary_conversion:
+    purpose: primary metric numerator
+    trigger: experiment's primary metric event fired by exposed visitor
+    destinations: [neon]
+    consent: none
+    props: [experiment_id, variant_key, metric]
+    neon: true
+    experiment: true
+  experiment_guardrail_event:
+    purpose: guardrail monitoring
+    trigger: guardrail metric event fired by exposed visitor
+    destinations: [neon]
+    consent: none
+    props: [experiment_id, variant_key, metric]
+    neon: true
+    experiment: true
+
+  # --- consent -------------------------------------------------------------
+  # Consent events go only to first-party storage. No third party receives
+  # anything before its own consent is granted.
+  consent_banner_view:
+    purpose: consent funnel top
+    trigger: banner rendered
+    destinations: [neon]
+    consent: none
+    props: []
+    neon: true
+    experiment: false
+  analytics_accepted:
+    purpose: consent grant record
+    trigger: visitor accepts analytics
+    destinations: [neon]
+    consent: none
+    props: [consent_scope]
+    neon: true
+    experiment: false
+  analytics_declined:
+    purpose: consent decline record
+    trigger: visitor declines analytics
+    destinations: [neon]
+    consent: none
+    props: []
+    neon: true
+    experiment: false
+  consent_settings_opened:
+    purpose: consent revisit signal
+    trigger: settings opened
+    destinations: [neon]
+    consent: none
+    props: []
+    neon: true
+    experiment: false
+  consent_changed:
+    purpose: consent change record
+    trigger: any consent state change
+    destinations: [neon]
+    consent: none
+    props: [from_state, to_state]
+    neon: true
+    experiment: false
+  consent_withdrawn:
+    purpose: withdrawal record — triggers third-party disablement
+    trigger: visitor withdraws consent
+    destinations: [neon]
+    consent: none
+    props: []
+    neon: true
+    experiment: false
+
+  # --- return behaviour ----------------------------------------------------
+  # Measured only when consent and implementation allow persistent recognition.
+  return_visit:
+    purpose: retained interest
+    trigger: consented visitor returns after 24h+
+    destinations: [ga4]
+    consent: analytics
+    props: [days_since_first_visit]
+    neon: false
+    experiment: false
+  repeat_pricing_view:
+    purpose: deliberation signal
+    trigger: consented visitor views pricing on a later visit
+    destinations: [ga4]
+    consent: analytics
+    props: [visit_count]
+    neon: false
+    experiment: true
+  repeat_high_intent_visit:
+    purpose: strong deliberation signal
+    trigger: consented visitor repeats a high-intent action on a later visit
+    destinations: [ga4]
+    consent: analytics
+    props: [action_type]
+    neon: false
+    experiment: true

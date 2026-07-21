@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: knowledge-graph-engineering
+description: >-
+  Build entity/claim/evidence knowledge graphs with provenance and
+  contradiction handling — only for demonstrated product-specific
+  relational needs, only when explicitly invoked.
+entrypoint: SKILL.md

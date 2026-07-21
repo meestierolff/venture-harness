@@ -1,0 +1,10 @@
+name: decision-quality
+kind: rubric
+description: Judge an experiment decision before it is recorded. Applied by experiment-analyst at decision time.
+applied_by: experiment-analyst subagent
+criteria:
+  - The decision follows the pre-declared rule, not a post-hoc rationalization.
+  - Denominators are exposures, not assignments.
+  - Consent-population caveats are stated for any GA-derived figure.
+  - Sample limitations are written into the result.
+  - Inconclusive is used when the evidence is weak.

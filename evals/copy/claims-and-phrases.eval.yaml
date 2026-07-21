@@ -1,0 +1,4 @@
+name: claims-and-phrases
+kind: deterministic
+description: Public copy contains no banned phrases and every TruthClaim id resolves to a valid register row.
+command: pnpm validate:claims

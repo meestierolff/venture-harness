@@ -1,0 +1,9 @@
+name: customer-language
+kind: rubric
+description: Judge whether public copy speaks the customer's recorded language rather than the founder's. Applied on copy changes.
+applied_by: human reviewer with memory/customer-language.jsonl open
+criteria:
+  - Pain wording appears in memory/customer-language.jsonl or inputs/RESEARCH.md, not invented.
+  - The hero could not be pasted onto a competitor's site unchanged.
+  - Jargon is limited to terms the ICP uses themselves.
+  - Every capability statement is wrapped in a TruthClaim.

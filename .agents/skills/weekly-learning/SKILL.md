@@ -1,0 +1,106 @@
+---
+name: weekly-learning
+description: The weekly demand, funnel, pricing, and SEO review - aggregate the week's evidence, write the weekly report, and propose exactly one evidence-cited conceptual change. Use only when explicitly invoked on a weekly cadence. Never self-merge, self-deploy, publish, or send anything.
+---
+
+<!-- GENERATED FILE - do not edit. Canonical source: skills/weekly-learning/SKILL.md. Regenerate with: pnpm agents:sync -->
+
+# weekly-learning
+
+## Purpose
+
+Turn a week of market outcomes into one well-evidenced proposal — or into
+an honest "do nothing, evidence is weak". Keep the venture improving one
+concept at a time.
+
+## Trigger conditions
+
+- Explicit invocation only (weekly cadence, or after a gate date).
+
+## When not to use
+
+- Mid-week reactions to single data points.
+- As a vehicle for shipping unrelated changes.
+
+## Required inputs
+
+- memory/outcomes.jsonl, experiments.jsonl, corrections.jsonl,
+  customer-language.jsonl
+- data/seo/inbox/* and data/analytics/inbox/* exports (as available)
+- Neon conversion exports (as available), interview notes
+  (data/interviews/), active experiments (config/experiments.yaml),
+  current config.
+
+## Documents to read
+
+AGENTS.md, docs/product/VALIDATION.md (thresholds and gates),
+docs/product/EXPERIMENTS.md, docs/growth/SEO.md, the previous weekly
+report in reports/weekly/.
+
+## Files this skill may change
+
+`reports/weekly/YYYY-Www.md` (new), `memory/*.jsonl` via append scripts,
+`docs/plans/active/` (one proposal file via `pnpm improve:propose`),
+experiment result fields in `config/experiments.yaml` when a
+pre-declared rule decides.
+
+## Files this skill must not change
+
+Thresholds, consent rules, approval rules, `app/**` code (proposals only),
+anything requiring publication or deployment.
+
+## Execution steps
+
+1. Run `pnpm weekly` — the deterministic aggregation script builds the
+   report skeleton from inbox exports and memory.
+2. Read the skeleton plus the qualitative sources (interviews, customer
+   language). Fill the judgement sections: what the market did, which
+   hypothesis moved, funnel and SEO findings, experiment status against
+   pre-declared rules.
+3. Apply decision rules exactly as pre-declared in VALIDATION.md /
+   experiments.yaml. Record experiment results with exposures and
+   limitations, via `pnpm experiment:add`.
+4. Propose at most ONE conceptual change: cite exact evidence (event
+   counts, query rows, verbatim customer language), show the relevant
+   evaluation score before, and define what "after" must show. Use
+   `pnpm improve:propose` to file it.
+5. If evidence is weak: propose nothing. Write that down as the outcome.
+6. Append the week's outcome to memory via `pnpm outcome:add` (including
+   negative outcomes — they are retained, never pruned).
+7. If a previous proposal's change did not improve its evaluation,
+   propose the revert with the same rigour.
+
+## Hard rules
+
+- One conceptual change per week, maximum.
+- Exact evidence citations; no directional hand-waving.
+- Score before and after (or the plan to measure after).
+- Revert changes that did not improve their evaluation.
+- Do nothing when evidence is weak.
+- Retain negative outcomes in memory.
+- Never self-merge, never self-deploy, never publish, never send
+  commercial communication.
+
+## Expected output
+
+`reports/weekly/YYYY-Www.md` (from the template, all sections either
+filled or marked "no data"), memory appends, and zero or one proposal —
+optionally summarised as a small PR description for human review.
+
+## Validation
+
+Report exists and parses; every claim in it links to its data source;
+proposal (if any) contains evidence, prior score, and success criterion;
+`pnpm verify` passes.
+
+## Failure behaviour
+
+Missing exports are listed by exact expected filename (see
+data/*/inbox/README.md) and the report says which sections are blind.
+Contradictory data is reported as contradictory — not averaged away.
+
+## Human approval boundaries
+
+Proposals are merged by humans. Experiment stop/adopt decisions that
+deviate from pre-declared rules are human decisions. This skill sends,
+publishes, deploys, and merges nothing.

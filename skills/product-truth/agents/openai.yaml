@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: product-truth
+description: >-
+  Maintain the PRODUCT_TRUTH.md claims register (LIVE/CONCIERGE/PROTOTYPE/
+  PLANNED/UNDER REVIEW/UNVERIFIED) and audit every public surface against
+  it. Evidence-based statuses; labeled samples; no silent relaxation.
+entrypoint: SKILL.md

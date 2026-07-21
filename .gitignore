@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# builds and caches
+*.tsbuildinfo
+coverage/
+.turbo/
+
+# environment — never commit real secrets
+.env
+.env.*
+!.env.example
+
+# local first-party evidence fallback (dev only, never production storage)
+.data/
+
+# vercel
+.vercel/
+
+# os
+.DS_Store

@@ -1,0 +1,4 @@
+name: taxonomy-lockstep
+kind: deterministic
+description: config/analytics.yaml and lib/analytics/taxonomy.ts agree event-for-event; all track() call sites use taxonomy events; experiments reference real events.
+command: pnpm verify:analytics-events

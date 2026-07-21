@@ -1,0 +1,4 @@
+name: pii-absence
+kind: deterministic
+description: No prohibited property reaches any analytics destination; no session-replay, keystroke, cursor, or advertising surface exists in code.
+command: pnpm verify:analytics-pii

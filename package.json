@@ -1,0 +1,63 @@
+{
+  "name": "venture-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A reusable, agent-neutral harness for starting, validating, designing, building, measuring, and improving new software businesses. Prove demand before expanding product scope.",
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "agents:sync": "tsx scripts/sync-agent-skills.ts",
+    "agents:check": "tsx scripts/check-agent-parity.ts",
+    "validate:skills": "tsx scripts/validate-skills.ts",
+    "validate:docs": "tsx scripts/validate-docs.ts",
+    "validate:links": "tsx scripts/validate-links.ts",
+    "validate:claims": "tsx scripts/validate-claims.ts",
+    "verify:seo": "tsx scripts/verify-seo.ts",
+    "verify:raw-html": "tsx scripts/verify-raw-html.ts",
+    "verify:consent": "tsx scripts/verify-consent.ts",
+    "verify:analytics-events": "tsx scripts/verify-analytics-events.ts",
+    "verify:analytics-pii": "tsx scripts/verify-analytics-pii.ts",
+    "verify:experiment-assignment": "tsx scripts/verify-experiment-assignment.ts",
+    "verify:pricing-recording": "tsx scripts/verify-pricing-recording.ts",
+    "verify": "tsx scripts/framework-health.ts --strict",
+    "health": "tsx scripts/framework-health.ts",
+    "weekly": "tsx scripts/run-weekly-demand-analysis.ts",
+    "outcome:add": "tsx scripts/append-outcome.ts",
+    "experiment:add": "tsx scripts/append-experiment.ts",
+    "improve:propose": "tsx scripts/propose-improvement.ts",
+    "release:check": "tsx scripts/public-release-check.ts",
+    "init:venture": "tsx scripts/init-venture.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "^15.3.0",
+    "prettier": "^3.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

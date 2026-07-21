@@ -1,0 +1,8 @@
+# Codex skill metadata
+name: offer-architect
+description: >-
+  Define and stress-test the ICP, offer, pricing, and thirty-day economics
+  of a venture. Includes a deterministic thirty-day cash calculator script.
+  Use when creating or revising the commercial offer; not for implementing
+  pricing pages or running experiments.
+entrypoint: SKILL.md

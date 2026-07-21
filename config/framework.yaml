@@ -1,0 +1,46 @@
+# Framework contract — identity and invariants of the harness itself.
+# Schema: lib/config/schemas.ts (frameworkSchema). Validated by pnpm verify.
+# Ventures rarely edit this file; harness contributors do.
+
+framework:
+  name: venture-harness
+  version: 0.1.0
+  public_template: true
+  license: MIT
+
+supported_agents:
+  - openai-codex
+  - claude-code
+  - gemini-cli
+  - github-copilot
+  - cursor
+  - windsurf
+  - generic
+
+package_manager: pnpm
+
+stack:
+  web: next.js
+  language: typescript
+  runtime_min_node: "20.9.0"
+  aggregate_analytics: vercel-web-analytics
+  behavioural_analytics: ga4
+  evidence_store: neon-postgres
+  schema_validation: zod
+
+# Directories written only by scripts/sync-agent-skills.ts. Never hand-edit.
+generated_paths:
+  - .agents/skills
+  - .claude/skills
+
+# Files excluded when syncing canonical skills to a given target.
+sync_excludes:
+  claude:
+    - agents/openai.yaml # Codex metadata is irrelevant to Claude Code
+  codex: []
+
+verification:
+  primary: pnpm verify
+  sync: pnpm agents:sync
+  parity: pnpm agents:check
+  release: pnpm release:check

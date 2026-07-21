@@ -1,0 +1,4 @@
+name: gating
+kind: deterministic
+description: Strict consent posture holds - config schema, taxonomy consent semantics, and the single gated GA loader.
+command: pnpm verify:consent

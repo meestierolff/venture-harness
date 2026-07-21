@@ -1,0 +1,4 @@
+name: thirty-day-cash-runs
+kind: deterministic
+description: The deterministic thirty-day cash calculator executes against config/offer.yaml without crashing (INCOMPLETE output is a valid result in template state).
+command: pnpm tsx skills/offer-architect/scripts/thirty-day-cash.ts

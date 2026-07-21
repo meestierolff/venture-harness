@@ -1,0 +1,42 @@
+# Experiment definition template — copy into config/experiments.yaml
+# under `experiments:`. One core concept per experiment. Declare stopping
+# rules and minimums BEFORE start. Schema: lib/config/schemas.ts.
+- id: exp-NNN-short-slug
+  name: ""
+  owner: ""
+  status: draft
+  type: icp # icp | hero | proof | cta | pricing | fake_door
+  hypothesis: >-
+    Changing <one concept> for <audience> will move <primary metric>
+    because <reason grounded in evidence>.
+  target_audience: ""
+  routes: [/]
+  eligibility: no prior vh_exp assignment for this id
+  activation_event: "" # from config/analytics.yaml
+  exposure_event: "" # from config/analytics.yaml
+  variants:
+    - key: control
+      weight: 0.5
+      displayed_offer: "" # EXACT text shown
+      displayed_price: "" # EXACT price string shown
+    - key: variant_b
+      weight: 0.5
+      displayed_offer: ""
+      displayed_price: ""
+  primary_metric: "" # from config/analytics.yaml
+  secondary_metrics: []
+  guardrails:
+    - metric: ""
+      rule: ""
+  qualification_rule: ""
+  min_duration_days: 14
+  max_duration_days: 45
+  min_observations_per_variant: 100
+  start_date: null
+  decision_date: null
+  stop_rule: >-
+    Stop early only for guardrail breach or implementation error;
+    otherwise run to minimums.
+  result: null
+  limitations: null
+  final_decision: null

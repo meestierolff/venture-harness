@@ -1,0 +1,495 @@
+/**
+ * Typed event taxonomy — the single vocabulary for all tracking.
+ * The human-readable contract (purpose, trigger, per-event notes) lives in
+ * config/analytics.yaml; scripts/verify-analytics-events.ts fails the gate
+ * if the two drift apart.
+ *
+ * consent semantics:
+ *   "none"      — recordable before opt-in because no third party receives
+ *                 it pre-consent (first-party neon leg, anonymous visitor id).
+ *                 Third-party destinations listed on such events STILL only
+ *                 fire after consent — lib/analytics/track.ts enforces that
+ *                 at the transport layer.
+ *   "analytics" — requires analytics consent before the event fires at all.
+ */
+export type Destination = "vercel" | "ga4" | "neon";
+export type ConsentRequirement = "none" | "analytics";
+
+export interface EventSpec {
+  destinations: readonly Destination[];
+  consent: ConsentRequirement;
+  props: readonly string[];
+  neon: boolean;
+  experiment: boolean;
+}
+
+export const EVENTS = {
+  // --- site and routes ---
+  site_visit: {
+    destinations: ["vercel", "ga4"],
+    consent: "analytics",
+    props: ["landing_route", "referrer_domain", "utm_source", "utm_medium", "utm_campaign"],
+    neon: false,
+    experiment: false,
+  },
+  page_view: {
+    destinations: ["vercel", "ga4"],
+    consent: "analytics",
+    props: ["route"],
+    neon: false,
+    experiment: false,
+  },
+  landing_page_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route", "referrer_domain", "utm_source", "utm_medium", "utm_campaign"],
+    neon: false,
+    experiment: true,
+  },
+  route_change: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["from_route", "to_route"],
+    neon: false,
+    experiment: false,
+  },
+  outbound_link_click: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["target_domain", "route"],
+    neon: false,
+    experiment: false,
+  },
+  navigation_click: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["nav_item", "route"],
+    neon: false,
+    experiment: false,
+  },
+  mobile_navigation_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route"],
+    neon: false,
+    experiment: false,
+  },
+  page_error: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route", "error_type"],
+    neon: false,
+    experiment: false,
+  },
+  // --- content engagement ---
+  section_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["section_id", "route"],
+    neon: false,
+    experiment: true,
+  },
+  proof_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["proof_id", "route"],
+    neon: false,
+    experiment: true,
+  },
+  sample_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["sample_id"],
+    neon: false,
+    experiment: false,
+  },
+  sample_download: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["sample_id"],
+    neon: false,
+    experiment: false,
+  },
+  demo_interaction: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["demo_id", "interaction_type"],
+    neon: false,
+    experiment: false,
+  },
+  comparison_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["comparison_id", "route"],
+    neon: false,
+    experiment: false,
+  },
+  faq_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["faq_id"],
+    neon: false,
+    experiment: false,
+  },
+  video_start: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["video_id"],
+    neon: false,
+    experiment: false,
+  },
+  video_complete: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["video_id"],
+    neon: false,
+    experiment: false,
+  },
+  resource_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["resource_id"],
+    neon: false,
+    experiment: false,
+  },
+  // --- proposition ---
+  hero_variant_exposed: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "route"],
+    neon: true,
+    experiment: true,
+  },
+  icp_variant_exposed: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "route"],
+    neon: true,
+    experiment: true,
+  },
+  hero_primary_cta_click: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route", "variant_key"],
+    neon: false,
+    experiment: true,
+  },
+  hero_secondary_cta_click: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route", "variant_key"],
+    neon: false,
+    experiment: true,
+  },
+  proposition_detail_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["detail_id"],
+    neon: false,
+    experiment: false,
+  },
+  how_it_works_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route"],
+    neon: false,
+    experiment: false,
+  },
+  use_case_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["use_case_id"],
+    neon: false,
+    experiment: true,
+  },
+  // --- pricing ---
+  pricing_page_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route", "referrer_domain"],
+    neon: false,
+    experiment: true,
+  },
+  pricing_section_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["route"],
+    neon: false,
+    experiment: true,
+  },
+  pricing_variant_exposed: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "displayed_price", "billing_period"],
+    neon: true,
+    experiment: true,
+  },
+  billing_period_changed: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["to_period"],
+    neon: false,
+    experiment: true,
+  },
+  pricing_details_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["detail_id"],
+    neon: false,
+    experiment: false,
+  },
+  setup_fee_explanation_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: [],
+    neon: false,
+    experiment: true,
+  },
+  guarantee_explanation_open: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: [],
+    neon: false,
+    experiment: true,
+  },
+  plan_selected: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["plan_key", "displayed_price", "billing_period", "experiment_id", "variant_key"],
+    neon: true,
+    experiment: true,
+  },
+  monthly_plan_selected: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["plan_key", "displayed_price"],
+    neon: true,
+    experiment: true,
+  },
+  annual_plan_selected: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["plan_key", "displayed_price"],
+    neon: true,
+    experiment: true,
+  },
+  pilot_selected: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["displayed_offer", "displayed_price"],
+    neon: true,
+    experiment: true,
+  },
+  enterprise_contact_selected: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["route"],
+    neon: true,
+    experiment: false,
+  },
+  checkout_intent: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["plan_key", "displayed_price", "billing_period"],
+    neon: true,
+    experiment: true,
+  },
+  reservation_intent: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["plan_key", "displayed_price"],
+    neon: true,
+    experiment: true,
+  },
+  // --- forms (never entered values — field ids and error types only) ---
+  form_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["form_id", "route"],
+    neon: false,
+    experiment: true,
+  },
+  form_started: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["form_id"],
+    neon: false,
+    experiment: true,
+  },
+  form_step_completed: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["form_id", "step_index"],
+    neon: false,
+    experiment: false,
+  },
+  form_validation_error: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["form_id", "field_id", "error_type"],
+    neon: false,
+    experiment: false,
+  },
+  form_abandoned: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["form_id", "last_field_id"],
+    neon: false,
+    experiment: true,
+  },
+  form_submitted: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["form_id"],
+    neon: false,
+    experiment: true,
+  },
+  form_submission_confirmed: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["form_id", "qualified"],
+    neon: true,
+    experiment: true,
+  },
+  qualification_completed: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["form_id", "qualification_tier", "experiment_id", "variant_key"],
+    neon: true,
+    experiment: true,
+  },
+  // --- search (category only, never raw text) ---
+  site_search_started: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: [],
+    neon: false,
+    experiment: false,
+  },
+  site_search_submitted: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["query_category", "result_count"],
+    neon: false,
+    experiment: false,
+  },
+  site_search_no_results: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["query_category"],
+    neon: false,
+    experiment: false,
+  },
+  site_search_result_selected: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["result_route", "result_position"],
+    neon: false,
+    experiment: false,
+  },
+  // --- experiments ---
+  experiment_eligible: {
+    destinations: ["neon"],
+    consent: "none",
+    props: ["experiment_id"],
+    neon: true,
+    experiment: true,
+  },
+  experiment_assigned: {
+    destinations: ["neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "assignment_scope"],
+    neon: true,
+    experiment: true,
+  },
+  experiment_exposed: {
+    destinations: ["ga4", "neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "route"],
+    neon: true,
+    experiment: true,
+  },
+  experiment_primary_conversion: {
+    destinations: ["neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "metric"],
+    neon: true,
+    experiment: true,
+  },
+  experiment_guardrail_event: {
+    destinations: ["neon"],
+    consent: "none",
+    props: ["experiment_id", "variant_key", "metric"],
+    neon: true,
+    experiment: true,
+  },
+  // --- consent (first-party only, always) ---
+  consent_banner_view: {
+    destinations: ["neon"],
+    consent: "none",
+    props: [],
+    neon: true,
+    experiment: false,
+  },
+  analytics_accepted: {
+    destinations: ["neon"],
+    consent: "none",
+    props: ["consent_scope"],
+    neon: true,
+    experiment: false,
+  },
+  analytics_declined: {
+    destinations: ["neon"],
+    consent: "none",
+    props: [],
+    neon: true,
+    experiment: false,
+  },
+  consent_settings_opened: {
+    destinations: ["neon"],
+    consent: "none",
+    props: [],
+    neon: true,
+    experiment: false,
+  },
+  consent_changed: {
+    destinations: ["neon"],
+    consent: "none",
+    props: ["from_state", "to_state"],
+    neon: true,
+    experiment: false,
+  },
+  consent_withdrawn: {
+    destinations: ["neon"],
+    consent: "none",
+    props: [],
+    neon: true,
+    experiment: false,
+  },
+  // --- return behaviour (consented recognition only) ---
+  return_visit: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["days_since_first_visit"],
+    neon: false,
+    experiment: false,
+  },
+  repeat_pricing_view: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["visit_count"],
+    neon: false,
+    experiment: true,
+  },
+  repeat_high_intent_visit: {
+    destinations: ["ga4"],
+    consent: "analytics",
+    props: ["action_type"],
+    neon: false,
+    experiment: true,
+  },
+} as const satisfies Record<string, EventSpec>;
+
+export type EventName = keyof typeof EVENTS;
+
+export type EventProps = Record<string, string | number | boolean>;
