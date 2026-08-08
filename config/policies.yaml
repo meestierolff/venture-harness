@@ -1,0 +1,120 @@
+# Risk-based authorization defaults. Active envelopes are run-scoped and empty
+# in committed template state.
+contract_version: 1
+
+authorization:
+  default_profile: read_only
+  profiles:
+    read_only:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes: [none, external_read]
+      allowed_risk_classes: [low]
+      allowed_environments: [local, test, preview, production]
+      max_estimated_spend: { amount: 0, currency: EUR }
+      max_email_recipients: 0
+      production_deploy_allowed: false
+      live_products_and_prices_allowed: false
+      actual_charges_allowed: false
+      transactional_test_email_allowed: false
+      dns_additions_allowed: false
+      nameserver_changes_allowed: false
+      app_store_submission_allowed: false
+      extensions: {}
+    build_local:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes: [none, local_write, git_write]
+      # Preview repository/deployment creation is high-risk but reversible and
+      # remains bounded by effect, provider, environment, and spend checks.
+      allowed_risk_classes: [low, moderate, high]
+      allowed_environments: [local, test]
+    preview_launch:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes:
+        [none, local_write, git_write, external_read, reversible_external_write, preview_deploy]
+      allowed_risk_classes: [low, moderate]
+      allowed_environments: [local, test, preview]
+      # Explicit exception: current provider adapters report these operational
+      # costs as unknown; remove once every active plan emits a bounded estimate.
+      unknown_external_costs_allowed: true
+    standard_launch:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes:
+        - none
+        - local_write
+        - git_write
+        - external_read
+        - reversible_external_write
+        - preview_deploy
+        - production_deploy
+        - transactional_email
+        - dns_addition
+      # Critical reversible configuration is allowed here; charges, deletion,
+      # destructive data, nameservers, and publication remain distinct effects.
+      allowed_risk_classes: [low, moderate, high, critical]
+      allowed_environments: [local, test, preview, production]
+      max_email_recipients: 1
+      unknown_external_costs_allowed: true
+      production_deploy_allowed: true
+      transactional_test_email_allowed: true
+      dns_additions_allowed: true
+    live_commerce_launch:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes:
+        - none
+        - local_write
+        - git_write
+        - external_read
+        - reversible_external_write
+        - preview_deploy
+        - production_deploy
+        - live_commerce_config
+        - customer_charge
+        - transactional_email
+        - dns_addition
+      allowed_risk_classes: [low, moderate, high, critical]
+      allowed_environments: [local, test, preview, production]
+      max_email_recipients: 1
+      unknown_external_costs_allowed: true
+      production_deploy_allowed: true
+      live_products_and_prices_allowed: true
+      actual_charges_allowed: true
+      transactional_test_email_allowed: true
+      dns_additions_allowed: true
+    mobile_testflight:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes:
+        [
+          none,
+          local_write,
+          git_write,
+          external_read,
+          reversible_external_write,
+          preview_deploy,
+          production_deploy,
+          dns_addition,
+          testflight_upload,
+        ]
+      # EAS build and TestFlight configuration are classified critical even
+      # though publication, charges, deletion and nameserver changes remain
+      # distinct-checkpoint effects below.
+      allowed_risk_classes: [low, moderate, high, critical]
+      allowed_environments: [local, test, preview, production]
+      production_deploy_allowed: true
+      unknown_external_costs_allowed: true
+      dns_additions_allowed: true
+    autofix_low_risk:
+      allowed_capabilities: ["*"]
+      allowed_side_effect_classes: [none, local_write, git_write]
+      allowed_risk_classes: [low]
+      allowed_environments: [local, test]
+  active_envelopes: []
+  always_require_distinct_checkpoint_for:
+    - external_delete
+    - destructive_data_change
+    - nameserver_change
+    - bulk_communication
+    - customer_charge
+    - app_store_publication
+  extensions: {}
+
+extensions: {}

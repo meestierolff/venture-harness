@@ -1,45 +1,43 @@
 # DESIGN BRIEF
 
-- Status: TEMPLATE — fill in before running $design-director
+- Status: TEMPLATE — complete before identity work
 - Owner: founder
-- Last updated: 2026-07-21
+- Last updated: 2026-08-04
 
-> This brief governs the venture's visual **identity**. The framework
-> (`skills/design-director/`) governs the design **process and quality bar**.
-> Every venture must look distinct; this file is where that distinctiveness
-> starts. A completed synthetic example lives in
-> `examples/sample-venture/DESIGN_BRIEF.md`.
+This brief governs venture identity; `$design-director` governs the process. Use
+the same thesis across web and mobile without copying a reference pixel for
+pixel.
 
-## How the product should feel
+## Emotional outcome
 
-<!-- Three to five adjectives, with a sentence each on why. "Trustworthy like
-     a bank" and "trustworthy like a good mechanic" are different designs. -->
+What should the initial user feel within ten seconds, and why?
 
-## The emotional outcome for the visitor
+## Character
 
-<!-- What should the ideal customer feel 10 seconds in? Relief? Ambition?
-     "Finally, someone gets it"? -->
+Give three to five specific traits. Explain each; “trustworthy” alone is not a
+direction.
 
-## References — principles, not pixels
+## References and anti-references
 
-<!-- 2–4 sites or products whose *principles* you admire (restraint, density,
-     warmth, typography). Name the principle. The harness forbids copying
-     any reference pixel for pixel. -->
-
-## Anti-references
-
-<!-- What must this NOT look like? Name the clichés of your market. -->
+Name principles worth borrowing and market clichés to refuse. Do not ask for a
+clone.
 
 ## Voice
 
-<!-- How does the copy sound? Plain? Wry? Clinical? Give a sample sentence. -->
+Describe rhythm, vocabulary and restraint. Include one representative sentence.
 
-## Constraints
+## Rails and contexts
 
-<!-- Existing name/wordmark? Accessibility needs beyond WCAG AA? Locales?
-     Any colours that are off-limits (e.g. competitor-owned)? -->
+List public web, authenticated web, iPhone, other mobile and transactional-email
+surfaces. Note native conventions, dark mode, localization, motion/reduced-motion
+and whether screenshots must be deterministic for App Store metadata.
 
-## Assets on hand
+## Accessibility and constraints
 
-<!-- Real product screenshots, photos, diagrams. If none, say so — the
-     design will use labeled illustrative interfaces, never fake ones. -->
+Record needs beyond WCAG AA, existing assets/marks, forbidden colors, legal
+marks, supported devices/locales and performance constraints.
+
+## Assets and truth labels
+
+List real images/screens. When none exist, require labeled illustrative or
+synthetic interfaces; never imply a real customer or shipped capability.

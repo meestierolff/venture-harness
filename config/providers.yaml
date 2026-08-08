@@ -1,0 +1,60 @@
+# Provider lifecycle contains references and evidence only. Credential values
+# are rejected by the schema; credential_ref points outside the repository.
+contract_version: 1
+
+providers:
+  github:
+    state: unconfigured
+    capability_ids: []
+    external_resource_ids: {}
+    account_id: null
+    team_id: null
+    region: null
+    selected_transport: none
+    credential_ref: null
+    required_scopes: []
+    last_verified_at: null
+    evidence_artifact_ref: null
+    error_code: null
+    error_message: null
+    retryable: null
+    next_action: null
+    manual_action_ref: null
+    extensions: {}
+  vercel:
+    state: unconfigured
+    capability_ids: [public_website, vercel_analytics]
+  neon:
+    state: unconfigured
+    capability_ids: [database]
+  stripe:
+    state: unconfigured
+    capability_ids: [stripe]
+  revenuecat:
+    state: unconfigured
+    capability_ids: [revenuecat]
+  brevo:
+    state: unconfigured
+    capability_ids: [transactional_email, lifecycle_email]
+  google:
+    state: unconfigured
+    capability_ids: [ga4, gsc]
+  bing:
+    state: unconfigured
+    capability_ids: [bing_webmaster]
+  dns:
+    state: unconfigured
+    capability_ids: [public_website]
+    selected_transport: manual
+  mijndomein:
+    state: unconfigured
+    capability_ids: [public_website]
+    selected_transport: manual
+  app_store_connect:
+    state: unconfigured
+    capability_ids: [app_store_connect, ios_aso]
+  eas:
+    state: unconfigured
+    capability_ids: [eas]
+
+extensions: {}

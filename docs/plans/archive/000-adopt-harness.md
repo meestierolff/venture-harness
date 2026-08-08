@@ -1,8 +1,9 @@
 # Plan 000: Adopt the harness
 
-- Status: active (template default)
+- Status: archived (superseded by Venture Harness v0.2 work)
 - Owner: founder
 - Created: 2026-07-21
+- Archived: 2026-08-04
 
 ## Goal
 
@@ -17,8 +18,7 @@ for design and build of the validation website.
 4. Run `pnpm init:venture -- --name "<venture-name>"`. (human)
 5. Invoke `$venture-bootstrap`. It will interrogate the briefs, surface
    gaps, and produce the business/product/brand/growth documents, the
-   validation plan, the event map, and the first active plan — replacing
-   this file. (agent)
+   validation plan, the event map, and the first active plan. (agent)
 6. Review everything the bootstrap produced; resolve its listed
    contradictions and open questions. (human)
 
@@ -31,4 +31,5 @@ for design and build of the validation website.
 ## Out of scope
 
 Application code, design implementation, deployment — all gated behind a
-coherent bootstrap.
+coherent bootstrap. This restriction was superseded for harness v0.2 by the
+progressive-commitment decision recorded in ADR-001.

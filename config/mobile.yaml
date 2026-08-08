@@ -1,0 +1,30 @@
+# Mobile rail configuration stores identifiers and credential references only.
+contract_version: 1
+
+mobile:
+  stack: none
+  rationale: The migrated v0.1 venture has no mobile project; reroute before mobile work.
+  bundle_identifier: null
+  app_scheme: null
+  app_store_connect:
+    team_id: null
+    app_id: null
+    sku: null
+    primary_language: en
+    credential_ref: null
+    first_app_record:
+      state: not_required
+      manual_action_ref: null
+  eas:
+    project_id: null
+    credential_ref: null
+    build_profiles: [development, preview, production]
+    submit_enabled: false
+  signing:
+    credential_ref: null
+    certificates_in_git_forbidden: true
+  metadata_artifact_ref: null
+  screenshot_flow_artifact_ref: null
+  extensions: {}
+
+extensions: {}

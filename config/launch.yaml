@@ -1,0 +1,46 @@
+# Launch-mode decision contract. The template keeps the v0.1 strategy as a
+# zero-confidence compatibility default; the launch router must reassess it.
+contract_version: 1
+
+launch:
+  selected_mode: validate_first
+  confidence: 0
+  rationale: Conservative compatibility default; reroute from the founder brief before launch.
+  rejected_alternatives: []
+  assumptions:
+    - The v0.1 validation-first strategy remains active until the launch router runs.
+  evidence_that_could_change_choice:
+    - A complete founder brief and the smallest-useful-product assessment.
+  rail:
+    app_kind: web
+    mobile_stack: none
+    rationale: The v0.1 harness contains a Next.js web foundation and no mobile project.
+  routing_factors:
+    smallest_useful_build_cost: { level: unknown, rationale: Assess from the founder brief. }
+    smallest_useful_build_time: { level: unknown, rationale: Assess from the founder brief. }
+    reversibility: { level: unknown, rationale: Assess the smallest useful implementation. }
+    regulatory_or_safety_risk: { level: unknown, rationale: No venture risk assessment exists yet. }
+    real_usage_required:
+      { level: unknown, rationale: Determine whether usage is needed to demonstrate value. }
+    marketplace_cold_start:
+      { level: unknown, rationale: Determine whether the venture is a marketplace. }
+    operational_burden: { level: unknown, rationale: Assess delivery and support burden. }
+    founder_evidence:
+      { level: unknown, rationale: No venture evidence is loaded in template state. }
+    concierge_delivery_fit:
+      { level: unknown, rationale: Assess whether concierge delivery can be honest. }
+    app_store_required:
+      { level: unknown, rationale: Determine whether an installed app is required. }
+  progressive_commitment:
+    specific_user_or_audience: null
+    problem_or_job: null
+    intended_outcome: null
+    smallest_core_journey: null
+    primary_success_signal: null
+    material_constraints: []
+    known_truths: []
+    unresolved_assumptions: []
+    blocking_issues: []
+  extensions: {}
+
+extensions: {}

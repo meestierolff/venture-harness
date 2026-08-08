@@ -24,6 +24,325 @@ required_commands:
     - pnpm build
     - pnpm verify:raw-html # requires a running production build
 
+# Staged profiles supplement the compatibility `pnpm verify` gate. The runner
+# resolves base checks plus only the checks selected by active capabilities.
+profiles:
+  fast:
+    description: Changed-surface feedback plus invariant config, secret, PII, and graph checks.
+    checks:
+      - changed_format
+      - changed_lint
+      - changed_tests
+      - config_schemas
+      - tracked_secret_scan
+      - analytics_pii
+      - agent_parity_changed
+  mvp:
+    description: Full deterministic gate, build, critical contracts, and capability-selected MVP checks.
+    checks:
+      - compatibility_verify
+      - full_format
+      - full_lint
+      - typecheck
+      - unit_integration
+      - production_build
+      - migration_tests
+      - provider_contract_tests
+      - synthetic_fixture_tests
+      - analytics_pack_tests
+      - analytics_readiness
+      - provider_dry_run
+  release:
+    description: MVP evidence plus release safety, resume/rollback, live read-back gaps, and human audits.
+    checks:
+      - compatibility_verify
+      - public_release_safety
+      - full_format
+      - full_lint
+      - typecheck
+      - unit_integration
+      - production_build
+      - migration_tests
+      - migration_rollback_tests
+      - provider_contract_tests
+      - synthetic_fixture_tests
+      - graph_resume_idempotency
+      - analytics_pack_tests
+      - analytics_readiness
+      - provider_dry_run
+
+checks:
+  changed_format:
+    kind: changed_format
+    phase: 1
+  changed_lint:
+    kind: changed_lint
+    phase: 1
+  changed_tests:
+    kind: changed_tests
+    phase: 1
+  config_schemas:
+    kind: command
+    phase: 1
+    command: [pnpm, exec, vitest, run, tests/config-schemas.test.ts]
+  tracked_secret_scan:
+    kind: tracked_secret_scan
+    phase: 1
+  analytics_pii:
+    kind: command
+    phase: 1
+    command: [pnpm, verify:analytics-pii]
+  agent_parity_changed:
+    kind: command
+    phase: 1
+    command: [pnpm, agents:check]
+    when_paths: [skills/, .agents/, .claude/skills/, AGENTS.md, CLAUDE.md, GEMINI.md]
+  compatibility_verify:
+    kind: command
+    phase: 1
+    command: [pnpm, verify]
+  public_release_safety:
+    kind: command
+    phase: 1
+    command: [pnpm, release:check]
+  full_format:
+    kind: command
+    phase: 1
+    command: [pnpm, format:check]
+  full_lint:
+    kind: command
+    phase: 1
+    command: [pnpm, exec, eslint, --max-warnings=0, .]
+  typecheck:
+    kind: command
+    phase: 1
+    command: [pnpm, typecheck]
+  unit_integration:
+    kind: command
+    phase: 1
+    command: [pnpm, test]
+  production_build:
+    kind: command
+    phase: 2
+    command: [pnpm, build]
+  migration_tests:
+    kind: command
+    phase: 1
+    command:
+      [
+        pnpm,
+        exec,
+        vitest,
+        run,
+        tests/migrations.test.ts,
+        tests/quality-migrations.test.ts,
+        tests/upgrade.test.ts,
+        tests/upgrade-operational.test.ts,
+      ]
+  migration_rollback_tests:
+    kind: command
+    phase: 1
+    command:
+      [
+        pnpm,
+        exec,
+        vitest,
+        run,
+        tests/migrations.test.ts,
+        tests/quality-migrations.test.ts,
+        tests/upgrade-operational.test.ts,
+      ]
+  provider_contract_tests:
+    kind: command
+    phase: 1
+    command: [pnpm, test:providers]
+  synthetic_fixture_tests:
+    kind: command
+    phase: 1
+    command:
+      [
+        pnpm,
+        exec,
+        vitest,
+        run,
+        tests/launch-router.test.ts,
+        tests/launch-fixtures.test.ts,
+        tests/cli-launch-integration.test.ts,
+        tests/mobile-scaffold.test.ts,
+      ]
+  graph_resume_idempotency:
+    kind: command
+    phase: 1
+    command:
+      [
+        pnpm,
+        exec,
+        vitest,
+        run,
+        tests/workflow-runtime.test.ts,
+        tests/cli-runtime.test.ts,
+        tests/authorization.test.ts,
+        tests/checkpoint-evidence.test.ts,
+        tests/launch-authorization-scope.test.ts,
+      ]
+  analytics_pack_tests:
+    kind: command
+    phase: 1
+    command:
+      [pnpm, exec, vitest, run, tests/analytics-packs.test.ts, tests/analytics-taxonomy.test.ts]
+  analytics_readiness:
+    kind: analytics_readiness
+    phase: 1
+  provider_dry_run:
+    kind: command
+    phase: 1
+    command:
+      [pnpm, exec, vitest, run, tests/providers-contract.test.ts, tests/providers-execution.test.ts]
+  seo_static:
+    kind: command
+    phase: 1
+    command: [pnpm, verify:seo]
+  consent_contract:
+    kind: command
+    phase: 1
+    command: [pnpm, verify:consent]
+  pricing_integrity:
+    kind: command
+    phase: 1
+    command: [pnpm, verify:pricing-recording]
+  raw_html:
+    kind: raw_html
+    phase: 3
+    command: [pnpm, verify:raw-html]
+  web_e2e:
+    kind: command
+    phase: 3
+    command: [pnpm, exec, playwright, test, tests/e2e/critical-journeys.spec.ts]
+  accessibility_audit:
+    kind: command
+    phase: 4
+    command: [pnpm, exec, playwright, test, tests/e2e/accessibility.spec.ts]
+  responsive_screenshots:
+    kind: command
+    phase: 5
+    command: [pnpm, exec, playwright, test, tests/e2e/responsive-screenshots.spec.ts]
+  live_stripe_readback:
+    kind: provider_readback
+    phase: 3
+    provider: stripe
+    command: [pnpm, vh, doctor]
+    gap:
+      why: Stripe read-back requires an authorized sandbox or live credential and resource IDs.
+      missing: A verified Stripe credential_ref and configured product, price, webhook, and mode.
+      exact_command: pnpm vh doctor
+      expected_evidence: Redacted Stripe product/price/webhook read-back with sandbox or live mode labeled.
+  live_revenuecat_readback:
+    kind: provider_readback
+    phase: 3
+    provider: revenuecat
+    command: [pnpm, vh, doctor]
+    gap:
+      why: RevenueCat read-back requires an authorized project credential and identifiers.
+      missing: A verified RevenueCat credential_ref and project/app/offering identifiers.
+      exact_command: pnpm vh doctor
+      expected_evidence: Redacted project, entitlement, offering, and package read-back with store labeled.
+  live_brevo_readback:
+    kind: provider_readback
+    phase: 3
+    provider: brevo
+    command: [pnpm, vh, doctor]
+    gap:
+      why: Brevo read-back and test delivery require an authorized credential and verified sender.
+      missing: A verified Brevo credential_ref, sender/domain, template IDs, and approved test recipient.
+      exact_command: pnpm vh doctor
+      expected_evidence: Redacted sender/template read-back and provider-confirmed test delivery artifact.
+  live_analytics_readback:
+    kind: provider_readback
+    phase: 3
+    provider: google
+    command: [pnpm, vh, doctor]
+    gap:
+      why: Analytics read-back requires authorized provider properties and fresh direct data.
+      missing: Verified GA4/GSC/Bing credential_refs, property IDs, and a completed vh data sync.
+      exact_command: pnpm vh data sync
+      expected_evidence: Normalized datasets with source, account, window, timezone, freshness, and limitations.
+  mobile_fixture_validation:
+    kind: command
+    phase: 1
+    command:
+      [
+        pnpm,
+        exec,
+        vitest,
+        run,
+        tests/launch-router.test.ts,
+        tests/config-schemas.test.ts,
+        tests/mobile-scaffold.test.ts,
+      ]
+  mobile_build_readiness:
+    kind: manual
+    phase: 3
+    gap:
+      why: Signed iOS build and TestFlight read-back require protected Apple and EAS credentials.
+      missing: App Store Connect app record, signing access, EAS credential_ref, and authorization.
+      exact_command: pnpm vh launch --apply --authorization mobile-testflight
+      expected_evidence: EAS build artifact and App Store Connect processing/TestFlight status read-back.
+  aso_validation:
+    kind: manual
+    phase: 3
+    gap:
+      why: Store metadata validation requires a routed mobile venture and generated listing artifacts.
+      missing: App identifiers, locale, truthful metadata, and deterministic screenshot artifacts.
+      exact_command: pnpm vh launch --dry-run
+      expected_evidence: Validated ASO metadata and labeled screenshot narrative in the launch report.
+
+capability_checks:
+  public_website:
+    mvp: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
+    release: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
+  authenticated_product:
+    mvp: [consent_contract]
+    release: [consent_contract, web_e2e]
+  database:
+    mvp: [migration_tests]
+    release: [migration_tests, migration_rollback_tests]
+  transactional_email:
+    mvp: [provider_contract_tests]
+    release: [live_brevo_readback]
+  lifecycle_email:
+    mvp: [provider_contract_tests]
+    release: [live_brevo_readback]
+  stripe:
+    mvp: [pricing_integrity, provider_contract_tests]
+    release: [pricing_integrity, live_stripe_readback]
+  revenuecat:
+    mvp: [pricing_integrity, provider_contract_tests]
+    release: [pricing_integrity, live_revenuecat_readback]
+  ga4:
+    mvp: [analytics_pack_tests, consent_contract]
+    release: [analytics_pack_tests, consent_contract, live_analytics_readback]
+  gsc:
+    mvp: [seo_static]
+    release: [seo_static, live_analytics_readback]
+  bing_webmaster:
+    mvp: [seo_static]
+    release: [seo_static, live_analytics_readback]
+  vercel_analytics:
+    mvp: [analytics_pack_tests, consent_contract]
+    release: [analytics_pack_tests, consent_contract]
+  web_seo_aeo_geo:
+    mvp: [seo_static, raw_html]
+    release: [seo_static, raw_html]
+  ios_aso:
+    mvp: [mobile_fixture_validation]
+    release: [mobile_fixture_validation, aso_validation]
+  app_store_connect:
+    mvp: [mobile_fixture_validation]
+    release: [mobile_fixture_validation, mobile_build_readiness, aso_validation]
+  eas:
+    mvp: [mobile_fixture_validation]
+    release: [mobile_fixture_validation, mobile_build_readiness]
+
 # Documents that must exist and pass validate:docs.
 required_documents:
   - PROJECT.md

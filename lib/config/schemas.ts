@@ -5,6 +5,40 @@
  * ventures can extend configs without forking the schemas.
  */
 import { z } from "zod";
+import { launchSchema } from "./launch-schema";
+import { loopsSchema } from "./loop-schema";
+import { mobileSchema } from "./mobile-schema";
+import { policiesSchema } from "./policy-schema";
+import { providersSchema } from "./provider-schema";
+import { ventureSchema } from "./venture-schema";
+
+export {
+  appKindSchema,
+  capabilityIdSchema,
+  credentialReferenceSchema,
+  knownCapabilityIdSchema,
+  launchModeSchema,
+  mobileStackSchema,
+  openCapabilityIdSchema,
+} from "./contracts";
+export { harnessLockSchema, loadHarnessLock, parseHarnessLock } from "./harness-lock";
+export { launchSchema } from "./launch-schema";
+export { loopsSchema } from "./loop-schema";
+export { mobileSchema } from "./mobile-schema";
+export {
+  authorizationEnvelopeSchema,
+  authorizationProfileIdSchema,
+  authorizationProfileSchema,
+  policiesSchema,
+  sideEffectClassSchema,
+} from "./policy-schema";
+export {
+  providerLifecycleStateSchema,
+  providerStateSchema,
+  providersSchema,
+  providerTransportSchema,
+} from "./provider-schema";
+export { legacyVentureSchema, ventureSchema, ventureV02Schema } from "./venture-schema";
 
 export const frameworkSchema = z
   .object({
@@ -22,41 +56,6 @@ export const frameworkSchema = z
       codex: z.array(z.string()),
     }),
     verification: z.object({ primary: z.string() }).passthrough(),
-  })
-  .passthrough();
-
-export const ventureSchema = z
-  .object({
-    venture: z
-      .object({
-        name: z.string().nullable(),
-        domain: z.string().nullable(),
-        stage: z.enum([
-          "template",
-          "ideation",
-          "demand_validation",
-          "build",
-          "iterate",
-          "reposition",
-          "stopped",
-        ]),
-        language: z.string(),
-        currency: z.string(),
-        timezone: z.string(),
-      })
-      .passthrough(),
-    validation: z
-      .object({
-        minimum_days: z.number().int().min(1),
-        target_days: z.number().int(),
-        maximum_days: z.number().int(),
-        launch_date: z.string().nullable(),
-        primary_conversion: z.string().nullable(),
-        build_threshold: z.string().nullable(),
-        stop_threshold: z.string().nullable(),
-      })
-      .passthrough(),
-    infrastructure: z.record(z.boolean()),
   })
   .passthrough();
 
@@ -156,16 +155,148 @@ export const analyticsSchema = z
   })
   .passthrough();
 
+const qualityGapSchema = z
+  .object({
+    why: z.string().min(10),
+    missing: z.string().min(10),
+    exact_command: z.string().min(3),
+    expected_evidence: z.string().min(10),
+  })
+  .strict();
+
+const qualityCheckSchema = z
+  .object({
+    kind: z.enum([
+      "command",
+      "changed_format",
+      "changed_lint",
+      "changed_tests",
+      "tracked_secret_scan",
+      "analytics_readiness",
+      "raw_html",
+      "manual",
+      "provider_readback",
+    ]),
+    phase: z.number().int().positive(),
+    command: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
+    when_paths: z.array(z.string().min(1)).min(1).optional(),
+    provider: z.string().min(1).optional(),
+    gap: qualityGapSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (["manual", "provider_readback"].includes(value.kind) && !value.gap) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["gap"],
+        message: `${value.kind} checks require an actionable gap`,
+      });
+    }
+    if (value.kind === "provider_readback" && !value.provider) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["provider"],
+        message: "provider_readback checks require a provider",
+      });
+    }
+  });
+
+const qualityProfileSchema = z
+  .object({
+    description: z.string().min(10),
+    checks: z.array(z.string().min(1)).min(1),
+  })
+  .strict();
+
+const qualityCapabilityProfileSchema = z
+  .object({
+    fast: z.array(z.string().min(1)).optional(),
+    mvp: z.array(z.string().min(1)).optional(),
+    release: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+
 export const qualitySchema = z
   .object({
-    required_commands: z.object({
-      always: z.array(z.string()).min(5),
-      ci_additional: z.array(z.string()),
-    }),
-    required_documents: z.array(z.string()).min(1),
-    thresholds: z.object({}).passthrough(),
+    required_commands: z
+      .object({
+        always: z.array(z.string().min(1)).min(5),
+        ci_additional: z.array(z.string().min(1)),
+      })
+      .strict(),
+    profiles: z
+      .object({
+        fast: qualityProfileSchema,
+        mvp: qualityProfileSchema,
+        release: qualityProfileSchema,
+      })
+      .strict(),
+    checks: z.record(z.string().min(1), qualityCheckSchema),
+    capability_checks: z.record(z.string().min(1), qualityCapabilityProfileSchema),
+    required_documents: z.array(z.string().min(1)).min(1),
+    thresholds: z
+      .object({
+        performance: z
+          .object({
+            lcp_ms: z.number().positive(),
+            cls: z.number().nonnegative(),
+            inp_ms: z.number().positive(),
+          })
+          .strict(),
+        accessibility: z
+          .object({
+            standard: z.string().min(1),
+            min_contrast_normal_text: z.number().positive(),
+            min_contrast_large_text: z.number().positive(),
+            keyboard_navigable: z.boolean(),
+          })
+          .strict(),
+        crawler: z
+          .object({
+            raw_html_must_contain: z.array(z.string().min(1)).min(1),
+            user_agents: z.array(z.string().min(1)).min(1),
+          })
+          .strict(),
+      })
+      .strict(),
+    release_checks: z
+      .object({
+        no_secrets: z.boolean(),
+        no_real_pii: z.boolean(),
+        no_unlabeled_synthetic_data: z.boolean(),
+        license_present: z.boolean(),
+        generated_dirs_in_sync: z.boolean(),
+      })
+      .strict(),
   })
-  .passthrough();
+  .strict()
+  .superRefine((value, ctx) => {
+    const knownChecks = new Set(Object.keys(value.checks));
+    for (const [profile, definition] of Object.entries(value.profiles)) {
+      for (const check of definition.checks) {
+        if (!knownChecks.has(check)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["profiles", profile, "checks"],
+            message: `references unknown check ${check}`,
+          });
+        }
+      }
+    }
+    for (const [capability, profiles] of Object.entries(value.capability_checks)) {
+      for (const [profile, checks] of Object.entries(profiles)) {
+        for (const check of checks ?? []) {
+          if (!knownChecks.has(check)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["capability_checks", capability, profile],
+              message: `references unknown check ${check}`,
+            });
+          }
+        }
+      }
+    }
+  });
 
 export const contentSchema = z
   .object({
@@ -200,6 +331,11 @@ export const distributionSchema = z
 export const configSchemas = {
   "config/framework.yaml": frameworkSchema,
   "config/venture.yaml": ventureSchema,
+  "config/launch.yaml": launchSchema,
+  "config/providers.yaml": providersSchema,
+  "config/policies.yaml": policiesSchema,
+  "config/loops.yaml": loopsSchema,
+  "config/mobile.yaml": mobileSchema,
   "config/offer.yaml": offerSchema,
   "config/experiments.yaml": experimentsSchema,
   "config/analytics.yaml": analyticsSchema,

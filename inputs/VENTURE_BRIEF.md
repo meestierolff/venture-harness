@@ -1,60 +1,46 @@
-# VENTURE BRIEF
+# VENTURE BRIEF NOTES
 
-- Status: TEMPLATE — fill in before running $venture-bootstrap
+- Status: TEMPLATE — optional context for the typed YAML brief
 - Owner: founder
-- Last updated: 2026-07-21
+- Last updated: 2026-08-04
 
-> This is the founder's raw input. It may be messy, opinionated, and
-> incomplete. The `$venture-bootstrap` skill will interrogate it, surface
-> contradictions and missing evidence, and turn it into structured project
-> documents. Do not polish it into marketing copy — write what you believe
-> and what you actually know.
->
-> A completed synthetic example lives in
-> `examples/sample-venture/VENTURE_BRIEF.md`.
+The executable founder input is
+[VENTURE_BRIEF.yaml](VENTURE_BRIEF.yaml). This Markdown companion is for nuance,
+source notes and contradictions that do not fit cleanly in one field. Keep facts
+separate from assumptions; do not turn it into marketing copy.
 
-## The idea in one paragraph
+## Idea and initial user
 
-<!-- What is it? Who is it for? Why now? -->
+Who has the problem, in what situation, and why is this initial audience
+specific enough to build for?
 
-## The customer
+## Problem and useful outcome
 
-<!-- Who exactly feels this pain most? Job title, company size, situation.
-     "Small businesses" is not an answer. -->
+What job fails today? What smallest useful result would change the user's state,
+and how would the venture observe that result?
 
-## The pain
+## Smallest core journey
 
-<!-- What breaks, costs money, or wastes hours today? How do they cope now?
-     How do you know — what have you seen or heard first-hand? -->
+Describe the shortest end-to-end path a real user must complete. Note whether it
+needs a public site, login, database, payment, email, an installed app, device
+APIs or human delivery.
 
-## The outcome
+## Evidence and assumptions
 
-<!-- What measurable result does the customer get? In what timeframe? -->
+List first-hand evidence with a source/date. Put untested beliefs in assumptions,
+including build effort, regulation, store-policy and channel beliefs.
 
-## Money
+## Money and entitlements
 
-<!-- What do they pay for adjacent solutions today? What would you charge?
-     Any evidence they have budget? -->
+State the monetization hypothesis, test/live boundary and whether the purchase is
+a native digital good. Name the intended single entitlement source if known.
 
-## Reachability
+## Constraints and forbidden effects
 
-<!-- Where do these customers already gather? Communities, search queries,
-     newsletters, people they trust. How would the first 10 hear about it? -->
-
-## Existing alternatives
-
-<!-- Named competitors and workarounds (spreadsheets, agencies, doing
-     nothing). Why would someone switch? -->
-
-## What you already have
-
-<!-- Evidence: interviews, waitlists, domain expertise, an audience, code,
-     partnerships. Be honest about what is hope versus fact. -->
-
-## Constraints
-
-<!-- Budget, time, legal, technical, personal. What is off the table? -->
+Budget, deadline, privacy/security/legal limits, regions, devices, accessibility,
+providers, spend cap, communications and effects that must not occur.
 
 ## Open questions
 
-<!-- What you genuinely don't know yet. -->
+Missing non-critical detail can remain here as backlog. Call out any choice that
+cannot safely be defaulted.
