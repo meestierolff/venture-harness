@@ -1,8 +1,6 @@
 export {
   CreativeLedgerError,
   createCreativeLedger,
-  fingerprintCreative,
-  normalizeDestination,
   type CreativeLedger,
   type CreativeLedgerErrorCode,
   type CreativeLedgerOptions,
@@ -10,6 +8,17 @@ export {
   type ProviderObjectInput,
   type RegisterVariantInput,
 } from "./creative-ledger";
+export {
+  CURRENT_FINGERPRINT_VERSION,
+  FINGERPRINT_VERSIONS,
+  computeContentFingerprint,
+  computeDeliveryFingerprint,
+  normalizeDestination,
+  type ContentFingerprint,
+  type FingerprintInput,
+  type FingerprintVersion,
+} from "./fingerprint";
+export { ULID_PATTERN, createIdFactory, type IdFactoryOptions } from "./ids";
 export {
   SpendError,
   createSpendLedger,
@@ -29,7 +38,8 @@ export {
 export {
   CREATIVE_NETWORKS,
   CREATIVE_STATUSES,
-  type CreativeMaterialDimensions,
+  type CreativeDeliveryDimensions,
+  type CreativeMediaDimensions,
   type CreativeNetwork,
   type CreativeNetworkStatus,
   type CreativeObjectKind,
@@ -38,6 +48,7 @@ export {
   type CreativeRelationship,
   type CreativeStatus,
   type CreativeVariant,
+  type DeliveryVariant,
 } from "./types";
 export {
   METRIC_IDS,

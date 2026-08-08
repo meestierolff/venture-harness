@@ -1,7 +1,14 @@
-import { createHash } from "node:crypto";
+import {
+  CURRENT_FINGERPRINT_VERSION,
+  computeContentFingerprint,
+  computeDeliveryFingerprint,
+  type FingerprintVersion,
+} from "./fingerprint";
+import { createIdFactory, type IdFactoryOptions } from "./ids";
 import {
   CREATIVE_NETWORKS,
-  type CreativeMaterialDimensions,
+  type CreativeDeliveryDimensions,
+  type CreativeMediaDimensions,
   type CreativeNetwork,
   type CreativeNetworkStatus,
   type CreativeObjectKind,
@@ -10,14 +17,16 @@ import {
   type CreativeRelationship,
   type CreativeStatus,
   type CreativeVariant,
+  type DeliveryVariant,
 } from "./types";
 
 export type CreativeLedgerErrorCode =
   | "unknown_creative"
+  | "unknown_delivery_variant"
   | "not_a_material_adaptation"
   | "provider_object_already_mapped"
   | "invalid_status_transition"
-  | "status_not_valid_for_network";
+  | "cross_venture_access_denied";
 
 export class CreativeLedgerError extends Error {
   readonly code: CreativeLedgerErrorCode;
@@ -29,94 +38,6 @@ export class CreativeLedgerError extends Error {
   }
 }
 
-/**
- * Query parameters that identify a click, not a creative. Two posts of the same
- * video that differ only by these are the same creative, so they are stripped
- * before fingerprinting. Prefixes cover the per-partner families
- * (utm_*, af_*, adjust_*) that would otherwise fragment one creative's history.
- */
-const TRACKING_PARAM_PREFIXES = ["utm_", "af_", "adjust_", "pk_", "mc_"];
-const TRACKING_PARAM_NAMES = new Set([
-  "ttclid",
-  "fbclid",
-  "gclid",
-  "msclkid",
-  "twclid",
-  "li_fat_id",
-  "igshid",
-  "clickid",
-  "click_id",
-  "ref",
-  "ref_src",
-  "_branch_match_id",
-  "gbraid",
-  "wbraid",
-]);
-
-function isTrackingParam(name: string): boolean {
-  const lower = name.toLowerCase();
-  if (TRACKING_PARAM_NAMES.has(lower)) return true;
-  return TRACKING_PARAM_PREFIXES.some((prefix) => lower.startsWith(prefix));
-}
-
-/**
- * Reduce a destination to the funnel it points at. Invalid URLs are returned
- * trimmed rather than thrown on: a malformed destination is a content problem
- * for the rights/compliance review to catch, not a reason to lose identity.
- */
-export function normalizeDestination(raw: string): string {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return raw.trim();
-  }
-  for (const name of [...url.searchParams.keys()]) {
-    if (isTrackingParam(name)) url.searchParams.delete(name);
-  }
-  url.searchParams.sort();
-  url.hash = "";
-  const search = url.searchParams.toString();
-  const path = url.pathname.replace(/\/$/, "");
-  return `${url.protocol}//${url.host}${path}${search ? `?${search}` : ""}`;
-}
-
-function canonicalize(dimensions: CreativeMaterialDimensions): string {
-  const normalized: Record<string, string | number> = {
-    ...dimensions,
-    destinationUrl: normalizeDestination(dimensions.destinationUrl),
-  };
-  return JSON.stringify(
-    Object.keys(normalized)
-      .sort()
-      .map((key) => [key, normalized[key]]),
-  );
-}
-
-export function fingerprintCreative(input: {
-  hypothesisId: string;
-  creativeFamilyId: string;
-  dimensions: CreativeMaterialDimensions;
-  assetContentHash: string | null;
-}): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify([
-        input.hypothesisId,
-        input.creativeFamilyId,
-        canonicalize(input.dimensions),
-        input.assetContentHash ?? "",
-      ]),
-    )
-    .digest("hex");
-}
-
-/**
- * Status machines. Organic and paid tracks are separate because they answer
- * different questions: organic asks "is this worth spending on?", paid asks
- * "did spending work?". Keeping them apart is what stops a TikTok organic win
- * from silently authorising Meta spend.
- */
 const ORGANIC_TRANSITIONS: Readonly<Record<CreativeStatus, readonly CreativeStatus[]>> = {
   DRAFT: ["READY_FOR_PRODUCTION", "REJECTED", "ARCHIVED"],
   READY_FOR_PRODUCTION: ["RENDERING", "REJECTED", "ARCHIVED"],
@@ -169,8 +90,6 @@ const PAID_TRANSITIONS: Readonly<Record<CreativeStatus, readonly CreativeStatus[
   BOOST_CANDIDATE: [],
 };
 
-/** A creative is only paid-eligible on a network once that network's own track
- * has passed its approval gate. */
 const PAID_ELIGIBLE_STATUSES: readonly CreativeStatus[] = [
   "PAID_TEST_APPROVED",
   "PAID_TEST_RUNNING",
@@ -184,32 +103,48 @@ function transitionsFor(network: CreativeNetwork) {
 }
 
 export interface RegisterVariantInput {
+  ventureId: string;
   hypothesisId: string;
   creativeFamilyId: string;
-  dimensions: CreativeMaterialDimensions;
+  media: CreativeMediaDimensions;
   assetContentHash: string | null;
+  destinationIsTestedHypothesis?: boolean;
+  /** Only used when destinationIsTestedHypothesis is true. */
+  delivery?: CreativeDeliveryDimensions;
   derivedFromCreativeId?: string | null;
   platformVariantOfCreativeId?: string | null;
+  fingerprintVersion?: FingerprintVersion;
 }
 
 export interface DeriveVariantInput {
   parentCreativeId: string;
   relationship: CreativeRelationship;
-  changes: Partial<CreativeMaterialDimensions>;
+  mediaChanges: Partial<CreativeMediaDimensions>;
   assetContentHash: string | null;
 }
 
 export interface ProviderObjectInput {
   creativeId: string;
+  deliveryVariantId?: string | null;
   provider: CreativeProvider;
   objectKind: CreativeObjectKind;
   externalId: string;
   externalAccountId: string;
+  ventureId: string;
 }
 
-export interface CreativeLedgerOptions {
-  now?: () => Date;
+export interface CreativeLedgerOptions extends IdFactoryOptions {
+  /** Scopes every read and write; cross-venture access throws. */
+  ventureId: string;
 }
+
+const EMPTY_DELIVERY: CreativeDeliveryDimensions = {
+  caption: "",
+  adCopy: "",
+  destinationUrl: "",
+  privacy: "public",
+  platformSettings: {},
+};
 
 function providerObjectKey(
   provider: CreativeProvider,
@@ -219,39 +154,73 @@ function providerObjectKey(
   return `${provider}::${objectKind}::${externalId}`;
 }
 
-export function createCreativeLedger(options: CreativeLedgerOptions = {}) {
+export function createCreativeLedger(options: CreativeLedgerOptions) {
   const now = options.now ?? (() => new Date());
+  const mint = createIdFactory(options);
+  const ventureId = options.ventureId;
   const variants = new Map<string, CreativeVariant>();
+  const deliveryVariants = new Map<string, DeliveryVariant>();
+  const deliveryByFingerprint = new Map<string, string>();
   const providerObjects = new Map<string, CreativeProviderObject>();
   const statuses = new Map<string, Record<CreativeNetwork, CreativeStatus>>();
+  const variantVenture = new Map<string, string>();
 
   function mustGet(creativeId: string): CreativeVariant {
     const variant = variants.get(creativeId);
     if (!variant) {
       throw new CreativeLedgerError("unknown_creative", `unknown creative ${creativeId}`);
     }
+    if (variantVenture.get(creativeId) !== ventureId) {
+      throw new CreativeLedgerError(
+        "cross_venture_access_denied",
+        `${creativeId} does not belong to venture ${ventureId}`,
+      );
+    }
     return variant;
   }
 
   function registerVariant(input: RegisterVariantInput): CreativeVariant {
-    const fingerprint = fingerprintCreative(input);
-    const creativeId = `cr_${fingerprint.slice(0, 16)}`;
-    const existing = variants.get(creativeId);
-    if (existing) return existing;
+    const delivery = input.delivery ?? EMPTY_DELIVERY;
+    const destinationIsTestedHypothesis = input.destinationIsTestedHypothesis ?? false;
+    const { fingerprint, version } = computeContentFingerprint(
+      {
+        media: input.media,
+        delivery,
+        assetContentHash: input.assetContentHash,
+        destinationIsTestedHypothesis,
+      },
+      input.fingerprintVersion ?? CURRENT_FINGERPRINT_VERSION,
+    );
+
+    // Equivalence is detected by fingerprint, but identity is never derived from
+    // it: an identical re-registration returns the creative that already exists.
+    for (const existing of variants.values()) {
+      if (
+        existing.contentFingerprint === fingerprint &&
+        existing.contentFingerprintVersion === version &&
+        existing.hypothesisId === input.hypothesisId &&
+        existing.creativeFamilyId === input.creativeFamilyId
+      ) {
+        return existing;
+      }
+    }
 
     const variant: CreativeVariant = Object.freeze({
-      creativeId,
+      creativeId: mint("cr"),
       hypothesisId: input.hypothesisId,
       creativeFamilyId: input.creativeFamilyId,
       derivedFromCreativeId: input.derivedFromCreativeId ?? null,
       platformVariantOfCreativeId: input.platformVariantOfCreativeId ?? null,
-      fingerprint,
-      dimensions: Object.freeze({ ...input.dimensions }),
+      contentFingerprint: fingerprint,
+      contentFingerprintVersion: version,
+      media: Object.freeze({ ...input.media }),
       assetContentHash: input.assetContentHash,
+      destinationIsTestedHypothesis,
       createdAt: now().toISOString(),
     });
-    variants.set(creativeId, variant);
-    statuses.set(creativeId, {
+    variants.set(variant.creativeId, variant);
+    variantVenture.set(variant.creativeId, input.ventureId);
+    statuses.set(variant.creativeId, {
       tiktok_organic: "DRAFT",
       tiktok_paid: "DRAFT",
       meta_paid: "DRAFT",
@@ -261,32 +230,67 @@ export function createCreativeLedger(options: CreativeLedgerOptions = {}) {
 
   function deriveVariant(input: DeriveVariantInput): CreativeVariant {
     const parent = mustGet(input.parentCreativeId);
-    const dimensions = { ...parent.dimensions, ...input.changes };
-    const fingerprint = fingerprintCreative({
-      hypothesisId: parent.hypothesisId,
-      creativeFamilyId: parent.creativeFamilyId,
-      dimensions,
-      assetContentHash: input.assetContentHash,
-    });
-    if (fingerprint === parent.fingerprint) {
+    const media = { ...parent.media, ...input.mediaChanges };
+    const { fingerprint } = computeContentFingerprint(
+      {
+        media,
+        delivery: EMPTY_DELIVERY,
+        assetContentHash: input.assetContentHash,
+        destinationIsTestedHypothesis: parent.destinationIsTestedHypothesis,
+      },
+      parent.contentFingerprintVersion as FingerprintVersion,
+    );
+    if (fingerprint === parent.contentFingerprint) {
       throw new CreativeLedgerError(
         "not_a_material_adaptation",
-        `no material dimension changed from ${parent.creativeId}; reuse the same creative id rather than minting a new one`,
+        `no media dimension changed from ${parent.creativeId}; use a delivery variant instead of minting a new creative`,
       );
     }
     return registerVariant({
+      ventureId,
       hypothesisId: parent.hypothesisId,
       creativeFamilyId: parent.creativeFamilyId,
-      dimensions,
+      media,
       assetContentHash: input.assetContentHash,
+      destinationIsTestedHypothesis: parent.destinationIsTestedHypothesis,
       derivedFromCreativeId: parent.creativeId,
       platformVariantOfCreativeId:
         input.relationship === "platform_variant" ? parent.creativeId : null,
+      fingerprintVersion: parent.contentFingerprintVersion as FingerprintVersion,
     });
+  }
+
+  /** Register how a creative was shipped. Same media, different delivery. */
+  function registerDeliveryVariant(
+    creativeId: string,
+    delivery: CreativeDeliveryDimensions,
+  ): DeliveryVariant {
+    mustGet(creativeId);
+    const deliveryFingerprint = computeDeliveryFingerprint(delivery);
+    const key = `${creativeId}::${deliveryFingerprint}`;
+    const existingId = deliveryByFingerprint.get(key);
+    if (existingId) return deliveryVariants.get(existingId)!;
+
+    const record: DeliveryVariant = Object.freeze({
+      deliveryVariantId: mint("dv"),
+      creativeId,
+      deliveryFingerprint,
+      delivery: Object.freeze({ ...delivery }),
+      createdAt: now().toISOString(),
+    });
+    deliveryVariants.set(record.deliveryVariantId, record);
+    deliveryByFingerprint.set(key, record.deliveryVariantId);
+    return record;
   }
 
   function mapProviderObject(input: ProviderObjectInput): CreativeProviderObject {
     mustGet(input.creativeId);
+    if (input.deliveryVariantId && !deliveryVariants.has(input.deliveryVariantId)) {
+      throw new CreativeLedgerError(
+        "unknown_delivery_variant",
+        `unknown delivery variant ${input.deliveryVariantId}`,
+      );
+    }
     const key = providerObjectKey(input.provider, input.objectKind, input.externalId);
     const existing = providerObjects.get(key);
     if (existing) {
@@ -299,7 +303,13 @@ export function createCreativeLedger(options: CreativeLedgerOptions = {}) {
       return existing;
     }
     const record: CreativeProviderObject = Object.freeze({
-      ...input,
+      creativeId: input.creativeId,
+      deliveryVariantId: input.deliveryVariantId ?? null,
+      provider: input.provider,
+      objectKind: input.objectKind,
+      externalId: input.externalId,
+      externalAccountId: input.externalAccountId,
+      ventureId: input.ventureId,
       recordedAt: now().toISOString(),
     });
     providerObjects.set(key, record);
@@ -315,8 +325,7 @@ export function createCreativeLedger(options: CreativeLedgerOptions = {}) {
     const track = statuses.get(creativeId)!;
     const current = track[network];
     if (current === next) return current;
-    const allowed = transitionsFor(network)[current];
-    if (!allowed.includes(next)) {
+    if (!transitionsFor(network)[current].includes(next)) {
       throw new CreativeLedgerError(
         "invalid_status_transition",
         `${network} cannot move from ${current} to ${next}`,
@@ -327,12 +336,22 @@ export function createCreativeLedger(options: CreativeLedgerOptions = {}) {
   }
 
   return {
+    ventureId,
     registerVariant,
     deriveVariant,
+    registerDeliveryVariant,
     mapProviderObject,
     recordStatus,
-    getVariant: (creativeId: string): CreativeVariant | undefined => variants.get(creativeId),
-    listVariants: (): readonly CreativeVariant[] => [...variants.values()],
+    getVariant: (creativeId: string): CreativeVariant | undefined => {
+      const variant = variants.get(creativeId);
+      if (!variant || variantVenture.get(creativeId) !== ventureId) return undefined;
+      return variant;
+    },
+    getDeliveryVariant: (id: string): DeliveryVariant | undefined => deliveryVariants.get(id),
+    listDeliveryVariants: (creativeId: string): readonly DeliveryVariant[] =>
+      [...deliveryVariants.values()].filter((entry) => entry.creativeId === creativeId),
+    listVariants: (): readonly CreativeVariant[] =>
+      [...variants.values()].filter((entry) => variantVenture.get(entry.creativeId) === ventureId),
     listProviderObjects: (creativeId: string): readonly CreativeProviderObject[] =>
       [...providerObjects.values()].filter((entry) => entry.creativeId === creativeId),
     resolveByProviderObject: (
