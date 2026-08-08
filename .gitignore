@@ -19,6 +19,9 @@ coverage/
 # local first-party evidence fallback (dev only, never production storage)
 .data/
 
+# durable local workflow runs and sanitized traces
+.venture/
+
 # vercel
 .vercel/
 

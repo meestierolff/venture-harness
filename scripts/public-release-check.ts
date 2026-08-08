@@ -10,10 +10,15 @@ import { ROOT, Reporter, readText, loadYaml } from "./lib/util";
 
 const r = new Reporter("public-release-check");
 
-// Tracked files come from git so .gitignore is respected.
+// Include tracked and not-yet-committed files while still respecting
+// .gitignore. A pre-commit release check must not miss newly added material.
 let tracked: string[] = [];
 try {
-  tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
+  tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
 } catch {
   r.fail(
     "git",

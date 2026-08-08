@@ -12,6 +12,8 @@
  * distinguish "failed" from "could not run").
  */
 import { Reporter } from "./lib/util";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const urlFlag = process.argv.indexOf("--url");
 const BASE = urlFlag !== -1 ? process.argv[urlFlag + 1] : "http://localhost:3000";
@@ -28,9 +30,24 @@ const ROUTES: { path: string; expectPrice: boolean }[] = [
   { path: "/pricing", expectPrice: true },
 ];
 
-const r = new Reporter(`verify-raw-html (${BASE})`);
+/** Semantic core-content check: require a server-rendered main region with a
+ * real content element. It deliberately avoids a word-count threshold; a
+ * concise product can be complete and a long page can still be empty filler. */
+export function hasServerRenderedCoreContent(html: string): boolean {
+  const main = html.match(/<main(?:\s[^>]*)?>([\s\S]*?)<\/main>/i)?.[1];
+  if (!main) return false;
+  const withoutNonContent = main
+    .replace(/<(script|style|template)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--([\s\S]*?)-->/g, " ");
+  return [
+    ...withoutNonContent.matchAll(
+      /<(p|section|article|ul|ol|dl|table|form)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi,
+    ),
+  ].some((match) => /[\p{L}\p{N}]/u.test(match[2].replace(/<[^>]+>/g, " ")));
+}
 
 async function main() {
+  const r = new Reporter(`verify-raw-html (${BASE})`);
   // Reachability probe first.
   try {
     await fetch(BASE, { redirect: "follow" });
@@ -61,8 +78,8 @@ async function main() {
         ["h1", /<h1[\s>]/.test(html), "server-render exactly one H1"],
         [
           "core content",
-          html.replace(/<[^>]+>/g, " ").split(/\s+/).length > 150,
-          "server-render the core content (>150 words)",
+          hasServerRenderedCoreContent(html),
+          "server-render a semantic <main> with a real content element",
         ],
         ["internal links", /<a[^>]+href="\//.test(html), "server-render internal links"],
         ["structured data", /application\/ld\+json/.test(html), "render <StructuredData> JSON-LD"],
@@ -84,4 +101,5 @@ async function main() {
   r.finish();
 }
 
-void main();
+const entry = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (import.meta.url === entry) void main();

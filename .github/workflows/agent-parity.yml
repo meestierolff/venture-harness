@@ -16,6 +16,13 @@ on:
       - "scripts/lib/skill-sync.ts"
       - "config/framework.yaml"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-parity-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   parity:
     runs-on: ubuntu-latest

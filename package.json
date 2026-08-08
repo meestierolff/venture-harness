@@ -1,9 +1,12 @@
 {
   "name": "venture-harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "A reusable, agent-neutral harness for starting, validating, designing, building, measuring, and improving new software businesses. Prove demand before expanding product scope.",
+  "description": "An agent-neutral launch operating system for typed planning, authorized provider operations, durable workflows, direct evidence, and bounded learning.",
   "license": "MIT",
+  "bin": {
+    "vh": "bin/vh.mjs"
+  },
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20.9.0"
@@ -17,9 +20,18 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:workflow": "vitest run tests/workflow*.test.ts tests/cli*.test.ts",
+    "test:providers": "vitest run tests/credentials*.test.ts tests/providers*.test.ts tests/runtime-provider*.test.ts",
+    "test:migrations": "vitest run tests/migrations.test.ts tests/upgrade.test.ts tests/upgrade-operational.test.ts tests/quality-migrations.test.ts",
+    "test:fixtures": "vitest run tests/launch-router.test.ts tests/launch-fixtures.test.ts tests/cli-launch-integration.test.ts tests/mobile-scaffold.test.ts",
+    "test:data": "vitest run tests/data-sync.test.ts tests/data-provider-http-connectors.test.ts tests/default-data-learning-runtime.test.ts tests/analytics*.test.ts",
+    "test:learning": "vitest run tests/learning-loops.test.ts tests/learning-schedule.test.ts tests/learning-cadence-workflow.test.ts tests/cli-learning-integration.test.ts tests/default-data-learning-runtime.test.ts",
+    "test:authorization": "vitest run tests/authorization.test.ts tests/checkpoint-evidence.test.ts tests/launch-authorization-scope.test.ts",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "agents:sync": "tsx scripts/sync-agent-skills.ts",
     "agents:check": "tsx scripts/check-agent-parity.ts",
+    "lock:refresh": "tsx scripts/refresh-harness-lock.ts",
     "validate:skills": "tsx scripts/validate-skills.ts",
     "validate:docs": "tsx scripts/validate-docs.ts",
     "validate:links": "tsx scripts/validate-links.ts",
@@ -32,13 +44,17 @@
     "verify:experiment-assignment": "tsx scripts/verify-experiment-assignment.ts",
     "verify:pricing-recording": "tsx scripts/verify-pricing-recording.ts",
     "verify": "tsx scripts/framework-health.ts --strict",
+    "verify:fast": "tsx scripts/run-quality-profile.ts fast",
+    "verify:mvp": "tsx scripts/run-quality-profile.ts mvp",
+    "verify:release": "tsx scripts/run-quality-profile.ts release",
     "health": "tsx scripts/framework-health.ts",
     "weekly": "tsx scripts/run-weekly-demand-analysis.ts",
     "outcome:add": "tsx scripts/append-outcome.ts",
     "experiment:add": "tsx scripts/append-experiment.ts",
     "improve:propose": "tsx scripts/propose-improvement.ts",
     "release:check": "tsx scripts/public-release-check.ts",
-    "init:venture": "tsx scripts/init-venture.ts"
+    "init:venture": "tsx scripts/init-venture.ts",
+    "vh": "tsx scripts/vh.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
@@ -49,7 +65,9 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/eslintrc": "^3.2.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

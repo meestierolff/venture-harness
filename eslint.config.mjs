@@ -13,6 +13,7 @@ const eslintConfig = [
       ".claude/skills/**",
       "examples/**",
       "coverage/**",
+      "next-env.d.ts",
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
