@@ -39,3 +39,20 @@ export {
   type CreativeStatus,
   type CreativeVariant,
 } from "./types";
+export {
+  METRIC_IDS,
+  MetricError,
+  SNAPSHOT_OFFSETS_MINUTES,
+  createMetricSnapshot,
+  recordMetricValue,
+  sumComparable,
+  type MetricAvailability,
+  type MetricConfidence,
+  type MetricDefinition,
+  type MetricId,
+  type MetricSnapshot,
+  type MetricSnapshotInput,
+  type MetricUnit,
+  type MetricValue,
+  type MetricValueInput,
+} from "./metrics";
