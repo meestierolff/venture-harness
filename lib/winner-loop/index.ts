@@ -11,6 +11,22 @@ export {
   type RegisterVariantInput,
 } from "./creative-ledger";
 export {
+  SpendError,
+  createSpendLedger,
+  type AutoPauseDecision,
+  type AutoPauseReason,
+  type AutoPauseSignals,
+  type Reservation,
+  type ReservationStatus,
+  type ReserveInput,
+  type ScaleProposal,
+  type SpendErrorCode,
+  type SpendGrant,
+  type SpendGrantInput,
+  type SpendLedger,
+  type SpendLedgerOptions,
+} from "./spend";
+export {
   CREATIVE_NETWORKS,
   CREATIVE_STATUSES,
   type CreativeMaterialDimensions,
