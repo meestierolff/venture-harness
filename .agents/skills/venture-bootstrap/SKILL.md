@@ -1,6 +1,6 @@
 ---
 name: venture-bootstrap
-description: Turn an ideation brief and design brief into a coherent venture repository and measurable validation-website plan. Use when starting a new venture from filled-in inputs/ briefs, or when project docs are template-empty. Do not use for redesigns, new experiments, or feature work on an already-bootstrapped venture.
+description: Convert a founder brief or build prompt into the minimum truthful v0.2 venture contract, explicit assumptions, selected launch mode and rail inputs, compact core documents, and a launch-ready plan. Use when creating a new child venture or upgrading template-empty inputs; do not use for an already-bootstrapped feature, redesign, provider operation, or learning review.
 ---
 
 <!-- GENERATED FILE - do not edit. Canonical source: skills/venture-bootstrap/SKILL.md. Regenerate with: pnpm agents:sync -->
@@ -9,125 +9,79 @@ description: Turn an ideation brief and design brief into a coherent venture rep
 
 ## Purpose
 
-Convert `inputs/VENTURE_BRIEF.md` and `inputs/DESIGN_BRIEF.md` into a
-coherent set of project documents, configuration, and an active execution
-plan — and refuse to let application code be written before the venture's
-commercial logic is coherent.
+Create enough coherent, reviewable state for `$launch-orchestrator` to start
+building without forcing non-critical commercial paperwork.
 
 ## Trigger conditions
 
-- A new repository created from the template with filled-in briefs.
-- `PROJECT.md` still says "TEMPLATE — no venture loaded".
-- The founder asks to "start", "bootstrap", or "set up" the venture.
+- `vh create --brief`, a new child repository, or template-empty venture docs.
 
 ## When not to use
 
-- The venture is already bootstrapped (PROJECT.md names a venture) — use
-  the specific skill for the change instead.
-- The briefs are empty — stop and ask the founder to fill them in; do not
-  invent a venture.
+- Existing venture feature work, redesigns, new experiments, provider apply,
+  or central harness development.
 
 ## Required inputs
 
-- `inputs/VENTURE_BRIEF.md` (non-empty)
-- `inputs/DESIGN_BRIEF.md` (non-empty)
-- `inputs/RESEARCH.md` (optional)
-- Current project documents and codebase state.
+One brief/build prompt containing a specific user/audience, problem/job, useful
+outcome, smallest core journey, primary success signal, material constraints,
+and known truth/assumptions.
 
 ## Documents to read
 
-AGENTS.md, PROJECT.md, all of `docs/business/`, `docs/product/`,
-`docs/brand/BRAND.md`, `docs/growth/DISTRIBUTION.md`,
-`docs/engineering/ANALYTICS.md`, `config/*.yaml`,
-`references/bootstrap-blockers.md` (in this skill).
+Read inputs, product truth template, venture/launch/policy contracts, project
+state, active plan, and `references/validation-bootstrap-v0.1.md` only when
+upgrading an old validation-first venture.
 
 ## Files this skill may change
 
-`PROJECT.md`, `docs/business/*`, `docs/product/*`, `docs/brand/*`,
-`docs/growth/*`, `config/venture.yaml`, `config/offer.yaml`,
-`config/experiments.yaml`, `config/analytics.yaml` (event additions only),
-`docs/plans/active/*`, `memory/*.jsonl` (via append scripts only).
+Venture contract/config, `PROJECT.md`, compact product truth, launch plan,
+architecture/ADR, measurement plan, decision log, runbook, privacy inventory,
+and venture-owned brief artifacts.
 
 ## Files this skill must not change
 
-`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `skills/**`, `scripts/**`,
-`.agents/**`, `.claude/**`, `app/**`, `components/**`, `lib/**`
-(no application code during bootstrap), `.github/**`, `LICENSE`.
+Application code, provider resources, credential values, generated adapters,
+or claims beyond the supplied evidence during this bootstrap step.
 
 ## Execution steps
 
-1. Read the briefs and research. List every claim they make, tagged
-   fact / belief / hope.
-2. Interrogate: identify contradictions, missing evidence, assumptions,
-   unsupported claims, unpriced service work, unclear target users,
-   unmeasurable goals, missing qualification criteria, and missing launch
-   infrastructure. Write the list into PROJECT.md → Pending decisions.
-3. Run `$offer-architect` to produce OFFER/ICP/PRICING/ECONOMICS/
-   COMPETITION and `config/offer.yaml`, including the deterministic
-   thirty-day cash calculation.
-4. Run `$validation-engine` to produce VALIDATION.md: demand hypotheses,
-   thresholds, qualification rule, 30/60/90-day gates, stop rules — and
-   fill the validation block of `config/venture.yaml`.
-5. Define the behavioural event map: confirm every journey in
-   USER_JOURNEYS.md is covered by events in `config/analytics.yaml`;
-   propose additions if the venture needs them (one PR-sized change).
-6. Set consent mode and confirm the analytics/consent plan against
-   `docs/legal/ANALYTICS_AND_CONSENT.md`.
-7. Define at least one pricing experiment in `config/experiments.yaml`
-   (status: draft) with variants carrying exact displayed offers/prices.
-8. Draft brand/design foundations: BRAND.md identity table from the design
-   brief; leave DESIGN.md system decisions to `$design-director`.
-9. Draft SEO plan (page register rows for planned routes) and distribution
-   plan (habitat map skeleton with the founder's known channels).
-10. Write the launch-readiness checklist state into `config/venture.yaml`
-    (infrastructure block, all false) covering domain, Vercel, Neon, GA4,
-    Google Search Console, Bing Webmaster Tools.
-11. Write the 30-to-90-day validation plan and weekly review instructions
-    into VALIDATION.md, referencing `pnpm weekly`.
-12. Replace `docs/plans/active/000-adopt-harness.md` with the venture's
-    first real plan (design + build the validation website).
-13. Update PROJECT.md: venture summary, stage `demand_validation`
-    (pre-launch), current focus, pending decisions.
-14. Run `pnpm verify`; fix anything it reports.
+1. Parse the brief; separate verified facts, founder assertions, assumptions,
+   constraints, unknowns, and contradictions.
+2. Block only unintelligible outcome, deception, material unsafe choice that
+   cannot default, indispensable credential/action absence, or unauthorized
+   irreversible effect.
+3. Record all other missing information as labeled assumptions/backlog.
+4. Populate the v0.2 venture contract and conservative risk/privacy defaults.
+5. Produce inputs for mode/rail/payment/capability routing without preempting
+   the deterministic/router decision.
+6. Create only the compact core docs relevant to active capabilities.
+7. Hand off to `$launch-orchestrator` for `vh plan` and dry run.
 
 ## Hard rules
 
-- Do not write application code until ALL of these are coherent: ICP,
-  pain, measurable outcome, offer, first useful result, pricing
-  hypothesis, thirty-day cash hypothesis, validation event taxonomy,
-  analytics architecture, consent mode, at least one pricing experiment
-  hypothesis, product-truth boundaries, and an active plan.
-- Never invent facts the briefs do not contain — record gaps as open
-  questions instead.
-- Every number in config comes from the briefs, research, or an explicit
-  labeled assumption.
-- Reject generic ICPs; force narrowing before proceeding.
+- Never invent market evidence, users, pricing, integrations, metrics, or capability state.
+- No mandatory pricing experiment; experiments require traffic and decision value.
+- No universal 30/60/90 plan; preserve it only for selected `validate_first`.
+- Sample, prototype, planned, and concierge work stays labeled.
+- Missing non-critical facts do not block reversible local code.
 
 ## Expected output
 
-Coherent PROJECT.md, business docs, product docs (incl. product truth
-boundaries), brand and design briefs, SEO plan, distribution plan,
-analytics and consent plan, experiment plan with ≥1 pricing experiment,
-30-to-90-day validation plan, launch-readiness checklist, architecture
-notes if deviating from defaults, and one active execution plan.
+A valid v0.2 contract, assumptions/backlog, compact core docs, and a launch-plan
+handoff with only genuine blockers.
 
 ## Validation
 
-`pnpm verify` passes; `pnpm validate:docs` shows no template-state
-required docs; the bootstrap-blocker list in
-`references/bootstrap-blockers.md` is empty or every remaining item is in
-PROJECT.md → Pending decisions.
+Run config/document validation and `vh plan`; verify every public claim status
+and active core journey has a primary signal.
 
 ## Failure behaviour
 
-If a blocker cannot be resolved from the briefs: stop, list the blocker
-under PROJECT.md → Pending decisions with the exact question the founder
-must answer, and report per AGENTS.md progress rules. Never fill the gap
-with invention.
+Preserve parsed inputs and report the exact blocking field or contradiction.
+Do not fill a gap with model invention or silently fall back to validation-first.
 
 ## Human approval boundaries
 
-Bootstrap writes documents and config only. It never: registers domains,
-creates cloud resources, sends messages, publishes, charges, deploys, or
-merges. The founder reviews and approves the bootstrap output before any
-build work starts.
+Bootstrap writes local reviewable state only. Provider apply, deployment,
+publication, sending, charging, DNS, and store effects remain envelope-gated.

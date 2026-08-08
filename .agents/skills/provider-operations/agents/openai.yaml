@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: provider-operations
+description: >-
+  Operate launch providers through official transports with credential refs,
+  typed effects, idempotency, read-back verification, redaction, and honest
+  manual actions.
+entrypoint: SKILL.md

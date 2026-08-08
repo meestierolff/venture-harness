@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: mobile-launch
+description: >-
+  Choose and launch Expo or SwiftUI iOS rails with secure signing refs,
+  TestFlight, RevenueCat, deterministic store assets, ASO, and honest Apple
+  manual nodes.
+entrypoint: SKILL.md

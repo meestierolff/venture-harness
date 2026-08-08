@@ -1,8 +1,7 @@
 # Codex skill metadata
 name: seo-aeo-engine
 description: >-
-  Manage search and answer-engine visibility: route query ownership,
-  metadata, structured data, crawlability and raw-HTML verification, weekly
-  GSC/Bing/AI-referral analysis, consolidation. Proposes changes and
-  prepares PRs; never mass-publishes.
+  Run web SEO, AEO, GEO, and iOS ASO through focused playbooks, direct
+  provider evidence, canonical ownership, truthful public facts, and bounded
+  improvements. Never mass-publishes or fabricates visibility.
 entrypoint: SKILL.md

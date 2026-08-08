@@ -1,0 +1,6 @@
+# Codex skill metadata
+name: learning-loops
+description: >-
+  Sync real provider evidence and run bounded daily, weekly, biweekly, or
+  monthly reviews with freshness, limitations, action caps, and safe autonomy.
+entrypoint: SKILL.md

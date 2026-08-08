@@ -1,104 +1,77 @@
 ---
 name: weekly-learning
-description: The weekly demand, funnel, pricing, and SEO review - aggregate the week's evidence, write the weekly report, and propose exactly one evidence-cited conceptual change. Use only when explicitly invoked on a weekly cadence. Never self-merge, self-deploy, publish, or send anything.
+description: Compatibility entry point for the weekly demand, funnel, pricing, discovery, product, and reliability review. Use only when explicitly invoked for a weekly cadence; delegate ingestion, freshness, bounded analysis, and output to the weekly mode of $learning-loops. Never merge, deploy, publish, send, or act on missing data.
 ---
 
 # weekly-learning
 
 ## Purpose
 
-Turn a week of market outcomes into one well-evidenced proposal — or into
-an honest "do nothing, evidence is weak". Keep the venture improving one
-concept at a time.
+Preserve the familiar explicit weekly entry point while using the v0.2
+data-aware learning-loop contract.
 
 ## Trigger conditions
 
-- Explicit invocation only (weekly cadence, or after a gate date).
+- Explicit weekly review invocation or a weekly schedule.
 
 ## When not to use
 
-- Mid-week reactions to single data points.
-- As a vehicle for shipping unrelated changes.
+- Daily health, biweekly product, monthly strategy, or unscheduled feature work.
 
 ## Required inputs
 
-- memory/outcomes.jsonl, experiments.jsonl, corrections.jsonl,
-  customer-language.jsonl
-- data/seo/inbox/* and data/analytics/inbox/* exports (as available)
-- Neon conversion exports (as available), interview notes
-  (data/interviews/), active experiments (config/experiments.yaml),
-  current config.
+The weekly loop definition, active sources, freshness report, release log,
+hypotheses/experiments, product truth, and current authorization/autonomy.
 
 ## Documents to read
 
-AGENTS.md, docs/product/VALIDATION.md (thresholds and gates),
-docs/product/EXPERIMENTS.md, docs/growth/SEO.md, the previous weekly
-report in reports/weekly/.
+Read `$learning-loops`, the current cadence/measurement docs, and
+`references/v0.1-weekly-review.md` only for an old report migration.
 
 ## Files this skill may change
 
-`reports/weekly/YYYY-Www.md` (new), `memory/*.jsonl` via append scripts,
-`docs/plans/active/` (one proposal file via `pnpm improve:propose`),
-experiment result fields in `config/experiments.yaml` when a
-pre-declared rule decides.
+Weekly reports, cadence state, proposed plans/issues/PRs, and verified low-risk
+fixes only when the loop autonomy permits them.
 
 ## Files this skill must not change
 
-Thresholds, consent rules, approval rules, `app/**` code (proposals only),
-anything requiring publication or deployment.
+Raw exports, secrets/PII, prices, material claims, outreach/spend/privacy,
+destructive data, nameservers, or store releases.
 
 ## Execution steps
 
-1. Run `pnpm weekly` — the deterministic aggregation script builds the
-   report skeleton from inbox exports and memory.
-2. Read the skeleton plus the qualitative sources (interviews, customer
-   language). Fill the judgement sections: what the market did, which
-   hypothesis moved, funnel and SEO findings, experiment status against
-   pre-declared rules.
-3. Apply decision rules exactly as pre-declared in VALIDATION.md /
-   experiments.yaml. Record experiment results with exposures and
-   limitations, via `pnpm experiment:add`.
-4. Propose at most ONE conceptual change: cite exact evidence (event
-   counts, query rows, verbatim customer language), show the relevant
-   evaluation score before, and define what "after" must show. Use
-   `pnpm improve:propose` to file it.
-5. If evidence is weak: propose nothing. Write that down as the outcome.
-6. Append the week's outcome to memory via `pnpm outcome:add` (including
-   negative outcomes — they are retained, never pruned).
-7. If a previous proposal's change did not improve its evaluation,
-   propose the revert with the same rigour.
+1. Run `vh data sync`, then validate source freshness and limitations.
+2. Invoke `vh learn weekly` / the weekly mode of `$learning-loops`.
+3. Review acquisition, search/AEO/GEO/ASO, activation, checkout, qualified
+   conversion, subscription, feedback, reliability, and protected winners only
+   where active capabilities provide evidence.
+4. Return at most three high-confidence actions by default, with one active
+   conceptual hypothesis per affected journey and unlimited verified bug fixes.
+5. Record limitations, autonomy effects, next run, and required approvals.
 
 ## Hard rules
 
-- One conceptual change per week, maximum.
-- Exact evidence citations; no directional hand-waving.
-- Score before and after (or the plan to measure after).
-- Revert changes that did not improve their evaluation.
-- Do nothing when evidence is weak.
-- Retain negative outcomes in memory.
-- Never self-merge, never self-deploy, never publish, never send
-  commercial communication.
+- No result without source/exposure data, freshness, and limitations.
+- Missing is not zero; no empty scheduled report is called a review.
+- Do not overreact to small samples or overwrite protected winners.
+- Default autonomy is propose/open PR, not publish or merge.
 
 ## Expected output
 
-`reports/weekly/YYYY-Www.md` (from the template, all sections either
-filled or marked "no data"), memory appends, and zero or one proposal —
-optionally summarised as a small PR description for human review.
+A dated weekly report with source quality, protected winners, bounded actions,
+limitations, next run, and any exact blocker.
 
 ## Validation
 
-Report exists and parses; every claim in it links to its data source;
-proposal (if any) contains evidence, prior score, and success criterion;
-`pnpm verify` passes.
+Run weekly ingestion/report fixtures, missing/stale behavior, and the applicable
+quality profile.
 
 ## Failure behaviour
 
-Missing exports are listed by exact expected filename (see
-data/*/inbox/README.md) and the report says which sections are blind.
-Contradictory data is reported as contradictory — not averaged away.
+Continue with unaffected sources and mark the decision `insufficient evidence`
+when required inputs are absent or stale.
 
 ## Human approval boundaries
 
-Proposals are merged by humans. Experiment stop/adopt decisions that
-deviate from pre-declared rules are human decisions. This skill sends,
-publishes, deploys, and merges nothing.
+Conceptual changes, experiment decisions, prices, claims, publishing, sending,
+spend, destructive effects, store actions, and merge remain human-gated.

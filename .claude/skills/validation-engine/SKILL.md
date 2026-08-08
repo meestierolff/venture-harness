@@ -9,10 +9,9 @@ description: Design and maintain demand hypotheses, validation tests, success th
 
 ## Purpose
 
-Decide **what should be tested** and **what the evidence must show**:
-demand hypotheses, test designs (ICP, hero, proof, pricing, CTA,
-fake-door, pilot), qualification rules, thresholds, stop rules, and the
-30/60/90-day decision gates.
+Decide **what should be tested** and **what the evidence must show** for a
+selected launch mode: demand hypotheses, test designs, qualification rules,
+thresholds, stop rules, and optional 30/60/90-day `validate_first` gates.
 
 ## Trigger conditions
 
@@ -28,8 +27,9 @@ fake-door, pilot), qualification rules, thresholds, stop rules, and the
 
 ## Required inputs
 
-- docs/business/OFFER.md and ICP.md (coherent)
-- config/venture.yaml (validation block)
+- The venture/launch contract and smallest useful core journey
+- docs/business/OFFER.md and ICP.md when the test is commercial
+- config/venture.yaml validation strategy when `validate_first`
 - memory/experiments.jsonl and outcomes.jsonl (history, may be empty)
 
 ## Documents to read
@@ -60,8 +60,9 @@ $experiment-analytics-engine under a plan), `docs/product/PRODUCT_TRUTH.md`
    disclosure), pilot flows.
 4. Declare per test: primary metric, secondary metrics, guardrails,
    sample limits, stopping rules, attribution requirements — before start.
-5. Set success/failure definitions and the 30/60/90-day gates; write stop
-   rules into VALIDATION.md and config/venture.yaml.
+5. Set success/failure definitions and stop rules. Add 30/60/90-day gates only
+   when selected for `validate_first`; other modes use their configured evidence
+   and decision cadence.
 6. Record product-truth disclosures the tests require (prototype labels,
    concierge disclosure, sample-data labels).
 7. Hand implementable definitions to $experiment-analytics-engine via
@@ -75,29 +76,32 @@ $experiment-analytics-engine under a plan), `docs/product/PRODUCT_TRUTH.md`
   for an undeliverable service. No hidden ownership or rights transfer.
 - Label sample and demo data.
 - Optimise for high-intent behaviour, not page views or signups.
-- Store exact offers and prices shown (delegated to the analytics engine).
+- Store exact offers and prices shown when pricing is part of the test
+  (delegated to the analytics engine).
 - Distinguish exploration from a controlled test; report them differently.
 - Document sample limitations with every result.
 - Do not declare winners from weak evidence; "inconclusive" is a result.
-- Change one experimental concept at a time.
+- Controlled experiments are optional; change one experimental concept at a time.
+- Non-critical commercial unknowns do not block reversible MVP implementation.
 
 ## Expected output
 
-Updated VALIDATION.md (hypotheses, setup, definitions, gates, stop rules,
+Updated VALIDATION.md (hypotheses, setup, definitions, optional gates, stop rules,
 disclosures), experiment definitions in config/experiments.yaml (draft),
 updated EXPERIMENTS.md register, decisions recorded with limitations.
 
 ## Validation
 
-`pnpm verify` passes; every hypothesis has a threshold; every experiment
-has primary metric + stopping rule + minimum observations; gates have
-dates once launch_date is set.
+`pnpm verify` passes; every active hypothesis has a threshold; every controlled
+experiment has primary metric + stopping rule + minimum observations; optional
+gates have dates once their launch date is set.
 
 ## Failure behaviour
 
 When evidence is insufficient for a decision, the recorded outcome is
 "insufficient evidence — continue / stop per pre-declared rule", never a
-softened win. Missing thresholds block launch, and the block is reported.
+softened win. Missing thresholds block activating that test, not unrelated
+reversible product work.
 
 ## Human approval boundaries
 

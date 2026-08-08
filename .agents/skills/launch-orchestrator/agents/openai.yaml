@@ -1,0 +1,7 @@
+# Codex skill metadata
+name: launch-orchestrator
+description: >-
+  Compile one founder brief into a typed web, iOS, or hybrid launch graph,
+  execute it safely, resume interruptions, verify journeys, and report only
+  real provider state and genuine manual actions.
+entrypoint: SKILL.md

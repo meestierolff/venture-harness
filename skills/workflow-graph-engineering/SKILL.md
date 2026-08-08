@@ -1,100 +1,93 @@
 ---
 name: workflow-graph-engineering
-description: Design explicit multi-node agent workflow graphs - bounded jobs as nodes, data dependencies as edges, deterministic code for plumbing, model calls for judgement, human approval as explicit nodes. Use only when explicitly invoked for large parallelisable work. Never use implicitly or for small tasks.
+description: Design, compile, execute, inspect, and improve explicit multi-node workflow graphs with typed state, data-only edges, deterministic routing, bounded parallelism, checkpoints, retries, budgets, evidence, and human interrupts. Use only when explicitly invoked for a genuinely large parallelizable workflow or when maintaining the vh graph runtime; never introduce a graph for small or linear work.
 ---
 
 # workflow-graph-engineering
 
 ## Purpose
 
-Plan and run large agent workloads as explicit graphs: bounded nodes,
-real data-dependency edges, deterministic plumbing, isolated failures,
-and human approval as first-class nodes.
+Use the lightweight `vh` runtime to make large workflows inspectable,
+resumable, idempotent, and failure-isolated.
 
 ## Trigger conditions
 
-- Explicit invocation only. Implicit invocation is false.
-- The work genuinely decomposes into ≥4 bounded jobs with real data
-  dependencies (e.g. multi-page content production with verification, a
-  full-site audit with several lenses).
+- Explicit invocation for work with at least four bounded jobs and real data dependencies.
+- Runtime/schema/scheduler work for an existing launch graph.
 
 ## When not to use
 
-- Small tasks (one or two steps) — just do them.
-- Work without real data dependencies — a flat checklist beats a graph.
-- As a way to look sophisticated. A graph must earn its overhead.
+- Small, linear, or independent checklist work.
+- A graph used as decoration or a knowledge graph for launch orchestration.
 
 ## Required inputs
 
-- A goal with decomposable structure; assets/graph-plan.yaml (template);
-  the active plan authorising the work.
+Goal, typed node inputs/outputs, active plan, runtime policies, validators,
+budgets, authorization envelope, and relevant capability/provider descriptors.
 
 ## Documents to read
 
-AGENTS.md, docs/engineering/WORKFLOW_GRAPHS.md, the active plan,
-assets/graph-plan.yaml (in this skill).
+Read `docs/engineering/WORKFLOW_GRAPHS.md`, the active plan/graph, relevant
+ADRs, and `references/planning-v0.1.md` only for migration ambiguity.
 
 ## Files this skill may change
 
-A new graph plan file under `docs/plans/active/`, node output artifacts
-in the locations the plan declares, `reports/**` for run summaries.
+Active graph plans, `lib/workflow/**`, graph tests/fixtures, declared node
+outputs, sanitized run/launch reports, and runtime docs.
 
 ## Files this skill must not change
 
-Anything outside the declared node outputs; `memory/*` except via append
-scripts; `config/**` unless a node's declared output.
+Anything outside declared node outputs, secrets, append-only memory except via
+scripts, or provider state without adapter read-back.
 
 ## Execution steps
 
-1. Write the graph plan from assets/graph-plan.yaml: nodes (bounded jobs
-   with structured inputs and validated outputs), edges (only where
-   downstream consumes upstream data), patterns (fan-out, fan-in,
-   barriers, pipelines, routers, verifier nodes), model tier per node,
-   expected latency and cost, failure isolation, worktree isolation for
-   file-editing nodes, human approval nodes.
-2. Review the plan against: every edge justified by consumed data; no
-   node both judges and aggregates; verifier nodes use diverse review
-   lenses (different prompts, not copies); convergent cycles declare a
-   stability condition and deduplicate against all previously seen
-   results.
-3. Use code (scripts) for flattening, filtering, sorting, deduplication,
-   validation, and deterministic routing between nodes. Use models only
-   for judgement, synthesis, critique, and writing.
-4. Execute with failure isolation: a failed node reports and is retried
-   or dropped without corrupting siblings; barriers wait for complete
-   inputs.
-5. Summarise the run: node outcomes, cost/latency vs estimate, what the
-   graph structure got wrong.
+1. Define bounded nodes with purpose, capability, dependencies, condition,
+   structured I/O contract, deterministic validator, transport/model tier,
+   effect/risk/auth, idempotency, timeout/retry/backoff, concurrency, budget,
+   cache/isolation, compensation, evidence, and completion criterion.
+2. Add an edge only when downstream consumes named upstream data. Validate IDs,
+   references, cycles, authorization, budgets, and fan-in contracts.
+3. Use code for routing, state, retries, aggregation, caching, deduplication, and
+   budgets; use models for judgment, synthesis, critique, and writing.
+4. Dry-run to inspect critical path, parallel work, effects, cost, approvals,
+   manual actions, and verification.
+5. Execute with atomic state/events after every transition. Interrupt for real
+   approval/manual input and resume the same run.
+6. Retry only retryable failures; never repeat a verified idempotency key;
+   compensate only when declared safe.
+7. Summarize outcomes, trace/cost/timing, failures, and graph-structure lessons.
 
 ## Hard rules
 
-- Explicit invocation only; set implicit invocation false wherever the
-  agent platform supports the setting.
-- An edge exists only when downstream work consumes upstream data.
-- Human approval nodes are never skipped or simulated.
-- Model tiering is declared per node (cheap for extraction/format,
-  capable for judgement).
-- Deduplication is code, compared against all seen results, not model
-  memory.
+- Invocation remains explicit and `implicit_invocation: false`.
+- Node states follow the runtime contract; no fabricated substitute output.
+- Human interrupts are persisted and never simulated.
+- Secrets are redacted before logs, traces, state, or reports.
+- Budgets and maximum loop iterations are hard stops.
+- Diverse verifiers do not receive the intended answer; code deduplicates
+  against every prior finding.
 
 ## Expected output
 
-A reviewed graph plan, executed node artifacts in declared locations, a
-run summary with costs and deviations.
+A validated graph, durable run state and trace, declared artifacts, evidence,
+and a concise summary of outcomes, limits, cost, and structure lessons.
 
 ## Validation
 
-Plan validates against the template's required fields; node outputs pass
-their declared validators; `pnpm verify` after any repo-affecting node.
+Run graph schema/cycle/scheduling/fan-in/condition/resume/interruption/
+idempotency/retry/compensation/budget/redaction/outage tests plus the applicable
+quality profile.
 
 ## Failure behaviour
 
-A node that fails validation is retried at most its declared retry count,
-then reported as failed with its inputs preserved for inspection. The
-graph never silently substitutes fabricated output for a failed node.
+Preserve inputs/state, classify retryability, isolate siblings, and stop after
+the declared retry/iteration budget. Never restart the full graph merely to
+resume one blocked node.
 
 ## Human approval boundaries
 
-Graph plans that touch public surfaces, config, or memory require plan
-approval before execution. Approval nodes inside the graph gate: sending,
-publishing, charging, deploying, merging — always.
+Authorization nodes gate effects outside the active envelope. Deletion,
+destructive production data, nameserver replacement, bulk/cold sending, excess
+spend, unauthorized charges, and irreversible store publication remain distinct
+checkpoints.
