@@ -593,6 +593,21 @@ managed_files:
   - path: lib/visitor.ts
     ownership: harness
     sha256: 4284e7e3613bd89d5a2163158114ff5adec9facc5ee56836de4e44fb94c89aa0
+  - path: lib/winner-loop/creative-ledger.ts
+    ownership: harness
+    sha256: 8ed71bc301378fc6a5fcb6efb7d10e499cb6ed9f97318567538b0823d2b8666e
+  - path: lib/winner-loop/index.ts
+    ownership: harness
+    sha256: 34a94ccea06a9d5d69819b7c1b2df93254452b310e30052b10d4f9029bbbce35
+  - path: lib/winner-loop/metrics.ts
+    ownership: harness
+    sha256: fce50aba4eb307694aeb95b75e07fde19e62d52d20bd303a665353376d6b2cd2
+  - path: lib/winner-loop/spend.ts
+    ownership: harness
+    sha256: 9b024e1cf45dd46aa5232806110daaf5521543fe167dc86fb7b56b7447aa96ac
+  - path: lib/winner-loop/types.ts
+    ownership: harness
+    sha256: da98a9f784ce81ad7856f5c3e33b2b517440d5abf7a73884553c34f17dfdd2e5
   - path: lib/workflow/errors.ts
     ownership: harness
     sha256: 95f009ad96405cf794a81317386eaa7e67088fe3919add7f0da1bdaefa9f6887
@@ -1013,6 +1028,15 @@ managed_files:
   - path: tests/upgrade.test.ts
     ownership: harness
     sha256: 82a12759c38c778c06e4040b9388d2ac1c58921c8e44c3f65f5660bb9e8957ea
+  - path: tests/winner-loop-creative-ledger.test.ts
+    ownership: harness
+    sha256: 94c18e6ccf8a2ae6ca203a991c14837548a02fe4a9ab61542cbf0607106efa7d
+  - path: tests/winner-loop-metrics.test.ts
+    ownership: harness
+    sha256: 424ddcd2a596a017603a233748b19b4c3add3904fedfbc715522e2a1a8cdc74f
+  - path: tests/winner-loop-spend-safety.test.ts
+    ownership: harness
+    sha256: 273d85bff0e2a40d49fecd985122ef9e04494c22adda9d5c27b1393c62a14451
   - path: tests/workflow-runtime.test.ts
     ownership: harness
     sha256: 90f7bf8c8a434b84cd5b19b39c6fe5d54c96a231317a46fe54421dd991908d56
