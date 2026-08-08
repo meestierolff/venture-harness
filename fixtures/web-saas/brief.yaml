@@ -1,0 +1,48 @@
+# SYNTHETIC FIXTURE — no real venture, account, credential, resource, or demand data.
+id: synthetic-web-saas
+synthetic: true
+name: Synthetic Web SaaS
+specific_user_or_audience: Small service-business operators who reconcile recurring client work
+problem_or_job: Reconcile delivered work with recurring invoices without spreadsheet drift
+intended_outcome: See an accurate exception list and prepare the next invoice run
+smallest_core_journey: Sign in, import a labeled fixture, review exceptions, and confirm an invoice draft
+primary_success_signal: synthetic_invoice_draft_confirmed
+material_constraints:
+  - No real customer data in the fixture
+  - Stripe remains in test mode
+known_truths:
+  - This fixture exercises only local and mock provider transports
+assumptions:
+  - A narrow import and exception review is useful enough for first usage
+app_kind: web
+requested_mobile_stack: none
+business_model: b2b
+monetization_model: subscription
+native_digital_goods: false
+factors:
+  smallest_useful_build_cost: low
+  smallest_useful_build_time: low
+  reversibility: high
+  regulatory_or_safety_risk: low
+  real_usage_required: high
+  marketplace_cold_start: low
+  operational_burden: moderate
+  founder_evidence: moderate
+  concierge_delivery_fit: low
+  app_store_required: low
+  deep_native_requirements: low
+  on_device_requirements: low
+needs:
+  authenticated_product: true
+  database: true
+  file_storage: false
+  transactional_email: true
+  lifecycle_email: false
+  feedback: true
+  analytics: true
+  search_discovery: true
+  scheduled_learning: true
+preferred_dns_provider: mijndomein
+deceptive_request: false
+unsafe_non_defaultable_choice: null
+indispensable_missing_credential: null

@@ -1,0 +1,49 @@
+# SYNTHETIC FIXTURE — no real app, account, credential, resource, purchase, or user data.
+id: synthetic-ios-subscription
+synthetic: true
+name: Synthetic iOS Subscription
+specific_user_or_audience: iPhone users who want a private recurring practice timer
+problem_or_job: Complete a guided timed practice without sending session content to a server
+intended_outcome: Finish a repeatable practice session and review on-device progress
+smallest_core_journey: Install the app, start a guided timer, finish it, and view local progress
+primary_success_signal: synthetic_practice_session_completed
+material_constraints:
+  - Session content remains on device
+  - RevenueCat Test Store only during fixture execution
+  - The first App Store Connect record is a synthetic manual-node output
+known_truths:
+  - This fixture never uploads a real build or creates an Apple product
+assumptions:
+  - An installed app is required to evaluate the smallest useful outcome
+app_kind: hybrid
+requested_mobile_stack: auto
+business_model: b2c
+monetization_model: subscription
+native_digital_goods: true
+factors:
+  smallest_useful_build_cost: moderate
+  smallest_useful_build_time: moderate
+  reversibility: high
+  regulatory_or_safety_risk: low
+  real_usage_required: high
+  marketplace_cold_start: low
+  operational_burden: moderate
+  founder_evidence: low
+  concierge_delivery_fit: low
+  app_store_required: high
+  deep_native_requirements: low
+  on_device_requirements: moderate
+needs:
+  authenticated_product: false
+  database: false
+  file_storage: false
+  transactional_email: false
+  lifecycle_email: false
+  feedback: true
+  analytics: true
+  search_discovery: true
+  scheduled_learning: true
+preferred_dns_provider: mijndomein
+deceptive_request: false
+unsafe_non_defaultable_choice: null
+indispensable_missing_credential: null
