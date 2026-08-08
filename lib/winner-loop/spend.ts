@@ -1,16 +1,25 @@
 import { createHash } from "node:crypto";
-import type { CreativeNetwork } from "./types";
+import { createIdFactory, type IdFactoryOptions } from "./ids";
+import {
+  createMemorySpendStore,
+  type CapUsage,
+  type SpendStore,
+  type StoredGrant,
+  type StoredReservation,
+} from "./spend-store";
 
 /**
  * Spend safety.
  *
  * The rule this file enforces: the first paid euro requires its own explicit
- * human approval. A Launch Grant, a Customer Service Grant, and an
- * organic-publishing policy authorise none of it — only a Spend Grant does.
+ * human approval. A Launch Grant, a Customer Service Grant, an Agent Grant, an
+ * active subscription, a provider connection, a winner recommendation, and a
+ * Growth Contract authorise none of it — only an active matching Spend Grant
+ * does.
  *
- * All amounts are integer minor units (cents). Floating point is refused at the
- * boundary because a budget ledger that drifts by rounding is a ledger that
- * cannot prove a cap held.
+ * Atomicity is delegated to the store's transaction, not to JavaScript being
+ * single-threaded, because reservations are taken by workers that share nothing
+ * but the database.
  */
 
 export type SpendErrorCode =
@@ -19,23 +28,29 @@ export type SpendErrorCode =
   | "spend_halted"
   | "grant_expired"
   | "grant_not_yet_valid"
+  | "grant_revoked"
   | "creative_not_in_grant"
   | "currency_mismatch"
+  | "network_mismatch"
+  | "account_mismatch"
   | "non_integer_minor_units"
   | "non_positive_amount"
-  | "total_cap_exceeded"
-  | "daily_account_cap_exceeded"
-  | "per_creative_cap_exceeded"
+  | "cap_exceeded"
   | "settlement_exceeds_reservation"
   | "reservation_not_held";
 
+/** Which cap rejected a reservation, when the code is cap_exceeded. */
+export type SpendCap = keyof CapUsage;
+
 export class SpendError extends Error {
   readonly code: SpendErrorCode;
+  readonly cap?: SpendCap;
 
-  constructor(code: SpendErrorCode, message: string) {
+  constructor(code: SpendErrorCode, message: string, cap?: SpendCap) {
     super(message);
     this.name = "SpendError";
     this.code = code;
+    this.cap = cap;
   }
 }
 
@@ -66,48 +81,42 @@ export interface AutoPauseDecision {
 
 export interface SpendGrantInput {
   ventureId: string;
-  network: Extract<CreativeNetwork, "tiktok_paid" | "meta_paid">;
+  customerId?: string | null;
+  network: "tiktok_paid" | "meta_paid";
   externalAccountId: string;
-  /** ISO 4217, uppercase. */
   currency: string;
   totalMinorUnits: number;
   perCreativeMinorUnits: number;
   dailyAccountMinorUnits: number;
+  /** Default to the grant total when omitted, i.e. non-binding. */
+  perPaidTestMinorUnits?: number;
+  perCampaignMinorUnits?: number;
+  dailyVentureMinorUnits?: number;
+  monthlyVentureMinorUnits?: number;
   allowedCreativeIds: readonly string[];
   approvedBy: string;
-  /** The checkpoint or approval event that authorised this spend. */
   approvalRef: string;
+  /** The approved PaidTestProposal this grant was minted from. */
+  proposalId: string;
   notBefore: string;
   expiresAt: string;
 }
 
-export interface SpendGrant extends Readonly<SpendGrantInput> {
-  readonly grantId: string;
-  readonly allowedCreativeIds: readonly string[];
-  /** Tamper evidence over the approved terms. */
-  readonly grantHash: string;
-  readonly issuedAt: string;
-}
+export type SpendGrant = Readonly<StoredGrant>;
+export type Reservation = Readonly<StoredReservation>;
+export type ReservationStatus = StoredReservation["status"];
 
 export interface ReserveInput {
   grantId: string;
   creativeId: string;
   campaignId: string;
   amountMinorUnits: number;
-}
-
-export type ReservationStatus = "held" | "settled" | "released";
-
-export interface Reservation {
-  readonly reservationId: string;
-  readonly grantId: string;
-  readonly creativeId: string;
-  readonly campaignId: string;
-  readonly heldMinorUnits: number;
-  readonly settledMinorUnits: number | null;
-  readonly status: ReservationStatus;
-  readonly dayKey: string;
-  readonly createdAt: string;
+  /** Repeating a key returns the original reservation instead of a second one. */
+  idempotencyKey: string;
+  paidTestId?: string;
+  network?: "tiktok_paid" | "meta_paid";
+  externalAccountId?: string;
+  currency?: string;
 }
 
 export interface ScaleProposal {
@@ -120,8 +129,8 @@ export interface ScaleProposal {
   readonly proposedAt: string;
 }
 
-export interface SpendLedgerOptions {
-  now?: () => Date;
+export interface SpendLedgerOptions extends IdFactoryOptions {
+  store?: SpendStore;
 }
 
 function assertMinorUnits(amount: number): void {
@@ -136,68 +145,65 @@ function assertMinorUnits(amount: number): void {
   }
 }
 
-function dayKeyOf(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 export function createSpendLedger(options: SpendLedgerOptions = {}) {
   const now = options.now ?? (() => new Date());
-  const grants = new Map<string, SpendGrant>();
-  const halted = new Map<string, string>();
-  const reservations = new Map<string, Reservation>();
-  let ordinal = 0;
+  const store = options.store ?? createMemorySpendStore();
+  const mint = createIdFactory(options);
 
   function mustGetGrant(grantId: string): SpendGrant {
-    const grant = grants.get(grantId);
+    const grant = store.getGrant(grantId);
     if (!grant) throw new SpendError("unknown_grant", `unknown spend grant ${grantId}`);
     return grant;
   }
 
-  /** Held plus settled: money that is promised counts against a cap exactly as
-   * hard as money already spent, which is what makes the caps safe to hold
-   * across an await. */
-  function consumed(predicate: (entry: Reservation) => boolean): number {
-    let total = 0;
-    for (const entry of reservations.values()) {
-      if (entry.status === "released") continue;
-      if (!predicate(entry)) continue;
-      total += entry.status === "settled" ? (entry.settledMinorUnits ?? 0) : entry.heldMinorUnits;
-    }
-    return total;
+  function consumed(grantId: string): number {
+    return store
+      .listReservations(grantId)
+      .filter((entry) => entry.status !== "released")
+      .reduce(
+        (sum, entry) =>
+          sum +
+          (entry.status === "settled" ? (entry.settledMinorUnits ?? 0) : entry.heldMinorUnits),
+        0,
+      );
   }
 
   function registerGrant(input: SpendGrantInput): SpendGrant {
     assertMinorUnits(input.totalMinorUnits);
     assertMinorUnits(input.perCreativeMinorUnits);
     assertMinorUnits(input.dailyAccountMinorUnits);
-    ordinal += 1;
-    const grantHash = createHash("sha256")
-      .update(JSON.stringify([ordinal, input]))
-      .digest("hex");
-    const grant: SpendGrant = Object.freeze({
-      ...input,
+    const grantHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const grant: StoredGrant = {
+      grantId: mint("grant"),
+      ventureId: input.ventureId,
+      customerId: input.customerId ?? null,
+      network: input.network,
+      externalAccountId: input.externalAccountId,
+      currency: input.currency,
+      totalMinorUnits: input.totalMinorUnits,
+      perCreativeMinorUnits: input.perCreativeMinorUnits,
+      perPaidTestMinorUnits: input.perPaidTestMinorUnits ?? input.totalMinorUnits,
+      perCampaignMinorUnits: input.perCampaignMinorUnits ?? input.totalMinorUnits,
+      dailyAccountMinorUnits: input.dailyAccountMinorUnits,
+      dailyVentureMinorUnits: input.dailyVentureMinorUnits ?? input.totalMinorUnits,
+      monthlyVentureMinorUnits: input.monthlyVentureMinorUnits ?? input.totalMinorUnits,
       allowedCreativeIds: Object.freeze([...input.allowedCreativeIds]),
-      grantId: `grant_${grantHash.slice(0, 16)}`,
+      approvedBy: input.approvedBy,
+      approvalRef: input.approvalRef,
+      proposalId: input.proposalId,
+      notBefore: input.notBefore,
+      expiresAt: input.expiresAt,
       grantHash,
       issuedAt: now().toISOString(),
-    });
-    grants.set(grant.grantId, grant);
-    return grant;
+    };
+    store.putGrant(grant);
+    return Object.freeze(grant);
   }
 
-  /**
-   * Synchronous by design. Every cap is checked and the reservation committed
-   * in one uninterrupted block, so no `await` can open a window in which two
-   * callers each see enough headroom for the same money.
-   */
   function reserve(input: ReserveInput): Reservation {
     const grant = mustGetGrant(input.grantId);
-    const haltReason = halted.get(grant.grantId);
-    if (haltReason) {
-      throw new SpendError("spend_halted", `spend is halted for ${grant.grantId}: ${haltReason}`);
-    }
-
     const at = now();
+
     if (at < new Date(grant.notBefore)) {
       throw new SpendError("grant_not_yet_valid", `${grant.grantId} is not valid yet`);
     }
@@ -210,114 +216,102 @@ export function createSpendLedger(options: SpendLedgerOptions = {}) {
         `${input.creativeId} is not covered by ${grant.grantId}`,
       );
     }
+    if (input.network && input.network !== grant.network) {
+      throw new SpendError(
+        "network_mismatch",
+        `${grant.grantId} authorises ${grant.network}, not ${input.network}`,
+      );
+    }
+    if (input.externalAccountId && input.externalAccountId !== grant.externalAccountId) {
+      throw new SpendError(
+        "account_mismatch",
+        `${grant.grantId} authorises account ${grant.externalAccountId}`,
+      );
+    }
+    if (input.currency && input.currency !== grant.currency) {
+      throw new SpendError(
+        "currency_mismatch",
+        `${grant.grantId} is denominated in ${grant.currency}`,
+      );
+    }
     assertMinorUnits(input.amountMinorUnits);
 
-    const dayKey = dayKeyOf(at);
-    const total = consumed((entry) => entry.grantId === grant.grantId) + input.amountMinorUnits;
-    if (total > grant.totalMinorUnits) {
-      throw new SpendError(
-        "total_cap_exceeded",
-        `${total} exceeds the ${grant.totalMinorUnits} total cap on ${grant.grantId}`,
-      );
-    }
-
-    const accountGrantIds = new Set(
-      [...grants.values()]
-        .filter(
-          (entry) =>
-            entry.externalAccountId === grant.externalAccountId && entry.network === grant.network,
-        )
-        .map((entry) => entry.grantId),
-    );
-    const daily =
-      consumed((entry) => accountGrantIds.has(entry.grantId) && entry.dayKey === dayKey) +
-      input.amountMinorUnits;
-    if (daily > grant.dailyAccountMinorUnits) {
-      throw new SpendError(
-        "daily_account_cap_exceeded",
-        `${daily} exceeds the ${grant.dailyAccountMinorUnits} daily cap on account ${grant.externalAccountId}`,
-      );
-    }
-
-    const perCreative =
-      consumed(
-        (entry) => entry.grantId === grant.grantId && entry.creativeId === input.creativeId,
-      ) + input.amountMinorUnits;
-    if (perCreative > grant.perCreativeMinorUnits) {
-      throw new SpendError(
-        "per_creative_cap_exceeded",
-        `${perCreative} exceeds the ${grant.perCreativeMinorUnits} per-creative cap for ${input.creativeId}`,
-      );
-    }
-
-    ordinal += 1;
-    const reservation: Reservation = Object.freeze({
-      reservationId: `res_${ordinal.toString().padStart(8, "0")}`,
-      grantId: grant.grantId,
+    const outcome = store.reserveAtomically({
+      reservationId: mint("res"),
+      idempotencyKey: input.idempotencyKey,
+      grantId: input.grantId,
       creativeId: input.creativeId,
+      paidTestId: input.paidTestId ?? grant.proposalId,
       campaignId: input.campaignId,
-      heldMinorUnits: input.amountMinorUnits,
-      settledMinorUnits: null,
-      status: "held",
-      dayKey,
+      amountMinorUnits: input.amountMinorUnits,
+      dayKey: at.toISOString().slice(0, 10),
+      monthKey: at.toISOString().slice(0, 7),
       createdAt: at.toISOString(),
     });
-    reservations.set(reservation.reservationId, reservation);
-    return reservation;
-  }
 
-  function replace(reservation: Reservation, patch: Partial<Reservation>): Reservation {
-    const next = Object.freeze({ ...reservation, ...patch });
-    reservations.set(next.reservationId, next);
-    return next;
-  }
-
-  function mustGetHeld(reservationId: string): Reservation {
-    const reservation = reservations.get(reservationId);
-    if (!reservation) {
-      throw new SpendError("unknown_reservation", `unknown reservation ${reservationId}`);
+    switch (outcome.kind) {
+      case "created":
+      case "idempotent_replay":
+        return Object.freeze(outcome.reservation);
+      case "halted":
+        throw new SpendError(
+          "spend_halted",
+          `spend is halted for ${grant.grantId}: ${outcome.reason}`,
+        );
+      case "cap_exceeded":
+        throw new SpendError(
+          "cap_exceeded",
+          `${outcome.attempted} exceeds the ${outcome.limit} ${outcome.cap} cap on ${grant.grantId}`,
+          outcome.cap,
+        );
     }
-    if (reservation.status !== "held") {
-      throw new SpendError(
-        "reservation_not_held",
-        `${reservationId} is already ${reservation.status}`,
-      );
-    }
-    return reservation;
   }
 
   function release(reservationId: string): Reservation {
-    return replace(mustGetHeld(reservationId), { status: "released" });
+    const released = store.release(reservationId);
+    if (!released) {
+      throw new SpendError("unknown_reservation", `unknown reservation ${reservationId}`);
+    }
+    return Object.freeze(released);
   }
 
   /**
    * Reconcile against what the provider actually charged. An overspend is
-   * recorded at its real value and halts the grant — understating real money to
-   * keep a cap looking intact would be the more dangerous lie.
+   * recorded at its real value, raises an incident, and freezes the grant.
+   * Understating real money to keep a cap looking intact is the worse failure.
    */
   function settle(reservationId: string, actualMinorUnits: number): Reservation {
-    const reservation = mustGetHeld(reservationId);
+    const held = store.getReservation(reservationId);
+    if (!held) {
+      throw new SpendError("unknown_reservation", `unknown reservation ${reservationId}`);
+    }
+    if (held.status !== "held") {
+      throw new SpendError("reservation_not_held", `${reservationId} is already ${held.status}`);
+    }
     if (!Number.isInteger(actualMinorUnits) || actualMinorUnits < 0) {
       throw new SpendError(
         "non_integer_minor_units",
         `settlement must be a non-negative integer; received ${actualMinorUnits}`,
       );
     }
-    const settled = replace(reservation, {
-      status: "settled",
-      settledMinorUnits: actualMinorUnits,
-    });
-    if (actualMinorUnits > reservation.heldMinorUnits) {
-      halted.set(
-        reservation.grantId,
-        `provider reported ${actualMinorUnits} against a ${reservation.heldMinorUnits} reservation`,
-      );
+
+    const settled = store.settle(reservationId, actualMinorUnits)!;
+    if (actualMinorUnits > held.heldMinorUnits) {
+      const detail = `provider reported ${actualMinorUnits} against a ${held.heldMinorUnits} reservation`;
+      store.recordIncident({
+        incidentId: mint("inc"),
+        grantId: held.grantId,
+        kind: "provider_overspend",
+        detail,
+        recordedAt: now().toISOString(),
+      });
+      store.halt(held.grantId, detail);
       throw new SpendError(
         "settlement_exceeds_reservation",
-        `provider reported ${actualMinorUnits} minor units against reservation ${reservationId} holding ${reservation.heldMinorUnits}; spend halted for reconciliation`,
+        `${detail}; spend halted for reconciliation`,
       );
     }
-    return settled;
+    return Object.freeze(settled);
   }
 
   async function withReservation(
@@ -345,53 +339,49 @@ export function createSpendLedger(options: SpendLedgerOptions = {}) {
     if (signals.refundRateAnomaly) reasons.push("refund_rate_anomaly");
     if (!signals.rightsValid) reasons.push("rights_invalid");
     if (signals.connectionRevoked) reasons.push("connection_revoked");
-    if (consumed((entry) => entry.grantId === grantId) >= grant.totalMinorUnits) {
-      reasons.push("hard_budget_reached");
-    }
+    if (consumed(grantId) >= grant.totalMinorUnits) reasons.push("hard_budget_reached");
     return Object.freeze({ paused: reasons.length > 0, reasons: Object.freeze(reasons) });
   }
 
-  function applyAutoPause(grantId: string, reasons: readonly AutoPauseReason[]): void {
-    mustGetGrant(grantId);
-    halted.set(grantId, `auto-pause: ${reasons.join(", ")}`);
-  }
-
   return {
+    store,
     registerGrant,
     reserve,
     release,
     settle,
     withReservation,
     evaluateAutoPause,
-    applyAutoPause,
+    applyAutoPause(grantId: string, reasons: readonly AutoPauseReason[]): void {
+      mustGetGrant(grantId);
+      store.halt(grantId, `auto-pause: ${reasons.join(", ")}`);
+    },
     activateKillSwitch(grantId: string, reason: string): void {
       mustGetGrant(grantId);
-      halted.set(grantId, reason);
+      store.halt(grantId, reason);
     },
-    isHalted: (grantId: string): boolean => halted.has(grantId),
-    haltReason: (grantId: string): string | undefined => halted.get(grantId),
-    getGrant: (grantId: string): SpendGrant | undefined => grants.get(grantId),
+    revokeGrant(grantId: string, reason: string): void {
+      mustGetGrant(grantId);
+      store.halt(grantId, `revoked: ${reason}`);
+    },
+    isHalted: (grantId: string): boolean => store.haltReason(grantId) !== undefined,
+    haltReason: (grantId: string): string | undefined => store.haltReason(grantId),
+    listIncidents: (grantId: string) => store.listIncidents(grantId),
+    getGrant: (grantId: string): SpendGrant | undefined => store.getGrant(grantId),
     getReservation: (reservationId: string): Reservation | undefined =>
-      reservations.get(reservationId),
-    committedMinorUnits: (grantId: string): number => {
-      let total = 0;
-      for (const entry of reservations.values()) {
-        if (entry.grantId === grantId && entry.status === "settled") {
-          total += entry.settledMinorUnits ?? 0;
-        }
-      }
-      return total;
-    },
-    reservedMinorUnits: (grantId: string): number => {
-      let total = 0;
-      for (const entry of reservations.values()) {
-        if (entry.grantId === grantId && entry.status === "held") total += entry.heldMinorUnits;
-      }
-      return total;
-    },
+      store.getReservation(reservationId),
+    committedMinorUnits: (grantId: string): number =>
+      store
+        .listReservations(grantId)
+        .filter((entry) => entry.status === "settled")
+        .reduce((sum, entry) => sum + (entry.settledMinorUnits ?? 0), 0),
+    reservedMinorUnits: (grantId: string): number =>
+      store
+        .listReservations(grantId)
+        .filter((entry) => entry.status === "held")
+        .reduce((sum, entry) => sum + entry.heldMinorUnits, 0),
     /**
-     * Scaling is a recommendation, never an action. V1 has no code path that
-     * raises a cap on an approved grant; more budget means a new human approval.
+     * Scaling is a recommendation, never an action. There is no code path in V1
+     * that raises a cap on an approved grant; more budget means a new approval.
      */
     proposeScale(
       grantId: string,

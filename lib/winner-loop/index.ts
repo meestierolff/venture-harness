@@ -67,3 +67,14 @@ export {
   type MetricValue,
   type MetricValueInput,
 } from "./metrics";
+export {
+  createMemorySpendStore,
+  createSqliteSpendStore,
+  type CapUsage,
+  type ReservationOutcome,
+  type ReservationRequest,
+  type SpendStore,
+  type StoredGrant,
+  type StoredIncident,
+  type StoredReservation,
+} from "./spend-store";

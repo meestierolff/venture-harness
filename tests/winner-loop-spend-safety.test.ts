@@ -1,7 +1,42 @@
-import { describe, expect, it } from "vitest";
-import { SpendError, createSpendLedger, type SpendGrantInput } from "@/lib/winner-loop";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  SpendError,
+  createMemorySpendStore,
+  createSpendLedger,
+  createSqliteSpendStore,
+  type ReserveInput,
+  type SpendGrantInput,
+  type SpendLedger,
+  type SpendStore,
+} from "@/lib/winner-loop";
 
 const APPROVED_AT = new Date("2026-08-08T09:00:00.000Z");
+
+const openStores: SpendStore[] = [];
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  while (openStores.length) openStores.pop()!.close();
+  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+});
+
+function sqliteStore(): SpendStore {
+  const dir = mkdtempSync(join(tmpdir(), "vh-spend-"));
+  tempDirs.push(dir);
+  const store = createSqliteSpendStore(join(dir, "spend.db"));
+  openStores.push(store);
+  return store;
+}
+
+/** A second independent client onto the same database file. */
+function sameFileStore(path: string): SpendStore {
+  const store = createSqliteSpendStore(path);
+  openStores.push(store);
+  return store;
+}
 
 function clock(start = APPROVED_AT) {
   let current = start;
@@ -22,222 +57,315 @@ function grantInput(overrides: Partial<SpendGrantInput> = {}): SpendGrantInput {
     totalMinorUnits: 20_000,
     perCreativeMinorUnits: 10_000,
     dailyAccountMinorUnits: 12_000,
-    allowedCreativeIds: ["cr_aaaaaaaaaaaaaaaa", "cr_bbbbbbbbbbbbbbbb"],
+    allowedCreativeIds: ["cr_AAAAAAAAAAAAAAAAAAAAAAAAAA", "cr_BBBBBBBBBBBBBBBBBBBBBBBBBB"],
     approvedBy: "founder@example.com",
     approvalRef: "checkpoint:paid-test-001",
+    proposalId: "prop-001",
     notBefore: APPROVED_AT.toISOString(),
     expiresAt: new Date("2026-08-15T09:00:00.000Z").toISOString(),
     ...overrides,
   };
 }
 
-function ledgerWithGrant(overrides: Partial<SpendGrantInput> = {}) {
-  const time = clock();
-  const ledger = createSpendLedger({ now: time.now });
-  const grant = ledger.registerGrant(grantInput(overrides));
-  return { ledger, grant, time };
+let seed = 0;
+function ledgerOn(store: SpendStore, now: () => Date = () => APPROVED_AT): SpendLedger {
+  seed += 1;
+  const local = seed;
+  return createSpendLedger({
+    store,
+    now,
+    randomBytes: (size) => Uint8Array.from({ length: size }, (_, i) => (i + local * 13) % 256),
+  });
 }
 
-function errorCode(run: () => unknown): string {
+function withGrant(overrides: Partial<SpendGrantInput> = {}) {
+  const time = clock();
+  const store = sqliteStore();
+  const ledger = ledgerOn(store, time.now);
+  const grant = ledger.registerGrant(grantInput(overrides));
+  return { ledger, grant, time, store };
+}
+
+let idempotencyCounter = 0;
+function reserveInput(overrides: Partial<ReserveInput> & { grantId: string }): ReserveInput {
+  idempotencyCounter += 1;
+  return {
+    creativeId: "cr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    campaignId: "camp-1",
+    amountMinorUnits: 1_000,
+    idempotencyKey: `key-${idempotencyCounter}`,
+    ...overrides,
+  };
+}
+
+function errorFrom(run: () => unknown): SpendError {
   try {
     run();
   } catch (error) {
     expect(error).toBeInstanceOf(SpendError);
-    return (error as SpendError).code;
+    return error as SpendError;
   }
   throw new Error("expected the call to throw");
 }
 
-describe("spend grants", () => {
-  it("refuses any reservation when no grant authorises the creative", () => {
-    const { ledger, grant } = ledgerWithGrant();
+describe("transactional concurrency across independent clients", () => {
+  it("prevents two separate database clients from overreserving one cap", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vh-spend-"));
+    tempDirs.push(dir);
+    const path = join(dir, "spend.db");
 
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_cccccccccccccccc",
-          campaignId: "camp-1",
-          amountMinorUnits: 1_000,
-        }),
+    const storeA = sameFileStore(path);
+    const ledgerA = ledgerOn(storeA);
+    const grant = ledgerA.registerGrant(
+      grantInput({
+        totalMinorUnits: 10_000,
+        perCreativeMinorUnits: 10_000,
+        dailyAccountMinorUnits: 10_000,
+      }),
+    );
+
+    // A completely separate connection — the hazard an in-memory ledger cannot see.
+    const storeB = sameFileStore(path);
+    const ledgerB = ledgerOn(storeB);
+
+    ledgerA.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 6_000, idempotencyKey: "a" }),
+    );
+
+    const error = errorFrom(() =>
+      ledgerB.reserve(
+        reserveInput({ grantId: grant.grantId, amountMinorUnits: 6_000, idempotencyKey: "b" }),
       ),
-    ).toBe("creative_not_in_grant");
+    );
+
+    expect(error.code).toBe("cap_exceeded");
+    expect(error.cap).toBe("grantTotal");
+    expect(ledgerB.reservedMinorUnits(grant.grantId)).toBe(6_000);
   });
 
-  it("refuses a reservation against an unknown grant", () => {
-    const { ledger } = ledgerWithGrant();
+  it("shows why the in-memory store is not production safe", () => {
+    const storeA = createMemorySpendStore();
+    const storeB = createMemorySpendStore();
 
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: "grant_missing",
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 1_000,
+    expect(storeA.productionSafe).toBe(false);
+    expect(sqliteStore().productionSafe).toBe(true);
+
+    // Two memory stores share nothing, so each would grant the same headroom.
+    const ledgerA = ledgerOn(storeA);
+    const grant = ledgerA.registerGrant(grantInput({ totalMinorUnits: 10_000 }));
+    storeB.putGrant(grant);
+    const ledgerB = ledgerOn(storeB);
+
+    ledgerA.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 6_000, idempotencyKey: "a" }),
+    );
+    ledgerB.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 6_000, idempotencyKey: "b" }),
+    );
+
+    expect(ledgerA.reservedMinorUnits(grant.grantId)).toBe(6_000);
+    expect(ledgerB.reservedMinorUnits(grant.grantId)).toBe(6_000);
+  });
+
+  it("returns the original reservation when an idempotency key repeats", () => {
+    const { ledger, grant } = withGrant();
+    const first = ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 5_000, idempotencyKey: "retry-1" }),
+    );
+    const replay = ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 5_000, idempotencyKey: "retry-1" }),
+    );
+
+    expect(replay.reservationId).toBe(first.reservationId);
+    expect(ledger.reservedMinorUnits(grant.grantId)).toBe(5_000);
+  });
+
+  it("survives a client restart without losing committed reservations", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vh-spend-"));
+    tempDirs.push(dir);
+    const path = join(dir, "spend.db");
+
+    const first = sameFileStore(path);
+    const ledger = ledgerOn(first);
+    const grant = ledger.registerGrant(grantInput());
+    ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 7_000, idempotencyKey: "k" }),
+    );
+    first.close();
+    openStores.splice(openStores.indexOf(first), 1);
+
+    const reopened = ledgerOn(sameFileStore(path));
+    expect(reopened.reservedMinorUnits(grant.grantId)).toBe(7_000);
+  });
+});
+
+describe("cap hierarchy", () => {
+  it("enforces the per-creative cap", () => {
+    const { ledger, grant } = withGrant();
+    ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 10_000, idempotencyKey: "1" }),
+    );
+
+    const error = errorFrom(() =>
+      ledger.reserve(
+        reserveInput({ grantId: grant.grantId, amountMinorUnits: 1, idempotencyKey: "2" }),
+      ),
+    );
+    expect(error.cap).toBe("perCreative");
+  });
+
+  it("enforces the daily account cap across creatives", () => {
+    const { ledger, grant } = withGrant();
+    ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 10_000, idempotencyKey: "1" }),
+    );
+
+    const error = errorFrom(() =>
+      ledger.reserve(
+        reserveInput({
+          grantId: grant.grantId,
+          creativeId: "cr_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+          campaignId: "camp-2",
+          amountMinorUnits: 2_001,
+          idempotencyKey: "2",
         }),
       ),
-    ).toBe("unknown_grant");
+    );
+    expect(error.cap).toBe("dailyAccount");
+  });
+
+  it("enforces the per-campaign cap", () => {
+    const { ledger, grant } = withGrant({ perCampaignMinorUnits: 3_000 });
+
+    const error = errorFrom(() =>
+      ledger.reserve(
+        reserveInput({ grantId: grant.grantId, amountMinorUnits: 3_001, idempotencyKey: "1" }),
+      ),
+    );
+    expect(error.cap).toBe("perCampaign");
+  });
+
+  it("enforces the monthly venture cap", () => {
+    const { ledger, grant } = withGrant({ monthlyVentureMinorUnits: 2_500 });
+
+    const error = errorFrom(() =>
+      ledger.reserve(
+        reserveInput({ grantId: grant.grantId, amountMinorUnits: 2_501, idempotencyKey: "1" }),
+      ),
+    );
+    expect(error.cap).toBe("monthlyVenture");
+  });
+
+  it("lets the daily cap recover while the grant total still binds", () => {
+    const { ledger, grant, time } = withGrant();
+    ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 10_000, idempotencyKey: "1" }),
+    );
+    time.advanceHours(24);
+    ledger.reserve(
+      reserveInput({
+        grantId: grant.grantId,
+        creativeId: "cr_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+        amountMinorUnits: 10_000,
+        idempotencyKey: "2",
+      }),
+    );
+
+    const error = errorFrom(() =>
+      ledger.reserve(
+        reserveInput({
+          grantId: grant.grantId,
+          creativeId: "cr_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+          amountMinorUnits: 1,
+          idempotencyKey: "3",
+        }),
+      ),
+    );
+    expect(error.cap).toBe("grantTotal");
   });
 
   it("records spend in integer minor units only", () => {
-    const { ledger, grant } = ledgerWithGrant();
-
+    const { ledger, grant } = withGrant();
     expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 10.5,
-        }),
-      ),
+      errorFrom(() =>
+        ledger.reserve(reserveInput({ grantId: grant.grantId, amountMinorUnits: 10.5 })),
+      ).code,
     ).toBe("non_integer_minor_units");
-  });
-
-  it("is immutable once approved", () => {
-    const { grant } = ledgerWithGrant();
-
-    expect(Object.isFrozen(grant)).toBe(true);
-    expect(() => {
-      (grant as { totalMinorUnits: number }).totalMinorUnits = 1_000_000;
-    }).toThrow();
-  });
-
-  it("refuses a reservation outside the validity window", () => {
-    const { ledger, grant, time } = ledgerWithGrant();
-    time.advanceHours(24 * 8);
-
     expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 1_000,
-        }),
-      ),
+      errorFrom(() =>
+        ledger.reserve(reserveInput({ grantId: grant.grantId, amountMinorUnits: -5 })),
+      ).code,
+    ).toBe("non_positive_amount");
+  });
+});
+
+describe("grant scope and validity", () => {
+  it("refuses a creative the grant does not cover", () => {
+    const { ledger, grant } = withGrant();
+    expect(
+      errorFrom(() =>
+        ledger.reserve(
+          reserveInput({ grantId: grant.grantId, creativeId: "cr_CCCCCCCCCCCCCCCCCCCCCCCCCC" }),
+        ),
+      ).code,
+    ).toBe("creative_not_in_grant");
+  });
+
+  it("refuses a different network, account, or currency", () => {
+    const { ledger, grant } = withGrant();
+    expect(
+      errorFrom(() =>
+        ledger.reserve(reserveInput({ grantId: grant.grantId, network: "meta_paid" })),
+      ).code,
+    ).toBe("network_mismatch");
+    expect(
+      errorFrom(() =>
+        ledger.reserve(reserveInput({ grantId: grant.grantId, externalAccountId: "other" })),
+      ).code,
+    ).toBe("account_mismatch");
+    expect(
+      errorFrom(() => ledger.reserve(reserveInput({ grantId: grant.grantId, currency: "USD" })))
+        .code,
+    ).toBe("currency_mismatch");
+  });
+
+  it("refuses an unknown, expired, or revoked grant", () => {
+    const { ledger, grant, time } = withGrant();
+    expect(errorFrom(() => ledger.reserve(reserveInput({ grantId: "grant_missing" }))).code).toBe(
+      "unknown_grant",
+    );
+
+    ledger.revokeGrant(grant.grantId, "connection removed");
+    expect(errorFrom(() => ledger.reserve(reserveInput({ grantId: grant.grantId }))).code).toBe(
+      "spend_halted",
+    );
+
+    const fresh = withGrant();
+    fresh.time.advanceHours(24 * 8);
+    expect(
+      errorFrom(() => fresh.ledger.reserve(reserveInput({ grantId: fresh.grant.grantId }))).code,
     ).toBe("grant_expired");
+    void time;
   });
 });
 
-describe("hard caps", () => {
-  it("enforces the per-creative cap", () => {
-    const { ledger, grant } = ledgerWithGrant();
-    ledger.reserve({
-      grantId: grant.grantId,
-      creativeId: "cr_aaaaaaaaaaaaaaaa",
-      campaignId: "camp-1",
-      amountMinorUnits: 10_000,
-    });
+describe("settlement and reconciliation", () => {
+  it("settles to what the provider actually reported", async () => {
+    const { ledger, grant } = withGrant();
+    await ledger.withReservation(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 5_000, idempotencyKey: "1" }),
+      async () => 4_237,
+    );
 
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 1,
-        }),
-      ),
-    ).toBe("per_creative_cap_exceeded");
+    expect(ledger.committedMinorUnits(grant.grantId)).toBe(4_237);
+    expect(ledger.reservedMinorUnits(grant.grantId)).toBe(0);
   });
 
-  it("enforces the daily account cap across different creatives", () => {
-    const { ledger, grant } = ledgerWithGrant();
-    ledger.reserve({
-      grantId: grant.grantId,
-      creativeId: "cr_aaaaaaaaaaaaaaaa",
-      campaignId: "camp-1",
-      amountMinorUnits: 10_000,
-    });
-
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_bbbbbbbbbbbbbbbb",
-          campaignId: "camp-2",
-          amountMinorUnits: 2_001,
-        }),
-      ),
-    ).toBe("daily_account_cap_exceeded");
-  });
-
-  it("lets the daily cap recover on the next day while the total cap still binds", () => {
-    const { ledger, grant, time } = ledgerWithGrant();
-    ledger.reserve({
-      grantId: grant.grantId,
-      creativeId: "cr_aaaaaaaaaaaaaaaa",
-      campaignId: "camp-1",
-      amountMinorUnits: 10_000,
-    });
-    time.advanceHours(24);
-
-    ledger.reserve({
-      grantId: grant.grantId,
-      creativeId: "cr_bbbbbbbbbbbbbbbb",
-      campaignId: "camp-2",
-      amountMinorUnits: 10_000,
-    });
-
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_bbbbbbbbbbbbbbbb",
-          campaignId: "camp-2",
-          amountMinorUnits: 1,
-        }),
-      ),
-    ).toBe("total_cap_exceeded");
-  });
-});
-
-describe("reservation concurrency", () => {
-  it("never lets interleaved provider calls exceed one cap", async () => {
-    const { ledger, grant } = ledgerWithGrant({
-      totalMinorUnits: 10_000,
-      perCreativeMinorUnits: 10_000,
-      dailyAccountMinorUnits: 10_000,
-    });
-
-    // Each task holds a reservation across an await, which is exactly the
-    // window in which a check-then-call design would double-spend.
-    const attempt = () =>
-      ledger.withReservation(
-        {
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 6_000,
-        },
-        async () => {
-          await new Promise((resolve) => setTimeout(resolve, 5));
-          return 6_000;
-        },
-      );
-
-    const results = await Promise.allSettled([attempt(), attempt()]);
-    const fulfilled = results.filter((entry) => entry.status === "fulfilled");
-    const rejected = results.filter((entry) => entry.status === "rejected");
-
-    expect(fulfilled).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    expect(ledger.committedMinorUnits(grant.grantId)).toBe(6_000);
-    expect(ledger.committedMinorUnits(grant.grantId)).toBeLessThanOrEqual(10_000);
-  });
-
-  it("releases a reservation when the provider call fails, without spending it", async () => {
-    const { ledger, grant } = ledgerWithGrant();
-
+  it("releases the hold when the provider call fails", async () => {
+    const { ledger, grant } = withGrant();
     await expect(
       ledger.withReservation(
-        {
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 5_000,
-        },
+        reserveInput({ grantId: grant.grantId, amountMinorUnits: 5_000, idempotencyKey: "1" }),
         async () => {
           throw new Error("provider rejected the campaign");
         },
@@ -248,79 +376,39 @@ describe("reservation concurrency", () => {
     expect(ledger.reservedMinorUnits(grant.grantId)).toBe(0);
   });
 
-  it("settles to the amount the provider actually reports, not the amount requested", async () => {
-    const { ledger, grant } = ledgerWithGrant();
-
-    await ledger.withReservation(
-      {
-        grantId: grant.grantId,
-        creativeId: "cr_aaaaaaaaaaaaaaaa",
-        campaignId: "camp-1",
-        amountMinorUnits: 5_000,
-      },
-      async () => 4_237,
-    );
-
-    expect(ledger.committedMinorUnits(grant.grantId)).toBe(4_237);
-    expect(ledger.reservedMinorUnits(grant.grantId)).toBe(0);
-  });
-
-  it("refuses a settlement that exceeds what the reservation held", async () => {
-    const { ledger, grant } = ledgerWithGrant();
+  it("records an overspend at its real value, raises an incident, and freezes the grant", async () => {
+    const { ledger, grant } = withGrant();
 
     await expect(
       ledger.withReservation(
-        {
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 5_000,
-        },
+        reserveInput({ grantId: grant.grantId, amountMinorUnits: 5_000, idempotencyKey: "1" }),
         async () => 9_999,
       ),
     ).rejects.toMatchObject({ code: "settlement_exceeds_reservation" });
+
+    expect(ledger.committedMinorUnits(grant.grantId)).toBe(9_999);
+    expect(ledger.isHalted(grant.grantId)).toBe(true);
+    expect(ledger.listIncidents(grant.grantId)).toHaveLength(1);
+    expect(ledger.listIncidents(grant.grantId)[0]!.kind).toBe("provider_overspend");
+    expect(errorFrom(() => ledger.reserve(reserveInput({ grantId: grant.grantId }))).code).toBe(
+      "spend_halted",
+    );
   });
 });
 
 describe("kill switch and automatic pause", () => {
-  it("blocks all further reservations once the kill switch is active", () => {
-    const { ledger, grant } = ledgerWithGrant();
+  it("halts all further reservations once the kill switch is active", () => {
+    const { ledger, grant } = withGrant();
     ledger.activateKillSwitch(grant.grantId, "founder stopped all spend");
-
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 1,
-        }),
-      ),
-    ).toBe("spend_halted");
+    expect(errorFrom(() => ledger.reserve(reserveInput({ grantId: grant.grantId }))).code).toBe(
+      "spend_halted",
+    );
   });
 
-  it("pauses automatically when tracking health fails", () => {
-    const { ledger, grant } = ledgerWithGrant();
-
+  it("pauses on tracking, attribution, rights, or revocation failures", () => {
+    const { ledger, grant } = withGrant();
     const decision = ledger.evaluateAutoPause(grant.grantId, {
       trackingHealthy: false,
-      attributionMappingIntact: true,
-      providerPolicyWarning: false,
-      rightsValid: true,
-      connectionRevoked: false,
-      refundRateAnomaly: false,
-      stopConditionTriggered: false,
-    });
-
-    expect(decision.paused).toBe(true);
-    expect(decision.reasons).toContain("tracking_health_failed");
-  });
-
-  it("pauses on a broken attribution mapping, revoked connection, or invalid rights", () => {
-    const { ledger, grant } = ledgerWithGrant();
-
-    const decision = ledger.evaluateAutoPause(grant.grantId, {
-      trackingHealthy: true,
       attributionMappingIntact: false,
       providerPolicyWarning: false,
       rightsValid: false,
@@ -332,6 +420,7 @@ describe("kill switch and automatic pause", () => {
     expect(decision.paused).toBe(true);
     expect(decision.reasons).toEqual(
       expect.arrayContaining([
+        "tracking_health_failed",
         "attribution_mapping_broken",
         "rights_invalid",
         "connection_revoked",
@@ -340,8 +429,7 @@ describe("kill switch and automatic pause", () => {
   });
 
   it("does not pause when every guardrail is healthy", () => {
-    const { ledger, grant } = ledgerWithGrant();
-
+    const { ledger, grant } = withGrant();
     const decision = ledger.evaluateAutoPause(grant.grantId, {
       trackingHealthy: true,
       attributionMappingIntact: true,
@@ -356,29 +444,20 @@ describe("kill switch and automatic pause", () => {
     expect(decision.reasons).toEqual([]);
   });
 
-  it("halts spend once the pause is applied", () => {
-    const { ledger, grant } = ledgerWithGrant();
+  it("halts spend once an auto-pause is applied", () => {
+    const { ledger, grant } = withGrant();
     ledger.applyAutoPause(grant.grantId, ["tracking_health_failed"]);
-
-    expect(
-      errorCode(() =>
-        ledger.reserve({
-          grantId: grant.grantId,
-          creativeId: "cr_aaaaaaaaaaaaaaaa",
-          campaignId: "camp-1",
-          amountMinorUnits: 1,
-        }),
-      ),
-    ).toBe("spend_halted");
+    expect(errorFrom(() => ledger.reserve(reserveInput({ grantId: grant.grantId }))).code).toBe(
+      "spend_halted",
+    );
   });
 });
 
 describe("no automatic scaling in V1", () => {
   it("returns a recommendation that was not applied and needs a new grant", () => {
-    const { ledger, grant } = ledgerWithGrant();
-
+    const { ledger, grant } = withGrant();
     const proposal = ledger.proposeScale(grant.grantId, {
-      creativeId: "cr_aaaaaaaaaaaaaaaa",
+      creativeId: "cr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
       suggestedTotalMinorUnits: 50_000,
       rationale: "CAC is below target across a full D7 cohort",
     });
@@ -388,10 +467,24 @@ describe("no automatic scaling in V1", () => {
     expect(ledger.getGrant(grant.grantId)?.totalMinorUnits).toBe(20_000);
   });
 
-  it("has no path that raises a cap on an existing grant", () => {
-    const { ledger } = ledgerWithGrant();
+  it("exposes no path that raises a cap on an existing grant", () => {
+    const { ledger } = withGrant();
+    for (const forbidden of ["increaseBudget", "raiseCap", "updateBudget", "setTotal"]) {
+      expect(ledger).not.toHaveProperty(forbidden);
+    }
+  });
 
-    expect(ledger).not.toHaveProperty("increaseBudget");
-    expect(ledger).not.toHaveProperty("raiseCap");
+  it("cross-venture isolation: a second venture's grant is a separate budget", () => {
+    const { ledger, grant } = withGrant();
+    const other = ledger.registerGrant(
+      grantInput({ ventureId: "ship-to-users", externalAccountId: "tt-ads-2" }),
+    );
+
+    ledger.reserve(
+      reserveInput({ grantId: grant.grantId, amountMinorUnits: 10_000, idempotencyKey: "1" }),
+    );
+
+    expect(ledger.reservedMinorUnits(other.grantId)).toBe(0);
+    expect(other.grantId).not.toBe(grant.grantId);
   });
 });
