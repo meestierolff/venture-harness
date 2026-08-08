@@ -1,0 +1,14 @@
+id: 001-v0-1-to-v0-2
+from_version: 0.1.0
+to_version: 0.2.0
+reversible: true
+lock_update_last: true
+writes:
+  - config/framework.yaml
+  - config/venture.yaml
+  - config/launch.yaml
+  - config/providers.yaml
+  - config/policies.yaml
+  - config/loops.yaml
+  - config/mobile.yaml
+  - harness.lock
