@@ -1,39 +1,38 @@
 # Template maintenance
 
-For maintainers of the venture-harness template itself (not ventures).
+For central Venture Harness maintainers, not child-venture product work.
 
-## Versioning
+## Version and release
 
-Semantic-ish: MAJOR for breaking structure changes (paths, config schemas),
-MINOR for new skills/checks, PATCH for fixes. Version lives in
-`package.json` and `config/framework.yaml` — keep them equal
-(`pnpm release:check` verifies).
+Use semantic versions: major for breaking contracts, minor for capability/rail
+additions, patch for compatible fixes. Keep package/framework/lock versions and
+release notes aligned.
 
-## Release procedure
+Before release:
 
-1. `pnpm agents:sync && pnpm verify` clean.
-2. Update CHANGELOG.md.
-3. Bump both version fields.
-4. `pnpm release:check`.
-5. Tag `vX.Y.Z`; GitHub release notes = changelog section.
+1. assign each release-manifest file `harness`, `generated` or `project`
+   ownership and a trusted hash where applicable;
+2. add a versioned deterministic migration for contract changes;
+3. run `pnpm agents:sync`, `pnpm verify` and `pnpm verify:release`;
+4. audit PRODUCT_TRUTH and ensure live checks are evidence-backed or honest
+   skips;
+5. update changelog, versions and release manifest;
+6. run the public-release check, tag and publish notes after human approval.
 
-## How ventures take updates
+## How child ventures update
 
-Ventures are detached copies, not forks tracking upstream. Recommended
-flow: read the template changelog, cherry-pick wanted changes, re-run
-`pnpm agents:sync && pnpm verify`. Never auto-merge template changes into a
-live venture.
+Child ventures run `vh upgrade --release <local-release-root> --dry-run`, resolve
+managed-file conflicts, then repeat without `--dry-run`. Project-owned
+product/design/evidence is preserved. Managed changes apply only from a trusted
+hash-verified local baseline; adapters regenerate deterministically; fixed checks
+run; the lock updates last. See
+[CHILD_VENTURE_UPGRADES.md](../operations/CHILD_VENTURE_UPGRADES.md).
 
-## Invariants to protect
+## Invariants
 
-- AGENTS.md stays a map (~150 lines).
-- Adapters stay thin; no rule exists only in an adapter.
-- Every documented command exists; every skill is routed; parity holds.
-- New checks must run offline and without paid services.
-- Template contains zero venture facts and zero real market data.
-
-## Deprecations
-
-Deprecate skills/scripts by marking them in the skill description and
-keeping them one MINOR version before removal, with a migration note in
-the changelog.
+- AGENTS.md remains a short map; adapters hold no unique rules.
+- Every documented command and skill route exists and is checked.
+- Offline fixture verification never claims a live provider/resource.
+- Release artifacts contain no secrets, personal data or real venture evidence.
+- A correction changes existing ventures through a release/migration, not a
+  whole-repository overwrite.

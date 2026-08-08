@@ -1,27 +1,29 @@
 # Skills index
 
-Canonical skills live in `skills/<name>/SKILL.md`. Generated copies:
-`.agents/skills/` (Codex) and `.claude/skills/` (Claude Code), produced by
-`pnpm agents:sync` and verified by `pnpm agents:check`.
+Canonical procedures live in `skills/<name>/SKILL.md`. Generated Codex and
+Claude copies are produced by `pnpm agents:sync` and checked by
+`pnpm agents:check`; never edit generated copies directly.
 
-| Skill                                                                            | Description                                                                   | Invocation trigger                      |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------- |
-| [venture-bootstrap](../../skills/venture-bootstrap/SKILL.md)                     | Turn briefs into a coherent venture repository and measurable validation plan | new venture, empty project docs         |
-| [offer-architect](../../skills/offer-architect/SKILL.md)                         | Define and stress-test ICP, offer, pricing, and thirty-day economics          | offer work, pricing changes             |
-| [validation-engine](../../skills/validation-engine/SKILL.md)                     | Design demand hypotheses, tests, thresholds, and decision rules               | validation planning, gate reviews       |
-| [experiment-analytics-engine](../../skills/experiment-analytics-engine/SKILL.md) | Implement and verify tracking, consent, assignment, attribution, analysis     | analytics or experiment implementation  |
-| [design-director](../../skills/design-director/SKILL.md)                         | Run the original-design process from brief to audited system                  | new design, redesign, design review     |
-| [seo-aeo-engine](../../skills/seo-aeo-engine/SKILL.md)                           | Search and answer-engine visibility, crawlability, weekly SEO analysis        | SEO work, GSC/Bing data arrival         |
-| [distribution-engine](../../skills/distribution-engine/SKILL.md)                 | Customer habitat mapping, channel strategy, human-gated outreach prep         | distribution planning                   |
-| [harness-engineering](../../skills/harness-engineering/SKILL.md)                 | Make the repository easier for the next agent run                             | repeated corrections, drift, friction   |
-| [workflow-graph-engineering](../../skills/workflow-graph-engineering/SKILL.md)   | Explicit multi-node agent workflow graphs                                     | explicitly invoked, large parallel work |
-| [knowledge-graph-engineering](../../skills/knowledge-graph-engineering/SKILL.md) | Entity/claim/evidence graphs for genuine relational needs                     | explicitly invoked, proven need         |
-| [product-truth](../../skills/product-truth/SKILL.md)                             | Maintain the claims register; audit public surfaces                           | claim changes, pre-launch, pre-publish  |
-| [quality-gate](../../skills/quality-gate/SKILL.md)                               | Pre-completion verification of any change                                     | before reporting any task done          |
-| [weekly-learning](../../skills/weekly-learning/SKILL.md)                         | Weekly demand/funnel/SEO review; one proposed change                          | explicitly invoked, weekly cadence      |
+| Skill                                                                            | Responsibility                                             | Trigger                                     |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------- |
+| [launch-orchestrator](../../skills/launch-orchestrator/SKILL.md)                 | Route a brief and coordinate plan/apply/resume/report      | new launch or interrupted launch            |
+| [venture-bootstrap](../../skills/venture-bootstrap/SKILL.md)                     | Turn inputs into the progressive venture core              | new child venture or empty core docs        |
+| [provider-operations](../../skills/provider-operations/SKILL.md)                 | Auth, doctor, provider plans, read-back and manual actions | provider or DNS work                        |
+| [mobile-launch](../../skills/mobile-launch/SKILL.md)                             | Expo/SwiftUI, Apple, EAS, RevenueCat and TestFlight        | mobile or hybrid rail                       |
+| [offer-architect](../../skills/offer-architect/SKILL.md)                         | ICP, offer, pricing and thirty-day economics               | commercial decision needed                  |
+| [validation-engine](../../skills/validation-engine/SKILL.md)                     | Demand hypotheses, tests, thresholds and stop rules        | validation strategy or gate                 |
+| [experiment-analytics-engine](../../skills/experiment-analytics-engine/SKILL.md) | Event packs, consent, assignment, attribution and analysis | measurement or experiment implementation    |
+| [learning-loops](../../skills/learning-loops/SKILL.md)                           | Direct-data daily/weekly/biweekly/monthly decisions        | learning cadence                            |
+| [design-director](../../skills/design-director/SKILL.md)                         | Original identity and responsive system                    | design creation or audit                    |
+| [seo-aeo-engine](../../skills/seo-aeo-engine/SKILL.md)                           | Web SEO/AEO/GEO, search providers and ASO discovery        | discovery/crawl/index/store work            |
+| [distribution-engine](../../skills/distribution-engine/SKILL.md)                 | Human-gated channel/outreach preparation                   | distribution planning                       |
+| [workflow-graph-engineering](../../skills/workflow-graph-engineering/SKILL.md)   | Explicit runtime graph design                              | large parallel workflow, explicitly invoked |
+| [knowledge-graph-engineering](../../skills/knowledge-graph-engineering/SKILL.md) | Relational claim/entity/evidence systems                   | explicitly invoked after demonstrated need  |
+| [product-truth](../../skills/product-truth/SKILL.md)                             | Claims register and surface audit                          | claim change or pre-publication             |
+| [quality-gate](../../skills/quality-gate/SKILL.md)                               | Capability-aware completion evidence                       | before reporting completion                 |
+| [harness-engineering](../../skills/harness-engineering/SKILL.md)                 | Promote repeated friction into durable checks/docs         | recurring corrections or drift              |
+| [weekly-learning](../../skills/weekly-learning/SKILL.md)                         | Compatibility wrapper to the weekly loop                   | explicitly requested weekly review          |
 
-Skill format: see [../../skills/venture-bootstrap/SKILL.md](../../skills/venture-bootstrap/SKILL.md)
-as the reference example — frontmatter (name, description), purpose,
-triggers, non-triggers, inputs, documents to read, file boundaries,
-execution steps, hard rules, expected output, validation, failure
-behaviour, and human approval boundaries.
+Every skill declares inputs, file boundaries, validation, failure behavior and
+human approval boundaries. Tool permission never expands a run authorization
+envelope.

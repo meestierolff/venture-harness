@@ -25,6 +25,11 @@ items; the rest need human eyes.
       jurisdiction — by a human, ideally counsel.
 - [ ] PRODUCT_TRUTH register contains no UNVERIFIED/UNDER REVIEW claims on
       public surfaces.
+- [ ] Prototype and synthetic claims are visibly labeled; provider `verified`
+      states link to real read-back artifacts.
+- [ ] No fixture URL, resource ID, data or check is described as a live launch.
+- [ ] Authorization defaults, credential references and revocation guidance
+      match the current runtime.
 - [ ] Issue templates and CONTRIBUTING reflect current reality.
 - [ ] Screenshots/examples contain no real customer data.
 

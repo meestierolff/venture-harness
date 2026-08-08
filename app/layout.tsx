@@ -11,11 +11,11 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Venture Harness — validation site foundation",
+    default: "Venture Harness — launch OS prototype",
     template: "%s — Venture Harness",
   },
   description:
-    "Template validation-site foundation. Replace this metadata at venture bootstrap; the operational plumbing (consent, analytics, experiments, evidence) stays.",
+    "Locally tested launch-planning and workflow prototype. Child ventures replace this neutral template with their own verified identity and claims.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -33,8 +33,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <main>{children}</main>
         <footer className="site-footer">
           <p>
-            Built from the Venture Harness template. This template page is visually neutral by
-            design — each venture replaces the design, keeps the plumbing.
+            Venture Harness v0.2 prototype. This neutral, accessible shell is replaced by each
+            venture&apos;s reviewed design and evidence-backed claims.
           </p>
           <ConsentSettingsLink />
         </footer>

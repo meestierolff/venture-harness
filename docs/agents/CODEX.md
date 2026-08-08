@@ -1,36 +1,21 @@
 # OpenAI Codex adapter guide
 
-## Instruction source
+Codex reads [AGENTS.md](../../AGENTS.md) as the canonical rule set. No adapter
+may contain unique launch, authorization or product-truth policy.
 
-Codex reads [AGENTS.md](../../AGENTS.md) natively from the repository root.
-There is no separate Codex constitution — AGENTS.md is canonical for every
-agent.
-
-## Skills
-
-Codex-ready skill copies live in `.agents/skills/<name>/`, generated from
-`skills/<name>/` by `pnpm agents:sync`. Each generated folder contains the
-skill's `SKILL.md` (with a generated-file marker after the frontmatter),
-its `references/`, `scripts/`, `assets/`, and the Codex metadata file
-`agents/openai.yaml`.
-
-Do not edit `.agents/skills/` directly. Edit `skills/` and re-sync.
-
-## Invocation
-
-Reference a skill in your prompt ("use the offer-architect skill") or let
-Codex select it from the metadata descriptions. The skill's SKILL.md is the
-procedure; project state lives in `docs/` and `config/`.
-
-## Verification
-
-Before reporting completion:
+Codex-ready copies under `.agents/skills/` are generated from `skills/`, include
+their relevant references/assets/scripts and Codex metadata, and are committed so
+discovery needs no build step. Edit only the canonical source, then run:
 
 ```bash
-pnpm verify
+pnpm agents:sync
+pnpm agents:check
 ```
 
-## Boundaries
+Reference a skill by name or let its metadata route the task. Project state stays
+in `config/`, `docs/`, `harness.lock` and the redacted `.venture/` runtime—not in
+the skill.
 
-Codex must not send, publish, charge, deploy, or merge. Those actions are
-human-gated everywhere in this repository.
+Before completion, run `pnpm verify` and the applicable staged quality profile.
+An external effect requires both tool permission and a run envelope that names
+the provider, effect, environment and limits.

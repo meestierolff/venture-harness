@@ -1,48 +1,24 @@
-# Reddit launch notes (for the template itself)
+# Reddit launch notes
 
-How to present Venture Harness on Reddit without violating the framework's
-own distribution rules. Everything here is a draft aid; a human posts.
+Draft aid for a human posting the central harness. Verify each community's rules
+at posting time; never automate or astroturf a post.
 
 ## Positioning
 
-Lead with the problem, not the artifact: _AI made software cheap to build
-and did nothing for proving demand._ The repository is the receipt, not the
-pitch.
+Lead with the problem: agents can build quickly, but a founder still needs a
+truthful path from one brief to the smallest useful product, provider evidence
+and bounded learning. Present v0.2 as a locally tested open-source launch
+prototype—not proof of revenue, demand or live autonomous provisioning.
 
-## Candidate communities
+## Body shape
 
-Research each subreddit's rules before posting (record them in a habitat
-map, per `$distribution-engine`): r/SaaS, r/EntrepreneurRideAlong,
-r/startups, r/SideProject, r/ClaudeAI, r/ChatGPTCoding — fit and rules
-verified at posting time, not assumed from this list.
+1. The repeated launch friction.
+2. Progressive commitment and four launch modes.
+3. Durable graph, credential/provider boundaries, staged checks and upgrades.
+4. What remains manual/unverified: MijnDomein, first Apple record and all live
+   provider paths until read back.
+5. Repository link and invitation for technical critique.
 
-## Title patterns that fit the framework's honesty rules
-
-- "I kept building products nobody wanted, so I built a harness that makes
-  me prove demand first — MIT licensed"
-- "A template repo that makes Codex/Claude/Gemini follow the same venture
-  playbook"
-
-No fabricated results in titles. No "went from 0 to $Xk" claims — the
-template has no revenue claims to make.
-
-## Body structure
-
-1. The recurring failure (2–3 sentences, first person).
-2. The enforced sequence (the 30–90 day model, one short list).
-3. What's actually in the repo (skills, checks, analytics contract).
-4. What it does NOT do (no fabrication, human-gated actions, not legal advice).
-5. Link + invitation to tear it apart.
-
-## Expected objections, honest answers
-
-| Objection                     | Answer                                                               |
-| ----------------------------- | -------------------------------------------------------------------- |
-| "Process theater"             | The checks are executable; run `pnpm verify` yourself                |
-| "Landing pages prove nothing" | Agreed — that is why Layer 3 stores qualified behaviour, not signups |
-| "Agents will ignore all this" | Parity and claim checks fail CI when they do                         |
-
-## Rules for the post itself
-
-Human posts it. Disclose authorship. Answer every substantive comment.
-Never astroturf; never use multiple accounts.
+Do not claim customers, revenue, launch speed, provider coverage in production,
+App Store acceptance or learning outcomes without rows and evidence in
+PRODUCT_TRUTH. A human discloses authorship, posts and replies.

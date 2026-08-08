@@ -1,81 +1,65 @@
 # VALIDATION
 
-- Status: TEMPLATE
-- Owner: unassigned
-- Last updated: 2026-07-21
+- Status: TEMPLATE — complete when the selected launch strategy uses a demand test
+- Owner: founder
+- Last updated: 2026-08-04
 
 ## Purpose
 
-The 30-to-90-day demand-validation plan: what must be proven, by which
-behaviour, at which thresholds, and what happens at each gate. Maintained by
-`$validation-engine`. Thresholds mirror `config/venture.yaml` (validation
-block) and are set before launch.
+Define falsifiable demand or product-usage evidence without making a 30–90-day
+validation site compulsory. The launch router records the mode in
+[../../config/launch.yaml](../../config/launch.yaml).
+
+## Strategy by launch mode
+
+| Mode              | First evidence                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `validate_first`  | Qualified commercial behavior before meaningful product scope. Optional day 30/60/90 gates fit here. |
+| `thin_mvp`        | Usage of the smallest reversible core journey plus a commercial signal.                              |
+| `product_first`   | Product outcome completion; demand is interpreted alongside real use.                                |
+| `concierge_first` | Honest human delivery, willingness to continue/pay, and evidence about repeatable steps.             |
+
+## Progressive commitment
+
+Before build, record the specific audience, problem/job, intended outcome,
+smallest core journey, primary success signal, material constraints, known
+truths and assumptions. Missing non-critical commercial detail becomes a
+labeled assumption or backlog item. Block only for deception, unintelligible
+outcome, unsafe non-defaultable security/legal/payment choices, indispensable
+missing auth, or unauthorized irreversible effects.
 
 ## Demand hypotheses
 
-| #   | Hypothesis | Falsifiable by | Threshold |
-| --- | ---------- | -------------- | --------- |
-| H1  | —          | —              | —         |
+| Id  | Hypothesis | Population and window | Signal | Threshold | Stop rule |
+| --- | ---------- | --------------------- | ------ | --------- | --------- |
+| —   | —          | —                     | —      | —         | —         |
 
-## Test setup
+## Optional decision gates
 
-| Element            | Value                                |
-| ------------------ | ------------------------------------ |
-| Audience           | —                                    |
-| Offer shown        | —                                    |
-| Traffic sources    | —                                    |
-| Conversion events  | — (names from config/analytics.yaml) |
-| Primary conversion | —                                    |
-| Qualification rule | — (enforced server-side)             |
+Use these only for `validate_first` when the evidence window justifies them.
 
-## Qualified behaviour, not vanity
+| Gate   | Question                                                       | Possible decision                             |
+| ------ | -------------------------------------------------------------- | --------------------------------------------- |
+| Day 30 | Is qualified traffic or reachable demand present?              | channel iteration, reposition, continue, stop |
+| Day 60 | Does qualified intent meet the predeclared threshold?          | build, offer iteration, reposition, stop      |
+| Day 90 | Is the evidence strong enough for a final allocation decision? | build, reposition, stop                       |
 
-Commercial validation relies on qualified behaviour: high-intent actions,
-conversations, accepted pilots, reservations, and purchases where
-deliverable — not page views or email signups alone.
-
-## Success / failure definitions
-
-| Outcome       | Definition                                             |
-| ------------- | ------------------------------------------------------ |
-| Success       | —                                                      |
-| Failure       | —                                                      |
-| Sample limits | — (minimum qualified observations before any decision) |
-
-## Decision gates
-
-| Gate   | Day | Question                                             | Possible outcomes                             |
-| ------ | --- | ---------------------------------------------------- | --------------------------------------------- |
-| Gate 1 | 30  | Is qualified traffic arriving at all?                | iterate channels / reposition / continue      |
-| Gate 2 | 60  | Is qualified intent converting at threshold?         | build / iterate offer / reposition / continue |
-| Gate 3 | 90  | Final call — no extensions without a decision record | build / reposition / stop                     |
-
-## Decision rules
-
-<!-- Written before launch. Include: who decides, what evidence is required
-     in the room, and the rule that weak evidence defaults to "do nothing
-     further", not to "build". -->
-
-## Stop rules
-
-<!-- Explicit kill criteria. Mirrors config/venture.yaml stop_threshold. -->
-
-## Product-truth disclosures
-
-<!-- What the validation site must disclose (prototype status, concierge
-     delivery, sample data labels). Links to PRODUCT_TRUTH.md ids. -->
+An experiment is optional. Use one only when traffic, assignment integrity and
+decision value justify it. Qualified observations, exposure denominators and
+limitations are required before reporting a result.
 
 ## Evidence
 
-None — template state.
+None — no venture or market evidence is loaded in the template.
 
 ## Assumptions
 
-None recorded.
+None recorded for a child venture.
 
 ## Unresolved questions
 
-None recorded.
+The founder must choose thresholds and decision ownership before interpreting
+live evidence.
 
 ## Related documents
 

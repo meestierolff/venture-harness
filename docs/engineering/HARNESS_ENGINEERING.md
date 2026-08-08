@@ -8,7 +8,7 @@ instead of merely bigger. Procedure: `skills/harness-engineering/SKILL.md`.
 1. An agent run fails, gets corrected, or needs the same explanation twice.
 2. The correction is recorded: `pnpm outcome:add` →
    `memory/corrections.jsonl`.
-3. `$harness-engineering` (or `$weekly-learning`) reviews recurring
+3. `$harness-engineering` (or the configured `$learning-loops` cadence) reviews recurring
    corrections and promotes them into the cheapest durable form:
 
    | Failure shape                   | Promote into                     |
@@ -41,6 +41,10 @@ Run through this list during `$harness-engineering`:
 - Unverifiable tasks: any task an agent cannot check with a command?
 - Uninspectable analytics: can an agent read every event's contract?
 - Consent behaviour without tests: any consent path uncovered?
+- Uninspectable provider state: does `verified` always have read-back evidence?
+- Unresumable work: can a manual/approval node resolve through the CLI without
+  editing durable state?
+- Upgrade drift: are managed/project ownership and trusted hashes current?
 
 ## Conventions
 
@@ -48,6 +52,7 @@ Run through this list during `$harness-engineering`:
 - Every script is idempotent and safe to run twice.
 - Generated directories carry a marker and are never hand-edited.
 - One active plan at a time under `docs/plans/active/`.
+- Staged quality reports name every skip and its exact missing proof.
 
 ## Related
 

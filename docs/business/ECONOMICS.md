@@ -35,8 +35,9 @@ calls. Assumptions live in `config/offer.yaml` (economics block).
 
 ## Unpriced service work
 
-<!-- List any concierge/done-for-you labour not yet priced. Unpriced service
-     work is a bootstrap blocker (see $venture-bootstrap). -->
+<!-- List concierge/done-for-you labour not yet priced. Treat it as an explicit
+     assumption; block only when it makes the intended outcome deceptive or a
+     material payment/delivery choice unsafe to default. -->
 
 ## Evidence
 

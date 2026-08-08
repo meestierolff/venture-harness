@@ -18,8 +18,9 @@ assigned to the coding agent.
 
 - Put the task's skill reference and the relevant docs in the issue body.
 - Require `pnpm verify` in the acceptance criteria.
-- PRs from Copilot follow the same human-gated boundaries: no deploy, no
-  publish, no merge without human review.
+- PRs from Copilot follow the same run-envelope boundaries. External effects
+  need the named provider/environment/effect authorization; publish and merge
+  still need explicit human review.
 
 ## Known limitations
 

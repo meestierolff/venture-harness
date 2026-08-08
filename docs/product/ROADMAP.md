@@ -1,46 +1,43 @@
 # ROADMAP
 
 - Status: TEMPLATE
-- Owner: unassigned
-- Last updated: 2026-07-21
+- Owner: founder
+- Last updated: 2026-08-04
 
 ## Purpose
 
-What gets built after which evidence. This is an evidence-gated roadmap, not
-a date-gated one: items advance when their trigger is met, and the trigger
-is written down first. Prove demand before expanding product scope.
+Sequence capabilities by evidence and reversibility instead of forcing every
+venture through the same validation website.
 
-## Now (demand validation)
+## Now
 
-| Item                                 | Why now              |
-| ------------------------------------ | -------------------- |
-| Validation website + instrumentation | it IS the experiment |
+Build the smallest useful core journey selected by the router. Include only the
+capabilities needed to deliver and measure its outcome.
 
 ## Next (gated)
 
-| Item | Evidence trigger | Source of trigger   |
-| ---- | ---------------- | ------------------- |
-| —    | —                | VALIDATION.md gates |
+| Capability | Evidence trigger | Risk/authorization change |
+| ---------- | ---------------- | ------------------------- |
+| —          | —                | —                         |
 
 ## Later / explicitly not now
 
-<!-- Ideas parked with the reason they are parked. "Easy to build" is not a
-     reason to build. -->
+Park ideas with a reason. “Easy to build” is not an outcome or evidence trigger.
 
 ## Evidence
 
-None — template state.
+None — no child venture is loaded.
 
 ## Assumptions
 
-None recorded.
+Scope changes remain reviewable even when the launch mode is product-first.
 
 ## Unresolved questions
 
-None recorded.
+The first child venture's mode, core journey and capability set.
 
 ## Related documents
 
 - [VALIDATION.md](VALIDATION.md)
 - [PRODUCT.md](PRODUCT.md)
-- [../plans/active/](../plans/active/)
+- [../../config/launch.yaml](../../config/launch.yaml)
