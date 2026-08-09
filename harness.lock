@@ -353,6 +353,9 @@ managed_files:
   - path: lib/config/contracts.ts
     ownership: harness
     sha256: ffe3f7735fc36b9833180718323f2dac84e0f0bc9acbadb2bcd59e42d8d52971
+  - path: lib/config/growth-contract-schema.ts
+    ownership: harness
+    sha256: 3592fe133d530e2bd43802dcfde83fcc8d1a3306a81d008337ae96d989cdd632
   - path: lib/config/harness-lock.ts
     ownership: harness
     sha256: a8a8ec37f2e716d03d4a2cd05bb49d023d77d445ab1e8c9986e104ded86fe68d
@@ -593,21 +596,45 @@ managed_files:
   - path: lib/visitor.ts
     ownership: harness
     sha256: 4284e7e3613bd89d5a2163158114ff5adec9facc5ee56836de4e44fb94c89aa0
+  - path: lib/winner-loop/attribution.ts
+    ownership: harness
+    sha256: 1a391ad030966a9b4aff31a238318ddba827d3ecacab4f28e85e63097598da81
   - path: lib/winner-loop/creative-ledger.ts
     ownership: harness
-    sha256: 8ed71bc301378fc6a5fcb6efb7d10e499cb6ed9f97318567538b0823d2b8666e
+    sha256: 9db8ab1833ec3932c158fb6d0cc1314e638e32f434d7dbebaf5d596ab26b0760
+  - path: lib/winner-loop/evaluator.ts
+    ownership: harness
+    sha256: f6f5b6dc4e1f848d9a82b8fb7a47323f13e58d5c32748897f0fb11824c8a0d69
+  - path: lib/winner-loop/fingerprint.ts
+    ownership: harness
+    sha256: 8598ef5a0860e388f58021f51a26d6cc73ca29132ea0cf4effbbefbdbf2a4d6c
+  - path: lib/winner-loop/ids.ts
+    ownership: harness
+    sha256: 8d033b31ae9ee1b5176da1950da803de4bed5c9f0e7117b63bde78ebe2636af0
   - path: lib/winner-loop/index.ts
     ownership: harness
-    sha256: 34a94ccea06a9d5d69819b7c1b2df93254452b310e30052b10d4f9029bbbce35
+    sha256: a62f0627dec0bbba3e19f1010883b639b0e8f617db3c8eac2ab078f6c58f636b
   - path: lib/winner-loop/metrics.ts
     ownership: harness
     sha256: fce50aba4eb307694aeb95b75e07fde19e62d52d20bd303a665353376d6b2cd2
+  - path: lib/winner-loop/paid-test.ts
+    ownership: harness
+    sha256: 0debbdd1339a7e91e4336430e9498f5852c7624b21ee3ae156e713d20cd98474
+  - path: lib/winner-loop/readiness.ts
+    ownership: harness
+    sha256: aec083d4c8530d37853bd8c289b1cd168261218d69e5596f4c2f5cf0d1f0f7da
+  - path: lib/winner-loop/spend-store.ts
+    ownership: harness
+    sha256: 0992f7a735f5bfaf0dc6b025908914c0daa482ce76fa1361525f0a15b120b9de
   - path: lib/winner-loop/spend.ts
     ownership: harness
-    sha256: 9b024e1cf45dd46aa5232806110daaf5521543fe167dc86fb7b56b7447aa96ac
+    sha256: ba31681acfa7448e320f6387280610328bc84ce0a8a848c00e886154bd4405d3
+  - path: lib/winner-loop/subscriptions.ts
+    ownership: harness
+    sha256: d269716b458bba8c6d7c9225d354056d669ce1cc1a3a10c203ae00bdf31216ca
   - path: lib/winner-loop/types.ts
     ownership: harness
-    sha256: da98a9f784ce81ad7856f5c3e33b2b517440d5abf7a73884553c34f17dfdd2e5
+    sha256: 6b60476b4e9ecad323c483234df3570833e31bd3784be34eafcbe51ab4d4c03b
   - path: lib/workflow/errors.ts
     ownership: harness
     sha256: 95f009ad96405cf794a81317386eaa7e67088fe3919add7f0da1bdaefa9f6887
@@ -1028,15 +1055,24 @@ managed_files:
   - path: tests/upgrade.test.ts
     ownership: harness
     sha256: 82a12759c38c778c06e4040b9388d2ac1c58921c8e44c3f65f5660bb9e8957ea
+  - path: tests/winner-loop-attribution-cohorts.test.ts
+    ownership: harness
+    sha256: dd628f301e9e032195be817197d6413dcde721e5d5d8a9a5a7d689492d8f1950
   - path: tests/winner-loop-creative-ledger.test.ts
     ownership: harness
-    sha256: 94c18e6ccf8a2ae6ca203a991c14837548a02fe4a9ab61542cbf0607106efa7d
+    sha256: f778fccf0b930c26bde09be3ba66cc7c52b2640d3708ed4f869d6613dabee10c
+  - path: tests/winner-loop-evaluator.test.ts
+    ownership: harness
+    sha256: e42fee9607e15c5bf2e8a80c4c5430e0e28250d934c230eee42f8dabdfb65a3b
   - path: tests/winner-loop-metrics.test.ts
     ownership: harness
     sha256: 424ddcd2a596a017603a233748b19b4c3add3904fedfbc715522e2a1a8cdc74f
+  - path: tests/winner-loop-paid-gate.test.ts
+    ownership: harness
+    sha256: 885b3af3ee85ef0835e4cd7b18188cb754603c1a3245af2a0654874da2f5550f
   - path: tests/winner-loop-spend-safety.test.ts
     ownership: harness
-    sha256: 273d85bff0e2a40d49fecd985122ef9e04494c22adda9d5c27b1393c62a14451
+    sha256: 1240a4224d40b3882d4f9d0c9aa4216c1d12537562e4262b43616bfeebce8d83
   - path: tests/workflow-runtime.test.ts
     ownership: harness
     sha256: 90f7bf8c8a434b84cd5b19b39c6fe5d54c96a231317a46fe54421dd991908d56
