@@ -1,0 +1,14 @@
+id: winner-loop-growth-contract-v1-to-v2
+from_version: 1
+to_version: 2
+reversible: true
+scope: config/growth.yaml
+transform:
+  source: paid.per_creative_test_budget_minor
+  targets:
+    - paid.test_budget_minor
+    - paid.per_creative_cap_minor
+  rule: copy_the_legacy_ceiling_to_both_limits
+notes:
+  - The migration never raises the legacy spend ceiling.
+  - V2 separates the whole test-matrix envelope from one creative's cap.

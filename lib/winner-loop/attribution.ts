@@ -1,4 +1,8 @@
 import { createIdFactory, type IdFactoryOptions } from "./ids";
+import {
+  createMemoryWinnerLoopEvidenceStore,
+  type WinnerLoopEvidenceStore,
+} from "./evidence-store";
 
 /**
  * Attribution.
@@ -25,6 +29,15 @@ export type AttributionClass = (typeof ATTRIBUTION_CLASSES)[number];
 const EXACT_CLASSES: readonly AttributionClass[] = ["DETERMINISTIC"];
 
 export type AttributionConfidence = "high" | "medium" | "low" | "none";
+export type AttributionFreshnessStatus = "fresh" | "stale" | "unknown";
+export type CreativeAttributionReportingStatus =
+  "exact" | "provider_claimed" | "coarse" | "stale" | "unattributed";
+
+export interface AttributionFreshness {
+  readonly status: AttributionFreshnessStatus;
+  readonly sourceAgeSeconds: number | null;
+  readonly maxAgeSeconds: number;
+}
 
 export interface AttributionEvidence {
   /** A click identifier that survived into the install or purchase. */
@@ -43,6 +56,7 @@ export interface AttributionEvidence {
 }
 
 export interface AttributionRecordInput {
+  organizationId: string;
   ventureId: string;
   creativeId: string | null;
   creativeFamilyId: string | null;
@@ -59,6 +73,8 @@ export interface AttributionRecordInput {
   conversionWindowHours: number;
   sourceTime: string;
   fetchedAt: string;
+  /** Maximum accepted delay from provider occurrence to retrieval. */
+  freshnessMaxAgeSeconds: number;
   mappingVersion: string;
 }
 
@@ -68,6 +84,9 @@ export interface AttributionRecord extends Readonly<AttributionRecordInput> {
   readonly confidence: AttributionConfidence;
   readonly limitations: readonly string[];
   readonly mayBePresentedAsExact: boolean;
+  readonly freshness: AttributionFreshness;
+  /** Distinguishes an exact deterministic link from a provider's own claim. */
+  readonly creativeReportingStatus: CreativeAttributionReportingStatus;
   /** The narrowest object this evidence actually supports. */
   readonly resolvedGranularity:
     "creative" | "delivery_variant" | "campaign" | "time_window" | "none";
@@ -138,28 +157,101 @@ function granularityFor(
   return "time_window";
 }
 
+function freshnessFor(input: AttributionRecordInput): AttributionFreshness {
+  const sourceTime = Date.parse(input.sourceTime);
+  const fetchedAt = Date.parse(input.fetchedAt);
+  if (
+    !Number.isFinite(sourceTime) ||
+    !Number.isFinite(fetchedAt) ||
+    fetchedAt < sourceTime ||
+    !Number.isFinite(input.freshnessMaxAgeSeconds) ||
+    input.freshnessMaxAgeSeconds <= 0
+  ) {
+    throw new Error(
+      "attribution source/fetch timestamps and freshnessMaxAgeSeconds must form a valid freshness contract",
+    );
+  }
+  const sourceAgeSeconds = Math.round((fetchedAt - sourceTime) / 1_000);
+  return Object.freeze({
+    status: sourceAgeSeconds <= input.freshnessMaxAgeSeconds ? "fresh" : "stale",
+    sourceAgeSeconds,
+    maxAgeSeconds: input.freshnessMaxAgeSeconds,
+  });
+}
+
+function creativeReportingStatusFor(
+  attributionClass: AttributionClass,
+  granularity: AttributionRecord["resolvedGranularity"],
+  freshness: AttributionFreshness,
+): CreativeAttributionReportingStatus {
+  if (attributionClass === "UNKNOWN" || granularity === "none") return "unattributed";
+  if (freshness.status !== "fresh") return "stale";
+  if (granularity !== "creative") return "coarse";
+  if (attributionClass === "DETERMINISTIC") return "exact";
+  if (attributionClass === "PROVIDER_ATTRIBUTED") return "provider_claimed";
+  return "coarse";
+}
+
 export interface AttributionLedgerOptions extends IdFactoryOptions {
+  organizationId: string;
   ventureId: string;
+  store?: WinnerLoopEvidenceStore;
 }
 
 export function createAttributionLedger(options: AttributionLedgerOptions) {
   const now = options.now ?? (() => new Date());
   const mint = createIdFactory(options);
-  const records = new Map<string, AttributionRecord>();
+  const store = options.store ?? createMemoryWinnerLoopEvidenceStore();
+  if (
+    !options.organizationId.trim() ||
+    options.organizationId !== options.organizationId.trim() ||
+    !options.ventureId.trim() ||
+    options.ventureId !== options.ventureId.trim()
+  ) {
+    throw new Error("attribution ledger requires a canonical organization and venture scope");
+  }
+  const scope = Object.freeze({
+    organizationId: options.organizationId,
+    ventureId: options.ventureId,
+  });
+  const hydrate = (payload: unknown): AttributionRecord => {
+    const entry = payload as AttributionRecord;
+    if (entry.organizationId !== scope.organizationId || entry.ventureId !== scope.ventureId) {
+      throw new Error("persisted attribution tenant_scope_mismatch");
+    }
+    return Object.freeze({
+      ...entry,
+      evidence: Object.freeze({ ...entry.evidence }),
+      limitations: Object.freeze([...entry.limitations]),
+    });
+  };
+  const records = (): readonly AttributionRecord[] =>
+    store.list(scope, "attribution").map((entry) => hydrate(entry.payload));
 
   function record(input: AttributionRecordInput): AttributionRecord {
-    if (input.ventureId !== options.ventureId) {
+    if (input.organizationId !== options.organizationId || input.ventureId !== options.ventureId) {
       throw new Error(
-        `attribution for ${input.ventureId} cannot be written to ${options.ventureId}`,
+        "attribution cannot be written outside the configured organization and venture",
       );
     }
     const { attributionClass, confidence, limitations } = classifyAttribution(input.evidence);
     const granularity = granularityFor(attributionClass, input);
+    const freshness = freshnessFor(input);
+    const creativeReportingStatus = creativeReportingStatusFor(
+      attributionClass,
+      granularity,
+      freshness,
+    );
 
     const allLimitations = [...limitations];
     if (granularity !== "creative" && input.creativeId) {
       allLimitations.push(
         `Evidence supports ${granularity} granularity; creative-level certainty is not claimed.`,
+      );
+    }
+    if (freshness.status !== "fresh") {
+      allLimitations.push(
+        `Attribution evidence is stale (${freshness.sourceAgeSeconds}s old; maximum ${freshness.maxAgeSeconds}s).`,
       );
     }
 
@@ -170,33 +262,50 @@ export function createAttributionLedger(options: AttributionLedgerOptions) {
       attributionClass,
       confidence,
       limitations: Object.freeze(allLimitations),
-      mayBePresentedAsExact: EXACT_CLASSES.includes(attributionClass),
+      mayBePresentedAsExact:
+        EXACT_CLASSES.includes(attributionClass) && freshness.status === "fresh",
+      freshness,
+      creativeReportingStatus,
       resolvedGranularity: granularity,
       recordedAt: now().toISOString(),
     });
-    records.set(entry.attributionId, entry);
+    store.put({
+      organizationId: options.organizationId,
+      ventureId: options.ventureId,
+      kind: "attribution",
+      recordId: entry.attributionId,
+      creativeId: entry.creativeId,
+      occurredAt: entry.recordedAt,
+      sourceRefs: Object.freeze([entry.mappingVersion]),
+      payload: entry,
+    });
     return entry;
   }
 
   return {
+    scope,
     record,
-    get: (attributionId: string) => records.get(attributionId),
+    get: (attributionId: string) => {
+      const entry = store.get(scope, "attribution", attributionId);
+      return entry ? hydrate(entry.payload) : undefined;
+    },
     listForCreative: (creativeId: string): readonly AttributionRecord[] =>
-      [...records.values()].filter((entry) => entry.creativeId === creativeId),
+      store.list(scope, "attribution", creativeId).map((entry) => hydrate(entry.payload)),
     /** True only when every record backing a claim is genuinely exact. */
     isHealthyForCreativeLevelReporting(creativeId: string): boolean {
-      const entries = [...records.values()].filter((e) => e.creativeId === creativeId);
+      const entries = records().filter((e) => e.creativeId === creativeId);
       if (entries.length === 0) return false;
       return entries.every(
         (entry) =>
           entry.resolvedGranularity === "creative" &&
-          (entry.attributionClass === "DETERMINISTIC" ||
-            entry.attributionClass === "PROVIDER_ATTRIBUTED"),
+          entry.attributionClass === "DETERMINISTIC" &&
+          entry.mayBePresentedAsExact &&
+          entry.creativeReportingStatus === "exact",
       );
     },
     /** The weakest class present, which is the strongest a summary may claim. */
     weakestClassForCreative(creativeId: string): AttributionClass {
-      const entries = [...records.values()].filter((e) => e.creativeId === creativeId);
+      const entries = records().filter((e) => e.creativeId === creativeId);
       if (entries.length === 0) return "UNKNOWN";
       const order = ATTRIBUTION_CLASSES;
       return entries.reduce<AttributionClass>((weakest, entry) => {
@@ -205,6 +314,7 @@ export function createAttributionLedger(options: AttributionLedgerOptions) {
           : weakest;
       }, entries[0]!.attributionClass);
     },
+    store,
   };
 }
 

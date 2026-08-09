@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
+import {
+  assessCreativeCompliance,
+  type CreativeCompliancePolicy,
+  type CreativeManifestStore,
+} from "./creative-manifest";
 import { createIdFactory, type IdFactoryOptions } from "./ids";
+import {
+  createMemoryPaidTestStore,
+  type PaidProposalScope,
+  type PaidSafetyState,
+  type PaidTestStore,
+} from "./paid-test-store";
 import type { SpendGrant, SpendLedger } from "./spend";
 
 /**
@@ -29,11 +40,16 @@ export type PaidTestErrorCode =
   | "creative_differs_from_approved"
   | "network_differs_from_approved"
   | "objective_differs_from_approved"
+  | "optimization_differs_from_approved"
+  | "geography_differs_from_approved"
+  | "operation_outside_approved_window"
   | "rights_not_approved"
   | "disclosure_missing"
+  | "creative_policy_blocked"
   | "attribution_unhealthy"
   | "tracking_unhealthy"
   | "provider_ineligible"
+  | "invalid_proposal"
   | "invalid_decision";
 
 export class PaidTestError extends Error {
@@ -53,6 +69,7 @@ export type RightsState = "approved_for_paid" | "organic_only" | "blocked" | "ex
 export type DisclosureState = "not_required" | "present" | "missing";
 
 export interface PaidTestProposalInput {
+  organizationId: string;
   ventureId: string;
   creativeId: string;
   deliveryVariantId: string;
@@ -94,11 +111,14 @@ export interface PaidTestProposal extends Readonly<PaidTestProposalInput> {
   readonly decidedBy: string | null;
   readonly decidedAt: string | null;
   readonly approvalRef: string | null;
+  readonly decisionReason: string | null;
 }
 
 /** Exactly the fields a human is agreeing to when they approve. */
 function materialTerms(input: PaidTestProposalInput) {
   return {
+    organizationId: input.organizationId,
+    ventureId: input.ventureId,
     creativeId: input.creativeId,
     deliveryVariantId: input.deliveryVariantId,
     organicPostId: input.organicPostId,
@@ -115,6 +135,9 @@ function materialTerms(input: PaidTestProposalInput) {
     endAt: input.endAt,
     targetCacMinor: input.targetCacMinor,
     hardMaxCacMinor: input.hardMaxCacMinor,
+    paybackTargetDays: input.paybackTargetDays,
+    maxSpendWithoutTrialMinor: input.maxSpendWithoutTrialMinor,
+    maxSpendWithoutPurchaseMinor: input.maxSpendWithoutPurchaseMinor,
   };
 }
 
@@ -137,25 +160,110 @@ export type ProposalDecision =
   | { kind: "request_variants"; decidedBy: string; reason: string };
 
 export interface PaidOperationRequest {
+  organizationId: string;
+  ventureId: string;
   proposalId: string;
   grantId: string;
   creativeId: string;
   network: "tiktok_paid" | "meta_paid";
   adAccountId: string;
   objective: string;
+  optimizationEvent: string;
+  geography: string;
   amountMinorUnits: number;
   campaignId: string;
   idempotencyKey: string;
 }
 
-export interface PaidTestOptions extends IdFactoryOptions {}
+export interface SpendGrantPolicyCaps {
+  customerId?: string | null;
+  dailyVentureMinorUnits: number;
+  monthlyVentureMinorUnits: number;
+  dailyCustomerMinorUnits: number;
+  monthlyCustomerMinorUnits: number;
+  emergencyPlatformMinorUnits: number;
+}
+
+export interface PaidTestOptions extends IdFactoryOptions {
+  store?: PaidTestStore;
+  manifestStore?: CreativeManifestStore;
+  compliancePolicy?: CreativeCompliancePolicy;
+}
 
 export function createPaidTestService(options: PaidTestOptions = {}) {
   const now = options.now ?? (() => new Date());
   const mint = createIdFactory(options);
-  const proposals = new Map<string, PaidTestProposal>();
+  const store = options.store ?? createMemoryPaidTestStore();
+
+  function assertProposalInput(input: PaidTestProposalInput): void {
+    if (
+      !input.organizationId.trim() ||
+      !input.ventureId.trim() ||
+      !input.creativeId.trim() ||
+      !input.deliveryVariantId.trim() ||
+      !input.organicPostId.trim() ||
+      !input.adAccountId.trim() ||
+      !input.objective.trim() ||
+      !input.optimizationEvent.trim() ||
+      !input.currency.trim() ||
+      !input.recommendationId.trim() ||
+      !input.createdBy.trim() ||
+      input.geographies.length === 0 ||
+      input.geographies.some((geography) => !geography.trim()) ||
+      input.audienceConstraints.some((constraint) => !constraint.trim()) ||
+      input.evidence.length === 0 ||
+      input.evidence.some((reference) => !reference.trim())
+    ) {
+      throw new PaidTestError("invalid_proposal", "paid proposal scope is incomplete");
+    }
+    if (
+      !["approved_for_paid", "organic_only", "blocked", "expired"].includes(input.rightsState) ||
+      !["not_required", "present", "missing"].includes(input.disclosureState) ||
+      typeof input.trackingHealthy !== "boolean" ||
+      typeof input.attributionHealthy !== "boolean" ||
+      typeof input.providerEligible !== "boolean"
+    ) {
+      throw new PaidTestError("invalid_proposal", "paid proposal safety state is invalid");
+    }
+    const amounts = [
+      input.totalBudgetMinor,
+      input.dailyCapMinor,
+      input.targetCacMinor,
+      input.hardMaxCacMinor,
+      input.maxSpendWithoutTrialMinor,
+      input.maxSpendWithoutPurchaseMinor,
+    ];
+    if (amounts.some((amount) => !Number.isSafeInteger(amount) || amount < 0)) {
+      throw new PaidTestError(
+        "invalid_proposal",
+        "paid proposal money fields must be non-negative integer minor units",
+      );
+    }
+    if (
+      input.totalBudgetMinor === 0 ||
+      input.dailyCapMinor === 0 ||
+      input.dailyCapMinor > input.totalBudgetMinor ||
+      input.hardMaxCacMinor < input.targetCacMinor ||
+      !Number.isSafeInteger(input.paybackTargetDays) ||
+      input.paybackTargetDays <= 0
+    ) {
+      throw new PaidTestError("invalid_proposal", "paid proposal budget or CAC limits are invalid");
+    }
+    const start = Date.parse(input.startAt);
+    const end = Date.parse(input.endAt);
+    const expires = Date.parse(input.expiresAt);
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      !Number.isFinite(expires) ||
+      start >= end
+    ) {
+      throw new PaidTestError("invalid_proposal", "paid proposal dates are invalid");
+    }
+  }
 
   function propose(input: PaidTestProposalInput): PaidTestProposal {
+    assertProposalInput(input);
     const proposal: PaidTestProposal = Object.freeze({
       ...input,
       geographies: Object.freeze([...input.geographies]),
@@ -169,8 +277,18 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
       decidedBy: null,
       decidedAt: null,
       approvalRef: null,
+      decisionReason: null,
     });
-    proposals.set(proposal.proposalId, proposal);
+    store.putProposal(proposal);
+    store.putSafetyState({
+      organizationId: proposal.organizationId,
+      ventureId: proposal.ventureId,
+      proposalId: proposal.proposalId,
+      trackingHealthy: proposal.trackingHealthy,
+      attributionHealthy: proposal.attributionHealthy,
+      providerEligible: proposal.providerEligible,
+      recordedAt: now().toISOString(),
+    });
     return proposal;
   }
 
@@ -179,39 +297,56 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
    * version with its own hash, so the record of what was originally put in front
    * of a human survives.
    */
-  function decide(proposalId: string, decision: ProposalDecision): PaidTestProposal {
-    const current = proposals.get(proposalId);
-    if (!current) throw new PaidTestError("invalid_decision", `unknown proposal ${proposalId}`);
+  function decide(
+    ref: PaidProposalScope & { proposalId: string },
+    decision: ProposalDecision,
+  ): PaidTestProposal {
+    const current = store.getProposal(ref, ref.proposalId);
+    if (!current) throw new PaidTestError("invalid_decision", "unknown proposal");
     if (current.status !== "PROPOSED") {
       throw new PaidTestError(
         "invalid_decision",
-        `proposal ${proposalId} is already ${current.status}`,
+        `proposal ${ref.proposalId} is already ${current.status}`,
       );
     }
     const at = now();
-    if (at > new Date(current.expiresAt)) {
+    if (at >= new Date(current.expiresAt)) {
       const expired = Object.freeze({ ...current, status: "EXPIRED" as ProposalStatus });
-      proposals.set(proposalId, expired);
-      throw new PaidTestError("proposal_expired", `proposal ${proposalId} expired`);
+      store.putProposal(expired);
+      throw new PaidTestError("proposal_expired", `proposal ${ref.proposalId} expired`);
     }
 
     let next: PaidTestProposal;
     switch (decision.kind) {
       case "approve_exact":
+        if (!decision.decidedBy.trim() || !decision.approvalRef.trim()) {
+          throw new PaidTestError(
+            "invalid_decision",
+            "paid approval requires a human actor and approval reference",
+          );
+        }
         next = Object.freeze({
           ...current,
           status: "APPROVED" as ProposalStatus,
           decidedBy: decision.decidedBy,
           decidedAt: at.toISOString(),
           approvalRef: decision.approvalRef,
+          decisionReason: null,
         });
         break;
       case "approve_edited_budget": {
+        if (!decision.decidedBy.trim() || !decision.approvalRef.trim()) {
+          throw new PaidTestError(
+            "invalid_decision",
+            "paid approval requires a human actor and approval reference",
+          );
+        }
         const edited = {
           ...current,
           totalBudgetMinor: decision.totalBudgetMinor,
           dailyCapMinor: decision.dailyCapMinor,
         };
+        assertProposalInput(edited);
         next = Object.freeze({
           ...edited,
           proposalVersion: current.proposalVersion + 1,
@@ -220,53 +355,86 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
           decidedBy: decision.decidedBy,
           decidedAt: at.toISOString(),
           approvalRef: decision.approvalRef,
+          decisionReason: null,
         });
         break;
       }
       case "reject":
+        if (!decision.decidedBy.trim() || !decision.reason.trim()) {
+          throw new PaidTestError(
+            "invalid_decision",
+            "proposal rejection requires a human actor and reason",
+          );
+        }
         next = Object.freeze({
           ...current,
           status: "REJECTED" as ProposalStatus,
           decidedBy: decision.decidedBy,
           decidedAt: at.toISOString(),
+          decisionReason: decision.reason,
         });
         break;
       case "request_variants":
+        if (!decision.decidedBy.trim() || !decision.reason.trim()) {
+          throw new PaidTestError(
+            "invalid_decision",
+            "variant requests require a human actor and reason",
+          );
+        }
         next = Object.freeze({
           ...current,
           status: "VARIANTS_REQUESTED" as ProposalStatus,
           decidedBy: decision.decidedBy,
           decidedAt: at.toISOString(),
+          decisionReason: decision.reason,
         });
         break;
     }
-    proposals.set(proposalId, next);
+    store.putProposal(next);
     return next;
   }
 
   /** Mint the Spend Grant an approved proposal authorises — and only that. */
-  function grantInputFor(proposal: PaidTestProposal) {
-    if (proposal.status !== "APPROVED") {
+  function grantInputFor(proposal: PaidTestProposal, policyCaps?: SpendGrantPolicyCaps) {
+    const current = store.getProposal(proposal, proposal.proposalId);
+    if (!current || current.status !== "APPROVED") {
       throw new PaidTestError(
         "proposal_not_approved",
-        `proposal ${proposal.proposalId} is ${proposal.status}`,
+        `proposal ${proposal.proposalId} is ${current?.status ?? "unknown"}`,
+      );
+    }
+    if (
+      current.materialHash !== hashMaterialTerms(current) ||
+      proposal.materialHash !== current.materialHash ||
+      hashMaterialTerms(proposal) !== current.materialHash
+    ) {
+      throw new PaidTestError(
+        "proposal_terms_mutated",
+        "the grant request does not match the current approved proposal",
       );
     }
     return {
-      ventureId: proposal.ventureId,
-      network: proposal.network,
-      externalAccountId: proposal.adAccountId,
-      currency: proposal.currency,
-      totalMinorUnits: proposal.totalBudgetMinor,
-      perCreativeMinorUnits: proposal.totalBudgetMinor,
-      dailyAccountMinorUnits: proposal.dailyCapMinor,
-      perPaidTestMinorUnits: proposal.totalBudgetMinor,
-      allowedCreativeIds: [proposal.creativeId],
-      approvedBy: proposal.decidedBy!,
-      approvalRef: proposal.approvalRef!,
-      proposalId: proposal.proposalId,
-      notBefore: proposal.startAt,
-      expiresAt: proposal.endAt,
+      organizationId: current.organizationId,
+      ventureId: current.ventureId,
+      customerId: policyCaps?.customerId,
+      network: current.network,
+      externalAccountId: current.adAccountId,
+      currency: current.currency,
+      totalMinorUnits: current.totalBudgetMinor,
+      perCreativeMinorUnits: current.totalBudgetMinor,
+      dailyAccountMinorUnits: current.dailyCapMinor,
+      perPaidTestMinorUnits: current.totalBudgetMinor,
+      dailyVentureMinorUnits: policyCaps?.dailyVentureMinorUnits,
+      monthlyVentureMinorUnits: policyCaps?.monthlyVentureMinorUnits,
+      dailyCustomerMinorUnits: policyCaps?.dailyCustomerMinorUnits,
+      monthlyCustomerMinorUnits: policyCaps?.monthlyCustomerMinorUnits,
+      emergencyPlatformMinorUnits: policyCaps?.emergencyPlatformMinorUnits,
+      allowedCreativeIds: [current.creativeId],
+      approvedBy: current.decidedBy!,
+      approvalRef: current.approvalRef!,
+      proposalId: current.proposalId,
+      notBefore: current.startAt,
+      expiresAt: current.endAt,
     };
   }
 
@@ -274,8 +442,11 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
    * The single choke point. Every paid provider mutation passes here first, and
    * anything that fails throws before the adapter is reached.
    */
-  function assertAuthorized(request: PaidOperationRequest, grant: SpendGrant | undefined): void {
-    const proposal = proposals.get(request.proposalId);
+  function assertAuthorized(
+    request: PaidOperationRequest,
+    grant: SpendGrant | undefined,
+  ): PaidTestProposal {
+    const proposal = store.getProposal(request, request.proposalId);
     if (!proposal) {
       throw new PaidTestError("proposal_not_approved", `unknown proposal ${request.proposalId}`);
     }
@@ -291,20 +462,23 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
         `proposal ${proposal.proposalId} no longer matches the approved terms`,
       );
     }
-    if (proposal.rightsState !== "approved_for_paid") {
-      throw new PaidTestError("rights_not_approved", `creative rights are ${proposal.rightsState}`);
-    }
-    if (proposal.disclosureState === "missing") {
-      throw new PaidTestError("disclosure_missing", "a required AI disclosure is missing");
-    }
-    if (!proposal.trackingHealthy) {
+    const currentSafety = store.getSafetyState(request, proposal.proposalId);
+    if (!currentSafety?.trackingHealthy) {
       throw new PaidTestError("tracking_unhealthy", "tracking health check failed");
     }
-    if (!proposal.attributionHealthy) {
+    if (!currentSafety.attributionHealthy) {
       throw new PaidTestError("attribution_unhealthy", "attribution mapping is unhealthy");
     }
-    if (!proposal.providerEligible) {
+    if (!currentSafety.providerEligible) {
       throw new PaidTestError("provider_ineligible", "provider reports the account ineligible");
+    }
+
+    const at = now();
+    if (at < new Date(proposal.startAt) || at >= new Date(proposal.endAt)) {
+      throw new PaidTestError(
+        "operation_outside_approved_window",
+        "paid operation falls outside the approved start/end window",
+      );
     }
 
     if (!grant) {
@@ -313,10 +487,28 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
         "no Spend Grant authorises this operation; approval alone does not move money",
       );
     }
-    if (grant.proposalId !== proposal.proposalId) {
+    const grantMatchesProposal =
+      grant.proposalId === proposal.proposalId &&
+      grant.organizationId === proposal.organizationId &&
+      grant.ventureId === proposal.ventureId &&
+      grant.network === proposal.network &&
+      grant.externalAccountId === proposal.adAccountId &&
+      grant.currency === proposal.currency &&
+      grant.totalMinorUnits === proposal.totalBudgetMinor &&
+      grant.perCreativeMinorUnits === proposal.totalBudgetMinor &&
+      grant.perPaidTestMinorUnits === proposal.totalBudgetMinor &&
+      grant.perCampaignMinorUnits === proposal.totalBudgetMinor &&
+      grant.dailyAccountMinorUnits === proposal.dailyCapMinor &&
+      grant.allowedCreativeIds.length === 1 &&
+      grant.allowedCreativeIds[0] === proposal.creativeId &&
+      grant.approvedBy === proposal.decidedBy &&
+      grant.approvalRef === proposal.approvalRef &&
+      grant.notBefore === proposal.startAt &&
+      grant.expiresAt === proposal.endAt;
+    if (!grantMatchesProposal) {
       throw new PaidTestError(
         "grant_does_not_match_proposal",
-        `grant ${grant.grantId} was minted for ${grant.proposalId}`,
+        `grant ${grant.grantId} does not match the current exact approved proposal`,
       );
     }
     if (request.creativeId !== proposal.creativeId) {
@@ -331,12 +523,92 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
     if (request.objective !== proposal.objective) {
       throw new PaidTestError("objective_differs_from_approved", "objective differs from approved");
     }
+    if (request.optimizationEvent !== proposal.optimizationEvent) {
+      throw new PaidTestError(
+        "optimization_differs_from_approved",
+        "optimisation event differs from approved",
+      );
+    }
+    if (!proposal.geographies.includes(request.geography)) {
+      throw new PaidTestError("geography_differs_from_approved", "geography differs from approved");
+    }
     if (request.amountMinorUnits > proposal.totalBudgetMinor) {
       throw new PaidTestError(
         "budget_differs_from_approved",
         `${request.amountMinorUnits} exceeds the approved ${proposal.totalBudgetMinor}`,
       );
     }
+
+    const manifest = options.manifestStore?.getCurrent(
+      { organizationId: proposal.organizationId, ventureId: proposal.ventureId },
+      proposal.creativeId,
+    );
+    if (!manifest) {
+      throw new PaidTestError(
+        "rights_not_approved",
+        "no current creative manifest authorises paid use",
+      );
+    }
+    if (!options.compliancePolicy) {
+      throw new PaidTestError(
+        "creative_policy_blocked",
+        "no current compliance policy authorises paid use",
+      );
+    }
+    const compliance = assessCreativeCompliance(
+      manifest,
+      {
+        mode: "paid",
+        channel: request.network,
+        region: request.geography,
+        at,
+      },
+      options.compliancePolicy,
+    );
+    if (!compliance.allowed) {
+      if (compliance.blockers.includes("disclosure_missing")) {
+        throw new PaidTestError("disclosure_missing", "a required disclosure is missing");
+      }
+      if (
+        compliance.blockers.some(
+          (blocker) =>
+            blocker.includes("approval") ||
+            blocker.includes("license") ||
+            blocker.includes("authorization") ||
+            blocker.includes("consent") ||
+            blocker.includes("revoked") ||
+            blocker.includes("expired"),
+        )
+      ) {
+        throw new PaidTestError(
+          "rights_not_approved",
+          `current creative rights do not authorise paid use: ${compliance.blockers.join(", ")}`,
+        );
+      }
+      throw new PaidTestError(
+        "creative_policy_blocked",
+        `current creative policy blocks the operation: ${compliance.blockers.join(", ")}`,
+      );
+    }
+    return proposal;
+  }
+
+  function recordSafetyState(
+    ref: PaidProposalScope & { proposalId: string },
+    state: Omit<PaidSafetyState, "organizationId" | "ventureId" | "proposalId" | "recordedAt">,
+  ): PaidSafetyState {
+    if (!store.getProposal(ref, ref.proposalId)) {
+      throw new PaidTestError("invalid_decision", "unknown proposal");
+    }
+    const recorded = Object.freeze({
+      organizationId: ref.organizationId,
+      ventureId: ref.ventureId,
+      proposalId: ref.proposalId,
+      ...state,
+      recordedAt: now().toISOString(),
+    });
+    store.putSafetyState(recorded);
+    return recorded;
   }
 
   /**
@@ -349,9 +621,14 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
     ledger: SpendLedger,
     adapter: (request: PaidOperationRequest) => Promise<{ actualSpendMinor: number }>,
   ) {
-    assertAuthorized(request, ledger.getGrant(request.grantId));
+    const proposal = assertAuthorized(
+      request,
+      ledger.getGrant({ ...request, grantId: request.grantId }),
+    );
     return ledger.withReservation(
       {
+        organizationId: request.organizationId,
+        ventureId: request.ventureId,
         grantId: request.grantId,
         creativeId: request.creativeId,
         campaignId: request.campaignId,
@@ -359,6 +636,7 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
         idempotencyKey: request.idempotencyKey,
         network: request.network,
         externalAccountId: request.adAccountId,
+        currency: proposal.currency,
       },
       async () => (await adapter(request)).actualSpendMinor,
     );
@@ -370,8 +648,15 @@ export function createPaidTestService(options: PaidTestOptions = {}) {
     grantInputFor,
     assertAuthorized,
     executePaidOperation,
-    getProposal: (proposalId: string): PaidTestProposal | undefined => proposals.get(proposalId),
-    listProposals: (): readonly PaidTestProposal[] => [...proposals.values()],
+    recordSafetyState,
+    getProposal: (ref: PaidProposalScope & { proposalId: string }): PaidTestProposal | undefined =>
+      store.getProposal(ref, ref.proposalId),
+    listProposals: (scope: PaidProposalScope): readonly PaidTestProposal[] =>
+      store.listProposals(scope),
+    listProposalHistory: (
+      ref: PaidProposalScope & { proposalId: string },
+    ): readonly PaidTestProposal[] => store.listProposalHistory(ref, ref.proposalId),
+    store,
   };
 }
 

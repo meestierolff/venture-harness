@@ -1,0 +1,143 @@
+
+> venture-harness@0.2.0 test /Users/meestierolff/projects/venture-harness
+> vitest run --maxWorkers=4 --testTimeout=30000 --exclude tests/workspace-pack.test.ts
+
+
+ RUN  v3.2.7 /Users/meestierolff/projects/venture-harness
+
+ ✓ tests/workflow-control-plane.test.ts (11 tests) 5698ms
+   ✓ workflow graph control plane > topologically executes fan-out/fan-in and deterministic conditions  827ms
+   ✓ workflow graph control plane > executes declared loops only within their persisted node bound  465ms
+   ✓ workflow graph control plane > follows new persisted events until the run reaches a terminal state  314ms
+   ✓ workflow graph control plane > queues and supersedes durably before starting the replacement  458ms
+   ✓ workflow graph control plane > reconciles an in-flight effect before completing supersede  426ms
+   ✓ workflow graph control plane > steers only the changed node and its descendants  1535ms
+   ✓ workflow graph control plane > rejects steering that would replay an already-started effect  745ms
+ ✓ tests/workflow-runtime.test.ts (17 tests) 7976ms
+   ✓ workflow scheduling and durability > runs independent nodes in parallel and waits for fan-in dependencies  519ms
+   ✓ workflow scheduling and durability > serializes nodes in the same concurrency group  332ms
+   ✓ workflow scheduling and durability > skips a conditional node without blocking independent work  569ms
+   ✓ workflow scheduling and durability > persists approval and manual-action interrupts and resumes the same run  665ms
+   ✓ workflow scheduling and durability > recovers a running node without repeating a verified effect  836ms
+   ✓ workflow failure handling > retries only an explicitly retryable failure with configured backoff  451ms
+   ✓ workflow failure handling > isolates a terminal provider failure from siblings and skips its dependent  840ms
+   ✓ workflow failure handling > blocks a node before execution when its budget is exhausted  584ms
+   ✓ workflow failure handling > stops at the configured scheduler iteration limit  371ms
+   ✓ workflow failure handling > runs compensation hooks in reverse graph order after failure  902ms
+   ✓ workflow failure handling > persists cancellation and runs on-cancel compensation  756ms
+   ✓ workflow failure handling > redacts secrets from durable state and trace events  434ms
+   ✓ workflow failure handling > classifies a timeout as retryable but terminates after the attempt limit  608ms
+ ✓ tests/runtime-provider.test.ts (8 tests) 4764ms
+   ✓ provider workflow bindings > waits before a dangerous transport and consumes a fresh exact grant for every attempt  2646ms
+   ✓ provider workflow bindings > enforces the estimated-spend ceiling cumulatively across provider nodes  1090ms
+   ✓ provider workflow bindings > reconciles local-source publication across runtime instances without persisting output or secrets  335ms
+   ✓ provider workflow bindings > maps retryable partial provider failures to WorkflowExecutionError  306ms
+ ✓ tests/workflow-durable-recovery.test.ts (8 tests) 4494ms
+   ✓ durable workflow crash recovery > reconciles not-applied after a crash before external write, then applies once  844ms
+   ✓ durable workflow crash recovery > uses read-back after write-before-persistence and never invokes the effect again  433ms
+   ✓ durable workflow crash recovery > recovers the write-ahead event on either side of the atomic checkpoint boundary  304ms
+   ✓ durable workflow crash recovery > persists provider polling and resumes it after repeated process restarts  805ms
+   ✓ durable workflow crash recovery > waits for credential refresh, reconciles the uncertain attempt, and resumes safely  819ms
+   ✓ durable workflow crash recovery > fails closed on an unknown effect outcome when no reconciler is registered  758ms
+   ✓ durable workflow crash recovery > persists cancellation before abort completion and never resumes the cancelled node  526ms
+ ✓ tests/winner-loop-spend-safety.test.ts (39 tests) 3166ms
+   ✓ grant scope and validity > refuses a creative the grant does not cover  448ms
+ ✓ tests/winner-loop-fixture-runtime.test.ts (1 test) 6997ms
+   ✓ Fixture D production-boundary runtime > proves the synthetic loop through authorized, durable, fixture-only boundaries  6996ms
+ ✓ tests/cli-launch-integration.test.ts (7 tests) 37898ms
+   ✓ default vh launch services > materializes the selected brief into canonical venture and mobile contracts  363ms
+   ✓ default vh launch services > runs build-local without creating provider or manual-action nodes  2014ms
+   ✓ default vh launch services > renews an expired persisted envelope explicitly without changing the run graph  13057ms
+   ✓ default vh launch services > creates, plans, dry-runs, applies, resolves manual evidence, and resumes one run  14464ms
+   ✓ default vh launch services > uses lazy built-in factories and fails the run before a provider call when config is incomplete  7539ms
+ ✓ tests/winner-loop-paid-gate.test.ts (34 tests) 2774ms
+ ✓ tests/runtime-provider-lifecycle.test.ts (5 tests) 361ms
+ ✓ tests/providers-neon.test.ts (8 tests) 814ms
+   ✓ Neon schema and database verification > maps the venture database doctor check to migration and health readiness  798ms
+ ✓ tests/runtime-provider-report.test.ts (4 tests) 578ms
+ ✓ tests/config-schemas.test.ts (18 tests) 121ms
+ ✓ tests/launch-fixtures.test.ts (3 tests) 40097ms
+   ✓ synthetic launch fixtures > executes, pauses, resumes, and remains idempotent for web-saas  17231ms
+   ✓ synthetic launch fixtures > executes, pauses, resumes, and remains idempotent for ios-subscription  11380ms
+   ✓ synthetic launch fixtures > fails honestly while preserving independent verified provider effects  11484ms
+ ✓ tests/venture-runtime.test.ts (12 tests) 699ms
+ ✓ tests/mobile-scaffold.test.ts (6 tests) 40278ms
+   ✓ repo-native mobile scaffold generation > creates a stable SwiftUI Xcode project and parses its Swift sources when swiftc is available  40072ms
+ ✓ tests/cli-default-provider-runtime.test.ts (7 tests) 94ms
+ ✓ tests/launch-manual-evidence.test.ts (2 tests) 297ms
+ ✓ tests/provider-idempotency-safety.test.ts (4 tests) 267ms
+ ✓ tests/runtime-build-agent-host.test.ts (12 tests) 142ms
+ ✓ tests/winner-loop-evaluator.test.ts (27 tests) 16ms
+ ✓ tests/winner-loop-creative-persistence.test.ts (4 tests) 72ms
+ ✓ tests/providers-contract.test.ts (10 tests) 32ms
+ ✓ tests/migrations.test.ts (5 tests) 69ms
+ ✓ tests/cli-runtime.test.ts (8 tests) 155ms
+ ✓ tests/materialization.test.ts (13 tests) 100ms
+ ✓ tests/upgrade-operational.test.ts (7 tests) 178ms
+ ✓ tests/cli-learning-integration.test.ts (2 tests) 60ms
+ ✓ tests/launch-router.test.ts (7 tests) 37ms
+ ❯ tests/harness-lock.test.ts (1 test | 1 failed) 159ms
+   × harness.lock managed manifest > has a trusted hash for every declared harness/generated file 158ms
+     → package.json: expected '8dcd64b751a505a7a1efd7d5e41b754e8671d…' to be '71230396585d351e0bfd2938b0429332128b6…' // Object.is equality
+ ✓ tests/quality-migrations.test.ts (4 tests) 3ms
+ ✓ tests/runtime-provider-transports.test.ts (3 tests) 99ms
+ ✓ tests/fleet-controller.test.ts (6 tests) 43ms
+ ✓ tests/data-provider-http-connectors.test.ts (3 tests) 26ms
+ ✓ tests/experiments.test.ts (5 tests) 19ms
+ ✓ tests/winner-loop-fixture-d.test.ts (15 tests) 22ms
+ ✓ tests/launch-authorization-scope.test.ts (3 tests) 19ms
+ ✓ tests/winner-loop-creative-ledger.test.ts (19 tests) 10ms
+ ✓ tests/security-boundaries.test.ts (6 tests) 15ms
+ ✓ tests/analytics-weekly.test.ts (4 tests) 13ms
+ ✓ tests/providers-github-source.test.ts (5 tests) 4ms
+ ✓ tests/learning-cadence-workflow.test.ts (2 tests) 12ms
+ ✓ tests/security-release.test.ts (13 tests) 19ms
+ ✓ tests/upgrade.test.ts (3 tests) 23ms
+ ✓ tests/winner-loop-attribution-cohorts.test.ts (28 tests) 32ms
+ ✓ tests/workspace-boundaries.test.ts (4 tests) 55ms
+ ✓ tests/credentials-auth-lifecycle.test.ts (1 test) 64ms
+ ✓ tests/learning-loops.test.ts (5 tests) 24ms
+ ✓ tests/authorization.test.ts (14 tests) 53ms
+ ✓ tests/winner-loop-integrations.test.ts (15 tests) 28ms
+ ✓ tests/default-data-learning-runtime.test.ts (3 tests) 24ms
+ ✓ tests/credentials-catalog.test.ts (4 tests) 22ms
+ ✓ tests/checkpoint-evidence.test.ts (1 test) 5ms
+ ✓ tests/command-surfaces-parity.test.ts (12 tests) 14ms
+ ✓ tests/providers-execution.test.ts (24 tests) 19ms
+ ✓ tests/data-sync.test.ts (3 tests) 13ms
+ ✓ tests/learning-schedule.test.ts (2 tests) 7ms
+ ✓ tests/credentials-broker.test.ts (11 tests) 7ms
+ ✓ tests/analytics-packs.test.ts (9 tests) 5ms
+ ✓ tests/quality-profiles.test.ts (11 tests) 7ms
+ ✓ tests/credentials-cli-doctor.test.ts (1 test) 2ms
+ ✓ tests/qualification.test.ts (3 tests) 4ms
+ ✓ tests/analytics-taxonomy.test.ts (6 tests) 8ms
+ ✓ tests/credentials-cli-session.test.ts (2 tests) 2ms
+ ✓ tests/winner-loop-metrics.test.ts (8 tests) 2ms
+ ✓ tests/consent.test.ts (4 tests) 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/harness-lock.test.ts > harness.lock managed manifest > has a trusted hash for every declared harness/generated file
+AssertionError: package.json: expected '8dcd64b751a505a7a1efd7d5e41b754e8671d…' to be '71230396585d351e0bfd2938b0429332128b6…' // Object.is equality
+
+Expected: "71230396585d351e0bfd2938b0429332128b6f49a55d0ab5f982576fa903d7ba"
+Received: "8dcd64b751a505a7a1efd7d5e41b754e8671d3018fc13cf6bc780e17fe7e7d03"
+
+ ❯ tests/harness-lock.test.ts:15:33
+     13|       expect(existsSync(file.path), file.path).toBe(true);
+     14|       const actual = createHash("sha256").update(readFileSync(file.pat…
+     15|       expect(actual, file.path).toBe(file.sha256);
+       |                                 ^
+     16|     }
+     17|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 64 passed (65)
+      Tests  1 failed | 551 passed (552)
+   Start at  09:46:48
+   Duration  52.88s (transform 9.84s, setup 0ms, collect 33.16s, tests 159.12s, environment 7ms, prepare 5.90s)
+
+ ELIFECYCLE  Test failed. See above for more details.

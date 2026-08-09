@@ -4,14 +4,17 @@ import {
   ULID_PATTERN,
   computeContentFingerprint,
   createCreativeLedger,
+  createMemoryCreativeManifestStore,
   type CreativeDeliveryDimensions,
   type CreativeLedger,
   type CreativeMediaDimensions,
+  type CreativeManifestStore,
   type CreativeNetwork,
   type CreativeStatus,
 } from "@/lib/winner-loop";
 
 const NOW = new Date("2026-08-08T09:00:00.000Z");
+const ORGANIZATION_ID = "org-payout-rank";
 
 const TO_ORGANIC_PUBLISHED: readonly CreativeStatus[] = [
   "READY_FOR_PRODUCTION",
@@ -54,24 +57,104 @@ function delivery(overrides: Partial<CreativeDeliveryDimensions> = {}): Creative
 }
 
 let entropy = 0;
-function ledger(ventureId = "payout-rank"): CreativeLedger {
+const manifestByLedger = new WeakMap<object, CreativeManifestStore>();
+function ledger(ventureId = "payout-rank", organizationId = ORGANIZATION_ID): CreativeLedger {
   entropy += 1;
   const seed = entropy;
-  return createCreativeLedger({
+  const manifests = createMemoryCreativeManifestStore();
+  const book = createCreativeLedger({
+    organizationId,
     ventureId,
     now: () => NOW,
     randomBytes: (size) => Uint8Array.from({ length: size }, (_, i) => (i + seed * 7) % 256),
+    authorization: {
+      manifestStore: manifests,
+      regionByNetwork: {
+        tiktok_organic: "NL",
+        tiktok_paid: "NL",
+        meta_paid: "NL",
+      },
+      policyByNetwork: {
+        tiktok_organic: {
+          disclosureRequired: true,
+          allowedRegions: ["NL"],
+          allowedChannels: ["tiktok_organic"],
+          prohibitedClaims: ["guaranteed income"],
+        },
+        tiktok_paid: {
+          disclosureRequired: true,
+          allowedRegions: ["NL"],
+          allowedChannels: ["tiktok_paid"],
+          prohibitedClaims: ["guaranteed income"],
+        },
+        meta_paid: {
+          disclosureRequired: true,
+          allowedRegions: ["NL"],
+          allowedChannels: ["meta_paid"],
+          prohibitedClaims: ["guaranteed income"],
+        },
+      },
+    },
   });
+  manifestByLedger.set(book, manifests);
+  return book;
 }
 
 function register(book: CreativeLedger, overrides: Partial<CreativeMediaDimensions> = {}) {
-  return book.registerVariant({
+  const variant = book.registerVariant({
+    organizationId: book.organizationId,
     ventureId: book.ventureId,
     hypothesisId: "hyp-001",
     creativeFamilyId: "fam-001",
     media: media(overrides),
     assetContentHash: "sha256:abc",
   });
+  const manifests = manifestByLedger.get(book)!;
+  if (
+    !manifests.getCurrent(
+      { organizationId: book.organizationId, ventureId: book.ventureId },
+      variant.creativeId,
+    )
+  ) {
+    manifests.put({
+      organizationId: book.organizationId,
+      ventureId: book.ventureId,
+      creativeId: variant.creativeId,
+      creativeFamilyId: variant.creativeFamilyId,
+      hypothesis: "A concrete payout comparison creates qualified intent.",
+      scriptVersion: "script-v1",
+      promptVersion: "prompt-v1",
+      storyboardRef: "asset://storyboard/1",
+      sourceAssetIds: [],
+      recordingRefs: [],
+      avatarSource: null,
+      voiceSource: null,
+      mediaLicenses: [],
+      testimonialSubjectIds: [],
+      testimonialConsents: [],
+      creatorIds: [],
+      creatorAuthorizations: [],
+      aiGenerated: true,
+      disclosure: {
+        required: true,
+        present: true,
+        text: "AI-assisted creative",
+        evidenceRef: "audit://disclosure/1",
+      },
+      permittedRegions: ["NL"],
+      permittedChannels: ["tiktok_organic", "tiktok_paid", "meta_paid"],
+      organicApproved: true,
+      paidApproved: true,
+      expiresAt: "2026-08-20T00:00:00.000Z",
+      claims: [],
+      prohibitedClaims: [],
+      truthReferences: ["truth://creative/1"],
+      reviewedBy: "rights-reviewer",
+      reviewEventId: `rights-review:${variant.creativeId}`,
+      reviewedAt: NOW.toISOString(),
+    });
+  }
+  return variant;
 }
 
 function advance(
@@ -97,6 +180,7 @@ describe("creative identity is opaque and permanent", () => {
   it("keeps existing creative ids stable when the fingerprint algorithm changes", () => {
     const book = ledger();
     const variant = book.registerVariant({
+      organizationId: book.organizationId,
       ventureId: book.ventureId,
       hypothesisId: "hyp-001",
       creativeFamilyId: "fam-001",
@@ -186,6 +270,7 @@ describe("delivery variants versus media identity", () => {
   it("treats a destination change as delivery unless the hypothesis tests it", () => {
     const notTested = ledger();
     const a = notTested.registerVariant({
+      organizationId: notTested.organizationId,
       ventureId: notTested.ventureId,
       hypothesisId: "hyp-001",
       creativeFamilyId: "fam-001",
@@ -195,6 +280,7 @@ describe("delivery variants versus media identity", () => {
       delivery: delivery({ destinationUrl: "https://payoutrank.example/a" }),
     });
     const b = notTested.registerVariant({
+      organizationId: notTested.organizationId,
       ventureId: notTested.ventureId,
       hypothesisId: "hyp-001",
       creativeFamilyId: "fam-001",
@@ -207,6 +293,7 @@ describe("delivery variants versus media identity", () => {
 
     const tested = ledger();
     const c = tested.registerVariant({
+      organizationId: tested.organizationId,
       ventureId: tested.ventureId,
       hypothesisId: "hyp-002",
       creativeFamilyId: "fam-002",
@@ -216,6 +303,7 @@ describe("delivery variants versus media identity", () => {
       delivery: delivery({ destinationUrl: "https://payoutrank.example/a" }),
     });
     const d = tested.registerVariant({
+      organizationId: tested.organizationId,
       ventureId: tested.ventureId,
       hypothesisId: "hyp-002",
       creativeFamilyId: "fam-002",
@@ -267,6 +355,7 @@ describe("provider mappings", () => {
     const shipped = book.registerDeliveryVariant(variant.creativeId, delivery());
 
     book.mapProviderObject({
+      organizationId: book.organizationId,
       creativeId: variant.creativeId,
       deliveryVariantId: shipped.deliveryVariantId,
       provider: "tiktok_content",
@@ -276,6 +365,7 @@ describe("provider mappings", () => {
       ventureId: book.ventureId,
     });
     book.mapProviderObject({
+      organizationId: book.organizationId,
       creativeId: variant.creativeId,
       deliveryVariantId: shipped.deliveryVariantId,
       provider: "meta_ads",
@@ -297,6 +387,7 @@ describe("provider mappings", () => {
     const one = register(book);
     const two = register(book, { hook: "A different hook entirely" });
     const mapping = {
+      organizationId: book.organizationId,
       provider: "tiktok_content" as const,
       objectKind: "organic_post" as const,
       externalId: "tt-post-1",
@@ -315,6 +406,7 @@ describe("provider mappings", () => {
     const book = ledger();
     const variant = register(book);
     const mapping = {
+      organizationId: book.organizationId,
       creativeId: variant.creativeId,
       provider: "tiktok_content" as const,
       objectKind: "organic_post" as const,
@@ -353,6 +445,56 @@ describe("network status and tenant isolation", () => {
     );
   });
 
+  it("re-reads the current manifest before an organic draft or publication transition", () => {
+    const book = ledger();
+    const variant = register(book);
+    advance(book, variant.creativeId, "tiktok_organic", [
+      "READY_FOR_PRODUCTION",
+      "RENDERING",
+      "ASSET_READY",
+      "READY_FOR_ORGANIC_REVIEW",
+    ]);
+    manifestByLedger.get(book)!.revoke({
+      organizationId: book.organizationId,
+      ventureId: book.ventureId,
+      creativeId: variant.creativeId,
+      reason: "creator withdrew authorization",
+      reviewedBy: "rights-reviewer",
+      reviewEventId: "revocation-1",
+      revokedAt: NOW.toISOString(),
+    });
+
+    expect(() =>
+      book.recordStatus(variant.creativeId, "tiktok_organic", "ORGANIC_DRAFT"),
+    ).toThrowError(expect.objectContaining({ code: "creative_not_authorized" }) as never);
+    expect(book.statusOf(variant.creativeId).tiktok_organic).toBe("READY_FOR_ORGANIC_REVIEW");
+  });
+
+  it("fails closed when a ledger has no manifest-backed authorization service", () => {
+    const book = createCreativeLedger({
+      organizationId: ORGANIZATION_ID,
+      ventureId: "payout-rank",
+      now: () => NOW,
+    });
+    const variant = book.registerVariant({
+      organizationId: book.organizationId,
+      ventureId: book.ventureId,
+      hypothesisId: "hyp-001",
+      creativeFamilyId: "fam-001",
+      media: media(),
+      assetContentHash: "sha256:abc",
+    });
+    advance(book, variant.creativeId, "tiktok_organic", [
+      "READY_FOR_PRODUCTION",
+      "RENDERING",
+      "ASSET_READY",
+      "READY_FOR_ORGANIC_REVIEW",
+    ]);
+    expect(() =>
+      book.recordStatus(variant.creativeId, "tiktok_organic", "ORGANIC_PUBLISHED"),
+    ).toThrowError(expect.objectContaining({ code: "creative_not_authorized" }) as never);
+  });
+
   it("does not let a TikTok organic win imply Meta paid eligibility", () => {
     const book = ledger();
     const variant = register(book);
@@ -370,7 +512,11 @@ describe("network status and tenant isolation", () => {
   it("denies one venture access to another venture's creative", () => {
     const mine = ledger("payout-rank");
     const variant = register(mine);
-    const theirs = createCreativeLedger({ ventureId: "ship-to-users", now: () => NOW });
+    const theirs = createCreativeLedger({
+      organizationId: ORGANIZATION_ID,
+      ventureId: "ship-to-users",
+      now: () => NOW,
+    });
 
     expect(theirs.getVariant(variant.creativeId)).toBeUndefined();
     expect(() => theirs.statusOf(variant.creativeId)).toThrowError(CreativeLedgerError);

@@ -6,5 +6,7 @@ export * from "./plans";
 export * from "./public-evidence";
 export * from "./registry";
 export * from "./retry";
+export * from "./stack-profiles";
+export * from "./stack-command-runtime";
 export * from "./transports";
 export * from "./types";

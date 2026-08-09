@@ -116,6 +116,18 @@ describe("provider adapter contract", () => {
         .slice(0, 4)
         .every(({ command }) => command?.authEnvironment?.name === "NEON_API_KEY"),
     ).toBe(true);
+    const projectOrgIndex = neon.operations[0].command?.args.indexOf("--org-id") ?? -1;
+    expect(projectOrgIndex).toBeGreaterThanOrEqual(0);
+    expect(neon.operations[0].command?.args[projectOrgIndex + 1]).toBe("org-example");
+    expect(neon.operations[0].readBack?.command?.args).not.toContain("--org-id");
+    expect(neon.operations.slice(1, 4).flatMap(({ command }) => command?.args ?? [])).not.toContain(
+      "--org-id",
+    );
+    expect(neon.operations[0].readBack?.assertions).toContainEqual({
+      path: "org_id",
+      operator: "equals",
+      expected: "org-example",
+    });
     expect(neon.operations.slice(4).map(({ command }) => command?.binary)).toEqual([
       "psql",
       "psql",
@@ -213,6 +225,14 @@ describe("provider adapter contract", () => {
       "https://api.stripe.com/v1/webhook_endpoints",
       "https://api.stripe.com/v1/billing_portal/configurations",
     ]);
+    expect(
+      stripe.operations.find(({ capability }) => capability === "webhook")?.http,
+    ).toMatchObject({
+      captureCredential: {
+        credentialRef: "cred://stripe/webhook-secret",
+        outputPath: "secret",
+      },
+    });
 
     const bing = getProviderAdapter("bing").plan(providerPlanFixtures.bing);
     expect(bing.operations.map(({ http }) => http?.body)).toEqual([
@@ -240,6 +260,14 @@ describe("provider adapter contract", () => {
         expected: { Url: "https://example.test/sitemap.xml" },
       },
     ]);
+    const google = getProviderAdapter("google").plan(providerPlanFixtures.google);
+    expect(
+      google.operations.find(({ capability }) => capability === "analytics_web_stream")?.http
+        ?.captureCredential,
+    ).toEqual({
+      credentialRef: "cred://google/measurement-id",
+      outputPath: "webStreamData.measurementId",
+    });
   });
 
   it("keeps DNS and MijnDomein honest manual plans", () => {

@@ -135,6 +135,62 @@ function handlerContext(): WorkflowHandlerContext {
 }
 
 describe("sanitized launch report", () => {
+  it("reports durable auth and external waits as unresolved operator actions", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vh-launch-report-wait-"));
+    const store = new FileWorkflowStore({ rootDir: join(directory, "runs") });
+    const definition = defineWorkflow({
+      id: "report-external-wait",
+      name: "Report external wait",
+      version: "1",
+      nodes: [
+        workflowNode("provider-review", {
+          kind: "provider",
+          handler: "provider.review",
+          capability: "distribution.content.publish",
+          effect: "external_reversible",
+        }),
+      ],
+      maxParallel: 1,
+      maxIterations: 4,
+      budgets: {},
+    });
+    const state = await new WorkflowExecutor({
+      store,
+      bindings: {
+        handlers: {
+          "provider.review": () => ({
+            wait: {
+              kind: "external",
+              reason: "Fixture provider review remains pending",
+              externalReference: "fixture-review-1",
+            },
+          }),
+        },
+      },
+    }).start(definition, { runId: "report-wait-run" });
+
+    const report = renderLaunchReport(
+      createLaunchReportInputFromRun({
+        generatedAt: "2026-08-09T09:00:00.000Z",
+        state,
+        brief: { id: "fixture", name: "Fixture", synthetic: true },
+        launch: { mode: "thin_mvp", rail: "web" },
+        providerByNode: { "provider-review": "fixture-provider" },
+      }),
+    );
+
+    expect(state.nodes["provider-review"].state).toBe("waiting_for_external_action");
+    expect(report.document.overallState).toBe("waiting");
+    expect(report.document.remainingManualActions).toContainEqual(
+      expect.objectContaining({
+        nodeId: "provider-review",
+        action: "Fixture provider review remains pending",
+        resolved: false,
+        resumeCommand: "vh explain report-wait-run provider-review",
+      }),
+    );
+  });
+
   it("extracts only allowlisted verified provider facts from durable node output", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-launch-report-facts-"));
     const store = new FileWorkflowStore({ rootDir: join(directory, "runs") });

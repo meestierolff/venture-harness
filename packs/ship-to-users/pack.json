@@ -1,0 +1,7 @@
+{
+  "id": "ship-to-users",
+  "version": "0.2.0",
+  "coreCompatibility": "^0.2.0",
+  "commands": ["launch.execute"],
+  "uninstall": "reversible_if_unused"
+}

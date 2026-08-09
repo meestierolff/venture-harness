@@ -124,6 +124,15 @@ describe("launch graph compiler", () => {
       "reliability",
     ]);
     expect(dryRun.graph.metadata?.activeEventPacks).toEqual(dryRun.eventPacks);
+    expect(dryRun.graph.nodes.find(({ id }) => id === "install-dependencies")).toMatchObject({
+      kind: "code",
+      handler: "launch.installDependencies",
+      dependencies: [],
+      effect: "local_write",
+    });
+    expect(dryRun.graph.nodes.find(({ id }) => id === "prepare-repository")?.dependencies).toEqual([
+      "install-dependencies",
+    ]);
     expect(dryRun.manualActions.map((action) => action.nodeId)).toEqual(["dns-records"]);
     expect(dryRun.graph.nodes.filter((node) => node.id === "stripe-commerce")).toHaveLength(1);
     expect(dryRun.graph.nodes.find(({ id }) => id === "github-repository")?.dependencies).toEqual([
@@ -131,15 +140,67 @@ describe("launch graph compiler", () => {
     ]);
     expect(dryRun.graph.nodes.find(({ id }) => id === "vercel-project")?.dependencies).toEqual([
       "github-repository",
+      "google-analytics-stream",
+      "neon-database",
+      "stripe-commerce",
       "verify-local",
     ]);
     expect(dryRun.graph.nodes.find(({ id }) => id === "verify-production")?.dependencies).toEqual([
       "production-deploy",
     ]);
-    expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).toEqual([
-      "verify-production",
-    ]);
+    const ancestors = (nodeId: string): Set<string> => {
+      const found = new Set<string>();
+      const visit = (id: string): void => {
+        const node = dryRun.graph.nodes.find((candidate) => candidate.id === id);
+        for (const dependency of node?.dependencies ?? []) {
+          if (found.has(dependency)) continue;
+          found.add(dependency);
+          visit(dependency);
+        }
+      };
+      visit(nodeId);
+      return found;
+    };
+    expect(ancestors("github-repository")).toContain("install-dependencies");
+    expect(ancestors("production-deploy")).toContain("install-dependencies");
+    expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).toEqual(
+      expect.arrayContaining([
+        "verify-production",
+        "dns-records",
+        "brevo-email",
+        "google-search-console",
+        "bing-discovery",
+      ]),
+    );
+    expect(dryRun.graph.nodes.find(({ id }) => id === "verify-launch")?.dependencies).not.toContain(
+      "dns-records",
+    );
     expect(dryRun.parallelLayers.some((layer) => layer.length > 1)).toBe(true);
+  });
+
+  it("omits DNS entirely for a valid launch with no domain-dependent capability", () => {
+    const base = fixture("web-saas");
+    const domainless: FounderBrief = {
+      ...base,
+      domain: null,
+      monetization_model: "none",
+      needs: {
+        ...base.needs,
+        transactional_email: false,
+        lifecycle_email: false,
+        analytics: false,
+        search_discovery: false,
+      },
+    };
+
+    const dryRun = compileLaunchDryRun(domainless);
+
+    expect(() => validateWorkflow(dryRun.graph)).not.toThrow();
+    expect(dryRun.graph.nodes.map(({ id }) => id)).not.toContain("dns-records");
+    expect(dryRun.manualActions.map(({ nodeId }) => nodeId)).not.toContain("dns-records");
+    expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).not.toContain(
+      "dns-records",
+    );
   });
 
   it("reaches the explicit Apple record and DNS manual nodes before TestFlight continuation", () => {
@@ -153,6 +214,25 @@ describe("launch graph compiler", () => {
     expect(testflight?.dependencies).toEqual(
       expect.arrayContaining(["apple-first-app-record", "eas-build"]),
     );
-    expect(dryRun.resources.every((resource) => resource.estimatedCost === "unknown")).toBe(true);
+    expect(dryRun.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "eas",
+          estimatedCost: "unknown",
+          directChargeBasis: null,
+          ongoingAccountPlanUsageCovered: false,
+        }),
+      ]),
+    );
+    expect(
+      dryRun.resources
+        .filter(({ provider }) => provider !== "eas")
+        .every(
+          ({ estimatedCost, directChargeBasis, ongoingAccountPlanUsageCovered }) =>
+            estimatedCost === 0 &&
+            directChargeBasis === "reviewed_known_zero_direct_charge" &&
+            !ongoingAccountPlanUsageCovered,
+        ),
+    ).toBe(true);
   });
 });

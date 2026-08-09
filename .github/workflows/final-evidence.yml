@@ -1,0 +1,161 @@
+name: founder-alpha-final-evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: founder-alpha-final-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  final-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Frozen install
+        run: >-
+          node scripts/run-audit-command.mjs --id final-frozen-install --
+          pnpm install --frozen-lockfile
+
+      - name: Install Chromium for socket-capable browser checks
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install pinned Gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_LINUX_X64_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output /tmp/gitleaks.tar.gz
+          echo "${GITLEAKS_LINUX_X64_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Workspace build
+        run: >-
+          node scripts/run-audit-command.mjs --id final-workspace-build --
+          pnpm workspace:build
+
+      - name: Fast verification profile
+        run: >-
+          node scripts/run-audit-command.mjs --id final-verify-fast --
+          pnpm verify:fast
+
+      - name: MVP verification profile
+        run: >-
+          node scripts/run-audit-command.mjs --id final-verify-mvp --
+          pnpm verify:mvp
+
+      - name: Truthful incomplete release profile
+        shell: bash
+        run: |
+          set +e
+          node scripts/run-audit-command.mjs \
+            --id final-verify-release \
+            --artifact reports/audit/quality-release.json \
+            -- pnpm verify:release -- --report reports/audit/quality-release.json
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected the release profile to remain INCOMPLETE with exit 1; received ${status}."
+            exit 1
+          fi
+
+      - name: Framework verification
+        run: >-
+          node scripts/run-audit-command.mjs --id final-verify --
+          pnpm verify
+
+      - name: Public release inspection
+        run: >-
+          node scripts/run-audit-command.mjs --id final-release-check --
+          pnpm release:check
+
+      - name: Raw HTML verification
+        run: >-
+          node scripts/run-audit-command.mjs --id final-raw-html --
+          pnpm verify:raw-html
+
+      - name: Browser journeys
+        run: >-
+          node scripts/run-audit-command.mjs --id final-e2e --
+          pnpm test:e2e
+
+      - name: Complete-history credential scan
+        run: >-
+          node scripts/run-audit-command.mjs --id final-gitleaks-history --
+          gitleaks git . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
+      - name: Current-tree credential scan
+        run: >-
+          node scripts/run-audit-command.mjs --id final-gitleaks-tree --
+          gitleaks dir . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
+      - name: Synthetic launch fixture
+        run: >-
+          node scripts/run-audit-command.mjs --id final-synthetic-launch --
+          pnpm fixture:venture-launch -- --idea fixtures/ideas/synthetic-payout-rank.md
+          --output /tmp/vh-synthetic-launch-final-proof-v2 --name "Payout Rank"
+          --slug payout-rank --json
+
+      - name: Packed clean-consumer verification
+        run: >-
+          node scripts/run-audit-command.mjs --id final-workspace-pack-consumer --
+          pnpm test:workspace
+
+      - name: Complete unit and integration suite
+        run: >-
+          node scripts/run-audit-command.mjs --id final-unit-tests --
+          pnpm test
+
+      - name: Winner Loop Fixture D
+        run: >-
+          node scripts/run-audit-command.mjs \
+          --id final-fixture-d \
+          --artifact reports/audit/winner-loop-creative-trace.json \
+          -- pnpm fixture:winner-loop
+
+      - name: Test-control audit
+        run: >-
+          node scripts/run-audit-command.mjs --id final-test-controls --
+          pnpm audit:test-controls
+
+      - name: Generated workspace parity
+        run: >-
+          node scripts/run-audit-command.mjs --id final-workspace-check --
+          pnpm workspace:check
+
+      - name: Render the evidence-backed completion matrix
+        run: pnpm exec tsx scripts/render-vh-v02-completion-matrix.ts
+
+      - name: Upload portable final evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: founder-alpha-final-evidence-${{ github.run_id }}
+          path: |
+            reports/audit/commands-run.json
+            reports/audit/command-logs/
+            reports/audit/quality-release.json
+            reports/audit/winner-loop-creative-trace.json
+            reports/audit/vh-v0.2-codex-requirement-matrix.json
+            docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md
+            docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md
+          if-no-files-found: warn
+          retention-days: 90

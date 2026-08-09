@@ -22,7 +22,19 @@ describe("capability-aware quality profiles", () => {
     expect(Object.keys(contract.profiles)).toEqual(["fast", "mvp", "release"]);
     expect(contract.required_commands.always).toContain("pnpm test");
     expect(contract.profiles.mvp.checks).toContain("compatibility_verify");
+    expect(contract.profiles.mvp.checks).toEqual(
+      expect.arrayContaining(["workspace_build", "workspace_contract"]),
+    );
     expect(contract.profiles.release.checks).toContain("compatibility_verify");
+    expect(contract.profiles.release.checks).toEqual(
+      expect.arrayContaining(["workspace_build", "workspace_contract", "workspace_pack_consumer"]),
+    );
+    expect(contract.checks.workspace_build.command).toEqual(["pnpm", "workspace:build"]);
+    expect(contract.checks.workspace_contract.command).toEqual(["pnpm", "workspace:check"]);
+    expect(contract.checks.workspace_pack_consumer.command).toEqual(["pnpm", "test:workspace"]);
+    expect(contract.checks.workspace_pack_consumer.phase).toBeGreaterThan(
+      contract.checks.workspace_build.phase,
+    );
     expect(contract.checks.provider_contract_tests.command).toEqual(["pnpm", "test:providers"]);
   });
 

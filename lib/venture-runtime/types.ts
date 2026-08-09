@@ -28,6 +28,8 @@ export interface TenantScope {
   agentId?: string;
 }
 
+export type VentureScope = Pick<TenantScope, "operatorId" | "ventureId">;
+
 export interface ExecutionIdentity extends TenantScope {
   subscriptionId: string;
   entitlementId: string;
@@ -38,9 +40,12 @@ export interface ExecutionIdentity extends TenantScope {
   nodeId: string;
   correlationId: string;
   causationId: string;
+  /** Stable provider-side idempotency/read-back identity; never a credential. */
+  providerOperationId: string;
 }
 
 export interface OrganizationRecord {
+  operatorId: string;
   organizationId: string;
   ventureId: string;
   kind: "platform" | "venture" | "customer";
@@ -49,6 +54,7 @@ export interface OrganizationRecord {
 }
 
 export interface SubscriptionRecord {
+  operatorId: string;
   subscriptionId: string;
   ventureId: string;
   customerOrganizationId: string;
@@ -57,6 +63,7 @@ export interface SubscriptionRecord {
 }
 
 export interface EntitlementRecord {
+  operatorId: string;
   entitlementId: string;
   ventureId: string;
   customerOrganizationId: string;
@@ -67,6 +74,7 @@ export interface EntitlementRecord {
 }
 
 export interface ProviderConnectionRecord {
+  operatorId: string;
   connectionId: string;
   ventureId: string;
   customerOrganizationId: string;
@@ -84,6 +92,7 @@ export interface ProviderConnectionRecord {
 }
 
 export interface ServiceBlueprintRecord {
+  operatorId: string;
   blueprintId: string;
   ventureId: string;
   version: number;
@@ -98,6 +107,7 @@ export interface ServiceBlueprintRecord {
 }
 
 export interface ServiceGrantRecord {
+  operatorId: string;
   serviceGrantId: string;
   ventureId: string;
   customerOrganizationId: string;
@@ -111,6 +121,7 @@ export interface ServiceGrantRecord {
 }
 
 export interface AgentGrantRecord {
+  operatorId: string;
   agentGrantId: string;
   ventureId: string;
   customerOrganizationId: string;
@@ -123,6 +134,7 @@ export interface AgentGrantRecord {
 }
 
 export interface ExternalResourceRecord {
+  operatorId: string;
   resourceId: string;
   ventureId: string;
   customerOrganizationId: string | null;
@@ -134,7 +146,9 @@ export interface ExternalResourceRecord {
 }
 
 export interface AuditEventRecord {
+  operatorId: string;
   eventId: string;
+  sequence: number;
   schemaVersion: number;
   identity: ExecutionIdentity;
   kind: string;
@@ -164,7 +178,9 @@ export class VentureRuntimeError extends Error {
       | "idempotency_conflict"
       | "idempotency_replay"
       | "external_outcome_unknown"
-      | "credential_leak_detected",
+      | "credential_leak_detected"
+      | "provider_output_invalid"
+      | "authorization_envelope_invalid",
     message: string,
   ) {
     super(message);

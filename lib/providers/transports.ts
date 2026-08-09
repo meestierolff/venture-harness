@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { CommandInvocation } from "../credentials";
 import { classifyProviderFailure } from "./retry";
 import type {
@@ -5,6 +6,7 @@ import type {
   HttpFetcher,
   HttpRequest,
   HttpResponse,
+  IdempotencyClaim,
   IdempotencyLedger,
   JsonValue,
   JwtSigner,
@@ -131,6 +133,14 @@ function assertionsMatch(
   });
 }
 
+function assertionReadBackStatus(
+  output: unknown,
+  assertions: NonNullable<ProviderOperation["readBack"]>["assertions"],
+): ProviderReadBackResult["status"] {
+  if (!assertions || assertions.length === 0) return "unavailable";
+  return assertionsMatch(output, assertions) ? "matched" : "mismatched";
+}
+
 function parseOutput(value: string): unknown {
   try {
     return JSON.parse(value) as unknown;
@@ -166,14 +176,81 @@ async function withCredential<T>(
 }
 
 export class InMemoryIdempotencyLedger implements IdempotencyLedger {
-  private readonly results = new Map<string, ProviderTransportResult>();
+  readonly durability = "fixture_only" as const;
+  private readonly ledgerId = `fixture_${randomBytes(32).toString("hex")}`;
+  private readonly results = new Map<
+    string,
+    {
+      requestHash?: string;
+      state: "succeeded" | "definitive_no_write" | "pending_reconciliation";
+      result: ProviderTransportResult;
+    }
+  >();
+
+  async identity(): Promise<string> {
+    return this.ledgerId;
+  }
 
   async get(key: string): Promise<ProviderTransportResult | null> {
-    return this.results.get(key) ?? null;
+    return this.results.get(key)?.result ?? null;
   }
 
   async put(key: string, result: ProviderTransportResult): Promise<void> {
-    this.results.set(key, result);
+    const existing = this.results.get(key);
+    this.results.set(key, {
+      requestHash: existing?.requestHash,
+      state: result.status === "succeeded" ? "succeeded" : "pending_reconciliation",
+      result,
+    });
+  }
+
+  async claim(key: string, requestHash: string): Promise<IdempotencyClaim> {
+    const existing = this.results.get(key);
+    if (!existing) {
+      this.results.set(key, {
+        requestHash,
+        state: "pending_reconciliation",
+        result: {
+          status: "failed",
+          providerCode: "unknown_outcome_reconciliation_required",
+          message: "Provider operation was claimed before execution",
+          retryable: false,
+          effectOutcome: "unknown",
+        },
+      });
+      return { status: "acquired" };
+    }
+    if (!existing.requestHash || existing.requestHash !== requestHash) {
+      return { status: "conflict" };
+    }
+    if (existing.state === "succeeded") {
+      return { status: "replay", result: existing.result };
+    }
+    if (existing.state === "pending_reconciliation") {
+      return { status: "pending_reconciliation", result: existing.result };
+    }
+    existing.state = "pending_reconciliation";
+    existing.result = {
+      status: "failed",
+      providerCode: "unknown_outcome_reconciliation_required",
+      message: "Provider operation was claimed before retry",
+      retryable: false,
+      effectOutcome: "unknown",
+    };
+    return { status: "acquired" };
+  }
+
+  async settle(
+    key: string,
+    requestHash: string,
+    state: "succeeded" | "definitive_no_write" | "pending_reconciliation",
+    result: ProviderTransportResult,
+  ): Promise<void> {
+    const existing = this.results.get(key);
+    if (!existing || existing.requestHash !== requestHash) {
+      throw new Error("Provider idempotency settlement does not match the claimed request");
+    }
+    this.results.set(key, { requestHash, state, result });
   }
 }
 
@@ -200,6 +277,7 @@ export class CommandProviderTransport implements ProviderTransport {
         status: "failed",
         message: "CLI operation is missing a command specification",
         retryable: false,
+        effectOutcome: "confirmed_no_write",
       };
     }
     return this.runSpec(operation.command, operation, context);
@@ -234,15 +312,21 @@ export class CommandProviderTransport implements ProviderTransport {
       };
     }
     const result = await this.runSpec(resolved, operation, context);
-    const matched = result.status === "succeeded" && assertionsMatch(result.output, assertions);
+    const status =
+      result.status === "succeeded"
+        ? assertionReadBackStatus(result.output, assertions)
+        : "unavailable";
     return {
       operationId: operation.id,
-      status: result.status !== "succeeded" ? "mismatched" : matched ? "matched" : "unavailable",
-      message: matched
-        ? (operation.readBack?.description ?? "CLI read-back succeeded")
-        : result.status === "succeeded"
-          ? "CLI read-back succeeded but no declared assertion proved the requested state"
-          : result.message,
+      status,
+      message:
+        status === "matched"
+          ? (operation.readBack?.description ?? "CLI read-back succeeded")
+          : result.status === "succeeded"
+            ? status === "mismatched"
+              ? "CLI read-back contradicted a declared assertion for the requested state"
+              : "CLI read-back succeeded but no declared assertion proved the requested state"
+            : result.message,
       evidence: result.output,
     };
   }
@@ -258,6 +342,7 @@ export class CommandProviderTransport implements ProviderTransport {
         providerCode: "shell_binary_forbidden",
         message: `Commands must invoke an executable directly: ${spec.binary}`,
         retryable: false,
+        effectOutcome: "confirmed_no_write",
       };
     }
     const invoke = async (
@@ -325,6 +410,7 @@ export class CommandProviderTransport implements ProviderTransport {
             status: "succeeded",
             message: `${operation.action} command completed; read-back is still required`,
             output,
+            effectOutcome: "confirmed_write",
           };
         }
         return {
@@ -334,6 +420,7 @@ export class CommandProviderTransport implements ProviderTransport {
             result.stderr || `${operation.action} exited with ${result.exitCode}`,
           ),
           retryable: false,
+          effectOutcome: "unknown",
         };
       } catch (error) {
         const decision = classifyProviderFailure({
@@ -346,6 +433,7 @@ export class CommandProviderTransport implements ProviderTransport {
             error instanceof Error ? error.message : String(error),
           ),
           retryable: decision.retryable,
+          effectOutcome: "unknown",
         };
       }
     };
@@ -419,6 +507,7 @@ export class HttpProviderTransport implements ProviderTransport {
         status: "failed",
         message: "HTTP operation is missing a request specification",
         retryable: false,
+        effectOutcome: "confirmed_no_write",
       };
     }
     return this.runSpec(operation.http, operation, context);
@@ -453,15 +542,21 @@ export class HttpProviderTransport implements ProviderTransport {
       };
     }
     const result = await this.runSpec(spec, operation, context);
-    const matched = result.status === "succeeded" && assertionsMatch(result.output, assertions);
+    const status =
+      result.status === "succeeded"
+        ? assertionReadBackStatus(result.output, assertions)
+        : "unavailable";
     return {
       operationId: operation.id,
-      status: result.status !== "succeeded" ? "mismatched" : matched ? "matched" : "unavailable",
-      message: matched
-        ? (operation.readBack?.description ?? "API read-back succeeded")
-        : result.status === "succeeded"
-          ? "API read-back succeeded but no declared assertion proved the requested state"
-          : result.message,
+      status,
+      message:
+        status === "matched"
+          ? (operation.readBack?.description ?? "API read-back succeeded")
+          : result.status === "succeeded"
+            ? status === "mismatched"
+              ? "API read-back contradicted a declared assertion for the requested state"
+              : "API read-back succeeded but no declared assertion proved the requested state"
+            : result.message,
       evidence: result.output,
     };
   }
@@ -522,17 +617,65 @@ export class HttpProviderTransport implements ProviderTransport {
             error instanceof Error ? error.message : String(error),
           ),
           retryable: decision.retryable,
+          effectOutcome: "unknown",
         };
       }
-      const output = context.redactor.redact(response.body);
       if (response.status >= 200 && response.status < 300) {
+        if (spec.captureCredential) {
+          if (!context.credentials) {
+            return {
+              status: "failed",
+              providerCode: "terminal_validation",
+              message: "Credential capture requires an injected credential broker",
+              retryable: false,
+              effectOutcome: "unknown",
+            };
+          }
+          const reference = context.credentials.getReference(spec.captureCredential.credentialRef);
+          if (!reference) {
+            return {
+              status: "failed",
+              providerCode: "terminal_validation",
+              message: `Credential capture target is not registered: ${spec.captureCredential.credentialRef}`,
+              retryable: false,
+              effectOutcome: "unknown",
+            };
+          }
+          const captured = getPath(response.body, spec.captureCredential.outputPath);
+          if (typeof captured !== "string" || captured.length === 0) {
+            return {
+              status: "failed",
+              providerCode: "terminal_validation",
+              message: `HTTP response did not contain a string at ${spec.captureCredential.outputPath}`,
+              retryable: false,
+              effectOutcome: "unknown",
+            };
+          }
+          try {
+            await context.credentials.store({ ...reference, value: captured });
+            context.redactor.addSecret(captured);
+          } catch (error) {
+            return {
+              status: "failed",
+              providerCode: "terminal_validation",
+              message: context.redactor.redactText(
+                error instanceof Error ? error.message : "Credential capture failed",
+              ),
+              retryable: false,
+              effectOutcome: "unknown",
+            };
+          }
+        }
+        const output = context.redactor.redact(response.body);
         return {
           status: "succeeded",
           statusCode: response.status,
           message: `${operation.action} returned HTTP ${response.status}; read-back is still required`,
           output,
+          effectOutcome: "confirmed_write",
         };
       }
+      const output = context.redactor.redact(response.body);
       const retryAfter = response.headers?.["retry-after"];
       const decision = classifyProviderFailure({
         statusCode: response.status,
@@ -545,6 +688,11 @@ export class HttpProviderTransport implements ProviderTransport {
         message: `Provider returned HTTP ${response.status}`,
         output,
         retryable: decision.retryable,
+        effectOutcome: ["retryable_rate_limit", "terminal_auth", "terminal_validation"].includes(
+          decision.classification,
+        )
+          ? "confirmed_no_write"
+          : "unknown",
       };
     };
     if (!spec.auth) return send();
@@ -556,6 +704,7 @@ export class HttpProviderTransport implements ProviderTransport {
           providerCode: "jwt_signer_missing",
           message: "A JWT signer must be injected for private-key authentication",
           retryable: false,
+          effectOutcome: "confirmed_no_write",
         };
       }
       try {
@@ -570,6 +719,7 @@ export class HttpProviderTransport implements ProviderTransport {
             error instanceof Error ? error.message : String(error),
           ),
           retryable: false,
+          effectOutcome: "confirmed_no_write",
         };
       }
     });
@@ -590,6 +740,7 @@ export class ManualProviderTransport implements ProviderTransport {
         ? `Manual action required in ${operation.manual.system}`
         : "Manual action is missing instructions",
       retryable: false,
+      effectOutcome: "confirmed_no_write",
     };
   }
 

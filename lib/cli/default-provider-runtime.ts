@@ -89,6 +89,11 @@ export const DEFAULT_PROVIDER_TARGETS: Readonly<Record<string, ProviderHandlerTa
   "provider.google-search-console": { provider: "google", environment: "preview" },
   "provider.bing-discovery": { provider: "bing", environment: "preview" },
   "provider.vercel-project": { provider: "vercel", environment: "preview" },
+  "provider.vercel-database-environment": { provider: "vercel", environment: "preview" },
+  "provider.vercel-stripe-environment": { provider: "vercel", environment: "preview" },
+  "provider.vercel-stripe-webhook-environment": { provider: "vercel", environment: "preview" },
+  "provider.vercel-brevo-environment": { provider: "vercel", environment: "preview" },
+  "provider.vercel-ga-environment": { provider: "vercel", environment: "preview" },
   "provider.dns-records": { provider: "dns", environment: "production" },
   "provider.revenuecat-entitlements": { provider: "revenuecat", environment: "sandbox" },
   "provider.eas-build": { provider: "eas", environment: "testflight" },
@@ -376,6 +381,7 @@ function githubRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
   lifecycleRecords: readonly VerifiedProviderLifecycleRecord[],
+  rootDir: string,
 ): ProviderWorkflowPlanRequest {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
   const state = providerState(snapshot, "github");
@@ -417,7 +423,7 @@ function githubRequest(
   if (intent === "create_from_source" || intent === "create_from_template") {
     return request(target, credentialRef, ["repository"], {
       repository,
-      sourceDirectory: ".",
+      sourceDirectory: resolve(rootDir),
       visibility: snapshot.venture.venture.repository_visibility,
     });
   }
@@ -511,38 +517,111 @@ function vercelRequest(
       `unsupported project_intent ${projectIntent}. Next: choose create or use_verified`,
     );
   }
-  const analyticsRequired =
-    snapshot.venture.venture.capabilities.active.includes("vercel_analytics");
-  const analyticsVerified = lifecycleProvesExisting(lifecycleRecords, "web_analytics", {
-    type: "project",
-    value: project,
-  });
+  // GA4 is the founder-default rail's required analytics path. Vercel Web
+  // Analytics remains an optional, separately reviewed dashboard action, so it
+  // must never be mixed into this automatic apply-once project/deploy request.
   return request(
     target,
     credentialRef,
-    [
-      "project",
-      "deployment",
-      ...(analyticsRequired && !analyticsVerified ? ["web_analytics"] : []),
-    ],
+    ["project", "deployment", ...(snapshot.venture.venture.domain ? ["domain"] : [])],
     {
       project,
       scope,
       projectIntent,
+      ...(snapshot.venture.venture.domain ? { domain: snapshot.venture.venture.domain } : {}),
     },
   );
+}
+
+function vercelEnvironmentRequest(
+  handler: string,
+  snapshot: DefaultProviderConfigSnapshot,
+): ProviderWorkflowPlanRequest {
+  const target = DEFAULT_PROVIDER_TARGETS[handler]!;
+  const state = providerState(snapshot, "vercel");
+  const credentialRef = requireCredential(handler, "vercel", state.credential_ref);
+  const project = requireExternal(
+    handler,
+    state,
+    "project",
+    "record the exact Vercel project slug to configure",
+  );
+  const scope = requireValue(
+    handler,
+    state.team_id ?? state.account_id,
+    "config/providers.yaml providers.vercel.team_id or account_id",
+    "record the exact Vercel team/account scope",
+  );
+  const binding: Readonly<Record<string, { name: string; provider: ProviderId; path: string }>> = {
+    "provider.vercel-database-environment": {
+      name: "DATABASE_URL",
+      provider: "neon",
+      path: "database_credential_ref",
+    },
+    "provider.vercel-stripe-environment": {
+      name: "STRIPE_SECRET_KEY",
+      provider: "stripe",
+      path: "credential_ref",
+    },
+    "provider.vercel-stripe-webhook-environment": {
+      name: "STRIPE_WEBHOOK_SECRET",
+      provider: "stripe",
+      path: "webhook_secret_credential_ref",
+    },
+    "provider.vercel-brevo-environment": {
+      name: "BREVO_API_KEY",
+      provider: "brevo",
+      path: "credential_ref",
+    },
+    "provider.vercel-ga-environment": {
+      name: "NEXT_PUBLIC_GA_MEASUREMENT_ID",
+      provider: "google",
+      path: "measurement_id_credential_ref",
+    },
+  };
+  const selected = binding[handler];
+  if (!selected) fail(handler, "unknown Vercel environment binding");
+  const source = providerState(snapshot, selected.provider);
+  const valueRef =
+    selected.path === "credential_ref"
+      ? source.credential_ref
+      : source.external_resource_ids[selected.path];
+  const environmentValueCredentialRef = requireCredential(
+    handler,
+    selected.provider,
+    valueRef,
+    `config/providers.yaml providers.${selected.provider}.${
+      selected.path === "credential_ref"
+        ? "credential_ref"
+        : `external_resource_ids.${selected.path}`
+    }`,
+  );
+  return request(target, credentialRef, ["environment_variable"], {
+    project,
+    scope,
+    environmentVariableName: selected.name,
+    environmentTarget: "production",
+    environmentValueCredentialRef,
+  });
 }
 
 function neonRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
   lifecycleRecords: readonly VerifiedProviderLifecycleRecord[],
+  rootDir: string,
 ): ProviderWorkflowPlanRequest {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
   const state = providerState(snapshot, "neon");
   const credentialRef = requireCredential(handler, "neon", state.credential_ref);
   const projectIntent = state.external_resource_ids.project_intent ?? "use_verified";
   if (projectIntent === "create") {
+    const organizationId = requireExternal(
+      handler,
+      state,
+      "organization_id",
+      "record the exact Neon organization id from the Founder Stack; do not fall back to the credential account",
+    );
     const projectName =
       state.external_resource_ids.project_name ??
       requireValue(
@@ -567,7 +646,13 @@ function neonRequest(
       target,
       credentialRef,
       ["project", "schema_migration", "read_write_health_check"],
-      { projectName, regionId, databaseCredentialRef },
+      {
+        organizationId,
+        projectName,
+        regionId,
+        databaseCredentialRef,
+        workingDirectory: resolve(rootDir),
+      },
     );
   }
   if (projectIntent !== "use_verified") {
@@ -618,6 +703,7 @@ function neonRequest(
     branchId,
     databaseName,
     databaseCredentialRef,
+    workingDirectory: resolve(rootDir),
   });
 }
 
@@ -688,6 +774,12 @@ function stripeRequest(
     "config/venture.yaml venture.name",
     "record the exact product name",
   );
+  const webhookSecretCredentialRef = requireCredential(
+    handler,
+    "stripe",
+    state.external_resource_ids.webhook_secret_credential_ref,
+    "config/providers.yaml providers.stripe.external_resource_ids.webhook_secret_credential_ref",
+  );
   return request(target, credentialRef, ["product", "price", "webhook", "billing_portal"], {
     productName,
     ...(snapshot.offer.offer.sentence ? { productDescription: snapshot.offer.offer.sentence } : {}),
@@ -696,6 +788,7 @@ function stripeRequest(
     unitAmount: exactMinorUnits(handler, configuredPrice.amount, configuredPrice.path),
     recurringInterval: configuredPrice.interval,
     webhookUrl: `https://${domain}/api/stripe/webhook`,
+    webhookSecretCredentialRef,
     enabledEvents: [
       "checkout.session.completed",
       "customer.subscription.updated",
@@ -866,6 +959,12 @@ function googleRequest(
         ),
         streamDisplayName: state.external_resource_ids.stream_display_name ?? `${domain} web`,
         defaultUri: `https://${domain}/`,
+        measurementIdCredentialRef: requireCredential(
+          handler,
+          "google",
+          state.external_resource_ids.measurement_id_credential_ref,
+          "config/providers.yaml providers.google.external_resource_ids.measurement_id_credential_ref",
+        ),
       });
     case "provider.google-site-dns-record":
       return request(target, credentialRef, ["site_verification_token"], {
@@ -935,16 +1034,36 @@ function bingRequest(
   }
   const siteUrl = state.external_resource_ids.site_url ?? `https://${domain}`;
   const sitemapUrl = state.external_resource_ids.sitemap_url ?? `https://${domain}/sitemap.xml`;
-  requireVerifiedExisting(
-    handler,
-    "bing",
-    state,
-    "owned Bing site",
-    lifecycleRecords,
-    ["site"],
-    [{ type: "site_url", value: siteUrl }],
-  );
-  return request(target, credentialRef, ["sitemap"], { authMode, siteUrl, sitemapUrl });
+  const siteAlreadyVerified = lifecycleProvesExisting(lifecycleRecords, "site", {
+    type: "site_url",
+    value: siteUrl,
+  });
+  const siteIntent =
+    state.external_resource_ids.site_intent ??
+    (state.state === "verified" || siteAlreadyVerified ? "use_verified" : "create");
+  if (siteIntent === "use_verified") {
+    requireVerifiedExisting(
+      handler,
+      "bing",
+      state,
+      "owned Bing site",
+      lifecycleRecords,
+      ["site"],
+      [{ type: "site_url", value: siteUrl }],
+    );
+    return request(target, credentialRef, ["sitemap"], { authMode, siteUrl, sitemapUrl });
+  }
+  if (siteIntent !== "create") {
+    fail(
+      handler,
+      `unsupported Bing site_intent ${siteIntent}. Next: choose create or use_verified`,
+    );
+  }
+  return request(target, credentialRef, ["site", "sitemap"], {
+    authMode,
+    siteUrl,
+    sitemapUrl,
+  });
 }
 
 function easRequest(
@@ -1092,12 +1211,18 @@ function buildDefaultRequest(
 ): ProviderWorkflowPlanRequest {
   switch (handler) {
     case "provider.github-repository":
-      return githubRequest(handler, snapshot, lifecycleRecords);
+      return githubRequest(handler, snapshot, lifecycleRecords, rootDir);
     case "provider.vercel-project":
     case "provider.production-deploy":
       return vercelRequest(handler, snapshot, lifecycleRecords);
+    case "provider.vercel-database-environment":
+    case "provider.vercel-stripe-environment":
+    case "provider.vercel-stripe-webhook-environment":
+    case "provider.vercel-brevo-environment":
+    case "provider.vercel-ga-environment":
+      return vercelEnvironmentRequest(handler, snapshot);
     case "provider.neon-database":
-      return neonRequest(handler, snapshot, lifecycleRecords);
+      return neonRequest(handler, snapshot, lifecycleRecords, rootDir);
     case "provider.stripe-commerce":
       return stripeRequest(handler, snapshot);
     case "provider.brevo-sending-domain":
@@ -1157,9 +1282,18 @@ export function createDefaultProviderPlanFactories(
         if (options.lifecycleStore) {
           try {
             lifecycleRecords = (await options.lifecycleStore.list()).filter(
-              ({ provider, environment }) =>
-                provider === DEFAULT_PROVIDER_TARGETS[handler]!.provider &&
-                environment === DEFAULT_PROVIDER_TARGETS[handler]!.environment,
+              ({ provider, environment, capability }) => {
+                const target = DEFAULT_PROVIDER_TARGETS[handler]!;
+                if (provider !== target.provider) return false;
+                if (environment === target.environment) return true;
+                return (
+                  handler === "provider.production-deploy" &&
+                  provider === "vercel" &&
+                  target.environment === "production" &&
+                  environment === "preview" &&
+                  capability === "project"
+                );
+              },
             );
           } catch {
             fail(

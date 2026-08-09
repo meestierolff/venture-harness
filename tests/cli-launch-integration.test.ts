@@ -471,6 +471,9 @@ describe("default vh launch services", () => {
       stderr.join("\n"),
     ).toBe(0);
     expect(JSON.parse(stdout.pop()!).status).toBe("waiting");
+    expect(store.load("launch-synthetic-web").nodes["production-deploy"].state).toBe("succeeded");
+    expect(store.load("launch-synthetic-web").nodes["verify-production"].state).toBe("succeeded");
+    expect(store.load("launch-synthetic-web").nodes["launch-report"].state).toBe("pending");
     const waitingReportPath = join(root, "reports/launch/launch-synthetic-web/final.json");
     expect(existsSync(waitingReportPath)).toBe(true);
     expect(JSON.parse(readFileSync(waitingReportPath, "utf8"))).toMatchObject({

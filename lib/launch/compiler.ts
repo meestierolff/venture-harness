@@ -39,7 +39,7 @@ const capabilityProviders: Record<string, { provider: string; resource: string }
   eas: { provider: "eas", resource: "project, build profiles, build, and submit workflow" },
 };
 
-const providerCapabilitiesByNode: Readonly<Record<string, readonly string[]>> = {
+export const launchProviderCapabilitiesByNode: Readonly<Record<string, readonly string[]>> = {
   "github-repository": [
     "repository",
     "actions_secret",
@@ -65,6 +65,11 @@ const providerCapabilitiesByNode: Readonly<Record<string, readonly string[]>> = 
   "google-search-console": ["search_console_site", "search_console_sitemap"],
   "bing-discovery": ["site", "sitemap", "url_submission"],
   "vercel-project": ["project", "environment_variable", "deployment", "domain", "web_analytics"],
+  "vercel-database-environment": ["environment_variable"],
+  "vercel-stripe-environment": ["environment_variable"],
+  "vercel-stripe-webhook-environment": ["environment_variable"],
+  "vercel-brevo-environment": ["environment_variable"],
+  "vercel-ga-environment": ["environment_variable"],
   "dns-records": ["record"],
   "revenuecat-entitlements": ["project_bootstrap", "app", "entitlement", "offering", "webhook"],
   "eas-build": ["ios_build"],
@@ -72,6 +77,58 @@ const providerCapabilitiesByNode: Readonly<Record<string, readonly string[]>> = 
   "testflight-state": ["build_processing", "testflight_group", "build_group_assignment"],
   "production-deploy": ["deployment"],
 };
+
+export const launchProviderByNode = {
+  "github-repository": "github",
+  "neon-database": "neon",
+  "brevo-sending-domain": "brevo",
+  "brevo-domain-verification": "brevo",
+  "brevo-email": "brevo",
+  "stripe-commerce": "stripe",
+  "google-analytics-property": "google",
+  "google-analytics-stream": "google",
+  "google-site-dns-record": "google",
+  "google-site-verification": "google",
+  "google-search-console": "google",
+  "bing-discovery": "bing",
+  "vercel-project": "vercel",
+  "vercel-database-environment": "vercel",
+  "vercel-stripe-environment": "vercel",
+  "vercel-stripe-webhook-environment": "vercel",
+  "vercel-brevo-environment": "vercel",
+  "vercel-ga-environment": "vercel",
+  "production-deploy": "vercel",
+  "dns-records": "dns",
+  "revenuecat-entitlements": "revenuecat",
+  "apple-first-app-record": "app_store_connect",
+  "eas-build": "eas",
+  "eas-submit": "eas",
+  "testflight-state": "app_store_connect",
+} as const satisfies Readonly<Record<string, string>>;
+
+/** Conservative upper bound: every authorized provider capability may compile
+ * to at most one provider operation for that immutable graph node. */
+export function launchProviderOperationCeiling(definition: WorkflowDefinition): number {
+  return definition.nodes
+    .filter((node) => node.kind === "provider")
+    .reduce((total, node) => total + Math.max(1, node.authorization.scopes.length), 0);
+}
+
+export const launchBuildAgentHandlers = new Set([
+  "launch.prepareRepository",
+  "launch.designDirection",
+  "launch.buildCoreJourney",
+  "launch.configureEventPack",
+  "launch.defineValidationGate",
+  "launch.prepareConciergeOperations",
+  "launch.defineUsageProof",
+]);
+
+export function launchBuildAgentTaskCount(definition: WorkflowDefinition): number {
+  return definition.nodes.filter(
+    (node) => node.handler && launchBuildAgentHandlers.has(node.handler),
+  ).length;
+}
 
 function providerNode(
   id: string,
@@ -93,7 +150,7 @@ function providerNode(
     authorization: {
       required: true,
       profile: authorizationProfile,
-      scopes: [...(providerCapabilitiesByNode[id] ?? [capability])],
+      scopes: [...(launchProviderCapabilitiesByNode[id] ?? [capability])],
     },
     idempotencyKey: `launch:${id}`,
     timeoutMs: 120_000,
@@ -152,6 +209,8 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     monetizationModel: brief.monetization_model,
     leadJourney: ["lead_generation", "services"].includes(brief.monetization_model),
   });
+  const repositoryReadyNodeId =
+    decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
   const modePreparationNodes: WorkflowNodeDefinition[] = [];
   if (decision.mode.selectedMode === "validate_first") {
     modePreparationNodes.push(
@@ -160,7 +219,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           "Define the smallest honest demand test, its primary signal, decision threshold, stop rule, and optional 30/60/90-day gates before product scope expands.",
         kind: "model",
         capability: "validation.strategy",
-        dependencies: ["prepare-repository"],
+        dependencies: [repositoryReadyNodeId],
         transport: "model",
         handler: "launch.defineValidationGate",
         model: { tier: "capable" },
@@ -185,7 +244,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           "Define the bounded human-delivery workflow, service limits, disclosures, evidence capture, and handoff before automating the outcome.",
         kind: "model",
         capability: "concierge.operations",
-        dependencies: ["prepare-repository"],
+        dependencies: [repositoryReadyNodeId],
         transport: "model",
         handler: "launch.prepareConciergeOperations",
         model: { tier: "capable" },
@@ -206,7 +265,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
   const designDependencies =
     modePreparationNodes.length > 0
       ? modePreparationNodes.map(({ id }) => id)
-      : ["prepare-repository"];
+      : [repositoryReadyNodeId];
   const postBuildModeNodes: WorkflowNodeDefinition[] =
     decision.mode.selectedMode === "product_first"
       ? [
@@ -230,16 +289,86 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           }),
         ]
       : [];
+  const dependencyBootstrapNodes: WorkflowNodeDefinition[] =
+    decision.rail.appKind === "web"
+      ? [
+          workflowNode("install-dependencies", {
+            purpose:
+              "Install the ordinary child repository's exact lockfile before any product build or quality command runs.",
+            capability: "dependencies.install",
+            handler: "launch.installDependencies",
+            effect: "local_write",
+            idempotencyKey: `launch:${brief.id}:install-dependencies`,
+            timeoutMs: 300_000,
+            retry: {
+              maxAttempts: 2,
+              retryableCodes: ["DEPENDENCY_INSTALL_FAILED"],
+              backoff: { strategy: "none", initialMs: 0, maxMs: 0, multiplier: 1 },
+            },
+            reconciliation: {
+              handler: "launch.installDependencies",
+              pollIntervalMs: 0,
+              maxPollAttempts: 1,
+            },
+            concurrencyGroup: "local",
+            evidence: {
+              required: true,
+              artifact: "reports/quality/dependency-install.json",
+            },
+            completion: {
+              description:
+                "The exact child lockfile installed successfully through a direct package-manager argv without joining the parent workspace or executing third-party lifecycle scripts.",
+            },
+          }),
+        ]
+      : [];
+  const dependencyFinalizationNodes: WorkflowNodeDefinition[] =
+    decision.rail.appKind === "web"
+      ? [
+          workflowNode("finalize-dependencies", {
+            purpose:
+              "Install and checkpoint the final exact child lockfile after repository and dependency planning; reject any later package or lock mutation.",
+            capability: "dependencies.install",
+            dependencies: ["prepare-repository"],
+            handler: "launch.installDependencies",
+            effect: "local_write",
+            idempotencyKey: `launch:${brief.id}:finalize-dependencies`,
+            timeoutMs: 300_000,
+            retry: {
+              maxAttempts: 2,
+              retryableCodes: ["DEPENDENCY_INSTALL_FAILED"],
+              backoff: { strategy: "none", initialMs: 0, maxMs: 0, multiplier: 1 },
+            },
+            reconciliation: {
+              handler: "launch.installDependencies",
+              pollIntervalMs: 0,
+              maxPollAttempts: 1,
+            },
+            concurrencyGroup: "local",
+            evidence: {
+              required: true,
+              artifact: "reports/quality/dependency-finalization.json",
+            },
+            completion: {
+              description:
+                "The final package manifest and lockfile are installed, read back, and frozen before product, provider, source publication, or deployment work proceeds.",
+            },
+          }),
+        ]
+      : [];
   const nodes: WorkflowNodeDefinition[] = [
+    ...dependencyBootstrapNodes,
     workflowNode("prepare-repository", {
       purpose: "Create the venture-owned local scaffold and managed-file manifest.",
       capability: "harness.create",
+      dependencies: dependencyBootstrapNodes.map(({ id }) => id),
       effect: "local_write",
       handler: "launch.prepareRepository",
       idempotencyKey: `launch:${brief.id}:prepare`,
       concurrencyGroup: "local",
       evidence: { required: true, artifact: "reports/launch/local-scaffold.json" },
     }),
+    ...dependencyFinalizationNodes,
     ...modePreparationNodes,
     workflowNode("design-direction", {
       purpose:
@@ -316,6 +445,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
   ];
 
   const completionDependencies = new Set<string>(["verify-local", "github-repository"]);
+  const preDeployDependencies = new Set<string>(["verify-local", "github-repository"]);
   const dnsDependencies: string[] = [];
   const has = (capability: string) => decision.capabilities.includes(capability as never);
   const needsBrevo = has("transactional_email") || has("lifecycle_email");
@@ -328,10 +458,11 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "neon-database",
         "Create or use an explicitly identified Neon database, capture a generated connection URI only behind a writable credential reference, apply the executable schema migration, and verify read/write health.",
         "database",
-        ["prepare-repository"],
+        [repositoryReadyNodeId],
       ),
     );
     completionDependencies.add("neon-database");
+    preDeployDependencies.add("neon-database");
   }
   if (needsBrevo) {
     nodes.push(
@@ -339,7 +470,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "brevo-sending-domain",
         "Create or locate the Brevo sending domain and read back its exact public DNS authentication record plan.",
         "transactional_email",
-        ["prepare-repository"],
+        [repositoryReadyNodeId],
         "api",
       ),
     );
@@ -351,11 +482,12 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "stripe-commerce",
         "Create and verify test-mode product, exact prices, checkout, portal, and webhook.",
         "stripe",
-        ["prepare-repository"],
+        [repositoryReadyNodeId],
         "api",
       ),
     );
     completionDependencies.add("stripe-commerce");
+    preDeployDependencies.add("stripe-commerce");
   }
   if (needsGa4) {
     nodes.push(
@@ -363,7 +495,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "google-analytics-property",
         "Create or locate the GA4 property and read the exact property identifier back.",
         "google_discovery",
-        ["prepare-repository"],
+        [repositoryReadyNodeId],
         "api",
       ),
       providerNode(
@@ -375,6 +507,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
       ),
     );
     completionDependencies.add("google-analytics-stream");
+    preDeployDependencies.add("google-analytics-stream");
   }
   if (needsGsc) {
     nodes.push(
@@ -382,7 +515,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "google-site-dns-record",
         "Request and read back the exact Google DNS verification token without claiming site ownership.",
         "google_discovery",
-        ["prepare-repository"],
+        [repositoryReadyNodeId],
         "api",
       ),
     );
@@ -392,9 +525,9 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     nodes.push(
       providerNode(
         "bing-discovery",
-        "Add or locate the Bing site, submit sitemap, and verify data access.",
+        "Add or locate the exact Bing site after production is reachable, submit its sitemap, and verify data access.",
         "bing_webmaster",
-        ["prepare-repository"],
+        ["production-deploy"],
         "api",
       ),
     );
@@ -404,35 +537,95 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
   nodes.push(
     providerNode(
       "vercel-project",
-      "Create or link the explicitly scoped Vercel project, deploy preview, and read project and deployment state back.",
+      "Create or link the explicitly scoped Vercel project, configure its domain when declared, deploy preview, and read project and deployment state back.",
       "public_website",
-      ["github-repository", "verify-local"],
+      [...preDeployDependencies].sort(),
     ),
   );
   completionDependencies.add("vercel-project");
   dnsDependencies.push("vercel-project");
 
-  if (brief.preferred_dns_provider === "mijndomein" || brief.preferred_dns_provider === "manual") {
-    nodes.push(
-      manualNode(
-        "dns-records",
-        "Apply one ordered DNS task preserving existing MX, SPF, DKIM, and DMARC records, then verify propagation.",
-        "dns",
-        [...new Set(dnsDependencies)].sort(),
-      ),
-    );
-  } else {
-    nodes.push(
+  const environmentNodes: WorkflowNodeDefinition[] = [];
+  if (has("database")) {
+    environmentNodes.push(
       providerNode(
-        "dns-records",
-        "Apply additive DNS records idempotently and verify propagation without replacing nameservers.",
-        "dns",
-        [...new Set(dnsDependencies)].sort(),
-        "api",
+        "vercel-database-environment",
+        "Bind the brokered Neon connection URI to the Vercel production DATABASE_URL variable and verify only its name and target by read-back.",
+        "public_website",
+        ["neon-database", "vercel-project"],
       ),
     );
   }
-  completionDependencies.add("dns-records");
+  if (has("stripe")) {
+    environmentNodes.push(
+      providerNode(
+        "vercel-stripe-environment",
+        "Bind the restricted Stripe credential reference to STRIPE_SECRET_KEY in Vercel production without reading its value back.",
+        "public_website",
+        ["stripe-commerce", "vercel-project"],
+      ),
+      providerNode(
+        "vercel-stripe-webhook-environment",
+        "Bind the captured Stripe webhook signing secret reference to STRIPE_WEBHOOK_SECRET in Vercel production without persisting the value.",
+        "public_website",
+        ["stripe-commerce", "vercel-project"],
+      ),
+    );
+  }
+  if (needsBrevo) {
+    environmentNodes.push(
+      providerNode(
+        "vercel-brevo-environment",
+        "Bind the restricted Brevo credential reference to BREVO_API_KEY in Vercel production without reading its value back.",
+        "public_website",
+        ["brevo-sending-domain", "vercel-project"],
+      ),
+    );
+  }
+  if (needsGa4) {
+    environmentNodes.push(
+      providerNode(
+        "vercel-ga-environment",
+        "Bind the read-back GA4 measurement identifier reference to NEXT_PUBLIC_GA_MEASUREMENT_ID in Vercel production.",
+        "public_website",
+        ["google-analytics-stream", "vercel-project"],
+      ),
+    );
+  }
+  nodes.push(...environmentNodes);
+  for (const node of environmentNodes) {
+    completionDependencies.add(node.id);
+    preDeployDependencies.add(node.id);
+  }
+
+  const needsDnsRecords =
+    Boolean(brief.domain) || has("stripe") || needsBrevo || needsGa4 || needsGsc;
+  if (needsDnsRecords) {
+    if (
+      brief.preferred_dns_provider === "mijndomein" ||
+      brief.preferred_dns_provider === "manual"
+    ) {
+      nodes.push(
+        manualNode(
+          "dns-records",
+          "Apply one ordered DNS task preserving existing MX, SPF, DKIM, and DMARC records, then verify propagation.",
+          "dns",
+          [...new Set(dnsDependencies)].sort(),
+        ),
+      );
+    } else {
+      nodes.push(
+        providerNode(
+          "dns-records",
+          "Apply additive DNS records idempotently and verify propagation without replacing nameservers.",
+          "dns",
+          [...new Set(dnsDependencies)].sort(),
+          "api",
+        ),
+      );
+    }
+    completionDependencies.add("dns-records");
+  }
 
   if (needsBrevo) {
     nodes.push(
@@ -480,7 +673,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "apple-first-app-record",
         "Create the first App Store Connect app record and return app name, bundle ID, SKU, language, Apple app ID, and team ID.",
         "app_store_connect",
-        ["prepare-repository"],
+        [repositoryReadyNodeId],
         "mobile_testflight",
       ),
     );
@@ -490,11 +683,12 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           "revenuecat-entitlements",
           "Configure Test Store app, products, entitlement, offering, packages, and webhook; keep Apple products pending until verified.",
           "revenuecat",
-          ["prepare-repository"],
+          [repositoryReadyNodeId],
           "api",
         ),
       );
       completionDependencies.add("revenuecat-entitlements");
+      preDeployDependencies.add("revenuecat-entitlements");
     }
     if (has("eas")) {
       nodes.push(
@@ -524,15 +718,16 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         ),
       );
       completionDependencies.add("testflight-state");
+      preDeployDependencies.add("testflight-state");
     }
   }
 
   nodes.push(
     workflowNode("verify-launch", {
       purpose:
-        "Verify every active critical journey, provider read-back, web/mobile behavior, and release invariant.",
+        "Verify the built application, critical journey, and every provider prerequisite required before production deployment.",
       capability: "quality.mvp",
-      dependencies: [...completionDependencies].sort(),
+      dependencies: [...preDeployDependencies, "vercel-project"].sort(),
       handler: "launch.verifyMvp",
       idempotencyKey: `launch:${brief.id}:verify-mvp`,
       concurrencyGroup: "quality",
@@ -558,7 +753,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     workflowNode("launch-report", {
       purpose: "Write sanitized human and JSON launch reports with only genuine remaining actions.",
       capability: "launch.report",
-      dependencies: ["verify-production"],
+      dependencies: [...new Set(["verify-production", ...completionDependencies])].sort(),
       handler: "launch.report",
       idempotencyKey: `launch:${brief.id}:report`,
       concurrencyGroup: "report",
@@ -644,7 +839,9 @@ export function compileLaunchDryRun(briefInput: FounderBrief): LaunchDryRun {
           : mapped.provider === "revenuecat"
             ? "test"
             : "preview",
-      estimatedCost: "unknown",
+      estimatedCost: mapped.provider === "eas" ? "unknown" : 0,
+      directChargeBasis: mapped.provider === "eas" ? null : "reviewed_known_zero_direct_charge",
+      ongoingAccountPlanUsageCovered: false,
     });
   }
   return {

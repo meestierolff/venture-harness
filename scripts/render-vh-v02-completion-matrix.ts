@@ -1,5 +1,10 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import {
+  validateAndApplyRequirementProofs,
+  type CommandEvidenceRecord,
+  type RequirementProofCatalog,
+} from "./lib/requirement-proofs";
 
 type Status =
   | "VERIFIED_RUNTIME"
@@ -498,7 +503,7 @@ const allowedStatuses: Status[] = [
   "CONTRADICTED_BY_RUNTIME",
 ];
 
-const counts = Object.fromEntries(
+const initialCounts = Object.fromEntries(
   allowedStatuses.map((status) => [status, rows.filter((row) => row.status === status).length]),
 );
 const priorities = Object.fromEntries(
@@ -508,15 +513,62 @@ const priorities = Object.fromEntries(
   ]),
 );
 
+const proofCatalogPath = resolve("reports/audit/requirement-proofs.json");
+const commandsRunPath = resolve("reports/audit/commands-run.json");
+const proofCatalog = JSON.parse(readFileSync(proofCatalogPath, "utf8")) as RequirementProofCatalog;
+const commandLedger = JSON.parse(readFileSync(commandsRunPath, "utf8")) as {
+  schemaVersion: number;
+  branch: string;
+  records: CommandEvidenceRecord[];
+};
+if (
+  ![1, 2].includes(commandLedger.schemaVersion) ||
+  commandLedger.branch !== "sol/vh-core-v0.2-winner-loop" ||
+  !Array.isArray(commandLedger.records)
+) {
+  throw new Error("commands-run evidence is absent, malformed, or bound to another branch");
+}
+
+const validatedRows = validateAndApplyRequirementProofs({
+  root: process.cwd(),
+  baselines: rows,
+  catalog: proofCatalog,
+  commands: commandLedger.records,
+  expectedBranch: "sol/vh-core-v0.2-winner-loop",
+});
+rows.splice(0, rows.length, ...(validatedRows as Requirement[]));
+const prohibitedFinalStatuses = new Set<Status>([
+  "PARTIAL",
+  "STUB",
+  "MISSING",
+  "INCORRECT",
+  "CONTRADICTED_BY_RUNTIME",
+]);
+const unresolved = rows.filter(
+  (row) => row.priority !== "P3" && prohibitedFinalStatuses.has(row.status),
+);
+if (unresolved.length > 0) {
+  throw new Error(
+    `Non-terminal P0/P1/P2 requirements remain: ${unresolved.map(({ id }) => id).join(", ")}`,
+  );
+}
+
+const counts = Object.fromEntries(
+  allowedStatuses.map((status) => [status, rows.filter((row) => row.status === status).length]),
+);
+
 const artifact = {
-  schemaVersion: 1,
-  phase: "INITIAL_AUDIT",
+  schemaVersion: 2,
+  phase: "FINAL_VERIFICATION",
   generatedAt: "2026-08-09",
   branch: "sol/vh-core-v0.2-winner-loop",
   startingSha: "1ba4a22f08f356a510e0611b9081f5d16eaa2823",
   backupRef: "refs/heads/backup/opus-vh-core-v0.2-1ba4a22",
   originMain: "de69705a5b1b4404771c66cf169a6cbcf885fb3a",
+  proofCatalog: "reports/audit/requirement-proofs.json",
+  commandEvidence: "reports/audit/commands-run.json",
   allowedStatuses,
+  initialCounts,
   counts,
   priorities,
   requirements: rows,
@@ -531,23 +583,32 @@ writeFileSync(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
 const lines = [
   "# Venture Harness v0.2 Codex completion matrix",
   "",
-  "- Phase: `INITIAL_AUDIT`",
+  "- Phase: `FINAL_VERIFICATION`",
   "- Branch: `sol/vh-core-v0.2-winner-loop`",
   "- Starting SHA: `1ba4a22f08f356a510e0611b9081f5d16eaa2823`",
   "- Backup reference: `backup/opus-vh-core-v0.2-1ba4a22`",
   "- Machine-readable source: `reports/audit/vh-v0.2-codex-requirement-matrix.json`",
+  "- Reviewed proof catalog: `reports/audit/requirement-proofs.json`",
   "",
-  "This is a conservative pre-repair baseline. Existing code is `PARTIAL` until its production boundary is independently exercised; absent architecture is `MISSING`. No implementable P0, P1, or P2 row may remain non-terminal at completion.",
+  "This matrix preserves the conservative pre-repair counts and records the terminal implementation status after the Codex repair run. `VERIFIED_FIXTURE` is synthetic proof only, and `IMPLEMENTED_LIVE_VERIFICATION_PENDING` never claims an authenticated provider effect.",
   "",
   "## Initial counts",
   "",
   "| Status | Count |",
   "| --- | ---: |",
-  ...allowedStatuses.map((status) => `| ${status} | ${counts[status]} |`),
+  ...allowedStatuses.map((status) => `| ${status} | ${initialCounts[status]} |`),
   "",
   "| Priority | Count |",
   "| --- | ---: |",
   ...Object.entries(priorities).map(([priority, count]) => `| ${priority} | ${count} |`),
+  "",
+  "## Final counts",
+  "",
+  "| Status | Count |",
+  "| --- | ---: |",
+  ...allowedStatuses.map((status) => `| ${status} | ${counts[status]} |`),
+  "",
+  "No implementable P0, P1, or P2 row remains in `PARTIAL`, `STUB`, `MISSING`, `INCORRECT`, or `CONTRADICTED_BY_RUNTIME`. Final aggregate gate execution, CI, and pull-request state are reported separately and are not inferred here.",
   "",
 ];
 
@@ -555,7 +616,7 @@ for (const group of [...new Set(rows.map((row) => row.group))]) {
   lines.push(
     `## ${group}`,
     "",
-    "| ID | Priority | Requirement | Status | Evidence / gap |",
+    "| ID | Priority | Requirement | Status | Evidence / result |",
     "| --- | --- | --- | --- | --- |",
   );
   for (const row of rows.filter((candidate) => candidate.group === group)) {
@@ -567,5 +628,69 @@ for (const group of [...new Set(rows.map((row) => row.group))]) {
   lines.push("");
 }
 
-writeFileSync(markdownPath, `${lines.join("\n")}\n`, "utf8");
-console.log(`OK rendered ${rows.length} requirements (${JSON.stringify(counts)})`);
+writeFileSync(markdownPath, `${lines.join("\n").trimEnd()}\n`, "utf8");
+
+const winnerRows = rows.filter(({ group }) => group === "F. Winner Loop");
+const winnerInitialCounts = Object.fromEntries(
+  allowedStatuses.map((status) => [
+    status,
+    winnerRows.filter((row) => {
+      const original =
+        auditedOverrides[row.id]?.status ??
+        (winnerPartial.has(row.requirement) ? "PARTIAL" : "MISSING");
+      return original === status;
+    }).length,
+  ]),
+);
+const winnerCounts = Object.fromEntries(
+  allowedStatuses.map((status) => [
+    status,
+    winnerRows.filter((row) => row.status === status).length,
+  ]),
+);
+const winnerLines = [
+  "# Venture Harness v0.2 + Winner Loop completion matrix",
+  "",
+  "- Phase: `FINAL_VERIFICATION`",
+  "- Branch: `sol/vh-core-v0.2-winner-loop`",
+  "- Authoritative full matrix: `docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md`",
+  "- Machine-readable source: `reports/audit/vh-v0.2-codex-requirement-matrix.json`",
+  "- Reviewed proof catalog: `reports/audit/requirement-proofs.json`",
+  "",
+  "The Winner Loop remains an installable Venture Harness pack. Local runtime and synthetic-fixture evidence do not imply authenticated TikTok, creative-provider, attribution-provider, or RevenueCat verification.",
+  "",
+  "## Initial Winner Loop counts",
+  "",
+  "| Status | Count |",
+  "| --- | ---: |",
+  ...allowedStatuses.map((status) => `| ${status} | ${winnerInitialCounts[status]} |`),
+  "",
+  "## Final Winner Loop counts",
+  "",
+  "| Status | Count |",
+  "| --- | ---: |",
+  ...allowedStatuses.map((status) => `| ${status} | ${winnerCounts[status]} |`),
+  "",
+  "## Winner Loop requirements",
+  "",
+  "| ID | Priority | Requirement | Status | Evidence / result |",
+  "| --- | --- | --- | --- | --- |",
+  ...winnerRows.map((row) => {
+    const evidence = row.evidence.length > 0 ? `${row.evidence.join("; ")} — ${row.gap}` : row.gap;
+    return `| ${row.id} | ${row.priority} | ${row.requirement} | ${row.status} | ${evidence.replaceAll("|", "\\|")} |`;
+  }),
+  "",
+  "## Honest boundary",
+  "",
+  "No provider was contacted, no organic post was published, no advertising spend occurred, and no customer was charged. Live provider rows are terminal as implemented contracts with explicit live verification pending, not as live passes.",
+  "",
+];
+writeFileSync(
+  resolve("docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md"),
+  `${winnerLines.join("\n").trimEnd()}\n`,
+  "utf8",
+);
+
+console.log(
+  `OK rendered ${rows.length} terminal requirements (${JSON.stringify(counts)}); Winner Loop ${JSON.stringify(winnerCounts)}`,
+);

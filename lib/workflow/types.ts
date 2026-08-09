@@ -16,7 +16,29 @@ export const WORKFLOW_NODE_STATES = [
   "compensated",
 ] as const;
 
-export type WorkflowNodeState = (typeof WORKFLOW_NODE_STATES)[number];
+/**
+ * The original public state list is retained for consumers that render the
+ * v0.1 manual-action vocabulary. New durable runs use the complete state
+ * model below; `waiting_for_manual_action` remains a supported compatibility
+ * alias for a human-completed external action.
+ */
+export const DURABLE_WORKFLOW_NODE_STATES = [
+  "pending",
+  "ready",
+  "running",
+  "waiting_for_auth",
+  "waiting_for_external_action",
+  "waiting_for_approval",
+  "waiting_for_manual_action",
+  "succeeded",
+  "failed_retryable",
+  "failed_terminal",
+  "skipped",
+  "compensated",
+  "cancelled",
+] as const;
+
+export type WorkflowNodeState = (typeof DURABLE_WORKFLOW_NODE_STATES)[number];
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -71,6 +93,28 @@ export interface WorkflowCostEstimate {
   unit: string;
 }
 
+export type WorkflowCostKind = "code" | "model" | "tool" | "provider";
+
+export interface WorkflowCostCharge {
+  kind: WorkflowCostKind;
+  category: string;
+  amount: number;
+  unit: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  tool?: string;
+  model?: string;
+  metadata?: Record<string, JsonValue>;
+}
+
+export interface WorkflowCostRecord extends WorkflowCostCharge {
+  entryId: string;
+  nodeId: string;
+  attempt: number;
+  loopIteration: number;
+  recordedAt: string;
+}
+
 export interface WorkflowCachePolicy {
   mode: "none" | "run" | "persistent";
   key?: string;
@@ -89,6 +133,17 @@ export interface WorkflowEvidenceRequirement {
 export interface WorkflowCompletionCriterion {
   description: string;
   validator?: string;
+}
+
+export interface WorkflowReconciliationPolicy {
+  handler: string;
+  pollIntervalMs: number;
+  maxPollAttempts: number;
+}
+
+export interface WorkflowLoopPolicy {
+  /** Maximum handler completions for this node, including the final one. */
+  maxIterations: number;
 }
 
 /**
@@ -122,6 +177,8 @@ export interface WorkflowNodeDefinition {
   compensation: WorkflowCompensationDefinition | null;
   evidence: WorkflowEvidenceRequirement;
   completion: WorkflowCompletionCriterion;
+  reconciliation?: WorkflowReconciliationPolicy;
+  loop?: WorkflowLoopPolicy;
 }
 
 export interface WorkflowDefinition {
@@ -136,7 +193,14 @@ export interface WorkflowDefinition {
 }
 
 export type WorkflowRunStatus =
-  "created" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+  | "created"
+  | "queued"
+  | "running"
+  | "waiting"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "superseded";
 
 export interface WorkflowNodeError {
   code: string;
@@ -145,10 +209,49 @@ export interface WorkflowNodeError {
   details?: JsonValue;
 }
 
+export type WorkflowOperationPhase =
+  | "prepared"
+  | "external_write_acknowledged"
+  | "handler_completed"
+  | "pending_external"
+  | "partially_applied"
+  | "not_applied"
+  | "verified"
+  | "unknown"
+  | "cancelled";
+
+export interface WorkflowOperationRecord {
+  attempt: number;
+  idempotencyKey: string;
+  phase: WorkflowOperationPhase;
+  preparedAt: string;
+  updatedAt: string;
+  reconcileAttempts: number;
+  lastReconciledAt?: string;
+  externalReference?: string;
+  checkpoint?: JsonValue;
+}
+
+export interface WorkflowWaitRecord {
+  kind: "auth" | "external" | "approval";
+  reason: string;
+  requestedAt: string;
+  pollAfterMs?: number;
+  externalReference?: string;
+}
+
+export interface WorkflowWorkspaceRecord {
+  mode: "worktree" | "process";
+  path: string;
+  attempt: number;
+  createdAt: string;
+}
+
 export interface WorkflowNodeRecord {
   definition: WorkflowNodeDefinition;
   state: WorkflowNodeState;
   attempts: number;
+  iterationAttempts?: number;
   startedAt?: string;
   finishedAt?: string;
   output?: JsonValue;
@@ -157,6 +260,12 @@ export interface WorkflowNodeRecord {
   evidenceArtifact?: string;
   cost: number;
   skipReason?: string;
+  revision?: number;
+  loopIterations?: number;
+  operation?: WorkflowOperationRecord;
+  waiting?: WorkflowWaitRecord;
+  workspace?: WorkflowWorkspaceRecord;
+  costEntries?: string[];
 }
 
 export interface VerifiedWorkflowEffect {
@@ -208,7 +317,14 @@ export interface WorkflowRunState {
   maxIterations: number;
   maxParallel: number;
   eventSequence: number;
+  /** Write-ahead event used to recover a crash between state and JSONL persistence. */
+  pendingEvent?: WorkflowEvent;
   cancellationReason?: string;
+  queuedAt?: string;
+  supersedesRunId?: string;
+  supersededByRunId?: string;
+  steeringRevision?: number;
+  costs?: WorkflowCostRecord[];
   createdAt: string;
   updatedAt: string;
   finishedAt?: string;
@@ -216,14 +332,21 @@ export interface WorkflowRunState {
 
 export type WorkflowEventType =
   | "run_created"
+  | "run_queued"
   | "run_started"
   | "run_waiting"
   | "run_succeeded"
   | "run_failed"
   | "run_cancelled"
+  | "run_superseded"
+  | "run_steered"
   | "run_recovered"
   | "node_ready"
   | "node_started"
+  | "node_operation_prepared"
+  | "node_operation_checkpointed"
+  | "node_reconciliation_started"
+  | "node_reconciled"
   | "node_trace"
   | "node_waiting"
   | "node_retryable_failure"
@@ -232,6 +355,8 @@ export type WorkflowEventType =
   | "node_skipped"
   | "node_reused"
   | "node_compensated"
+  | "node_cancelled"
+  | "node_cost_recorded"
   | "interrupt_resolved"
   | "checkpoint_grant_issued"
   | "checkpoint_grant_consumed"
@@ -253,8 +378,14 @@ export interface WorkflowHandlerContext {
   input?: JsonValue;
   dependencyOutputs: Record<string, JsonValue | undefined>;
   idempotencyKey: string;
+  loopIteration?: number;
+  workspacePath?: string;
   signal: AbortSignal;
   trace: (details: JsonValue) => void;
+  /** Persist immutable effect-target metadata while the operation is prepared. */
+  checkpointOperation?: (details: JsonValue) => void;
+  checkpointExternalEffect?: (details?: JsonValue) => void;
+  recordCost?: (charge: WorkflowCostCharge) => void;
   claimAuthorizationCheckpoints?: (
     requirements: WorkflowAuthorizationCheckpointRequirement[],
   ) => OneShotCheckpointGrant[];
@@ -273,11 +404,75 @@ export interface WorkflowHandlerResult {
   effectVerified?: boolean;
   evidenceArtifact?: string;
   cost?: number;
+  costs?: WorkflowCostCharge[];
+  continueLoop?: boolean;
+  wait?: {
+    kind: "auth" | "external" | "approval";
+    reason: string;
+    pollAfterMs?: number;
+    externalReference?: string;
+  };
 }
 
 export type WorkflowNodeHandler = (
   context: WorkflowHandlerContext,
 ) => Promise<WorkflowHandlerResult> | WorkflowHandlerResult;
+
+export interface WorkflowReconciliationContext {
+  runId: string;
+  node: WorkflowNodeDefinition;
+  attempt: number;
+  /** Exact JSON-safe node input persisted with the graph definition. */
+  input?: JsonValue;
+  /** Persisted outputs of this node's declared dependencies. */
+  dependencyOutputs: Record<string, JsonValue | undefined>;
+  idempotencyKey: string;
+  operation: WorkflowOperationRecord;
+  reason: "restart" | "retry" | "poll" | "cancel";
+  signal: AbortSignal;
+  trace: (details: JsonValue) => void;
+}
+
+export type WorkflowReconciliationResult =
+  | {
+      status: "verified";
+      output?: JsonValue;
+      evidenceArtifact?: string;
+      cost?: number;
+      costs?: WorkflowCostCharge[];
+      externalReference?: string;
+    }
+  | { status: "not_applied" }
+  | {
+      status: "partially_applied";
+      message?: string;
+      externalReference?: string;
+    }
+  | { status: "pending"; pollAfterMs?: number; externalReference?: string }
+  | { status: "unknown"; message?: string; externalReference?: string }
+  | {
+      status: "failed";
+      code: string;
+      message: string;
+      retryable?: boolean;
+      /** Defaults to unknown; only confirmed_no_write may clear reconciliation obligations. */
+      effectState?: "confirmed_no_write" | "partial_write" | "confirmed_write" | "unknown";
+    };
+
+export type WorkflowReconciler = (
+  context: WorkflowReconciliationContext,
+) => Promise<WorkflowReconciliationResult> | WorkflowReconciliationResult;
+
+export interface WorkflowWorkspaceContext {
+  runId: string;
+  node: WorkflowNodeDefinition;
+  attempt: number;
+  mode: "worktree" | "process";
+}
+
+export type WorkflowWorkspaceFactory = (
+  context: WorkflowWorkspaceContext,
+) => Promise<string> | string;
 
 export interface WorkflowValidationContext {
   runId: string;
@@ -344,6 +539,8 @@ export interface WorkflowBindings {
   validators?: Record<string, WorkflowValidator>;
   conditions?: Record<string, WorkflowConditionHandler>;
   compensators?: Record<string, WorkflowCompensator>;
+  reconcilers?: Record<string, WorkflowReconciler>;
+  workspaceFactory?: WorkflowWorkspaceFactory;
   interruptEvidenceVerifier?: WorkflowInterruptEvidenceVerifier;
   checkpointEvidenceVerifier?: WorkflowCheckpointEvidenceVerifier;
   secrets?: string[];
@@ -354,6 +551,26 @@ export interface WorkflowStartOptions {
   maxParallel?: number;
   maxIterations?: number;
   budgets?: Record<string, number>;
+  supersedesRunId?: string;
+}
+
+export interface WorkflowSteerRequest {
+  inputs: Record<string, JsonValue>;
+  reason: string;
+  steeredBy: string;
+}
+
+export interface WorkflowAuthorizationRefresh {
+  authorizedBy: string;
+  credentialRef?: string;
+  expiresAt?: string;
+  note?: string;
+}
+
+export interface WorkflowSupersedeOptions extends WorkflowStartOptions {
+  reason: string;
+  supersededBy: string;
+  queue?: boolean;
 }
 
 export interface WorkflowInterruptResolution {

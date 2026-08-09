@@ -1,4 +1,6 @@
+import type { BaselineEvidence } from "./baseline";
 import { createIdFactory, type IdFactoryOptions } from "./ids";
+import type { WinnerLoopEvidenceStore } from "./evidence-store";
 import type { MetricId, MetricSnapshot } from "./metrics";
 
 /**
@@ -32,6 +34,11 @@ export interface ScoringConfig {
   readonly minimumViewsForSignal: number;
   readonly minimumViewsForConfidence: number;
   readonly maximumSnapshotAgeMinutes: number;
+  readonly maximumBaselineAgeMinutes: number;
+  readonly minimumAccountAgeDays: number;
+  readonly minimumBaselineSampleSize: number;
+  readonly minimumBaselineObservationDays: number;
+  readonly maximumBaselineDisagreementRatio: number;
   /** Score at or above which a creative is worth spending on, given confidence. */
   readonly paidCandidateScore: number;
   readonly boostCandidateScore: number;
@@ -64,33 +71,26 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = Object.freeze({
   minimumViewsForSignal: 500,
   minimumViewsForConfidence: 5_000,
   maximumSnapshotAgeMinutes: 2_880,
+  maximumBaselineAgeMinutes: 2_880,
+  minimumAccountAgeDays: 14,
+  minimumBaselineSampleSize: 20,
+  minimumBaselineObservationDays: 7,
+  maximumBaselineDisagreementRatio: 1.5,
   paidCandidateScore: 0.62,
   boostCandidateScore: 0.45,
   minimumIntentRate: 0.004,
 });
 
-export interface AccountBaseline {
-  /** Null when the account is too new to have one — handled as unknown, not as zero. */
-  readonly medianViewVelocityPerHour: number | null;
-  readonly medianCompletion: number | null;
-  readonly medianWatchTimeRatio: number | null;
-  readonly accountAgeDays: number;
-  readonly sampleSize: number;
-}
-
-export interface FormatBaseline {
-  readonly format: string;
-  readonly medianCompletion: number | null;
-  readonly medianWatchTimeRatio: number | null;
-}
-
 export interface EvaluationInput {
   creativeId: string;
   creativeFamilyId: string;
+  provider: MetricSnapshot["provider"];
+  externalAccountId: string;
+  format: string;
+  durationSeconds: number;
   /** Ordered oldest to newest; fatigue is read from the trend across them. */
   snapshots: readonly MetricSnapshot[];
-  accountBaseline: AccountBaseline;
-  formatBaseline: FormatBaseline;
+  baseline: BaselineEvidence;
   geography: string;
   evaluatedAt: Date;
   scoring?: ScoringConfig;
@@ -109,12 +109,20 @@ export interface FeatureValue {
 
 export interface WinnerEvaluation {
   readonly recommendationId: string;
+  readonly organizationId: string;
+  readonly ventureId: string;
   readonly creativeId: string;
   readonly creativeFamilyId: string;
+  readonly provider: MetricSnapshot["provider"];
+  readonly externalAccountId: string;
+  readonly format: string;
+  readonly durationSeconds: number;
+  readonly baselineId: string;
   readonly scoringVersion: string;
   readonly score: number | null;
   readonly features: readonly FeatureValue[];
   readonly confidence: EvaluationConfidence;
+  readonly uncertainties: readonly EvaluationUncertainty[];
   readonly missingMetrics: readonly MetricId[];
   readonly evidence: readonly string[];
   readonly interpretation: string;
@@ -123,6 +131,19 @@ export interface WinnerEvaluation {
   readonly spendEligible: boolean;
   readonly spendBlockedReasons: readonly string[];
   readonly evaluatedAt: string;
+}
+
+export interface EvaluationUncertainty {
+  readonly code:
+    | "new_account"
+    | "insufficient_baseline_sample"
+    | "short_baseline_window"
+    | "baseline_geography_unknown"
+    | "baseline_geography_mismatch"
+    | "stale_baseline"
+    | "conflicting_baselines";
+  readonly severity: "confidence_reduction" | "spend_blocking";
+  readonly detail: string;
 }
 
 /** Squash a ratio-to-baseline into 0..1 so no single feature can dominate. */
@@ -140,16 +161,81 @@ function normalizeRate(value: number | null, target: number): number | null {
   return Math.max(0, Math.min(1, value / target));
 }
 
-export interface EvaluatorOptions extends IdFactoryOptions {}
+export interface EvaluatorOptions extends IdFactoryOptions {
+  organizationId: string;
+  ventureId: string;
+  store?: WinnerLoopEvidenceStore;
+}
 
-export function createWinnerEvaluator(options: EvaluatorOptions = {}) {
+export function createWinnerEvaluator(options: EvaluatorOptions) {
+  if (
+    !options.organizationId.trim() ||
+    options.organizationId !== options.organizationId.trim() ||
+    !options.ventureId.trim() ||
+    options.ventureId !== options.ventureId.trim()
+  ) {
+    throw new Error("winner evaluator requires a canonical organization and venture scope");
+  }
+  const scope = Object.freeze({
+    organizationId: options.organizationId,
+    ventureId: options.ventureId,
+  });
   const mint = createIdFactory(options);
 
   function evaluate(input: EvaluationInput): WinnerEvaluation {
+    const baselineGeneratedAt = Date.parse(input.baseline.generatedAt);
+    if (
+      !Number.isFinite(baselineGeneratedAt) ||
+      baselineGeneratedAt > input.evaluatedAt.getTime()
+    ) {
+      throw new Error("winner evaluation baseline freshness_scope_mismatch");
+    }
+    if (
+      input.baseline.organizationId !== scope.organizationId ||
+      input.baseline.ventureId !== scope.ventureId
+    ) {
+      throw new Error("winner evaluation baseline tenant_scope_mismatch");
+    }
+    if (
+      input.baseline.provider !== input.provider ||
+      input.baseline.externalAccountId !== input.externalAccountId
+    ) {
+      throw new Error("winner evaluation baseline provider_account_scope_mismatch");
+    }
+    if (input.baseline.account.geography !== input.geography) {
+      throw new Error("winner evaluation baseline account geography_scope_mismatch");
+    }
+    if (input.baseline.format.format !== input.format) {
+      throw new Error("winner evaluation baseline format_scope_mismatch");
+    }
+    if (input.baseline.duration.durationSeconds !== input.durationSeconds) {
+      throw new Error("winner evaluation baseline duration_scope_mismatch");
+    }
+    if (
+      input.snapshots.some(
+        (snapshot) =>
+          snapshot.organizationId !== scope.organizationId ||
+          snapshot.ventureId !== scope.ventureId ||
+          snapshot.provider !== input.provider ||
+          snapshot.externalAccountId !== input.externalAccountId ||
+          snapshot.format !== input.format ||
+          snapshot.durationSeconds !== input.durationSeconds ||
+          snapshot.geography !== input.geography,
+      )
+    ) {
+      throw new Error("winner evaluation snapshot tenant_scope_mismatch");
+    }
+    if (input.snapshots.some((snapshot) => snapshot.creativeId !== input.creativeId)) {
+      throw new Error("winner evaluation snapshots must belong to the evaluated creative");
+    }
     const scoring = input.scoring ?? DEFAULT_SCORING_CONFIG;
+    const accountBaseline = input.baseline.account;
+    const formatBaseline = input.baseline.format;
+    const durationBaseline = input.baseline.duration;
     const latest = input.snapshots[input.snapshots.length - 1];
     const evidence: string[] = [];
     const spendBlockedReasons: string[] = [];
+    const uncertainties: EvaluationUncertainty[] = [];
 
     if (!latest) {
       return finish({
@@ -181,29 +267,128 @@ export function createWinnerEvaluator(options: EvaluatorOptions = {}) {
     const ageMinutes = (input.evaluatedAt.getTime() - Date.parse(latest.capturedAt)) / 60_000;
     const stale = ageMinutes > scoring.maximumSnapshotAgeMinutes;
 
+    function uncertainty(
+      code: EvaluationUncertainty["code"],
+      detail: string,
+      severity: EvaluationUncertainty["severity"] = "spend_blocking",
+    ) {
+      uncertainties.push(Object.freeze({ code, detail, severity }));
+      evidence.push(detail);
+      if (severity === "spend_blocking") spendBlockedReasons.push(code);
+    }
+
+    if (accountBaseline.accountAgeDays < scoring.minimumAccountAgeDays) {
+      uncertainty(
+        "new_account",
+        `Account age ${accountBaseline.accountAgeDays}d is below the ${scoring.minimumAccountAgeDays}d maturity threshold.`,
+      );
+    }
+    const baselineSamples = [
+      ["account", accountBaseline.sampleSize],
+      ["format", formatBaseline.sampleSize],
+      ["duration", durationBaseline.sampleSize],
+    ] as const;
+    const insufficientSamples = baselineSamples.filter(
+      ([, sampleSize]) => sampleSize < scoring.minimumBaselineSampleSize,
+    );
+    if (insufficientSamples.length > 0) {
+      uncertainty(
+        "insufficient_baseline_sample",
+        `${insufficientSamples.map(([name, count]) => `${name} baseline has ${count}`).join(", ")} observations; ${scoring.minimumBaselineSampleSize} are required per dimension.`,
+      );
+    }
+    const baselineWindows: ReadonlyArray<readonly [string, number]> = [
+      ["account", accountBaseline.observationWindowDays],
+      ["format", formatBaseline.observationWindowDays],
+      ["duration", durationBaseline.observationWindowDays],
+    ];
+    const shortWindows = baselineWindows.filter(
+      ([, days]) => days < scoring.minimumBaselineObservationDays,
+    );
+    if (shortWindows.length > 0) {
+      uncertainty(
+        "short_baseline_window",
+        `${shortWindows.map(([name, days]) => `${name} baseline covers ${days}d`).join(", ")}; ${scoring.minimumBaselineObservationDays}d are required per dimension.`,
+      );
+    }
+    const latestBaselineSource = Math.min(
+      ...[accountBaseline, formatBaseline, durationBaseline].map((dimension) =>
+        dimension.latestSourceAt ? Date.parse(dimension.latestSourceAt) : Number.NEGATIVE_INFINITY,
+      ),
+    );
+    const baselineAgeMinutes = (input.evaluatedAt.getTime() - latestBaselineSource) / 60_000;
+    if (
+      !Number.isFinite(baselineAgeMinutes) ||
+      baselineAgeMinutes > scoring.maximumBaselineAgeMinutes
+    ) {
+      uncertainty(
+        "stale_baseline",
+        `Baseline evidence is older than the ${scoring.maximumBaselineAgeMinutes} minute freshness limit.`,
+      );
+    }
+
+    const conflictingBaselineNames: string[] = [];
+    for (const [name, values] of [
+      [
+        "completion",
+        [
+          accountBaseline.medianCompletion,
+          formatBaseline.medianCompletion,
+          durationBaseline.medianCompletion,
+        ],
+      ],
+      [
+        "watch_time_ratio",
+        [
+          accountBaseline.medianWatchTimeRatio,
+          formatBaseline.medianWatchTimeRatio,
+          durationBaseline.medianWatchTimeRatio,
+        ],
+      ],
+    ] as const) {
+      const comparable = values.filter((value): value is number => value !== null && value > 0);
+      if (
+        comparable.length > 1 &&
+        Math.max(...comparable) / Math.min(...comparable) > scoring.maximumBaselineDisagreementRatio
+      ) {
+        conflictingBaselineNames.push(name);
+      }
+    }
+    if (conflictingBaselineNames.length > 0) {
+      uncertainty(
+        "conflicting_baselines",
+        `Account, format, and duration baselines conflict for ${conflictingBaselineNames.join(", ")}; no spend conclusion is safe until reconciled.`,
+      );
+    }
+
     // Features. Each is null when its metric or its baseline is unavailable.
     const features: FeatureValue[] = [
       feature(
         "viewVelocityVsBaseline",
         latest.valueOf("view_velocity"),
-        input.accountBaseline.medianViewVelocityPerHour,
-        input.accountBaseline.medianViewVelocityPerHour === null
+        accountBaseline.medianViewVelocityPerHour,
+        accountBaseline.medianViewVelocityPerHour === null
           ? "account has no velocity baseline yet"
           : null,
       ),
       feature(
         "completionVsBaseline",
         latest.valueOf("completion"),
-        input.formatBaseline.medianCompletion ?? input.accountBaseline.medianCompletion,
-        input.formatBaseline.medianCompletion === null &&
-          input.accountBaseline.medianCompletion === null
-          ? "no completion baseline for this format or account"
+        durationBaseline.medianCompletion ??
+          formatBaseline.medianCompletion ??
+          accountBaseline.medianCompletion,
+        durationBaseline.medianCompletion === null &&
+          formatBaseline.medianCompletion === null &&
+          accountBaseline.medianCompletion === null
+          ? "no completion baseline for this duration, format, or account"
           : null,
       ),
       feature(
         "watchTimeRatioVsBaseline",
         latest.valueOf("watch_time_ratio"),
-        input.formatBaseline.medianWatchTimeRatio ?? input.accountBaseline.medianWatchTimeRatio,
+        durationBaseline.medianWatchTimeRatio ??
+          formatBaseline.medianWatchTimeRatio ??
+          accountBaseline.medianWatchTimeRatio,
         null,
       ),
       rateFeature("shareRate", latest.valueOf("shares"), views, 0.01),
@@ -234,9 +419,14 @@ export function createWinnerEvaluator(options: EvaluatorOptions = {}) {
     else if (stale) confidence = "low";
     else if (views === null || views < scoring.minimumViewsForConfidence) confidence = "low";
     else if (missing.length > 2 || availableWeight < 0.5) confidence = "medium";
-    if (input.accountBaseline.medianViewVelocityPerHour === null && confidence === "high") {
+    if (accountBaseline.medianViewVelocityPerHour === null && confidence === "high") {
       confidence = "medium";
       evidence.push("Account has no velocity baseline; comparison is against format only.");
+    }
+    if (uncertainties.some((entry) => entry.severity === "spend_blocking")) {
+      confidence = "low";
+    } else if (uncertainties.length > 0 && confidence === "high") {
+      confidence = "medium";
     }
 
     if (stale) {
@@ -379,14 +569,22 @@ export function createWinnerEvaluator(options: EvaluatorOptions = {}) {
         args.blocked.length === 0 &&
         (args.recommendation === "PAID_TEST_CANDIDATE" ||
           args.recommendation === "BOOST_CANDIDATE");
-      return Object.freeze({
+      const evaluation: WinnerEvaluation = Object.freeze({
         recommendationId: mint("rec"),
+        organizationId: scope.organizationId,
+        ventureId: scope.ventureId,
         creativeId: input.creativeId,
         creativeFamilyId: input.creativeFamilyId,
+        provider: input.provider,
+        externalAccountId: input.externalAccountId,
+        format: input.format,
+        durationSeconds: input.durationSeconds,
+        baselineId: input.baseline.baselineId,
         scoringVersion: scoring.version,
         score: args.score,
         features: Object.freeze([...args.features]),
         confidence: args.confidence,
+        uncertainties: Object.freeze([...uncertainties]),
         missingMetrics: Object.freeze([...args.missing]),
         evidence: Object.freeze([...evidence]),
         interpretation: args.interpretation,
@@ -396,10 +594,53 @@ export function createWinnerEvaluator(options: EvaluatorOptions = {}) {
         spendBlockedReasons: Object.freeze([...args.blocked]),
         evaluatedAt: input.evaluatedAt.toISOString(),
       });
+      if (options.store) {
+        options.store.put({
+          organizationId: scope.organizationId,
+          ventureId: scope.ventureId,
+          kind: "winner_evaluation",
+          recordId: evaluation.recommendationId,
+          creativeId: evaluation.creativeId,
+          occurredAt: evaluation.evaluatedAt,
+          sourceRefs: Object.freeze([
+            `baseline:${input.baseline.baselineId}`,
+            ...input.snapshots.map(
+              (snapshot) =>
+                `metric:${snapshot.publicationId}:${snapshot.offsetMinutes}:${snapshot.capturedAt}`,
+            ),
+          ]),
+          payload: evaluation,
+        });
+      }
+      return evaluation;
     }
   }
 
-  return { evaluate };
+  return { evaluate, scope };
 }
 
 export type WinnerEvaluator = ReturnType<typeof createWinnerEvaluator>;
+
+export function listWinnerEvaluations(
+  store: WinnerLoopEvidenceStore,
+  scope: { organizationId: string; ventureId: string },
+  creativeId: string,
+): readonly WinnerEvaluation[] {
+  return store.list(scope, "winner_evaluation", creativeId).map((entry) => {
+    const evaluation = entry.payload as WinnerEvaluation;
+    if (
+      evaluation.organizationId !== scope.organizationId ||
+      evaluation.ventureId !== scope.ventureId
+    ) {
+      throw new Error("persisted winner evaluation tenant_scope_mismatch");
+    }
+    return Object.freeze({
+      ...evaluation,
+      features: Object.freeze([...evaluation.features]),
+      uncertainties: Object.freeze([...(evaluation.uncertainties ?? [])]),
+      missingMetrics: Object.freeze([...evaluation.missingMetrics]),
+      evidence: Object.freeze([...evaluation.evidence]),
+      spendBlockedReasons: Object.freeze([...evaluation.spendBlockedReasons]),
+    });
+  });
+}

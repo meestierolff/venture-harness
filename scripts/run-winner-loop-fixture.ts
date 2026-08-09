@@ -1,10 +1,10 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { parse } from "yaml";
 import { parseGrowthContract } from "../lib/config/growth-contract-schema";
-import { buildCreativeTrace, createSqliteSpendStore, runFixtureD } from "../lib/winner-loop";
+import { runFixtureDThroughProductionBoundaries } from "../lib/winner-loop";
 
 /**
  * Runs the synthetic Winner Loop fixture end to end and writes the creative
@@ -16,34 +16,22 @@ const TRACE_PATH = "reports/audit/winner-loop-creative-trace.json";
 async function main(): Promise<void> {
   const contract = parseGrowthContract(parse(readFileSync("config/growth.yaml", "utf8")));
   const workspace = mkdtempSync(join(tmpdir(), "vh-fixture-d-"));
-  const store = createSqliteSpendStore(join(workspace, "spend.db"));
 
   try {
-    const result = await runFixtureD({ contract, store });
-    const trace = buildCreativeTrace(result);
-
-    mkdirSync(dirname(TRACE_PATH), { recursive: true });
-    writeFileSync(TRACE_PATH, `${JSON.stringify(trace, null, 2)}\n`);
-
-    console.log(`${result.label}`);
-    console.log(`creative        ${result.creativeId}`);
-    console.log(
-      `recommendation  ${result.evaluation.recommendation} (${result.evaluation.confidence} confidence)`,
-    );
-    console.log(
-      `readiness       ${result.readiness.stage}, VBO allowed: ${result.readiness.vboAllowed}`,
-    );
-    console.log(
-      `paid gates      unapproved=${result.paidBlockedWithoutApproval}, no-grant=${result.paidBlockedWithoutGrant}`,
-    );
-    console.log(`settled spend   ${result.settledSpendMinor} minor units`);
-    console.log(`cohorts         ${result.cohorts.map((c) => c.window.label).join(", ")}`);
-    console.log(
-      `learning        ${result.learning.recommendedSurface} (${result.learning.confidence})`,
-    );
+    const result = await runFixtureDThroughProductionBoundaries({
+      contract,
+      workspaceDirectory: workspace,
+      tracePath: TRACE_PATH,
+      runId: "winner-loop-fixture-d",
+    });
+    console.log("SYNTHETIC_FIXTURE — no provider was contacted");
+    console.log(`workflow        ${result.runId} (${result.state})`);
+    console.log(`command audit   ${result.commandAuditRecords} records`);
+    console.log(`provider SDK    ${result.providerOperations.length} fixture lifecycles`);
+    console.log(`event pack      ${result.eventPackEvents} first-party events`);
+    console.log(`DistributionPR  ${result.distributionProposalId} (fixture proposal only)`);
     console.log(`trace           ${TRACE_PATH}`);
   } finally {
-    store.close();
     rmSync(workspace, { recursive: true, force: true });
   }
 }

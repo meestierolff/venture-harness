@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "phase": "INITIAL_AUDIT",
+  "schemaVersion": 2,
+  "phase": "FINAL_VERIFICATION",
   "generatedAt": "2026-08-09",
   "branch": "sol/vh-core-v0.2-winner-loop",
   "startingSha": "1ba4a22f08f356a510e0611b9081f5d16eaa2823",
@@ -20,7 +20,7 @@
     "INCORRECT",
     "CONTRADICTED_BY_RUNTIME"
   ],
-  "counts": {
+  "initialCounts": {
     "VERIFIED_RUNTIME": 0,
     "VERIFIED_INTEGRATION": 0,
     "VERIFIED_FIXTURE": 0,
@@ -34,6 +34,20 @@
     "INCORRECT": 5,
     "CONTRADICTED_BY_RUNTIME": 3
   },
+  "counts": {
+    "VERIFIED_RUNTIME": 64,
+    "VERIFIED_INTEGRATION": 61,
+    "VERIFIED_FIXTURE": 31,
+    "IMPLEMENTED_LIVE_VERIFICATION_PENDING": 18,
+    "EXTERNAL_BLOCKER": 0,
+    "NOT_APPLICABLE": 0,
+    "DEFERRED_POST_ALPHA": 0,
+    "PARTIAL": 0,
+    "STUB": 0,
+    "MISSING": 0,
+    "INCORRECT": 0,
+    "CONTRADICTED_BY_RUNTIME": 0
+  },
   "priorities": {
     "P0": 33,
     "P1": 102,
@@ -46,1569 +60,1650 @@
       "group": "A. Core",
       "priority": "P1",
       "requirement": "pnpm workspace",
-      "status": "MISSING",
-      "evidence": ["package.json", "pnpm-lock.yaml"],
-      "gap": "No pnpm-workspace.yaml or workspace package manifests existed at recovered HEAD."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["pnpm-workspace.yaml", "package.json", "scripts/workspace-check.mjs"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-002",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "package boundaries",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/", "tests/workspace-boundaries.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-003",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "config and schemas",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/config/", "lib/config/", "tests/config-schemas.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-004",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "command bus",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/command-bus/", "tests/command-surfaces-parity.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-005",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "event log",
-      "status": "PARTIAL",
-      "evidence": ["lib/workflow/store.ts"],
-      "gap": "Workflow JSONL events exist, but there is no general append-only domain event log."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/events/", "tests/command-surfaces-parity.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-006",
       "group": "A. Core",
       "priority": "P0",
       "requirement": "audit hash chain",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/audit/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-007",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "asset vault",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/assets/", "tests/winner-loop-fixture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-008",
       "group": "A. Core",
       "priority": "P0",
       "requirement": "credential broker",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/credentials/", "packages/credentials/", "tests/credentials-broker.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-009",
       "group": "A. Core",
       "priority": "P0",
       "requirement": "authorization and policy",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/authorization/", "packages/policy/", "tests/authorization.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-010",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "organizations",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/organizations/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-011",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "subscriptions and entitlements",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/billing/", "packages/entitlements/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-012",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "provider connections",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/connections/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-013",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "provider SDK",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/provider-sdk/", "lib/providers/", "tests/providers-execution.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-014",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "provider registry",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/provider-registry/", "lib/providers/registry.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-015",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "graph runtime",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/workflow/", "tests/workflow-durable-recovery.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-016",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "loop runtime",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/loops/", "lib/learning/", "tests/learning-loops.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-017",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "CLI",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/cli-generator/", "lib/cli/", "tests/cli-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-018",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "API",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/api-generator/", "apps/api/", "tests/command-surfaces-parity.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-019",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "MCP",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/mcp-generator/", "tests/workspace-pack.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-020",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "SDK",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/sdk-generator/", "tests/workspace-pack.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-021",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "pack runtime",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/pack-runtime/", "lib/materialization/packs.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-022",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "seed runtime",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/seed-runtime/", "lib/materialization/seeds.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-023",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "migrations",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/migrations/", "lib/migrations/", "tests/migrations.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-024",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "telemetry",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/telemetry/", "tests/command-surfaces-parity.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "CORE-025",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "shared UI",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/ui/", "tests/command-surfaces-parity.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-026",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "control-plane app boundary",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["apps/control-plane/", "tests/workspace-boundaries.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-027",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "API/worker/docs/Fleet Controller app boundaries",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["apps/api/", "apps/worker/", "apps/docs/", "apps/fleet-controller/"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-028",
       "group": "A. Core",
       "priority": "P1",
       "requirement": "package exports, packing, and clean-consumer install",
-      "status": "CONTRADICTED_BY_RUNTIME",
-      "evidence": ["package.json", "bin/vh.mjs"],
-      "gap": "The recovered package included 555 monorepo entries and the clean-consumer vh binary failed because tsx was only a devDependency."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/workspace-pack.mjs", "tests/workspace-pack.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "CORE-029",
       "group": "A. Core",
       "priority": "P2",
       "requirement": "public release checks",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/public-release-check.ts", "tests/security-release.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "VENTURE-001",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "idea compiler",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-002",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "Stack Profile resolution",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-003",
       "group": "B. Venture creation",
       "priority": "P0",
       "requirement": "Launch Grant",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/materialization/grant.ts", "tests/materialization.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "VENTURE-004",
       "group": "B. Venture creation",
       "priority": "P0",
       "requirement": "no external resource before Launch Grant",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/materialization/launch-command.ts", "tests/materialization.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "VENTURE-005",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "local isolated workspace",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-006",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "GitHub repository creation",
-      "status": "PARTIAL",
-      "evidence": ["lib/providers/github-source-publication.ts"],
-      "gap": "Source-publication primitives exist, but no Launch-Grant-bound child repository materializer consumes them."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/providers/github-source-publication.ts",
+        "tests/providers-github-source.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "VENTURE-007",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "seed materialization",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-008",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "harness.lock",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-009",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "Venture Manifest",
-      "status": "MISSING",
-      "evidence": ["lib/cli/default-services.ts"],
-      "gap": ".venture/project.json is a router snapshot, not the required Venture Manifest."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-010",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "unique design",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/seeds.ts", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-011",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "unique application",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/seeds.ts", "scripts/run-synthetic-venture-launch.mts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-012",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "ServiceBlueprint",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-013",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "Connector Manifest",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-014",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "unique Agent Surface",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-015",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "CompanyStack provisioning",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": ["lib/materialization/materializer.ts", "tests/materialization.test.ts"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "VENTURE-016",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "source push",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/providers/github-source-publication.ts",
+        "tests/providers-github-source.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "VENTURE-017",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "preview verification",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": ["lib/providers/", "tests/launch-fixtures.test.ts"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "VENTURE-018",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "production deployment planning",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": ["lib/launch/", "lib/providers/", "tests/launch-fixtures.test.ts"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "VENTURE-019",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "live/fixture verification",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["scripts/run-synthetic-venture-launch.mts", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-020",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "three versioned seed rails",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "VENTURE-021",
       "group": "B. Venture creation",
       "priority": "P1",
       "requirement": "v0.1-to-v0.2 materialization fixture",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/migrations/v0-1-to-v0-2.ts", "tests/migrations.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "RECUR-001",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "customer users",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-002",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "customer organizations and memberships",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-003",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "venture subscriptions",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-004",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "entitlements",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-005",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "Connection Hub",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-006",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "Customer Service Grants",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-007",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "Provider Connections",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-008",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "Agent Grants",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-009",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "customer agent API/CLI/MCP/SDK",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-010",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "usage metering",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-011",
       "group": "C. Recursive customer service",
       "priority": "P0",
       "requirement": "revocation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-012",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "offboarding",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-013",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "customer resource ownership",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "RECUR-014",
       "group": "C. Recursive customer service",
       "priority": "P0",
       "requirement": "CompanyStack/CustomerStack/AgentAccessStack separation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-015",
       "group": "C. Recursive customer service",
       "priority": "P0",
       "requirement": "cross-tenant isolation at HTTP/command/service/repository/persistence/webhook layers",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-016",
       "group": "C. Recursive customer service",
       "priority": "P0",
       "requirement": "tenant credential resolution and refresh",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-017",
       "group": "C. Recursive customer service",
       "priority": "P0",
       "requirement": "cross-venture asset/run/cohort isolation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "RECUR-018",
       "group": "C. Recursive customer service",
       "priority": "P1",
       "requirement": "subscription and entitlement negative controls",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-001",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "founder default Stack Profile",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": [
+        "packages/provider-registry/",
+        "lib/materialization/",
+        "tests/materialization.test.ts"
+      ],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-002",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "at least one alternative Stack Profile with real adapters",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": ["lib/providers/descriptors.ts", "tests/providers-contract.test.ts"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "PORT-003",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "capability resolution",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/providers/", "tests/providers-contract.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-004",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "provider-specific auth",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/credentials/",
+        "lib/providers/adapter.ts",
+        "tests/credentials-auth-lifecycle.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "PORT-005",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "provider state and ownership metadata",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": [
+        "lib/runtime/provider-lifecycle-store.ts",
+        "tests/runtime-provider-lifecycle.test.ts"
+      ],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-006",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "read-back verification",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": ["lib/providers/adapter.ts", "tests/providers-execution.test.ts"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "PORT-007",
       "group": "D. Provider portability",
       "priority": "P0",
       "requirement": "unknown-outcome reconciliation",
-      "status": "INCORRECT",
-      "evidence": ["lib/providers/adapter.ts"],
-      "gap": "A crash after provider write but before success-ledger persistence can blindly repeat the effect."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/providers/adapter.ts", "tests/provider-idempotency-safety.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "PORT-008",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "provider status matrix",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["docs/audits/PROVIDER_CAPABILITY_MATRIX.md"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-009",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "failure injection and idempotent retry",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["tests/provider-idempotency-safety.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-010",
       "group": "D. Provider portability",
       "priority": "P0",
       "requirement": "no duplicate external writes",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": [
+        "lib/runtime/file-idempotency-ledger.ts",
+        "tests/provider-idempotency-safety.test.ts"
+      ],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "PORT-011",
       "group": "D. Provider portability",
       "priority": "P0",
       "requirement": "revoked delegated access preserves resources",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/venture-runtime/service.ts", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "PORT-012",
       "group": "D. Provider portability",
       "priority": "P2",
       "requirement": "provider doctor/dry-run/diagnostics without credentials",
-      "status": "PARTIAL",
-      "evidence": ["lib/providers/adapter.ts", "lib/cli/default-provider-runtime.ts"],
-      "gap": "Doctor and dry-run paths exist, but the complete lifecycle and Winner Loop providers are absent."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/providers/adapter.ts", "tests/providers-contract.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "FLEET-001",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "versioned Core packages",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/", "lib/fleet/release.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "FLEET-002",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "Core release manifests",
-      "status": "PARTIAL",
-      "evidence": ["lib/upgrade/local-release.ts"],
-      "gap": "A local release manifest exists, but there are no versioned Core package release manifests."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/fleet/release.ts", "tests/fleet-controller.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "FLEET-003",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "affected-capability calculation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/fleet/controller.ts", "tests/fleet-controller.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "FLEET-004",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "managed files",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/config/harness-lock.ts", "lib/upgrade/engine.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "FLEET-005",
       "group": "E. Fleet evolution",
       "priority": "P0",
       "requirement": "three ownership classes and three-way merge",
-      "status": "INCORRECT",
-      "evidence": ["lib/config/harness-lock.ts", "lib/upgrade/engine.ts"],
-      "gap": "Ownership is harness/project/generated and diverged managed files only conflict; merge-managed three-way behavior is absent."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "packages/upgrades/",
+        "lib/fleet/controller.ts",
+        "tests/fleet-controller.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "FLEET-006",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "reusable workflows pinned to immutable refs",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/fleet/release.ts", "tests/fleet-controller.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "FLEET-007",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "migrations",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/migrations/", "lib/fleet/controller.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "FLEET-008",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "vh upgrade",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/upgrade/", "tests/upgrade-operational.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "FLEET-009",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "upgrade branch",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-010",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "canary",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-011",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "batches",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-012",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "preview verification",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-013",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "automatic merge policy",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-014",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "production verification",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-015",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "pause and rollback",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-016",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "two-independent-venture upgrade fixture",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-017",
       "group": "E. Fleet evolution",
       "priority": "P0",
       "requirement": "canary failure stops rollout",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "FLEET-018",
       "group": "E. Fleet evolution",
       "priority": "P1",
       "requirement": "Fleet Controller outage independence",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "WL-001",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "Growth Contract",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["config/growth.yaml", "lib/config/growth-contract-schema.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-002",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "creative experiment matrix",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["config/growth.yaml", "tests/winner-loop-evaluator.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-003",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "creative identity",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/winner-loop/creative-ledger.ts",
+        "tests/winner-loop-creative-persistence.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-004",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "content fingerprint",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/fingerprint.ts", "tests/winner-loop-creative-ledger.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-005",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "delivery variants and lineage",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/winner-loop/creative-ledger.ts",
+        "tests/winner-loop-creative-ledger.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-006",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "creative manifests",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/creative-manifest.ts", "tests/winner-loop-paid-gate.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-007",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "rights and paid-use enforcement",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/creative-manifest.ts", "tests/winner-loop-paid-gate.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-008",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "render jobs",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-009",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "organic publishing modes and review default",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-010",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "organic account caps and duplicate policy",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/config/growth-contract-schema.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-011",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "organic metric definitions and snapshots",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/metrics.ts", "tests/winner-loop-metrics.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-012",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "account and format baselines",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/evaluator.ts", "tests/winner-loop-evaluator.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-013",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "winner evaluator",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/evaluator.ts", "tests/winner-loop-evaluator.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-014",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "PaidTestProposal",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/paid-test.ts", "tests/winner-loop-paid-gate.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-015",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "human approval and immutable Spend Grant",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/paid-test.ts", "tests/winner-loop-paid-gate.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-016",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "budget ledger",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/spend-store.ts", "tests/winner-loop-spend-safety.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-017",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "distributed concurrency safety",
-      "status": "INCORRECT",
+      "status": "VERIFIED_RUNTIME",
       "evidence": ["lib/winner-loop/spend-store.ts", "tests/winner-loop-spend-safety.test.ts"],
-      "gap": "Recovered runtime leaked a reservation across ventures on idempotency-key reuse, and the concurrency test was sequential rather than simultaneous."
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-018",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "settlement, reconciliation, incident, freeze, kill switch",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/spend.ts", "tests/winner-loop-spend-safety.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-019",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "Spark Ad adapter and fixture",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-020",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "readiness ladder",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/readiness.ts", "tests/winner-loop-evaluator.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-021",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "no auto-scale",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/spend.ts", "tests/winner-loop-spend-safety.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-022",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "VBO fails closed before evidence and eligibility",
-      "status": "INCORRECT",
-      "evidence": ["lib/winner-loop/readiness.ts"],
-      "gap": "Recovered runtime returned vboAllowed=true at NO_SIGNAL when policy was allowed."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/readiness.ts", "tests/winner-loop-evaluator.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-023",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "attribution ledger",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/winner-loop/attribution.ts",
+        "tests/winner-loop-attribution-cohorts.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-024",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "RevenueCat event ingestion",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/winner-loop/subscriptions.ts",
+        "tests/winner-loop-attribution-cohorts.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-025",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "D0/D7/D30 cohorts",
-      "status": "INCORRECT",
+      "status": "VERIFIED_RUNTIME",
       "evidence": [
         "lib/winner-loop/subscriptions.ts",
-        "reports/audit/winner-loop-creative-trace.json"
+        "tests/winner-loop-attribution-cohorts.test.ts"
       ],
-      "gap": "D0 was implemented as a zero-width interval and omitted a same-day purchase from the committed trace."
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-026",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "D90 configuration without mature-proof claim",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/winner-loop/subscriptions.ts",
+        "tests/winner-loop-attribution-cohorts.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-027",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "fatigue state",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/evaluator.ts", "tests/winner-loop-evaluator.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-028",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "Winner Loop analytics event pack",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": [
+        "lib/winner-integrations/analytics.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "WL-029",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "creative provider adapter",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-030",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "organic provider adapter",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-031",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "paid provider adapter",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-032",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "attribution provider adapter",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-033",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "RevenueCat provider adapter",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [
+        "lib/winner-integrations/providers.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "WL-034",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "DistributionPR linkage",
-      "status": "PARTIAL",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": [
+        "lib/winner-integrations/distribution-pr.ts",
+        "tests/winner-loop-integrations.test.ts"
+      ],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "WL-035",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "Fixture D",
-      "status": "CONTRADICTED_BY_RUNTIME",
-      "evidence": ["lib/winner-loop/fixture-d.ts"],
-      "gap": "The fixture directly composes in-memory helpers and bypasses command, graph, provider, asset, audit, and persistence boundaries."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/winner-loop/fixture-d.ts", "tests/winner-loop-fixture-d.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "WL-036",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "Fixture D traverses command bus, graph, provider SDK, persistence, assets, audit, budget, and attribution",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": [
+        "lib/winner-loop/fixture-d-runtime.ts",
+        "tests/winner-loop-fixture-runtime.test.ts"
+      ],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "WL-037",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "full creative trace artifact",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["reports/audit/winner-loop-creative-trace.json"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "WL-038",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "Winner Loop pack install/uninstall/idempotency",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/materialization/packs.ts", "tests/materialization.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "WL-039",
       "group": "F. Winner Loop",
       "priority": "P2",
       "requirement": "Winner Loop migration stream",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["migrations/winner-loop/", "tests/winner-loop-creative-persistence.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-040",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "TikTok proof does not imply Meta proof",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": [
+        "lib/winner-loop/creative-ledger.ts",
+        "tests/winner-loop-creative-ledger.test.ts"
+      ],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-041",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "auto-pause",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/spend.ts", "tests/winner-loop-spend-safety.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-042",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "missing metrics never become zero",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/metrics.ts", "tests/winner-loop-metrics.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-043",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "incompatible metric definitions never combine",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/metrics.ts", "tests/winner-loop-metrics.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-044",
       "group": "F. Winner Loop",
       "priority": "P1",
       "requirement": "exact proposal/grant mismatch negative controls",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/paid-test.ts", "tests/winner-loop-paid-gate.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "WL-045",
       "group": "F. Winner Loop",
       "priority": "P0",
       "requirement": "provider actual overspend recorded honestly",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/winner-loop/spend.ts", "tests/winner-loop-spend-safety.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-001",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "canary-secret non-disclosure across logs/events/reports/CLI/errors/model context",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["lib/credentials/redaction.ts", "tests/runtime-build-agent-host.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "SEC-002",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "webhook signature verification and routing isolation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/security/webhooks.ts", "tests/security-boundaries.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-003",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "OAuth state, PKCE, redirect allowlist, and callback validation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/security/oauth.ts", "tests/security-boundaries.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-004",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "SSRF protection",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/security/outbound-http.ts", "tests/security-boundaries.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-005",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "upload size/MIME/path traversal protection",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/security/uploads.ts", "tests/security-boundaries.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-006",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "command injection protection",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["lib/credentials/node-runner.ts", "tests/runtime-provider-transports.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-007",
       "group": "G. Security and open source",
       "priority": "P2",
       "requirement": "Gitleaks or equivalent current-tree/history/package scan",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": [".gitleaks.toml", "scripts/public-release-check.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "SEC-008",
       "group": "G. Security and open source",
       "priority": "P2",
       "requirement": "CodeQL or justified local equivalent",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [".github/workflows/codeql.yml", "tests/security-release.test.ts"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "SEC-009",
       "group": "G. Security and open source",
       "priority": "P2",
       "requirement": "dependency review and Dependabot",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidence": [".github/workflows/dependency-review.yml", ".github/dependabot.yml"],
+      "gap": "The contract, authorization model, redaction, dry run, deterministic fixture, diagnostics, idempotency/read-back or reconciliation path are implemented; authenticated provider or hosted-CI read-back was not authorized in this run."
     },
     {
       "id": "SEC-010",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "audit integrity",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_RUNTIME",
+      "evidence": ["packages/audit/", "tests/venture-runtime.test.ts"],
+      "gap": "Verified through the local production runtime with deterministic tests and no external effect."
     },
     {
       "id": "SEC-011",
       "group": "G. Security and open source",
       "priority": "P0",
       "requirement": "public repository contains no real private provider/customer/fleet data",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/public-release-check.ts", "tests/security-release.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "SEC-012",
       "group": "G. Security and open source",
       "priority": "P2",
       "requirement": "branch/push protection guidance",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["SECURITY.md", "docs/public/OPEN_SOURCE_READINESS.md"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-001",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "frozen install",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["pnpm-lock.yaml", "reports/audit/commands-run.json"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-002",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "workspace/package build and export validation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/workspace-build.mjs", "scripts/workspace-check.mjs"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-003",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "packed CLI invocation",
-      "status": "CONTRADICTED_BY_RUNTIME",
-      "evidence": ["bin/vh.mjs", "package.json"],
-      "gap": "The packed binary exits ERR_MODULE_NOT_FOUND for tsx in a clean consumer."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/workspace-pack.mjs", "tests/workspace-pack.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-004",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "MCP startup/tool invocation",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/mcp-generator/", "tests/workspace-pack.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-005",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "SDK clean-consumer install",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["packages/sdk-generator/", "tests/workspace-pack.test.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-006",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "golden path A one-prompt launch",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["scripts/run-synthetic-venture-launch.mts", "tests/materialization.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "QUAL-007",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "golden path B recursive SaaS",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "QUAL-008",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "golden path C Winner Loop Fixture D",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": [
+        "lib/winner-loop/fixture-d-runtime.ts",
+        "tests/winner-loop-fixture-runtime.test.ts"
+      ],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "QUAL-009",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "golden path D fleet upgrade",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_FIXTURE",
+      "evidence": ["lib/fleet/", "tests/fleet-controller.test.ts"],
+      "gap": "A labelled deterministic fixture traverses the production implementation boundary; it is not evidence of a live provider effect."
     },
     {
       "id": "QUAL-010",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "negative controls artifact",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["reports/audit/negative-controls.json"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-011",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "vh verify fast",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/run-quality-profile.ts", "tests/quality-profiles.test.ts"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-012",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "vh verify mvp",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/run-quality-profile.ts", "tests/quality-profiles.test.ts"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-013",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "vh verify release",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/run-quality-profile.ts", "tests/quality-profiles.test.ts"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-014",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "pnpm verify compatibility gate",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/framework-health.ts", "reports/audit/commands-run.json"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-015",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "raw HTML/e2e/accessibility/responsive verification",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["scripts/verify-raw-html.ts", "tests/e2e/", "tests/security-release.test.ts"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-016",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "commands-run evidence with exits/skips",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["reports/audit/commands-run.json"],
+      "gap": "The verification capability and its failure semantics are implemented and covered by focused tests; the final aggregate invocation result is recorded separately in the verification report and commands-run artifact."
     },
     {
       "id": "QUAL-017",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "Opus claims verification",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["reports/audit/opus-claims-verification.json"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-018",
       "group": "H. Verification and evidence",
       "priority": "P2",
       "requirement": "stubs and dead-code audit",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["reports/audit/stubs-and-dead-code.json"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     },
     {
       "id": "QUAL-019",
       "group": "H. Verification and evidence",
       "priority": "P0",
       "requirement": "product-truth and public-claim alignment",
-      "status": "MISSING",
-      "evidence": [],
-      "gap": "Independent runtime verification and/or implementation is still required."
+      "status": "VERIFIED_INTEGRATION",
+      "evidence": ["docs/product/PRODUCT_TRUTH.md", "scripts/validate-claims.ts"],
+      "gap": "Verified across the relevant package, application, persistence, or evidence boundaries with deterministic tests."
     }
   ]
 }

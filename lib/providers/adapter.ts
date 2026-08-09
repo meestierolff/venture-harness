@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ManualProviderTransport } from "./transports";
 import type { CredentialInspection } from "../credentials";
 import type {
@@ -30,7 +31,37 @@ function dryRunResult(): ProviderTransportResult {
   };
 }
 
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(",")}}`;
+}
+
+function requestHash(operation: ProviderOperation): string {
+  return createHash("sha256").update(canonicalJson(operation)).digest("hex");
+}
+
+function idempotencyFailure(
+  providerCode: "idempotency_conflict" | "unknown_outcome_reconciliation_required",
+  message: string,
+  effectOutcome: ProviderTransportResult["effectOutcome"] = "unknown",
+  retryable = false,
+): ProviderTransportResult {
+  return { status: "failed", providerCode, message, retryable, effectOutcome };
+}
+
+function requiresDurableIdempotency(operation: ProviderOperation): boolean {
+  return ["reversible_external", "irreversible_external", "financial", "communication"].includes(
+    operation.effectClass,
+  );
+}
+
 const DEPENDENCY_RESULT = /\{dependency\.([a-z0-9_-]+)\.([a-zA-Z0-9_.-]+)\}/g;
+const RESULT_REFERENCE = /\{result\.([a-zA-Z0-9_.-]+)\}/g;
 
 function resultPath(input: unknown, path: string): unknown {
   return path.split(".").reduce<unknown>((value, part) => {
@@ -99,6 +130,22 @@ function materializeDependencies(
     completed,
   ) as ProviderOperation;
   return JSON.stringify(materialized).includes("{dependency.") ? null : materialized;
+}
+
+function replayOutputPaths(
+  operation: ProviderOperation,
+  planOperations: readonly ProviderOperation[],
+): string[] {
+  const paths = new Set<string>();
+  const readBack = JSON.stringify(operation.readBack ?? null);
+  for (const match of readBack.matchAll(RESULT_REFERENCE)) paths.add(match[1]!);
+  for (const dependent of planOperations) {
+    if (!dependent.dependsOn.includes(operation.id)) continue;
+    for (const match of JSON.stringify(dependent).matchAll(DEPENDENCY_RESULT)) {
+      if (match[1] === operation.capability) paths.add(match[2]!);
+    }
+  }
+  return [...paths].sort();
 }
 
 function executionState(
@@ -363,6 +410,17 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
     const results: ProviderOperationExecution[] = [];
     const completed = new Map<string, ProviderTransportResult>();
     const dryRun = plan.dryRun || context.authorization !== "approved";
+    if (
+      !dryRun &&
+      plan.operations.some(requiresDurableIdempotency) &&
+      (!context.idempotencyLedger ||
+        (context.idempotencyLedger.durability !== "durable_atomic" && !context.fixtureMode))
+    ) {
+      throw new ProviderPlanError(
+        "Approved external provider apply requires a durable idempotency ledger",
+        "invalid_plan",
+      );
+    }
 
     if (!dryRun) {
       for (const operation of plan.operations) {
@@ -423,14 +481,80 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
         completed.set(plannedOperation.id, result);
         continue;
       }
-      const existing = await context.idempotencyLedger?.get(operation.idempotencyKey);
-      if (existing?.status === "succeeded" && operation.reconcileOnReplay !== true) {
-        const result = context.redactor.redact(existing);
+      const operationRequestHash = requestHash(operation);
+      const replay = {
+        outputPaths: replayOutputPaths(plannedOperation, plan.operations),
+      };
+      const claim = await context.idempotencyLedger?.claim(
+        operation.idempotencyKey,
+        operationRequestHash,
+      );
+      if (claim?.status === "conflict") {
+        const result = idempotencyFailure(
+          "idempotency_conflict",
+          "The idempotency key is already bound to a different provider request",
+        );
+        results.push({ operation, result, reused: false });
+        completed.set(operation.id, result);
+        continue;
+      }
+      if (
+        claim?.status === "replay" &&
+        (operation.reconcileOnReplay !== true || context.reuseSuccessfulOperations === true)
+      ) {
+        const result = context.redactor.redact(claim.result);
         results.push({ operation, result, reused: true });
         completed.set(operation.id, result);
         continue;
       }
-      const transport = this.resolveTransport(operation.transport, context);
+      let transport: ProviderTransport;
+      try {
+        transport = this.resolveTransport(operation.transport, context);
+      } catch (error) {
+        const result: ProviderTransportResult = {
+          status: "failed",
+          providerCode: "terminal_validation",
+          message: context.redactor.redactText(
+            error instanceof Error ? error.message : String(error),
+          ),
+          retryable: false,
+          effectOutcome: "confirmed_no_write",
+        };
+        await context.idempotencyLedger?.settle(
+          operation.idempotencyKey,
+          operationRequestHash,
+          "definitive_no_write",
+          result,
+          replay,
+        );
+        results.push({ operation, result, reused: false });
+        completed.set(operation.id, result);
+        continue;
+      }
+      if (claim?.status === "pending_reconciliation") {
+        const result = await this.reconcileUnknownOutcome(
+          operation,
+          transport,
+          claim.result,
+          context,
+        );
+        const state =
+          result.status === "succeeded"
+            ? "succeeded"
+            : result.effectOutcome === "confirmed_no_write"
+              ? "definitive_no_write"
+              : "pending_reconciliation";
+        await context.idempotencyLedger?.settle(
+          operation.idempotencyKey,
+          operationRequestHash,
+          state,
+          result,
+          replay,
+        );
+        results.push({ operation, result, reused: true });
+        completed.set(operation.id, result);
+        continue;
+      }
       let result: ProviderTransportResult;
       try {
         result = await transport.execute(operation, {
@@ -446,13 +570,164 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
             error instanceof Error ? error.message : String(error),
           ),
           retryable: false,
+          effectOutcome: "unknown",
         };
       }
       result = context.redactor.redact(result);
-      if (result.status === "succeeded") {
-        await context.idempotencyLedger?.put(operation.idempotencyKey, result);
+      if (result.status === "succeeded" && result.effectOutcome === undefined) {
+        result = { ...result, effectOutcome: "confirmed_write" };
       }
+      const settlement =
+        result.status === "succeeded"
+          ? "succeeded"
+          : result.effectOutcome === "confirmed_no_write" ||
+              result.status === "waiting_manual" ||
+              result.status === "skipped"
+            ? "definitive_no_write"
+            : "pending_reconciliation";
+      await context.idempotencyLedger?.settle(
+        operation.idempotencyKey,
+        operationRequestHash,
+        settlement,
+        result,
+        replay,
+      );
       results.push({ operation, result, reused: false });
+      completed.set(operation.id, result);
+    }
+
+    return {
+      planId: plan.id,
+      provider: plan.provider,
+      state: executionState(plan, results),
+      operations: results,
+    };
+  }
+
+  /**
+   * Reconstructs request-bound operation state and performs only provider
+   * reconciliation/read operations. This path deliberately never calls
+   * ProviderTransport.execute; a confirmed no-write is released back to the
+   * workflow so a later authorized handler attempt may apply it safely.
+   */
+  async reconcile(
+    plan: ProviderPlan,
+    context: ProviderExecutionContext,
+  ): Promise<ProviderExecutionReport> {
+    if (plan.provider !== this.descriptor.id) {
+      throw new ProviderPlanError(
+        `Cannot reconcile ${plan.provider} plan with ${this.descriptor.id} adapter`,
+        "invalid_plan",
+      );
+    }
+    if (
+      !context.idempotencyLedger ||
+      (context.idempotencyLedger.durability !== "durable_atomic" && !context.fixtureMode)
+    ) {
+      throw new ProviderPlanError(
+        "Provider reconciliation requires a durable idempotency ledger",
+        "invalid_plan",
+      );
+    }
+
+    const results: ProviderOperationExecution[] = [];
+    const completed = new Map<string, ProviderTransportResult>();
+    for (const plannedOperation of plan.operations) {
+      const blockedBy = plannedOperation.dependsOn.filter(
+        (dependency) => completed.get(dependency)?.status !== "succeeded",
+      );
+      if (blockedBy.length > 0) {
+        const result: ProviderTransportResult = {
+          status: "skipped",
+          message: `Reconciliation blocked by incomplete dependencies: ${blockedBy.join(", ")}`,
+          retryable: false,
+          effectOutcome: "confirmed_no_write",
+        };
+        results.push({ operation: plannedOperation, result, reused: true });
+        completed.set(plannedOperation.id, result);
+        continue;
+      }
+
+      const operation = materializeDependencies(plannedOperation, plan.operations, completed);
+      if (!operation) {
+        const result: ProviderTransportResult = {
+          status: "failed",
+          providerCode: "terminal_validation",
+          message: `Could not reconstruct every declared dependency output for ${plannedOperation.action}`,
+          retryable: false,
+          effectOutcome: "unknown",
+        };
+        results.push({ operation: plannedOperation, result, reused: true });
+        completed.set(plannedOperation.id, result);
+        continue;
+      }
+
+      const operationRequestHash = requestHash(operation);
+      const replay = { outputPaths: replayOutputPaths(plannedOperation, plan.operations) };
+      const claim = await context.idempotencyLedger.claim(
+        operation.idempotencyKey,
+        operationRequestHash,
+      );
+      if (claim.status === "conflict") {
+        const result = idempotencyFailure(
+          "idempotency_conflict",
+          "The idempotency key is bound to a different provider request; reconciliation stopped",
+        );
+        results.push({ operation, result, reused: true });
+        completed.set(operation.id, result);
+        continue;
+      }
+      if (claim.status === "acquired") {
+        const result = idempotencyFailure(
+          "unknown_outcome_reconciliation_required",
+          "No request-bound provider attempt was recorded; provider write was not invoked",
+          "confirmed_no_write",
+          true,
+        );
+        await context.idempotencyLedger.settle(
+          operation.idempotencyKey,
+          operationRequestHash,
+          "definitive_no_write",
+          result,
+          replay,
+        );
+        results.push({ operation, result, reused: true });
+        completed.set(operation.id, result);
+        continue;
+      }
+      if (claim.status === "replay") {
+        const result = context.redactor.redact(claim.result);
+        results.push({ operation, result, reused: true });
+        completed.set(operation.id, result);
+        continue;
+      }
+
+      let result: ProviderTransportResult;
+      try {
+        const transport = this.resolveTransport(operation.transport, context);
+        result = await this.reconcileUnknownOutcome(operation, transport, claim.result, context);
+      } catch (error) {
+        result = idempotencyFailure(
+          "unknown_outcome_reconciliation_required",
+          context.redactor.redactText(
+            `Provider reconciliation is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
+      const settlement =
+        result.status === "succeeded"
+          ? "succeeded"
+          : result.effectOutcome === "confirmed_no_write"
+            ? "definitive_no_write"
+            : "pending_reconciliation";
+      await context.idempotencyLedger.settle(
+        operation.idempotencyKey,
+        operationRequestHash,
+        settlement,
+        result,
+        replay,
+      );
+      results.push({ operation, result, reused: true });
       completed.set(operation.id, result);
     }
 
@@ -560,5 +835,75 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
       context.transports[kind] ?? (kind === "manual" ? new ManualProviderTransport() : undefined);
     if (!transport) throw new Error(`No ${kind} transport was injected`);
     return transport;
+  }
+
+  private async reconcileUnknownOutcome(
+    operation: ProviderOperation,
+    transport: ProviderTransport,
+    prior: ProviderTransportResult,
+    context: ProviderExecutionContext,
+  ): Promise<ProviderTransportResult> {
+    try {
+      if (transport.reconcile) {
+        const reconciliation = context.redactor.redact(
+          await transport.reconcile(operation, {
+            credentials: context.credentials,
+            redactor: context.redactor,
+            signal: context.signal,
+          }),
+        );
+        if (reconciliation.status === "matched") {
+          return {
+            status: "succeeded",
+            message: reconciliation.message,
+            output: reconciliation.result?.output ?? reconciliation.evidence,
+            statusCode: reconciliation.result?.statusCode,
+            providerCode: reconciliation.result?.providerCode,
+            retryable: false,
+            verified: true,
+            effectOutcome: "confirmed_write",
+          };
+        }
+        if (reconciliation.status === "definitive_no_write") {
+          return {
+            status: "failed",
+            providerCode: "unknown_outcome_reconciliation_required",
+            message: reconciliation.message,
+            retryable: true,
+            verified: true,
+            effectOutcome: "confirmed_no_write",
+          };
+        }
+      } else if (operation.readBack && transport.readBack) {
+        const readBack = context.redactor.redact(
+          await transport.readBack(operation, prior, {
+            credentials: context.credentials,
+            redactor: context.redactor,
+            signal: context.signal,
+          }),
+        );
+        if (readBack.status === "matched") {
+          return {
+            status: "succeeded",
+            message: `Unknown provider outcome reconciled: ${readBack.message}`,
+            output: readBack.evidence,
+            retryable: false,
+            verified: true,
+            effectOutcome: "confirmed_write",
+          };
+        }
+      }
+    } catch (error) {
+      return idempotencyFailure(
+        "unknown_outcome_reconciliation_required",
+        context.redactor.redactText(
+          `Provider reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+    return idempotencyFailure(
+      "unknown_outcome_reconciliation_required",
+      "The prior provider write remains ambiguous; the write was not repeated",
+    );
   }
 }

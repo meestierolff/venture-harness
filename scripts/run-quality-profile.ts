@@ -8,6 +8,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse } from "yaml";
+import { walk } from "./lib/util";
+import {
+  evaluateCredentialFindings,
+  scanCredentialText,
+  validateReleaseScanAllowlist,
+} from "./lib/release-security";
 import {
   analyticsDestinationsFromProviderStates,
   validateEventPackConfig,
@@ -255,8 +261,9 @@ function changedTestFiles(changedFiles: readonly string[], root: string): string
       ],
     ],
     [
-      /^lib\/learning/,
+      /^(lib\/learning|packages\/loops)/,
       [
+        "tests/operating-loop-runtime.test.ts",
         "tests/learning-loops.test.ts",
         "tests/learning-schedule.test.ts",
         "tests/default-data-learning-runtime.test.ts",
@@ -358,49 +365,52 @@ export function qualityProfileExitCode(report: Pick<QualityReport, "passed">): 0
 }
 
 function trackedSecretScan(root: string): { clean: boolean; detail: string } {
-  const files = gitLines(root, ["ls-files", "--cached", "--others", "--exclude-standard"]);
-  const excluded = new Set([
-    "pnpm-lock.yaml",
-    "scripts/public-release-check.ts",
-    "scripts/run-quality-profile.ts",
-  ]);
-  const patterns: RegExp[] = [
-    new RegExp("AKIA" + "[0-9A-Z]{16}", "g"),
-    new RegExp("gh" + "[pousr]_[A-Za-z0-9_]{20,}", "g"),
-    new RegExp("sk_" + "(?:live|test)_[A-Za-z0-9_]{12,}", "g"),
-    new RegExp("xox" + "[baprs]-[A-Za-z0-9-]{10,}", "g"),
-    new RegExp("-----BEGIN " + "(?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "g"),
-    /postgres(?:ql)?:\/\/[^\s"']+:[^\s"']+@/g,
-  ];
-  const syntheticTestValue = (file: string, value: string, source: string): boolean =>
-    file.startsWith("tests/") &&
-    (/^gh[pousr]_\d+$/.test(value) ||
-      /(synthetic|fixture|placeholder|never_report|http_boundary|assertion)/i.test(value) ||
-      (value.startsWith("-----BEGIN") &&
-        source.includes("private-material") &&
-        !source.includes("-----END")));
-  const matches: string[] = [];
-  for (const file of files) {
-    if (excluded.has(file)) continue;
-    try {
-      const value = readFileSync(join(root, file), "utf8");
-      const unsafe = patterns.some((pattern) => {
-        pattern.lastIndex = 0;
-        return [...value.matchAll(pattern)].some(
-          (match) => !syntheticTestValue(file, match[0], value),
-        );
-      });
-      if (unsafe) matches.push(file);
-    } catch {
-      // Binary and concurrently removed files contain no inspectable text here.
-    }
-  }
-  return matches.length === 0
-    ? { clean: true, detail: `No credential patterns in ${files.length} tracked/untracked files.` }
-    : {
+  const files = walk(root);
+  try {
+    const allowlist = validateReleaseScanAllowlist(
+      JSON.parse(readFileSync(join(root, ".release-scan-allowlist.json"), "utf8")),
+    );
+    const findings = files.flatMap((file) => {
+      try {
+        return scanCredentialText(file, readFileSync(join(root, file), "utf8"));
+      } catch {
+        return [];
+      }
+    });
+    const result = evaluateCredentialFindings(findings, allowlist);
+    if (result.unexpected.length > 0 || result.stale.length > 0) {
+      const unexpected = result.unexpected.map((finding) => finding.fingerprint).join(", ");
+      const stale = result.stale
+        .map((entry) => `${entry.path}:${entry.rule}:${entry.line}:${entry.sha256}`)
+        .join(", ");
+      return {
         clean: false,
-        detail: `Credential-like material found in: ${matches.join(", ")}. Remove and rotate it.`,
+        detail: [
+          unexpected ? `Unexpected credential fingerprints: ${unexpected}.` : "",
+          stale ? `Stale credential allowlist entries: ${stale}.` : "",
+          "Remove and rotate real credentials; review and fingerprint only synthetic canaries.",
+        ]
+          .filter(Boolean)
+          .join(" "),
       };
+    }
+    return {
+      clean: true,
+      detail: `No unexpected credential patterns in ${files.length} workspace files; ${result.allowed.length} exact synthetic fingerprint(s) reviewed.`,
+    };
+  } catch (error) {
+    return {
+      clean: false,
+      detail: `Credential scan configuration failed closed: ${String(error)}`,
+    };
+  }
+}
+
+export function productionServerCommand(port: number): string[] {
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid production server port: ${port}`);
+  }
+  return ["pnpm", "exec", "next", "start", "-H", "127.0.0.1", "-p", String(port)];
 }
 
 async function runRawHtml(
@@ -414,7 +424,13 @@ async function runRawHtml(
   }
   const port = Number(process.env.VH_QUALITY_PORT ?? 3210);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const server = spawn("pnpm", ["start", "--", "-p", String(port)], {
+  let serverCommand: string[];
+  try {
+    serverCommand = productionServerCommand(port);
+  } catch (error) {
+    return { code: 1, output: String(error) };
+  }
+  const server = spawn(serverCommand[0], serverCommand.slice(1), {
     cwd: context.root,
     env: { ...process.env, PORT: String(port) },
     shell: false,
@@ -447,7 +463,7 @@ async function runRawHtml(
         output: `Production server did not start. ${redactQualityOutput(serverOutput)}`,
       };
     const command = [...(asCommand(definition.command) ?? [])];
-    command.push("--", "--url", baseUrl);
+    command.push("--", "--url", baseUrl, "--allow-loopback");
     return await execute(command, context.root);
   } finally {
     server.kill("SIGTERM");

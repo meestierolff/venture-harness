@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "profileId": "founder-default",
+  "ownerOrganizationId": "fixture-founder-org",
+  "roles": {
+    "source.repository": {
+      "credentialRef": "cred://github/founder-default",
+      "accountId": "fixture-github-account",
+      "organizationId": "fixture-github-org",
+      "scopes": ["repo", "workflow"],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "hosting.web": {
+      "credentialRef": "cred://vercel/founder-default",
+      "accountId": "fixture-vercel-account",
+      "teamId": "fixture-vercel-team",
+      "scopes": [],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "database.postgres": {
+      "credentialRef": "cred://neon/founder-default",
+      "accountId": "fixture-neon-account",
+      "organizationId": "fixture-neon-org",
+      "scopes": [],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "commerce.web": {
+      "credentialRef": "cred://stripe/founder-default",
+      "accountId": "fixture-stripe-account",
+      "scopes": [],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "commerce.native": {
+      "credentialRef": "cred://revenuecat/founder-default",
+      "accountId": "fixture-revenuecat-account",
+      "organizationId": "fixture-revenuecat-project",
+      "scopes": [
+        "project_configuration:apps:read_write",
+        "project_configuration:entitlements:read_write",
+        "project_configuration:offerings:read_write",
+        "project_configuration:integrations:read_write"
+      ],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "email.transactional": {
+      "credentialRef": "cred://brevo/founder-default",
+      "accountId": "fixture-brevo-account",
+      "scopes": [],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "growth.google": {
+      "credentialRef": "cred://google/founder-default",
+      "accountId": "fixture-google-account",
+      "organizationId": "fixture-google-org",
+      "scopes": [
+        "https://www.googleapis.com/auth/analytics.edit",
+        "https://www.googleapis.com/auth/siteverification",
+        "https://www.googleapis.com/auth/webmasters"
+      ],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "search.bing": {
+      "credentialRef": "cred://bing/founder-default",
+      "accountId": "fixture-bing-account",
+      "scopes": [],
+      "expiresAt": "2035-01-01T00:00:00.000Z",
+      "verification": { "status": "unverified" }
+    },
+    "dns.records": {
+      "organizationId": "fixture-dns-zone-owner",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    }
+  },
+  "writableCredentialBackend": {
+    "mode": "fixture",
+    "backend": "memory",
+    "fixtureLabel": "synthetic-founder-stack"
+  },
+  "launchDefaults": {
+    "neon": { "region": "aws-eu-central-1" },
+    "stripe": { "mode": "test" },
+    "brevo": {
+      "senderName": "Synthetic founder",
+      "senderEmail": "hello@fixture.example.test",
+      "templateName": "Synthetic welcome",
+      "templateSubject": "Welcome to the synthetic fixture",
+      "templateHtml": "<p>Synthetic fixture welcome.</p>"
+    },
+    "google": { "analyticsAccountId": "fixture-google-analytics-account" },
+    "bing": { "authMode": "api_key" },
+    "dns": {
+      "providerId": "dns",
+      "adapter": "manual_generic",
+      "registrarAccountId": null,
+      "zoneId": null
+    }
+  },
+  "writableRefs": {
+    "neonDatabaseUriTemplate": "cred://neon/{ventureSlug}-database",
+    "stripeWebhookSigningTemplate": "cred://stripe/{ventureSlug}-webhook",
+    "googleAnalyticsMeasurementIdTemplate": "cred://google/{ventureSlug}-measurement-id"
+  }
+}

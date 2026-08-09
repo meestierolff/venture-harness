@@ -55,7 +55,7 @@ export async function locateLocalHarnessRelease(options: {
   const files: HarnessRelease["files"] = [];
   for (const entry of lock.managed_files) {
     if (entry.sha256 === null) {
-      if (entry.ownership !== "project") {
+      if (entry.ownership !== "project" && entry.ownership !== "venture_owned") {
         throw new Error(`Local release managed file has no trusted hash: ${entry.path}`);
       }
       files.push({ path: entry.path, ownership: entry.ownership, content: "" });

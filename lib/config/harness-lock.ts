@@ -5,6 +5,15 @@ import { parse } from "yaml";
 import { z } from "zod";
 import { extensionsSchema, semverSchema, uniqueArray } from "./contracts";
 
+export const managedFileOwnershipSchema = z.enum([
+  "harness",
+  "project",
+  "generated",
+  "core_owned",
+  "merge_managed",
+  "venture_owned",
+]);
+
 const managedFileSchema = z
   .object({
     path: z
@@ -13,11 +22,16 @@ const managedFileSchema = z
       .refine((value) => !value.startsWith("/") && !value.split("/").includes(".."), {
         message: "managed file paths must be repository-relative",
       }),
-    ownership: z.enum(["harness", "project", "generated"]),
+    ownership: managedFileOwnershipSchema,
     sha256: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .nullable(),
+    base_sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -30,7 +44,7 @@ const appliedMigrationSchema = z
   })
   .strict();
 
-export const harnessLockSchema = z
+const legacyHarnessLockSchema = z
   .object({
     lock_version: z.literal(1),
     harness_version: semverSchema,
@@ -47,6 +61,63 @@ export const harnessLockSchema = z
   })
   .strict();
 
+const versionedComponentSchema = z
+  .record(z.string().min(1), semverSchema)
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "at least one versioned component is required",
+  });
+
+const ventureHarnessLockSchema = z
+  .object({
+    lock_version: z.literal(2),
+    harness_version: semverSchema,
+    core_version: semverSchema,
+    config_contract_version: z.number().int().positive(),
+    source: z
+      .object({
+        kind: z.enum(["seed", "release", "local"]),
+        ref: z.string().min(1),
+      })
+      .strict(),
+    seed: z
+      .object({
+        id: z.string().regex(/^[a-z][a-z0-9-]+$/),
+        version: semverSchema,
+      })
+      .strict(),
+    runtime_packages: versionedComponentSchema,
+    provider_adapters: z.record(z.string().min(1), semverSchema),
+    generators: versionedComponentSchema,
+    managed_files: uniqueArray(managedFileSchema),
+    applied_migrations: uniqueArray(appliedMigrationSchema),
+    migration_state: z.array(z.string().min(1)),
+    update_channel: z.enum(["stable", "candidate", "canary"]),
+    workflow_ref_sha: z.string().regex(/^[a-f0-9]{40}$/),
+    last_verified_upgrade: z.string().datetime({ offset: true }).nullable(),
+    extensions: extensionsSchema,
+  })
+  .strict()
+  .superRefine((lock, context) => {
+    if (lock.harness_version !== lock.core_version) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["core_version"],
+        message: "core_version must equal harness_version",
+      });
+    }
+    for (const [index, file] of lock.managed_files.entries()) {
+      if (["harness", "project", "generated"].includes(file.ownership)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["managed_files", index, "ownership"],
+          message: "v2 locks require core_owned, merge_managed, or venture_owned",
+        });
+      }
+    }
+  });
+
+export const harnessLockSchema = z.union([legacyHarnessLockSchema, ventureHarnessLockSchema]);
+
 export type HarnessLock = z.infer<typeof harnessLockSchema>;
 
 /** Config files whose content is owned by the central harness, not a venture. */
@@ -58,7 +129,7 @@ export const HARNESS_OWNED_CONFIG_PATHS = [
 
 export function createManagedFileLockEntry(options: {
   path: string;
-  ownership: "harness" | "project" | "generated";
+  ownership: z.infer<typeof managedFileOwnershipSchema>;
   content: string;
 }): HarnessLock["managed_files"][number] {
   return managedFileSchema.parse({
@@ -77,9 +148,9 @@ export function loadHarnessLock(path = "harness.lock"): HarnessLock {
 }
 
 export function createHarnessLock(
-  overrides: Partial<z.input<typeof harnessLockSchema>> = {},
-): HarnessLock {
-  return harnessLockSchema.parse({
+  overrides: Partial<z.input<typeof legacyHarnessLockSchema>> = {},
+): z.infer<typeof legacyHarnessLockSchema> {
+  return legacyHarnessLockSchema.parse({
     lock_version: 1,
     harness_version: "0.2.0",
     config_contract_version: 2,
@@ -89,4 +160,10 @@ export function createHarnessLock(
     extensions: {},
     ...overrides,
   });
+}
+
+export function createVentureHarnessLock(
+  input: Omit<z.input<typeof ventureHarnessLockSchema>, "lock_version">,
+): z.infer<typeof ventureHarnessLockSchema> {
+  return ventureHarnessLockSchema.parse({ lock_version: 2, ...input });
 }

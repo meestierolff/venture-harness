@@ -16,6 +16,24 @@ function safeMessage(error: unknown): string {
   );
 }
 
+function mergeLines(base: string, current: string, next: string): string | null {
+  const baseLines = base.split("\n");
+  const currentLines = current.split("\n");
+  const nextLines = next.split("\n");
+  const length = Math.max(baseLines.length, currentLines.length, nextLines.length);
+  const merged: string[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const before = baseLines[index];
+    const local = currentLines[index];
+    const incoming = nextLines[index];
+    if (local === incoming) merged.push(local ?? "");
+    else if (local === before) merged.push(incoming ?? "");
+    else if (incoming === before) merged.push(local ?? "");
+    else return null;
+  }
+  return merged.join("\n");
+}
+
 export async function planUpgrade(options: UpgradeOptions): Promise<UpgradePlan> {
   const release = harnessReleaseSchema.parse(options.release);
   const previous = new Map(options.currentLock.managed_files.map((file) => [file.path, file]));
@@ -26,13 +44,16 @@ export async function planUpgrade(options: UpgradeOptions): Promise<UpgradePlan>
     const currentHash = currentContent === null ? null : sha256(currentContent);
     const previousEntry = previous.get(file.path);
     const previousHash = previousEntry?.sha256 ?? null;
+    const previousBaseHash = previousEntry?.base_sha256 ?? previousHash;
     const nextHash = sha256(file.content);
     let action: UpgradeFilePlan["action"];
     let reason: string;
+    let resultContent = file.content;
 
-    if (file.ownership === "project") {
+    if (file.ownership === "project" || file.ownership === "venture_owned") {
       action = "preserve";
-      reason = "project-owned files are never replaced by a harness upgrade";
+      reason = "venture-owned files are never replaced by a Core upgrade";
+      resultContent = currentContent ?? file.content;
     } else if (currentHash === nextHash) {
       action = "unchanged";
       reason = "working tree already matches the target release";
@@ -42,12 +63,31 @@ export async function planUpgrade(options: UpgradeOptions): Promise<UpgradePlan>
     } else if (previousEntry && previousEntry.ownership !== file.ownership) {
       action = "conflict";
       reason = `ownership changed from ${previousEntry.ownership} to ${file.ownership}`;
+    } else if (file.ownership === "merge_managed" && currentHash !== previousBaseHash) {
+      if (
+        previousBaseHash === null ||
+        file.baseContent === undefined ||
+        sha256(file.baseContent) !== previousBaseHash
+      ) {
+        action = "conflict";
+        reason = "merge-managed file has no matching trusted three-way base";
+      } else {
+        const merged = mergeLines(file.baseContent, currentContent, file.content);
+        if (merged === null) {
+          action = "conflict";
+          reason = "merge-managed file has overlapping local and Core edits";
+        } else {
+          action = "merge";
+          reason = "non-overlapping local and Core edits merged against the trusted base";
+          resultContent = merged;
+        }
+      }
     } else if (previousHash === null || currentHash !== previousHash) {
       action = "conflict";
       reason =
         previousHash === null
           ? "the lock has no trusted baseline hash for this existing file"
-          : "the child venture changed this managed file after the previous release";
+          : "the child venture changed this Core-owned file after the previous release";
     } else {
       action = "update";
       reason = "the file still matches its trusted baseline and can be replaced safely";
@@ -61,6 +101,8 @@ export async function planUpgrade(options: UpgradeOptions): Promise<UpgradePlan>
       previousHash,
       currentHash,
       nextHash,
+      resultHash: sha256(resultContent),
+      ...(action === "merge" ? { resultContent } : {}),
     });
   }
 
@@ -72,9 +114,10 @@ export async function planUpgrade(options: UpgradeOptions): Promise<UpgradePlan>
         path: file.path,
         ownership: file.ownership,
         sha256:
-          file.ownership === "project"
+          file.ownership === "project" || file.ownership === "venture_owned"
             ? (planned.currentHash ?? previous.get(file.path)?.sha256 ?? null)
-            : planned.nextHash,
+            : planned.resultHash,
+        ...(file.ownership === "merge_managed" ? { base_sha256: planned.nextHash } : {}),
       };
     }),
     ...options.currentLock.managed_files.filter((file) => !releasePaths.has(file.path)),
@@ -83,6 +126,7 @@ export async function planUpgrade(options: UpgradeOptions): Promise<UpgradePlan>
   const nextLock = harnessLockSchema.parse({
     ...options.currentLock,
     harness_version: release.version,
+    ...(options.currentLock.lock_version === 2 ? { core_version: release.version } : {}),
     config_contract_version:
       release.configContractVersion ?? options.currentLock.config_contract_version,
     source: release.source,
@@ -140,7 +184,7 @@ export async function applyUpgrade(options: UpgradeOptions): Promise<UpgradeRepo
   }
 
   const writable = plan.files.filter(
-    (file) => file.action === "create" || file.action === "update",
+    (file) => file.action === "create" || file.action === "update" || file.action === "merge",
   );
   const lockText = `${stringify(plan.nextLock, { lineWidth: 100, sortMapEntries: false })}`;
   const currentLockText = await options.fileSystem.readText("harness.lock");
@@ -181,7 +225,7 @@ export async function applyUpgrade(options: UpgradeOptions): Promise<UpgradeRepo
       const releaseFile = plan.release.files.find((file) => file.path === item.path)!;
       originals.set(item.path, await options.fileSystem.readText(item.path));
       attempted.push(item.path);
-      await options.fileSystem.writeAtomic(item.path, releaseFile.content);
+      await options.fileSystem.writeAtomic(item.path, item.resultContent ?? releaseFile.content);
     }
     originals.set("harness.lock", currentLockText);
     attempted.push("harness.lock");

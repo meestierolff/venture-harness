@@ -9,6 +9,7 @@ import {
 import {
   CommandProviderTransport,
   getProviderAdapter,
+  InMemoryIdempotencyLedger,
   MockProviderTransport,
   providerRegistry,
   type ProviderExecutionContext,
@@ -127,6 +128,8 @@ describe("Neon schema and database verification", () => {
       transports: { cli: new CommandProviderTransport({ runner }) },
       credentials: broker,
       redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
 
     const adapter = getProviderAdapter("neon");
@@ -175,6 +178,7 @@ describe("Neon schema and database verification", () => {
       capabilities: ["project", "schema_migration", "read_write_health_check"],
       credentialRef: apiCredentialRef,
       inputs: {
+        organizationId: "org-founder",
         projectName: "new-venture",
         regionId: "aws-eu-central-1",
         databaseCredentialRef,
@@ -191,7 +195,12 @@ describe("Neon schema and database verification", () => {
           return {
             exitCode: 0,
             stdout: JSON.stringify({
-              project: { id: "project-new", name: "new-venture", region_id: "aws-eu-central-1" },
+              project: {
+                id: "project-new",
+                org_id: "org-founder",
+                name: "new-venture",
+                region_id: "aws-eu-central-1",
+              },
               connection_uris: [{ connection_uri: rawConnection }],
             }),
             stderr: "",
@@ -202,6 +211,7 @@ describe("Neon schema and database verification", () => {
             exitCode: 0,
             stdout: JSON.stringify({
               id: "project-new",
+              org_id: "org-founder",
               name: "new-venture",
               region_id: "aws-eu-central-1",
             }),
@@ -224,6 +234,8 @@ describe("Neon schema and database verification", () => {
       transports: { cli: new CommandProviderTransport({ runner }) },
       credentials: broker,
       redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
 
     const report = await adapter.apply(plan, context);
@@ -232,6 +244,11 @@ describe("Neon schema and database verification", () => {
 
     expect(report.state).toBe("applied");
     expect(verification.state).toBe("verified");
+    const neonInvocations = invocations.filter(({ command }) => command === "neonctl");
+    const organizationIndex = neonInvocations[0].args.indexOf("--org-id");
+    expect(organizationIndex).toBeGreaterThanOrEqual(0);
+    expect(neonInvocations[0].args[organizationIndex + 1]).toBe("org-founder");
+    expect(neonInvocations[1].args).not.toContain("--org-id");
     await expect(broker.withSecret(databaseCredentialRef, (secret) => secret)).resolves.toBe(
       rawConnection,
     );
@@ -244,6 +261,90 @@ describe("Neon schema and database verification", () => {
     }
     expect(JSON.stringify(report)).not.toContain(rawConnection);
     expect(JSON.stringify(readBack)).not.toContain(rawConnection);
+  });
+
+  it("requires an explicit organization before a Neon control-plane plan can reach transport", () => {
+    expect(() =>
+      getProviderAdapter("neon").plan({
+        environment: "preview",
+        capabilities: ["project"],
+        credentialRef: "cred://neon/control-plane",
+        inputs: {
+          projectName: "must-not-be-planned",
+          regionId: "aws-eu-central-1",
+        },
+        dryRun: false,
+      }),
+    ).toThrow("organizationId");
+  });
+
+  it("refuses to verify a project read back from a different Neon organization", async () => {
+    const apiCredentialRef = "cred://neon/control-plane";
+    const broker = new CredentialBroker([new MemoryCredentialBackend()]);
+    await broker.store({
+      ref: apiCredentialRef,
+      provider: "neon",
+      kind: "api_key",
+      backend: "memory",
+      value: "neon-control-plane-secret",
+    });
+    const plan = getProviderAdapter("neon").plan({
+      environment: "preview",
+      capabilities: ["project"],
+      credentialRef: apiCredentialRef,
+      inputs: {
+        organizationId: "org-approved",
+        projectName: "organization-bound-project",
+        regionId: "aws-eu-central-1",
+      },
+      dryRun: false,
+    });
+    const runner: CommandRunner = {
+      async run(invocation) {
+        if (invocation.args.includes("create")) {
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              project: {
+                id: "project-wrong-org",
+                org_id: "org-approved",
+                name: "organization-bound-project",
+                region_id: "aws-eu-central-1",
+              },
+            }),
+            stderr: "",
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            id: "project-wrong-org",
+            org_id: "org-other",
+            name: "organization-bound-project",
+            region_id: "aws-eu-central-1",
+          }),
+          stderr: "",
+        };
+      },
+    };
+    const adapter = getProviderAdapter("neon");
+    const context: ProviderExecutionContext = {
+      authorization: "approved",
+      transports: { cli: new CommandProviderTransport({ runner }) },
+      credentials: broker,
+      redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
+    };
+
+    const report = await adapter.apply(plan, context);
+    const readBack = await adapter.readBack(report, context);
+
+    expect(report.state).toBe("applied");
+    expect(readBack.results).toContainEqual(
+      expect.objectContaining({ operationId: plan.operations[0].id, status: "mismatched" }),
+    );
+    expect(adapter.verify(report, readBack).state).toBe("failed");
   });
 
   it("preflights the credential capture target before creating a Neon project", async () => {
@@ -261,6 +362,7 @@ describe("Neon schema and database verification", () => {
       capabilities: ["project", "schema_migration", "read_write_health_check"],
       credentialRef: "cred://neon/control-plane",
       inputs: {
+        organizationId: "org-founder",
         projectName: "must-not-be-created",
         regionId: "aws-eu-central-1",
         databaseCredentialRef,
@@ -283,6 +385,8 @@ describe("Neon schema and database verification", () => {
         },
         credentials: broker,
         redactor: broker.redactor,
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
       }),
     ).rejects.toThrow("credential capture target is not registered");
     expect(invocations).toHaveLength(0);
@@ -308,6 +412,8 @@ describe("Neon schema and database verification", () => {
       transports: { cli: new CommandProviderTransport({ runner }) },
       credentials: broker,
       redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     });
 
     expect(report.state).toBe("failed");

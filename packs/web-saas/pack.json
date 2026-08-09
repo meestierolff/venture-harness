@@ -1,0 +1,7 @@
+{
+  "id": "web-saas",
+  "version": "0.2.0",
+  "coreCompatibility": "^0.2.0",
+  "commands": ["subscriptions.manage"],
+  "uninstall": "reversible_if_unused"
+}

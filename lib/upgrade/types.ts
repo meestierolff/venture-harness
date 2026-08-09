@@ -2,6 +2,16 @@ import { z } from "zod";
 import type { HarnessLock } from "../config/harness-lock";
 import type { MigrationFileSystem } from "../migrations";
 
+export const upgradeOwnershipSchema = z.enum([
+  "harness",
+  "project",
+  "generated",
+  "core_owned",
+  "merge_managed",
+  "venture_owned",
+]);
+export type UpgradeOwnership = z.infer<typeof upgradeOwnershipSchema>;
+
 const relativePathSchema = z
   .string()
   .min(1)
@@ -12,8 +22,9 @@ const relativePathSchema = z
 export const managedReleaseFileSchema = z
   .object({
     path: relativePathSchema,
-    ownership: z.enum(["harness", "project", "generated"]),
+    ownership: upgradeOwnershipSchema,
     content: z.string(),
+    baseContent: z.string().optional(),
   })
   .strict();
 
@@ -48,12 +59,14 @@ export type HarnessRelease = z.infer<typeof harnessReleaseSchema>;
 
 export interface UpgradeFilePlan {
   path: string;
-  ownership: "harness" | "project" | "generated";
-  action: "create" | "update" | "unchanged" | "preserve" | "conflict";
+  ownership: UpgradeOwnership;
+  action: "create" | "update" | "merge" | "unchanged" | "preserve" | "conflict";
   reason: string;
   previousHash: string | null;
   currentHash: string | null;
   nextHash: string;
+  resultHash: string;
+  resultContent?: string;
 }
 
 export interface UpgradePlan {

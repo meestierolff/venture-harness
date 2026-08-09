@@ -6,7 +6,7 @@
 #
 # Money is integer minor units (cents). Sample values below describe a synthetic
 # venture; replace them before any real spend.
-contract_version: 1
+contract_version: 2
 venture_id: sample-venture
 
 goal:
@@ -63,10 +63,17 @@ paid:
   allowed_events:
     - trial_start
     - purchase
-  per_creative_test_budget_minor: 10000
+  # Total budget for the complete bounded test matrix and the independent
+  # lifetime ceiling for any single creative in that matrix.
+  test_budget_minor: 10000
+  per_creative_cap_minor: 10000
   daily_account_cap_minor: 12000
   daily_venture_cap_minor: 15000
   monthly_venture_cap_minor: 100000
+  # Cross-grant/customer and whole-platform ceilings are independently enforced.
+  daily_customer_cap_minor: 12000
+  monthly_customer_cap_minor: 80000
+  emergency_platform_cap_minor: 250000
   # Zero means every non-zero amount needs an explicit human approval.
   approval_threshold_minor: 0
   auto_pause_allowed: true

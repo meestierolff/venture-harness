@@ -157,6 +157,8 @@ export interface DryRunResource {
   resource: string;
   environment: string;
   estimatedCost: number | "unknown";
+  directChargeBasis: "reviewed_known_zero_direct_charge" | null;
+  ongoingAccountPlanUsageCovered: false;
 }
 
 export interface LaunchDryRun {

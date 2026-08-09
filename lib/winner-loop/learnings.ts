@@ -29,6 +29,7 @@ export type LearningConfidence = "suggestive" | "supported" | "strong";
 
 export interface WinnerLoopLearning {
   readonly learningId: string;
+  readonly organizationId: string;
   readonly ventureId: string;
   readonly creativeIds: readonly string[];
   readonly creativeFamilyId: string | null;
@@ -77,6 +78,7 @@ export function learningConfidenceFor(
 
 export interface BuildLearningInput {
   learningId: string;
+  organizationId: string;
   ventureId: string;
   evaluation: WinnerEvaluation;
   cohorts: readonly CohortSnapshot[];
@@ -95,6 +97,49 @@ export interface BuildLearningInput {
  * the paywall.
  */
 export function buildLearning(input: BuildLearningInput): WinnerLoopLearning {
+  if (
+    typeof input.organizationId !== "string" ||
+    !input.organizationId.trim() ||
+    typeof input.ventureId !== "string" ||
+    !input.ventureId.trim()
+  ) {
+    throw new Error("learning organizationId and ventureId are required");
+  }
+  if (
+    input.evaluation.organizationId !== input.organizationId ||
+    input.evaluation.ventureId !== input.ventureId ||
+    input.evaluation.provider !== input.provider ||
+    input.evaluation.externalAccountId !== input.externalAccountId ||
+    input.cohorts.some(
+      (cohort) =>
+        cohort.organizationId !== input.organizationId || cohort.ventureId !== input.ventureId,
+    )
+  ) {
+    throw new Error("tenant_scope_mismatch: learning evidence belongs to another tenant");
+  }
+  if (input.cohorts.length === 0) {
+    throw new Error("learning requires at least one cohort snapshot");
+  }
+  if (
+    input.cohorts.some(
+      (cohort) =>
+        cohort.creativeId !== input.evaluation.creativeId ||
+        cohort.creativeFamilyId !== input.evaluation.creativeFamilyId,
+    )
+  ) {
+    throw new Error("creative_lineage_mismatch: cohort and evaluation creative identity differ");
+  }
+  const seenWindowLabels = new Set<string>();
+  let previousWindowDays = -1;
+  for (const cohort of input.cohorts) {
+    if (seenWindowLabels.has(cohort.window.label) || cohort.window.days <= previousWindowDays) {
+      throw new Error(
+        "cohort_window_order_invalid: cohort windows must be unique and strictly increasing",
+      );
+    }
+    seenWindowLabels.add(cohort.window.label);
+    previousWindowDays = cohort.window.days;
+  }
   const latest = input.cohorts[input.cohorts.length - 1];
   const attributionClass = latest?.attributionClass ?? "UNKNOWN";
   const creativeLevelCertainty = latest?.creativeLevelCertainty ?? false;
@@ -132,6 +177,7 @@ export function buildLearning(input: BuildLearningInput): WinnerLoopLearning {
 
   return Object.freeze({
     learningId: input.learningId,
+    organizationId: input.organizationId,
     ventureId: input.ventureId,
     creativeIds: Object.freeze([input.evaluation.creativeId]),
     creativeFamilyId: input.evaluation.creativeFamilyId,

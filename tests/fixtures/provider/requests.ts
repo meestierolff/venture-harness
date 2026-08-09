@@ -48,6 +48,7 @@ export const providerPlanFixtures: Readonly<Record<ProviderId, ProviderPlanReque
     "neon",
     ["project", "branch", "database", "role", "schema_migration", "read_write_health_check"],
     {
+      organizationId: "org-example",
       projectName: "venture-example",
       regionId: "aws-eu-central-1",
       projectId: "project-example",
@@ -70,6 +71,7 @@ export const providerPlanFixtures: Readonly<Record<ProviderId, ProviderPlanReque
       recurringInterval: "month",
       webhookUrl: "https://example.test/api/stripe/webhook",
       enabledEvents: ["checkout.session.completed", "customer.subscription.updated"],
+      webhookSecretCredentialRef: "cred://stripe/webhook-secret",
       headline: "Manage your subscription",
     },
     "sandbox",
@@ -124,6 +126,7 @@ export const providerPlanFixtures: Readonly<Record<ProviderId, ProviderPlanReque
       analyticsPropertyId: "987654",
       streamDisplayName: "Web",
       defaultUri: "https://example.test",
+      measurementIdCredentialRef: "cred://google/measurement-id",
       siteIdentifier: "example.test",
       siteType: "INET_DOMAIN",
       verificationMethod: "DNS_TXT",

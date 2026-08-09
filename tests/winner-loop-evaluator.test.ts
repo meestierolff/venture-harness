@@ -1,14 +1,26 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_READINESS_THRESHOLDS,
   DEFAULT_SCORING_CONFIG,
   assessReadiness,
+  createBaselineEvidence,
+  createBaselineEvidenceFromStore,
+  createAttributionLedger,
+  createMemoryWinnerLoopEvidenceStore,
   createMetricSnapshot,
+  createSqliteWinnerLoopEvidenceStore,
+  createTrustedLegacyTenantAdoptionMapping,
   createWinnerEvaluator,
+  listMetricSnapshots,
+  listBaselineEvidence,
+  listWinnerEvaluations,
   recordMetricValue,
-  type AccountBaseline,
+  type BaselineEvidence,
   type EvaluationInput,
-  type FormatBaseline,
   type MetricDefinition,
   type MetricId,
   type MetricSnapshot,
@@ -24,10 +36,12 @@ import {
 
 const AT = new Date("2026-08-08T12:00:00.000Z");
 const CAPTURED = "2026-08-08T11:00:00.000Z";
+const ORGANIZATION_ID = "org-payout-rank";
 
 function definition(metric: MetricId): MetricDefinition {
   return {
     definitionId: `tiktok_content:${metric}_v1`,
+    definitionVersion: "1",
     metric,
     provider: "tiktok_content",
     unit: metric === "completion" || metric === "watch_time_ratio" ? "ratio" : "count",
@@ -38,22 +52,39 @@ function definition(metric: MetricId): MetricDefinition {
 /** Values omitted from `present` are recorded as genuinely missing. */
 function snapshot(
   present: Partial<Record<MetricId, number>>,
-  options: { capturedAt?: string; offsetMinutes?: number; absent?: MetricId[] } = {},
+  options: {
+    organizationId?: string;
+    ventureId?: string;
+    creativeId?: string;
+    publicationId?: string;
+    provider?: "tiktok_content";
+    externalAccountId?: string;
+    format?: string;
+    durationSeconds?: number;
+    geography?: string;
+    capturedAt?: string;
+    offsetMinutes?: number;
+    absent?: MetricId[];
+  } = {},
 ): MetricSnapshot {
+  const provider = options.provider ?? "tiktok_content";
+  const externalAccountId = options.externalAccountId ?? "tt-1";
+  const capturedAt = options.capturedAt ?? CAPTURED;
   const values = Object.entries(present).map(([metric, value]) =>
     recordMetricValue({
       metric: metric as MetricId,
       definition: definition(metric as MetricId),
-      provider: "tiktok_content",
-      externalAccountId: "tt-1",
-      sourceObjectId: "tt-post-1",
+      provider,
+      externalAccountId,
+      sourceObjectId: options.publicationId ?? "tt-post-1",
       availability: "available",
       value,
       missingReason: null,
-      reportingWindowStart: CAPTURED,
-      reportingWindowEnd: options.capturedAt ?? CAPTURED,
+      reportingWindowStart: capturedAt,
+      reportingWindowEnd: capturedAt,
+      sourceTime: capturedAt,
       latencySeconds: 60,
-      fetchedAt: options.capturedAt ?? CAPTURED,
+      fetchedAt: capturedAt,
       attributionWindow: null,
       confidence: "high",
       rawReference: null,
@@ -64,16 +95,17 @@ function snapshot(
       recordMetricValue({
         metric,
         definition: definition(metric),
-        provider: "tiktok_content",
-        externalAccountId: "tt-1",
-        sourceObjectId: "tt-post-1",
+        provider,
+        externalAccountId,
+        sourceObjectId: options.publicationId ?? "tt-post-1",
         availability: "not_supported_by_provider",
         value: null,
         missingReason: "not exposed for this account type",
         reportingWindowStart: CAPTURED,
-        reportingWindowEnd: options.capturedAt ?? CAPTURED,
+        reportingWindowEnd: capturedAt,
+        sourceTime: capturedAt,
         latencySeconds: 60,
-        fetchedAt: options.capturedAt ?? CAPTURED,
+        fetchedAt: capturedAt,
         attributionWindow: null,
         confidence: "low",
         rawReference: null,
@@ -81,35 +113,114 @@ function snapshot(
     );
   }
   return createMetricSnapshot({
-    creativeId: "cr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
-    publicationId: "pub-1",
+    organizationId: options.organizationId ?? ORGANIZATION_ID,
+    ventureId: options.ventureId ?? "payout-rank",
+    provider,
+    externalAccountId,
+    creativeId: options.creativeId ?? "cr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    publicationId: options.publicationId ?? "pub-1",
+    format: options.format ?? "talking_head_with_screen_recording",
+    durationSeconds: options.durationSeconds ?? 22,
+    geography: options.geography ?? "NL",
     offsetMinutes: options.offsetMinutes ?? 120,
     capturedAt: options.capturedAt ?? CAPTURED,
     values,
   });
 }
 
-const baseline: AccountBaseline = {
-  medianViewVelocityPerHour: 500,
-  medianCompletion: 0.3,
-  medianWatchTimeRatio: 0.4,
-  accountAgeDays: 200,
-  sampleSize: 40,
-};
+const baselineSources = Array.from({ length: 40 }, (_, index) =>
+  snapshot(
+    { view_velocity: 500, completion: 0.3, watch_time_ratio: 0.4 },
+    {
+      creativeId: `baseline-creative-${index}`,
+      publicationId: `baseline-publication-${index}`,
+      capturedAt: new Date(
+        AT.getTime() - 60 * 60_000 - ((39 - index) * 29 * 86_400_000) / 39,
+      ).toISOString(),
+    },
+  ),
+);
 
-const formatBaseline: FormatBaseline = {
+const baseline = createBaselineEvidence({
+  organizationId: ORGANIZATION_ID,
+  ventureId: "payout-rank",
+  provider: "tiktok_content",
+  externalAccountId: "tt-1",
   format: "talking_head_with_screen_recording",
-  medianCompletion: 0.3,
-  medianWatchTimeRatio: 0.4,
-};
+  durationSeconds: 22,
+  geography: "NL",
+  accountCreatedAt: new Date(AT.getTime() - 200 * 86_400_000).toISOString(),
+  generatedAt: AT.toISOString(),
+  sourceSnapshots: baselineSources,
+});
+
+function baselineWith(overrides: {
+  organizationId?: string;
+  externalAccountId?: string;
+  account?: Partial<BaselineEvidence["account"]>;
+  format?: Partial<BaselineEvidence["format"]>;
+  duration?: Partial<BaselineEvidence["duration"]>;
+}): BaselineEvidence {
+  return Object.freeze({
+    ...baseline,
+    organizationId: overrides.organizationId ?? baseline.organizationId,
+    externalAccountId: overrides.externalAccountId ?? baseline.externalAccountId,
+    account: Object.freeze({ ...baseline.account, ...overrides.account }),
+    format: Object.freeze({ ...baseline.format, ...overrides.format }),
+    duration: Object.freeze({ ...baseline.duration, ...overrides.duration }),
+  });
+}
+
+function scopedBaseline(options: {
+  organizationId?: string;
+  externalAccountId?: string;
+  format?: string;
+  durationSeconds?: number;
+}): BaselineEvidence {
+  const organizationId = options.organizationId ?? ORGANIZATION_ID;
+  const externalAccountId = options.externalAccountId ?? "tt-1";
+  const format = options.format ?? "talking_head_with_screen_recording";
+  const durationSeconds = options.durationSeconds ?? 22;
+  return createBaselineEvidence({
+    organizationId,
+    ventureId: "payout-rank",
+    provider: "tiktok_content",
+    externalAccountId,
+    format,
+    durationSeconds,
+    geography: "NL",
+    accountCreatedAt: new Date(AT.getTime() - 200 * 86_400_000).toISOString(),
+    generatedAt: AT.toISOString(),
+    sourceSnapshots: [
+      snapshot(
+        { view_velocity: 500, completion: 0.3, watch_time_ratio: 0.4 },
+        {
+          organizationId,
+          externalAccountId,
+          format,
+          durationSeconds,
+          creativeId: "opponent-baseline-creative",
+          publicationId: "opponent-baseline-publication",
+        },
+      ),
+    ],
+  });
+}
 
 function evaluate(overrides: Partial<EvaluationInput> = {}) {
-  return createWinnerEvaluator({ now: () => AT }).evaluate({
+  return createWinnerEvaluator({
+    organizationId: ORGANIZATION_ID,
+    ventureId: "payout-rank",
+    now: () => AT,
+  }).evaluate({
     creativeId: "cr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
     creativeFamilyId: "fam-001",
+    provider: "tiktok_content",
+    externalAccountId: "tt-1",
+    format: "talking_head_with_screen_recording",
+    durationSeconds: 22,
     snapshots: [snapshot({ views: 20_000, view_velocity: 900, completion: 0.5 })],
-    accountBaseline: baseline,
-    formatBaseline,
+    baseline,
     geography: "NL",
     evaluatedAt: AT,
     rightsApprovedForPaid: true,
@@ -218,20 +329,89 @@ describe("winner evaluation is baseline-adjusted, not a views threshold", () => 
 
   it("lowers confidence when the account has no baseline yet", () => {
     const result = evaluate({
-      accountBaseline: {
-        medianViewVelocityPerHour: null,
-        medianCompletion: null,
-        medianWatchTimeRatio: null,
-        accountAgeDays: 3,
-        sampleSize: 0,
-      },
-      formatBaseline: { format: "x", medianCompletion: null, medianWatchTimeRatio: null },
+      baseline: baselineWith({
+        account: {
+          medianViewVelocityPerHour: null,
+          medianCompletion: null,
+          medianWatchTimeRatio: null,
+          accountAgeDays: 3,
+          sampleSize: 0,
+          observationWindowDays: 2,
+          latestSourceAt: null,
+          oldestSourceAt: null,
+          sourceRefs: [],
+        },
+        format: {
+          medianCompletion: null,
+          medianWatchTimeRatio: null,
+          sampleSize: 0,
+          observationWindowDays: 2,
+          latestSourceAt: null,
+          oldestSourceAt: null,
+          sourceRefs: [],
+        },
+        duration: {
+          medianCompletion: null,
+          medianWatchTimeRatio: null,
+          sampleSize: 0,
+          observationWindowDays: 2,
+          latestSourceAt: null,
+          oldestSourceAt: null,
+          sourceRefs: [],
+        },
+      }),
     });
 
     expect(result.confidence).not.toBe("high");
     expect(result.features.find((f) => f.feature === "viewVelocityVsBaseline")?.missingReason).toBe(
       "account has no velocity baseline yet",
     );
+    expect(result.uncertainties.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining([
+        "new_account",
+        "insufficient_baseline_sample",
+        "short_baseline_window",
+      ]),
+    );
+    expect(result.spendEligible).toBe(false);
+  });
+
+  it("blocks spend when the baseline sample is insufficient", () => {
+    const result = evaluate({
+      baseline: baselineWith({
+        account: { sampleSize: 3 },
+        format: { sampleSize: 3 },
+        duration: { sampleSize: 3 },
+      }),
+    });
+    expect(result.confidence).toBe("low");
+    expect(result.spendBlockedReasons).toContain("insufficient_baseline_sample");
+    expect(result.uncertainties).toContainEqual(
+      expect.objectContaining({
+        code: "insufficient_baseline_sample",
+        severity: "spend_blocking",
+      }),
+    );
+  });
+
+  it("rejects a geography-mismatched account baseline", () => {
+    expect(() => evaluate({ baseline: baselineWith({ account: { geography: "US" } }) })).toThrow(
+      /account geography_scope_mismatch/,
+    );
+  });
+
+  it("records conflicting account and format baselines as immutable uncertainty", () => {
+    const result = evaluate({
+      baseline: baselineWith({
+        format: { medianCompletion: 0.8, medianWatchTimeRatio: 0.9 },
+      }),
+    });
+    expect(result.spendBlockedReasons).toContain("conflicting_baselines");
+    expect(result.uncertainties).toContainEqual(
+      expect.objectContaining({ code: "conflicting_baselines" }),
+    );
+    expect(Object.isFrozen(result.uncertainties)).toBe(true);
+    expect(Object.isFrozen(result.uncertainties[0])).toBe(true);
   });
 
   it("refuses a confident recommendation on stale metrics", () => {
@@ -327,7 +507,7 @@ describe("scoring versions are immutable on historical evaluations", () => {
 // --- Growth Contract -------------------------------------------------------
 
 const contractInput = {
-  contract_version: 1,
+  contract_version: 2,
   venture_id: "payout-rank",
   goal: {
     primary_event: "purchase",
@@ -369,10 +549,14 @@ const contractInput = {
     allowed_accounts: ["tt-ads-1"],
     allowed_objectives: ["conversions"],
     allowed_events: ["trial_start", "purchase"],
-    per_creative_test_budget_minor: 10_000,
+    test_budget_minor: 20_000,
+    per_creative_cap_minor: 10_000,
     daily_account_cap_minor: 12_000,
     daily_venture_cap_minor: 15_000,
     monthly_venture_cap_minor: 100_000,
+    daily_customer_cap_minor: 12_000,
+    monthly_customer_cap_minor: 80_000,
+    emergency_platform_cap_minor: 250_000,
     approval_threshold_minor: 0,
     auto_pause_allowed: true,
     auto_scale_allowed: false,
@@ -427,6 +611,39 @@ describe("growth contract economics", () => {
         paid: { ...contractInput.paid, auto_scale_allowed: true },
       }),
     ).toThrow();
+  });
+
+  it("keeps the total test envelope distinct from the per-creative cap", () => {
+    expect(contract.paid.test_budget_minor).toBe(20_000);
+    expect(contract.paid.per_creative_cap_minor).toBe(10_000);
+    expect(() =>
+      parseGrowthContract({
+        ...contractInput,
+        paid: {
+          ...contractInput.paid,
+          test_budget_minor: 5_000,
+          per_creative_cap_minor: 10_000,
+        },
+      }),
+    ).toThrow(/test_budget_minor/);
+  });
+
+  it("migrates the legacy conflated budget conservatively and deterministically", () => {
+    const {
+      test_budget_minor: _test,
+      per_creative_cap_minor: _creative,
+      ...legacyPaid
+    } = contractInput.paid;
+    void _test;
+    void _creative;
+    const migrated = parseGrowthContract({
+      ...contractInput,
+      contract_version: 1,
+      paid: { ...legacyPaid, per_creative_test_budget_minor: 7_500 },
+    });
+    expect(migrated.contract_version).toBe(2);
+    expect(migrated.paid.test_budget_minor).toBe(7_500);
+    expect(migrated.paid.per_creative_cap_minor).toBe(7_500);
   });
 });
 
@@ -511,10 +728,553 @@ describe("optimization readiness ladder", () => {
     expect(result.vboAllowed).toBe(false);
   });
 
+  it("does not let an allowed policy bypass signal, tracking, attribution, or eligibility", () => {
+    const allowing: GrowthContract = {
+      ...contract,
+      paid: { ...contract.paid, vbo_policy: "allowed" },
+    };
+    const result = assessReadiness(
+      allowing,
+      signals({
+        eventDeliveryRate: 0,
+        eventDeduplicationCorrect: false,
+        currencyAndValueValid: false,
+        medianEventLatencySeconds: 99_999,
+        attributionHealthy: false,
+        recentHighIntentEvents: 0,
+        recentPurchases: 0,
+        purchasesWithValue: 0,
+        refundRate: 1,
+        d7Retention: 0,
+        observedCacMinor: null,
+        providerValueOptimizationEligibility: "unknown",
+        providerEligibilityCheckedAt: null,
+      }),
+      new Date("2026-08-09T12:00:00.000Z"),
+    );
+
+    expect(result.stage).toBe("NO_SIGNAL");
+    expect(result.vboAllowed).toBe(false);
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        "event_delivery_below_threshold",
+        "event_deduplication_incorrect",
+        "currency_or_value_invalid",
+        "event_latency_too_high",
+        "attribution_unhealthy",
+      ]),
+    );
+  });
+
+  it.each(["allowed", "requires_value_ready"] as const)(
+    "requires fresh provider eligibility and a clean value rung for %s policy",
+    (vboPolicy) => {
+      const policyContract: GrowthContract = {
+        ...contract,
+        paid: { ...contract.paid, vbo_policy: vboPolicy },
+      };
+
+      expect(assessReadiness(policyContract, signals(), AT).vboAllowed).toBe(true);
+      expect(
+        assessReadiness(
+          policyContract,
+          signals({ providerValueOptimizationEligibility: "unknown" }),
+          AT,
+        ).vboAllowed,
+      ).toBe(false);
+      expect(
+        assessReadiness(policyContract, signals({ purchasesWithValue: 2 }), AT).vboAllowed,
+      ).toBe(false);
+      expect(assessReadiness(policyContract, signals({ refundRate: 0.4 }), AT).vboAllowed).toBe(
+        false,
+      );
+    },
+  );
+
   it("blocks when economics fall outside the contract guardrails", () => {
     const result = assessReadiness(contract, signals({ refundRate: 0.4, d7Retention: 0.1 }), AT);
     expect(result.blockers).toContain("economics_outside_guardrails");
     expect(result.stage).toBe("VALUE_READY");
     expect(result.vboAllowed).toBe(false);
+  });
+});
+
+describe("durable Winner Loop evidence", () => {
+  it("rejects snapshots from a different organization before evaluating", () => {
+    const foreignEvaluator = createWinnerEvaluator({
+      organizationId: "org-foreign",
+      ventureId: "payout-rank",
+    });
+    expect(() =>
+      foreignEvaluator.evaluate({
+        creativeId: "cr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+        creativeFamilyId: "fam-001",
+        provider: "tiktok_content",
+        externalAccountId: "tt-1",
+        format: "talking_head_with_screen_recording",
+        durationSeconds: 22,
+        snapshots: [snapshot({ views: 1_000 })],
+        baseline,
+        geography: "NL",
+        evaluatedAt: AT,
+      }),
+    ).toThrow(/tenant_scope_mismatch/);
+  });
+
+  it("rejects tenant, account, format, and duration baseline swaps before scoring", () => {
+    const opponent = scopedBaseline({
+      organizationId: "org-opponent",
+      externalAccountId: "tt-opponent",
+    });
+    expect(() => evaluate({ baseline: opponent })).toThrow(/tenant_scope_mismatch/);
+    expect(() =>
+      evaluate({ baseline: scopedBaseline({ externalAccountId: "tt-opponent" }) }),
+    ).toThrow(/provider_account_scope_mismatch/);
+    expect(() => evaluate({ baseline: scopedBaseline({ format: "opponent_format" }) })).toThrow(
+      /format_scope_mismatch/,
+    );
+    expect(() => evaluate({ baseline: scopedBaseline({ durationSeconds: 23 }) })).toThrow(
+      /duration_scope_mismatch/,
+    );
+  });
+
+  it("rejects conflicting revisions for one baseline source reference", () => {
+    const sourceOptions = {
+      creativeId: "baseline-conflict-creative",
+      publicationId: "baseline-conflict-publication",
+      capturedAt: CAPTURED,
+      offsetMinutes: 120,
+    } as const;
+    const first = snapshot({ views: 100 }, sourceOptions);
+    const conflicting = snapshot({ views: 101 }, sourceOptions);
+    expect(() =>
+      createBaselineEvidence({
+        organizationId: ORGANIZATION_ID,
+        ventureId: "payout-rank",
+        provider: "tiktok_content",
+        externalAccountId: "tt-1",
+        format: "talking_head_with_screen_recording",
+        durationSeconds: 22,
+        geography: "NL",
+        accountCreatedAt: new Date(AT.getTime() - 200 * 86_400_000).toISOString(),
+        generatedAt: AT.toISOString(),
+        sourceSnapshots: [first, conflicting],
+      }),
+    ).toThrow(/conflicting evidence for one sourceRef/);
+  });
+
+  it("isolates identical evidence ids across organizations in memory", () => {
+    const store = createMemoryWinnerLoopEvidenceStore();
+    const common = {
+      ventureId: "shared-venture",
+      kind: "metric_snapshot" as const,
+      recordId: "shared-record",
+      creativeId: "shared-creative",
+      occurredAt: CAPTURED,
+      sourceRefs: ["provider://shared-source"],
+    };
+    store.put({ organizationId: "org-alpha", ...common, payload: { owner: "alpha" } });
+    store.put({ organizationId: "org-bravo", ...common, payload: { owner: "bravo" } });
+    expect(
+      store.get(
+        { organizationId: "org-alpha", ventureId: common.ventureId },
+        common.kind,
+        common.recordId,
+      )?.payload,
+    ).toEqual({ owner: "alpha" });
+    expect(
+      store.get(
+        { organizationId: "org-bravo", ventureId: common.ventureId },
+        common.kind,
+        common.recordId,
+      )?.payload,
+    ).toEqual({ owner: "bravo" });
+    store.close();
+  });
+
+  it("restores metric snapshots, evaluations, attribution, and their source lineage", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vh-winner-evidence-"));
+    const path = join(dir, "winner-loop.db");
+    const first = createSqliteWinnerLoopEvidenceStore(path);
+    try {
+      const original = snapshot({
+        views: 30_000,
+        view_velocity: 800,
+        completion: 0.45,
+        watch_time_ratio: 0.55,
+        shares: 300,
+        saves: 260,
+        profile_visits: 300,
+        outbound_clicks: 500,
+        trials: 200,
+      });
+      const persisted = createMetricSnapshot(
+        {
+          organizationId: original.organizationId,
+          ventureId: original.ventureId,
+          provider: original.provider,
+          externalAccountId: original.externalAccountId,
+          creativeId: original.creativeId,
+          publicationId: original.publicationId,
+          format: original.format,
+          durationSeconds: original.durationSeconds,
+          geography: original.geography,
+          offsetMinutes: original.offsetMinutes,
+          capturedAt: original.capturedAt,
+          values: original.values,
+        },
+        { organizationId: ORGANIZATION_ID, ventureId: "payout-rank", store: first },
+      );
+      const persistedBaseline = createBaselineEvidenceFromStore(
+        {
+          organizationId: ORGANIZATION_ID,
+          ventureId: "payout-rank",
+          provider: persisted.provider,
+          externalAccountId: persisted.externalAccountId,
+          format: persisted.format,
+          durationSeconds: persisted.durationSeconds,
+          geography: persisted.geography,
+          accountCreatedAt: new Date(AT.getTime() - 200 * 86_400_000).toISOString(),
+          generatedAt: AT.toISOString(),
+        },
+        { organizationId: ORGANIZATION_ID, ventureId: "payout-rank", store: first },
+      );
+      const evaluation = createWinnerEvaluator({
+        organizationId: ORGANIZATION_ID,
+        ventureId: "payout-rank",
+        store: first,
+      }).evaluate({
+        creativeId: persisted.creativeId,
+        creativeFamilyId: "fam-001",
+        provider: persisted.provider,
+        externalAccountId: persisted.externalAccountId,
+        format: persisted.format,
+        durationSeconds: persisted.durationSeconds,
+        snapshots: [persisted],
+        baseline: persistedBaseline,
+        geography: "NL",
+        evaluatedAt: AT,
+        rightsApprovedForPaid: true,
+        attributionHealthy: true,
+      });
+      const attribution = createAttributionLedger({
+        organizationId: ORGANIZATION_ID,
+        ventureId: "payout-rank",
+        store: first,
+      });
+      const attributed = attribution.record({
+        organizationId: ORGANIZATION_ID,
+        ventureId: "payout-rank",
+        creativeId: persisted.creativeId,
+        creativeFamilyId: "fam-001",
+        deliveryVariantId: "dv-1",
+        organicPostId: "post-1",
+        campaignId: "campaign-1",
+        adGroupId: "group-1",
+        adId: "ad-1",
+        subscriberRef: "sub-opaque-1",
+        transactionRef: "txn-opaque-1",
+        evidence: { clickId: "click-1" },
+        reportingWindowStart: CAPTURED,
+        reportingWindowEnd: AT.toISOString(),
+        conversionWindowHours: 24,
+        sourceTime: AT.toISOString(),
+        fetchedAt: AT.toISOString(),
+        freshnessMaxAgeSeconds: 172_800,
+        mappingVersion: "mapping-v1",
+      });
+      first.close();
+
+      const reopened = createSqliteWinnerLoopEvidenceStore(path);
+      try {
+        const metrics = listMetricSnapshots(
+          { organizationId: ORGANIZATION_ID, ventureId: "payout-rank", store: reopened },
+          persisted.creativeId,
+        );
+        expect(metrics).toHaveLength(1);
+        expect(metrics[0]!.valueOf("trials")).toBe(200);
+        expect(
+          listBaselineEvidence({
+            organizationId: ORGANIZATION_ID,
+            ventureId: "payout-rank",
+            store: reopened,
+          }),
+        ).toEqual([persistedBaseline]);
+        expect(
+          listWinnerEvaluations(
+            reopened,
+            { organizationId: ORGANIZATION_ID, ventureId: "payout-rank" },
+            persisted.creativeId,
+          ),
+        ).toEqual([evaluation]);
+        const restoredAttribution = createAttributionLedger({
+          organizationId: ORGANIZATION_ID,
+          ventureId: "payout-rank",
+          store: reopened,
+        });
+        expect(restoredAttribution.get(attributed.attributionId)).toEqual(attributed);
+        expect(
+          reopened.get(
+            { organizationId: ORGANIZATION_ID, ventureId: "payout-rank" },
+            "winner_evaluation",
+            evaluation.recommendationId,
+          )?.sourceRefs,
+        ).toEqual([
+          `baseline:${persistedBaseline.baselineId}`,
+          `metric:${persisted.publicationId}:${persisted.offsetMinutes}:${persisted.capturedAt}`,
+        ]);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      try {
+        first.close();
+      } catch {
+        /* already closed before the durability read-back */
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates identical evidence and creative ids across organizations in one SQLite file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vh-winner-evidence-tenants-"));
+    const path = join(dir, "winner-loop.db");
+    const alpha = createSqliteWinnerLoopEvidenceStore(path);
+    const bravo = createSqliteWinnerLoopEvidenceStore(path);
+    const common = {
+      ventureId: "shared-venture",
+      kind: "metric_snapshot" as const,
+      recordId: "shared-record",
+      creativeId: "shared-creative",
+      occurredAt: CAPTURED,
+      sourceRefs: ["provider://shared-source"],
+    };
+    try {
+      alpha.put({ organizationId: "org-alpha", ...common, payload: { owner: "alpha" } });
+      bravo.put({ organizationId: "org-bravo", ...common, payload: { owner: "bravo" } });
+
+      const alphaScope = { organizationId: "org-alpha", ventureId: common.ventureId };
+      const bravoScope = { organizationId: "org-bravo", ventureId: common.ventureId };
+      expect(alpha.get(alphaScope, common.kind, common.recordId)?.payload).toEqual({
+        owner: "alpha",
+      });
+      expect(alpha.get(bravoScope, common.kind, common.recordId)?.payload).toEqual({
+        owner: "bravo",
+      });
+      expect(alpha.list(alphaScope, common.kind, common.creativeId)).toHaveLength(1);
+      expect(bravo.list(bravoScope, common.kind, common.creativeId)).toHaveLength(1);
+      expect(alpha.list(alphaScope, common.kind)[0]?.organizationId).toBe("org-alpha");
+      expect(bravo.list(bravoScope, common.kind)[0]?.organizationId).toBe("org-bravo");
+    } finally {
+      alpha.close();
+      bravo.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("requires trusted adoption for venture-only evidence and preserves adopted replay after restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vh-winner-evidence-legacy-"));
+    const path = join(dir, "winner-loop.db");
+    const raw = new DatabaseSync(path);
+    raw.exec(`
+      CREATE TABLE winner_loop_evidence (
+        venture_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        creative_id TEXT,
+        occurred_at TEXT NOT NULL,
+        source_refs_json TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        PRIMARY KEY (venture_id, kind, record_id)
+      );
+    `);
+    raw
+      .prepare("INSERT INTO winner_loop_evidence VALUES (?,?,?,?,?,?,?,?)")
+      .run(
+        "legacy-venture",
+        "metric_snapshot",
+        "legacy-record",
+        "legacy-creative",
+        CAPTURED,
+        JSON.stringify(["legacy://source"]),
+        JSON.stringify({ owner: "legacy" }),
+        "pre-organization-hash",
+      );
+    raw.close();
+
+    const sentinelScope = {
+      organizationId: "__legacy_unscoped__",
+      ventureId: "legacy-venture",
+    };
+    expect(() => createSqliteWinnerLoopEvidenceStore(path)).toThrowError(
+      expect.objectContaining({ code: "legacy_tenant_mapping_required" }) as never,
+    );
+    const unchanged = new DatabaseSync(path);
+    expect(
+      unchanged
+        .prepare("PRAGMA table_info(winner_loop_evidence)")
+        .all()
+        .some((column) => (column as { name: string }).name === "organization_id"),
+    ).toBe(false);
+    unchanged.close();
+
+    const adoptedScope = {
+      organizationId: "org-adopted",
+      ventureId: "adopted-venture",
+    };
+    const legacyAdoption = createTrustedLegacyTenantAdoptionMapping({
+      ownershipVerification: "verified_out_of_band",
+      authorizationDisposition: "invalidate_and_require_reapproval",
+      approvedBy: "migration-operator",
+      approvedAt: AT.toISOString(),
+      mappings: [{ legacyVentureId: "legacy-venture", ...adoptedScope }],
+    });
+    const migrated = createSqliteWinnerLoopEvidenceStore(path, { legacyAdoption });
+    const record = migrated.get(adoptedScope, "metric_snapshot", "legacy-record");
+    expect(record).toMatchObject({
+      organizationId: adoptedScope.organizationId,
+      ventureId: adoptedScope.ventureId,
+      creativeId: "legacy-creative",
+      payload: {
+        owner: "legacy",
+        organizationId: adoptedScope.organizationId,
+        ventureId: adoptedScope.ventureId,
+      },
+    });
+    expect(
+      migrated.get(
+        { organizationId: ORGANIZATION_ID, ventureId: "legacy-venture" },
+        "metric_snapshot",
+        "legacy-record",
+      ),
+    ).toBeUndefined();
+    expect(() => migrated.get(sentinelScope, "metric_snapshot", "legacy-record")).toThrowError(
+      expect.objectContaining({ code: "legacy_sentinel_scope_forbidden" }) as never,
+    );
+    expect(() => migrated.put(record!)).not.toThrow();
+    migrated.close();
+
+    const reopened = createSqliteWinnerLoopEvidenceStore(path);
+    try {
+      expect(reopened.get(adoptedScope, "metric_snapshot", "legacy-record")).toEqual(record);
+      const adoptedRaw = new DatabaseSync(path);
+      expect(
+        adoptedRaw
+          .prepare(
+            `SELECT COUNT(*) AS count FROM winner_loop_evidence
+             WHERE organization_id = '__legacy_unscoped__'`,
+          )
+          .get(),
+      ).toEqual({ count: 0 });
+      adoptedRaw.close();
+    } finally {
+      reopened.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adopts only mapped sentinel evidence into isolated organizations with idempotent restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vh-winner-evidence-sentinel-"));
+    const path = join(dir, "winner-loop.db");
+    createSqliteWinnerLoopEvidenceStore(path).close();
+    const raw = new DatabaseSync(path);
+    const insert = raw.prepare(
+      `INSERT INTO winner_loop_evidence
+       (organization_id, venture_id, kind, record_id, creative_id, occurred_at,
+        source_refs_json, payload_json, content_hash)
+       VALUES ('__legacy_unscoped__', ?, 'metric_snapshot', 'same-record',
+        'same-creative', ?, '[]', ?, ?)`,
+    );
+    insert.run(
+      "legacy-alpha",
+      CAPTURED,
+      JSON.stringify({ owner: "alpha", ventureId: "legacy-alpha" }),
+      "legacy-alpha-hash",
+    );
+    insert.run(
+      "legacy-bravo",
+      CAPTURED,
+      JSON.stringify({ owner: "bravo", ventureId: "legacy-bravo" }),
+      "legacy-bravo-hash",
+    );
+    raw.close();
+
+    expect(() => createSqliteWinnerLoopEvidenceStore(path)).toThrowError(
+      expect.objectContaining({ code: "legacy_tenant_mapping_required" }) as never,
+    );
+    const legacyAdoption = createTrustedLegacyTenantAdoptionMapping({
+      ownershipVerification: "verified_out_of_band",
+      authorizationDisposition: "invalidate_and_require_reapproval",
+      approvedBy: "migration-operator",
+      approvedAt: AT.toISOString(),
+      mappings: [
+        {
+          legacyVentureId: "legacy-alpha",
+          organizationId: "org-alpha",
+          ventureId: "shared-venture",
+        },
+        {
+          legacyVentureId: "legacy-bravo",
+          organizationId: "org-bravo",
+          ventureId: "shared-venture",
+        },
+      ],
+    });
+    const adopted = createSqliteWinnerLoopEvidenceStore(path, { legacyAdoption });
+    const alpha = adopted.get(
+      { organizationId: "org-alpha", ventureId: "shared-venture" },
+      "metric_snapshot",
+      "same-record",
+    );
+    const bravo = adopted.get(
+      { organizationId: "org-bravo", ventureId: "shared-venture" },
+      "metric_snapshot",
+      "same-record",
+    );
+    expect(alpha?.payload).toMatchObject({
+      owner: "alpha",
+      organizationId: "org-alpha",
+      ventureId: "shared-venture",
+    });
+    expect(bravo?.payload).toMatchObject({
+      owner: "bravo",
+      organizationId: "org-bravo",
+      ventureId: "shared-venture",
+    });
+    expect(() => adopted.put(alpha!)).not.toThrow();
+    expect(() => adopted.put(bravo!)).not.toThrow();
+    adopted.close();
+
+    const restarted = createSqliteWinnerLoopEvidenceStore(path);
+    try {
+      expect(
+        restarted.get(
+          { organizationId: "org-alpha", ventureId: "shared-venture" },
+          "metric_snapshot",
+          "same-record",
+        )?.payload,
+      ).toMatchObject({ owner: "alpha" });
+      expect(
+        restarted.get(
+          { organizationId: "org-bravo", ventureId: "shared-venture" },
+          "metric_snapshot",
+          "same-record",
+        )?.payload,
+      ).toMatchObject({ owner: "bravo" });
+      const inspected = new DatabaseSync(path);
+      expect(
+        inspected
+          .prepare(
+            `SELECT COUNT(*) AS count FROM winner_loop_evidence
+             WHERE organization_id = '__legacy_unscoped__'`,
+          )
+          .get(),
+      ).toEqual({ count: 0 });
+      inspected.close();
+    } finally {
+      restarted.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

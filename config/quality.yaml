@@ -45,6 +45,8 @@ profiles:
       - full_lint
       - typecheck
       - unit_integration
+      - workspace_build
+      - workspace_contract
       - production_build
       - migration_tests
       - provider_contract_tests
@@ -61,6 +63,9 @@ profiles:
       - full_lint
       - typecheck
       - unit_integration
+      - workspace_build
+      - workspace_contract
+      - workspace_pack_consumer
       - production_build
       - migration_tests
       - migration_rollback_tests
@@ -121,9 +126,21 @@ checks:
     kind: command
     phase: 1
     command: [pnpm, test]
-  production_build:
+  workspace_build:
     kind: command
     phase: 2
+    command: [pnpm, workspace:build]
+  workspace_contract:
+    kind: command
+    phase: 3
+    command: [pnpm, workspace:check]
+  workspace_pack_consumer:
+    kind: command
+    phase: 4
+    command: [pnpm, test:workspace]
+  production_build:
+    kind: command
+    phase: 3
     command: [pnpm, build]
   migration_tests:
     kind: command

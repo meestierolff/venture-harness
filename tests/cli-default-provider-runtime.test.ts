@@ -88,7 +88,10 @@ describe("default provider composition", () => {
     });
     Object.assign(webSnapshot.providers.providers.google!, {
       credential_ref: "cred://google/staged",
-      external_resource_ids: { analytics_account_id: "123456" },
+      external_resource_ids: {
+        analytics_account_id: "123456",
+        measurement_id_credential_ref: "cred://google/staged-measurement-id",
+      },
     });
     const webFactories = createDefaultProviderPlanFactories({
       rootDir: process.cwd(),
@@ -311,7 +314,7 @@ describe("default provider composition", () => {
     );
     expect(vercelPreview.request).toMatchObject({
       environment: "preview",
-      capabilities: ["project", "deployment", "web_analytics"],
+      capabilities: ["project", "deployment"],
       inputs: { project: "first-venture", scope: "team_founder" },
     });
     expect(vercelProduction.request).toMatchObject({
@@ -326,6 +329,7 @@ describe("default provider composition", () => {
       last_verified_at: "2026-08-04T10:00:00.000Z",
       evidence_artifact_ref: "reports/providers/neon.json",
       external_resource_ids: {
+        organization_id: "neon-org-from-stack",
         project_id: "project-from-readback",
         branch_id: "branch-from-readback",
         database_name: "venture",
@@ -341,6 +345,7 @@ describe("default provider composition", () => {
         branchId: "branch-from-readback",
         databaseName: "venture",
         databaseCredentialRef: "cred://neon/database",
+        workingDirectory: process.cwd(),
       },
     });
     const neonDryRun = providerRegistry.get("neon").plan({ ...neon.request, dryRun: true });
@@ -350,7 +355,67 @@ describe("default provider composition", () => {
     ]);
   });
 
-  it("builds complete GitHub, Vercel, and credential-safe Neon creation requests", async () => {
+  it("reuses only a verified preview Vercel project identity for production deployment", async () => {
+    const founderBrief = brief("fixtures/web-saas/brief.yaml");
+    const definition = compileLaunchGraph(founderBrief);
+    const snapshot = loadDefaultProviderConfig(process.cwd());
+    Object.assign(snapshot.providers.providers.vercel!, {
+      state: "auth_required",
+      team_id: "team_founder",
+      credential_ref: "cred://vercel/founder",
+      external_resource_ids: {
+        project: "cross-environment-project",
+        project_intent: "create",
+      },
+    });
+    const productionNode = definition.nodes.find(({ id }) => id === "production-deploy")!;
+    const previewProject: VerifiedProviderLifecycleRecord = {
+      provider: "vercel",
+      environment: "preview",
+      capability: "project",
+      state: "verified",
+      planId: "plan.vercel.previewproject",
+      verifiedAt: "2026-08-04T12:00:00.000Z",
+      resourceRefs: [{ type: "project", value: "cross-environment-project" }],
+    };
+    const factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+      lifecycleStore: lifecycleStore([previewProject]),
+    });
+
+    await expect(
+      factories["provider.production-deploy"]!(workflowContext(productionNode)),
+    ).resolves.toMatchObject({
+      provider: "vercel",
+      request: {
+        environment: "production",
+        capabilities: ["deployment"],
+        inputs: { project: "cross-environment-project", scope: "team_founder" },
+      },
+    });
+
+    const previewDeploymentOnly = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+      lifecycleStore: lifecycleStore([
+        {
+          ...previewProject,
+          capability: "deployment",
+          planId: "plan.vercel.previewdeployment",
+        },
+      ]),
+    });
+    await expect(
+      previewDeploymentOnly["provider.production-deploy"]!(workflowContext(productionNode)),
+    ).rejects.toThrow("no matching verified lifecycle record");
+  });
+
+  it("keeps optional Vercel analytics out of automatic GitHub, Vercel, and Neon creation", async () => {
     const founderBrief = brief("fixtures/web-saas/brief.yaml");
     const definition = compileLaunchGraph(founderBrief);
     const snapshot = loadDefaultProviderConfig(process.cwd());
@@ -378,7 +443,7 @@ describe("default provider composition", () => {
       capabilities: ["repository"],
       inputs: {
         repository: "founder-org/new-venture",
-        sourceDirectory: ".",
+        sourceDirectory: process.cwd(),
       },
     });
     snapshot.providers.providers.github!.external_resource_ids.repository_intent =
@@ -390,7 +455,7 @@ describe("default provider composition", () => {
     );
     expect(legacyGithub.request.inputs).toMatchObject({
       repository: "founder-org/new-venture",
-      sourceDirectory: ".",
+      sourceDirectory: process.cwd(),
     });
     expect(legacyGithub.request.inputs).not.toHaveProperty("templateRepository");
 
@@ -403,15 +468,18 @@ describe("default provider composition", () => {
         project_intent: "create",
       },
     });
+    snapshot.venture.venture.domain = "new-venture.example";
+    expect(snapshot.venture.venture.capabilities.active).toContain("vercel_analytics");
     const vercel = await factories["provider.vercel-project"]!(
       workflowContext(node("vercel-project")),
     );
     expect(vercel.request).toMatchObject({
-      capabilities: ["project", "deployment", "web_analytics"],
+      capabilities: ["project", "deployment", "domain"],
       inputs: {
         project: "new-venture",
         scope: "team_founder",
         projectIntent: "create",
+        domain: "new-venture.example",
       },
     });
     const vercelPlan = providerRegistry.get("vercel").plan({
@@ -422,14 +490,23 @@ describe("default provider composition", () => {
       "project.create",
       "project.link",
       "deployment.preview",
-      "web_analytics.enable_manual",
+      "domain.add",
     ]);
+    expect(vercelPlan.operations.some(({ capability }) => capability === "web_analytics")).toBe(
+      false,
+    );
+    expect(vercelPlan.operations.some(({ transport }) => transport === "manual")).toBe(false);
+    expect(vercelPlan.limitations.join(" ")).toContain(
+      "Web Analytics enablement stays a declared manual action",
+    );
 
     Object.assign(snapshot.providers.providers.neon!, {
       state: "unconfigured",
+      account_id: "neon-credential-account",
       credential_ref: "cred://neon/control-plane",
       region: "aws-eu-central-1",
       external_resource_ids: {
+        organization_id: "neon-org-from-stack",
         project_intent: "create",
         project_name: "new-venture",
         database_credential_ref: "cred://neon/database",
@@ -440,9 +517,11 @@ describe("default provider composition", () => {
       capabilities: ["project", "schema_migration", "read_write_health_check"],
       credentialRef: "cred://neon/control-plane",
       inputs: {
+        organizationId: "neon-org-from-stack",
         projectName: "new-venture",
         regionId: "aws-eu-central-1",
         databaseCredentialRef: "cred://neon/database",
+        workingDirectory: process.cwd(),
       },
     });
     const neonPlan = providerRegistry.get("neon").plan({ ...neon.request, dryRun: true });
@@ -456,7 +535,42 @@ describe("default provider composition", () => {
       outputPath: "connection_uris.0.connection_uri",
     });
     expect(neonPlan.operations[1].dependsOn).toEqual([neonPlan.operations[0].id]);
+    expect(neonPlan.operations[1].command?.cwd).toBe(process.cwd());
+    expect(neonPlan.operations[1].readBack?.command?.cwd).toBe(process.cwd());
+    const createArgs = neonPlan.operations[0].command?.args ?? [];
+    expect(
+      createArgs.slice(createArgs.indexOf("--org-id"), createArgs.indexOf("--org-id") + 2),
+    ).toEqual(["--org-id", "neon-org-from-stack"]);
+    expect(createArgs).not.toContain("neon-credential-account");
     expect(node("neon-database").purpose).toContain("credential reference");
+  });
+
+  it("fails founder Neon creation before planning when the Stack organization id is missing", async () => {
+    const founderBrief = brief("fixtures/web-saas/brief.yaml");
+    const definition = compileLaunchGraph(founderBrief);
+    const snapshot = loadDefaultProviderConfig(process.cwd());
+    Object.assign(snapshot.providers.providers.neon!, {
+      state: "unconfigured",
+      account_id: "must-not-be-used-as-neon-org",
+      credential_ref: "cred://neon/control-plane",
+      region: "aws-eu-central-1",
+      external_resource_ids: {
+        project_intent: "create",
+        project_name: "new-venture",
+        database_credential_ref: "cred://neon/database",
+      },
+    });
+    const factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+    });
+    const neonNode = definition.nodes.find(({ id }) => id === "neon-database")!;
+
+    await expect(factories["provider.neon-database"]!(workflowContext(neonNode))).rejects.toThrow(
+      "providers.neon.external_resource_ids.organization_id",
+    );
   });
 
   it("builds one exact test-mode Stripe price and binds it to the created product", async () => {
@@ -470,7 +584,15 @@ describe("default provider composition", () => {
     Object.assign(snapshot.providers.providers.stripe!, {
       state: "unconfigured",
       credential_ref: "cred://stripe/test",
-      external_resource_ids: { mode: "test" },
+      external_resource_ids: {
+        mode: "test",
+        webhook_secret_credential_ref: "cred://stripe/reviewed-webhook",
+      },
+    });
+    Object.assign(snapshot.providers.providers.vercel!, {
+      credential_ref: "cred://vercel/reviewed",
+      team_id: "reviewed-team",
+      external_resource_ids: { project: "reviewed-venture", project_intent: "create" },
     });
     const factories = createDefaultProviderPlanFactories({
       rootDir: process.cwd(),
@@ -491,6 +613,7 @@ describe("default provider composition", () => {
         unitAmount: 1995,
         recurringInterval: "month",
         webhookUrl: "https://reviewed.example/api/stripe/webhook",
+        webhookSecretCredentialRef: "cred://stripe/reviewed-webhook",
       },
     });
     const plan = providerRegistry.get("stripe").plan({ ...target.request, dryRun: false });
@@ -505,6 +628,30 @@ describe("default provider composition", () => {
       product: "{dependency.product.id}",
       currency: "eur",
       unit_amount: 1995,
+    });
+    expect(plan.operations[2].http?.captureCredential).toEqual({
+      credentialRef: "cred://stripe/reviewed-webhook",
+      outputPath: "secret",
+    });
+    const stripeEnvironmentNode = definition.nodes.find(
+      ({ id }) => id === "vercel-stripe-webhook-environment",
+    )!;
+    await expect(
+      factories["provider.vercel-stripe-webhook-environment"]!(
+        workflowContext(stripeEnvironmentNode),
+      ),
+    ).resolves.toMatchObject({
+      provider: "vercel",
+      request: {
+        capabilities: ["environment_variable"],
+        inputs: {
+          project: "reviewed-venture",
+          scope: "reviewed-team",
+          environmentVariableName: "STRIPE_WEBHOOK_SECRET",
+          environmentTarget: "production",
+          environmentValueCredentialRef: "cred://stripe/reviewed-webhook",
+        },
+      },
     });
 
     snapshot.offer.pricing.annual_price = 199;

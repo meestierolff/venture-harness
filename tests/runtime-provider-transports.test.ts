@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NodeCommandRunner, Redactor } from "@/lib/credentials";
 import { NativeHttpFetcher, type RedactedHttpRequestMetadata } from "@/lib/runtime";
 
@@ -36,6 +36,8 @@ describe("official native provider transports", () => {
     const fetcher = new NativeHttpFetcher({
       redactor,
       onRequest: (entry) => metadata.push(entry),
+      allowedHosts: ["api.example.test"],
+      resolveHost: async () => ["93.184.216.34"],
       fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
         receivedAuthorization = new Headers(init?.headers).get("authorization") ?? "";
         return new Response(JSON.stringify({ ok: true }), {
@@ -66,5 +68,60 @@ describe("official native provider transports", () => {
       headers: { "content-type": "application/json" },
       body: { ok: true },
     });
+  });
+
+  it("revalidates redirects, strips cross-host credentials, and forbids write redirects", async () => {
+    const seenAuthorization: Array<string | null> = [];
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementationOnce(async (_input, init) => {
+        seenAuthorization.push(new Headers(init?.headers).get("authorization"));
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://read.example.test/result" },
+        });
+      })
+      .mockImplementationOnce(async (_input, init) => {
+        seenAuthorization.push(new Headers(init?.headers).get("authorization"));
+        return new Response('{"ok":true}', { status: 200 });
+      });
+    const fetcher = new NativeHttpFetcher({
+      fetch,
+      allowedHosts: ["api.example.test", "read.example.test"],
+      resolveHost: async () => ["93.184.216.34"],
+    });
+    await expect(
+      fetcher.fetch({
+        method: "GET",
+        url: "https://api.example.test/start",
+        headers: { Authorization: "Bearer fixture-secret" },
+        sensitiveHeaders: ["authorization"],
+        sensitiveUrl: false,
+      }),
+    ).resolves.toMatchObject({ status: 200, body: { ok: true } });
+    expect(seenAuthorization).toEqual(["Bearer fixture-secret", null]);
+
+    const writeRedirect = new NativeHttpFetcher({
+      fetch: vi.fn(async () =>
+        Promise.resolve(
+          new Response(null, {
+            status: 307,
+            headers: { location: "https://api.example.test/other" },
+          }),
+        ),
+      ),
+      allowedHosts: ["api.example.test"],
+      resolveHost: async () => ["93.184.216.34"],
+    });
+    await expect(
+      writeRedirect.fetch({
+        method: "POST",
+        url: "https://api.example.test/write",
+        headers: {},
+        body: "{}",
+        sensitiveHeaders: [],
+        sensitiveUrl: false,
+      }),
+    ).rejects.toThrow(/write redirects are forbidden/);
   });
 });

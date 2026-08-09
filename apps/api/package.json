@@ -1,0 +1,15 @@
+{
+  "name": "@venture-harness/app-api",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@venture-harness/agent-runtime": "workspace:*",
+    "@venture-harness/api-generator": "workspace:*"
+  },
+  "scripts": {
+    "build": "node ../../scripts/workspace-build.mjs app-api"
+  }
+}

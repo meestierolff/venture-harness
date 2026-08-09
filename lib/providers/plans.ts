@@ -597,7 +597,9 @@ function neonDatabaseAuth(databaseCredentialRef: string) {
 
 export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
   const operations: ProviderOperation[] = [];
+  const workingDirectory = optionalString(request, "workingDirectory");
   if (hasCapability(request, "project")) {
+    const organizationId = inputString(request, "organizationId");
     const name = inputString(request, "projectName");
     const region = inputString(request, "regionId");
     const databaseCredentialRef = request.inputs.databaseCredentialRef
@@ -609,14 +611,25 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
         capability: "project",
         action: "project.create",
         title: `Create Neon project ${name}`,
-        identity: { name, region },
+        identity: { organizationId, name, region },
         riskClass: "critical",
         effectClass: "reversible_external",
         reversibility: "conditionally_reversible",
         credentialRef: request.credentialRef,
         command: {
           binary: "neonctl",
-          args: ["projects", "create", "--name", name, "--region-id", region, "--output", "json"],
+          args: [
+            "projects",
+            "create",
+            "--org-id",
+            organizationId,
+            "--name",
+            name,
+            "--region-id",
+            region,
+            "--output",
+            "json",
+          ],
           authEnvironment: neonAuth(request),
           ...(databaseCredentialRef
             ? {
@@ -636,6 +649,7 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
           },
           description: "Neon returned the new project identity and region",
           assertions: [
+            { path: "org_id", operator: "equals", expected: organizationId },
             { path: "name", operator: "equals", expected: name },
             { path: "region_id", operator: "equals", expected: region },
           ],
@@ -838,6 +852,7 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
         binary: "psql",
         args: ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--file", neonMigrationPath],
         authEnvironment: neonDatabaseAuth(databaseCredentialRef),
+        ...(workingDirectory ? { cwd: workingDirectory } : {}),
       },
       readBack: {
         transport: "cli",
@@ -852,6 +867,7 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
             neonSchemaReadBackSql,
           ],
           authEnvironment: neonDatabaseAuth(databaseCredentialRef),
+          ...(workingDirectory ? { cwd: workingDirectory } : {}),
         },
         description:
           "PostgreSQL returned the migration ledger entry, managed tables, and named constraints",
@@ -896,6 +912,7 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
             neonReadWriteHealthSql,
           ],
           authEnvironment: neonDatabaseAuth(databaseCredentialRef),
+          ...(workingDirectory ? { cwd: workingDirectory } : {}),
         },
         readBack: {
           transport: "cli",
@@ -910,6 +927,7 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
               neonReadWriteHealthSql,
             ],
             authEnvironment: neonDatabaseAuth(databaseCredentialRef),
+            ...(workingDirectory ? { cwd: workingDirectory } : {}),
           },
           description: "A fresh transactional write/read probe returned the expected sentinel",
           assertions: [{ path: "", operator: "contains", expected: neonHealthEvidence }],
@@ -923,6 +941,7 @@ export function buildNeonPlan(request: ProviderPlanRequest): ProviderPlan {
     );
   }
   return createPlan("neon", request, operations, [
+    "Neon project creation is bound to inputs.organizationId and passes it explicitly to neonctl as --org-id; project read-back verifies the returned org_id.",
     "Neon resource provisioning uses only the API-key credential reference.",
     "Database connections are accepted only through inputs.databaseCredentialRef and are injected into psql through PGDATABASE, never argv or plan artifacts.",
     "For project creation, the command transport captures connection_uris[0].connection_uri directly into an already-registered writable databaseCredentialRef and redacts it before returning output.",
@@ -1039,6 +1058,7 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
   if (hasCapability(request, "webhook")) {
     const url = inputString(request, "webhookUrl");
     const enabledEvents = inputStrings(request, "enabledEvents");
+    const webhookSecretCredentialRef = credentialInput(request, "webhookSecretCredentialRef");
     operations.push(
       operation(request, {
         provider: "stripe",
@@ -1057,6 +1077,10 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
           encoding: "form",
           auth: stripeAuth(request),
           nativeIdempotency: true,
+          captureCredential: {
+            credentialRef: webhookSecretCredentialRef,
+            outputPath: "secret",
+          },
         },
         readBack: {
           transport: "http",
@@ -1625,6 +1649,7 @@ export function buildGooglePlan(request: ProviderPlanRequest): ProviderPlan {
     const propertyId = inputString(request, "analyticsPropertyId");
     const displayName = inputString(request, "streamDisplayName");
     const defaultUri = inputString(request, "defaultUri");
+    const measurementIdCredentialRef = credentialInput(request, "measurementIdCredentialRef");
     operations.push(
       operation(request, {
         provider: "google",
@@ -1645,6 +1670,10 @@ export function buildGooglePlan(request: ProviderPlanRequest): ProviderPlan {
             webStreamData: { defaultUri },
           },
           auth: googleAuth(request),
+          captureCredential: {
+            credentialRef: measurementIdCredentialRef,
+            outputPath: "webStreamData.measurementId",
+          },
         },
         readBack: {
           transport: "http",

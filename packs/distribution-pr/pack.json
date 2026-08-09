@@ -1,0 +1,7 @@
+{
+  "id": "distribution-pr",
+  "version": "0.2.0",
+  "coreCompatibility": "^0.2.0",
+  "commands": ["campaigns.launch", "learnings.ingest"],
+  "uninstall": "reversible_if_unused"
+}

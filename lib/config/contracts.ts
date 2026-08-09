@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { findCredentialMaterial } from "../../packages/core/src/index";
 
 export const semverSchema = z.string().regex(/^\d+\.\d+\.\d+$/, "expected semantic version");
 
@@ -60,17 +61,8 @@ export function uniqueArray<T extends z.ZodTypeAny>(item: T) {
 const FORBIDDEN_CREDENTIAL_KEY =
   /^(access_token|refresh_token|id_token|api_key|secret|client_secret|private_key|password|credential_value)$/i;
 
-const CREDENTIAL_VALUE_PATTERNS = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-  /^gh[pousr]_[A-Za-z0-9]{20,}$/,
-  /^sk_(?:live|test)_[A-Za-z0-9]{12,}$/,
-  /^xox[baprs]-[A-Za-z0-9-]{10,}$/,
-  /^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/,
-  /^postgres(?:ql)?:\/\/[^\s:/]+:[^\s@]+@/,
-];
-
 export function looksLikeCredentialValue(value: string): boolean {
-  return CREDENTIAL_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+  return findCredentialMaterial(value) !== null;
 }
 
 export function rejectCredentialMaterial(value: unknown, ctx: z.RefinementCtx): void {

@@ -4,6 +4,7 @@ import { createDefaultCliServices } from "./default-services";
 import type { CliIo, CliLaunchRequest, CliResult, CliServices } from "./types";
 
 export * from "./types";
+export * from "./platform-command-runtime";
 
 export interface RunCliOptions {
   io?: CliIo;
@@ -20,12 +21,17 @@ Usage:
   vh auth revoke <provider>       Revoke through a configured provider adapter
     --ref cred://provider/name --backend environment|macos_keychain|onepassword|cli_session
     --kind <credential-kind> --scopes <comma-separated>
+  vh stack create founder-default --file <connection.json>
+                                  Persist one credential-free founder Stack connection
+  vh stack doctor founder-default Inspect every founder Stack role without provider effects
   vh doctor                       Inspect local launch prerequisites
   vh create --brief <file>        Validate and persist one progressive-commitment brief
   vh plan [--brief <file>]        Compile a launch plan without side effects
   vh launch --dry-run             Show nodes, effects, approvals, cost, and manual work
   vh launch --apply --authorization <profile>
                                   Execute an authorized launch graph
+  vh launch --idea <idea.md> --stack founder-default --production --apply --non-interactive
+                                  Materialize and execute the complete founder launch in one command
   vh status [run-id]              Show one run or list known runs
   vh resume <run-id>              Resume the same persisted run
     --authorization <profile>     Explicitly renew an expired run envelope
@@ -64,6 +70,9 @@ function positional(args: string[]): string[] {
       if (
         [
           "--brief",
+          "--idea",
+          "--stack",
+          "--output",
           "--authorization",
           "--run-id",
           "--manual",
@@ -79,6 +88,7 @@ function positional(args: string[]): string[] {
           "--backend",
           "--kind",
           "--scopes",
+          "--file",
           "--release",
         ].includes(args[index])
       )
@@ -99,6 +109,12 @@ function terminalWorkflowExitCode(value: unknown): 0 | 1 {
   if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
   const status = (value as { status?: unknown }).status;
   return status === "failed" || status === "cancelled" ? 1 : 0;
+}
+
+function founderLaunchExitCode(value: unknown, mode: "dry-run" | "apply"): 0 | 1 {
+  if (mode === "dry-run" || !value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const status = (value as { status?: unknown }).status;
+  return status === "blocked" || status === "failed" ? 1 : 0;
 }
 
 function unsupported(io: CliIo, command: string, nextAction: string): CliResult {
@@ -159,6 +175,57 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
       return { exitCode: 0 };
     }
 
+    if (command === "stack") {
+      const unknownFlag = rest.find(
+        (value) => value.startsWith("-") && value !== "--file" && value !== "--json",
+      );
+      const fileIndexes = rest
+        .map((value, index) => (value === "--file" ? index : -1))
+        .filter((index) => index >= 0);
+      if (
+        unknownFlag ||
+        fileIndexes.length > 1 ||
+        (fileIndexes.length === 1 &&
+          (!rest[fileIndexes[0] + 1] || rest[fileIndexes[0] + 1].startsWith("-")))
+      ) {
+        io.stderr(
+          "Usage: vh stack create founder-default --file <connection.json> | vh stack doctor founder-default",
+        );
+        return { exitCode: 2 };
+      }
+      const values = positional(rest);
+      const action = values[0];
+      const profileId = values[1];
+      if (
+        (action !== "create" && action !== "doctor") ||
+        profileId !== "founder-default" ||
+        values.length !== 2
+      ) {
+        io.stderr(
+          "Usage: vh stack create founder-default --file <connection.json> | vh stack doctor founder-default",
+        );
+        return { exitCode: 2 };
+      }
+      const file = flagValue(rest, "--file");
+      if (action === "create" && !file) {
+        io.stderr("vh stack create founder-default requires --file <connection.json>.");
+        return { exitCode: 2 };
+      }
+      if (action === "doctor" && rest.includes("--file")) {
+        io.stderr("vh stack doctor founder-default does not accept --file.");
+        return { exitCode: 2 };
+      }
+      if (!services.stack) {
+        return unsupported(
+          io,
+          `vh stack ${action} founder-default`,
+          "configure the founder Stack metadata store and credential broker",
+        );
+      }
+      emit(io, await services.stack({ action, profileId, ...(file ? { file } : {}) }), json);
+      return { exitCode: 0 };
+    }
+
     if (command === "plan") {
       if (!services.plan)
         return unsupported(
@@ -177,6 +244,43 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
         io.stderr("Choose exactly one of --dry-run or --apply.");
         io.stderr("Next: run vh launch --dry-run before requesting an authorized apply.");
         return { exitCode: 2 };
+      }
+      const idea = flagValue(rest, "--idea");
+      if (idea) {
+        const stackProfile = flagValue(rest, "--stack");
+        if (stackProfile !== "founder-default") {
+          io.stderr("One-prompt launch requires --stack founder-default.");
+          return { exitCode: 2 };
+        }
+        if (!rest.includes("--production") || !rest.includes("--non-interactive")) {
+          io.stderr("One-prompt launch requires --production and --non-interactive.");
+          return { exitCode: 2 };
+        }
+        if (rest.includes("--authorization")) {
+          io.stderr(
+            "One-prompt launch derives its graph authorization from the issued Launch Grant; do not pass --authorization.",
+          );
+          return { exitCode: 2 };
+        }
+        if (!services.founderLaunch) {
+          return unsupported(
+            io,
+            "vh launch --idea",
+            "configure the founder Stack and one-prompt launch service",
+          );
+        }
+        const mode = dryRun ? "dry-run" : "apply";
+        const result = await services.founderLaunch({
+          mode,
+          idea,
+          stackProfile,
+          production: true,
+          nonInteractive: true,
+          output: flagValue(rest, "--output"),
+          json,
+        });
+        emit(io, result, json);
+        return { exitCode: founderLaunchExitCode(result, mode) };
       }
       const authorization = flagValue(rest, "--authorization");
       if (apply && !authorization) {

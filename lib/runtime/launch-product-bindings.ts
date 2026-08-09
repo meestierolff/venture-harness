@@ -24,6 +24,8 @@ import {
   type WorkflowBindings,
   type WorkflowHandlerContext,
   type WorkflowHandlerResult,
+  type WorkflowReconciliationContext,
+  type WorkflowReconciliationResult,
 } from "../workflow";
 import type {
   BuildAgentArtifactRole,
@@ -34,7 +36,7 @@ import type {
 
 const AGENT_TASKS: Readonly<Record<string, string>> = {
   "launch.prepareRepository":
-    "Inspect the selected rail and existing repository, then create or adapt only the smallest venture-owned scaffold needed for the brief. Preserve managed contracts and existing project-owned work. Record assumptions instead of inventing non-critical product detail.",
+    "Inspect the selected rail and existing repository, then create or adapt only the smallest venture-owned scaffold needed for the brief. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Preserve managed contracts and existing project-owned work. Record assumptions instead of inventing non-critical product detail.",
   "launch.designDirection":
     "Create and implement an original, accessible visual direction for the smallest core journey. Record the design thesis, tokens, responsive composition, accessibility constraints, and anti-template audit. Do not copy a reference identity or fabricate product proof.",
   "launch.buildCoreJourney":
@@ -53,6 +55,32 @@ const QUALITY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
   "launch.verifyLocal": ["verify:fast"],
   "launch.verifyMvp": ["verify:mvp"],
 };
+
+export const CHILD_DEPENDENCY_INSTALL_ARGS = [
+  "install",
+  "--frozen-lockfile",
+  "--ignore-workspace",
+  "--ignore-scripts",
+  "--prod=false",
+] as const;
+
+const DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION = 1;
+
+interface DependencyInstallCheckpoint {
+  schemaVersion: typeof DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION;
+  packageManifest: "package.json";
+  packageManifestSha256: string;
+  lockfile: "pnpm-lock.yaml";
+  lockfileSha256: string;
+}
+
+interface DependencyInstallReadBack extends DependencyInstallCheckpoint {
+  state: "verified" | "not_applied" | "input_mismatch";
+  installedModulesReadBack: boolean;
+  installedLockfileReadBack: boolean;
+  requiredToolingReadBack: boolean;
+  message: string | null;
+}
 
 const POST_DEPLOY_TEST_ARGS = [
   "exec",
@@ -151,6 +179,99 @@ function repositoryReference(root: string, path: string): { absolute: string; re
 
 function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function dependencyInstallCheckpoint(value: unknown): DependencyInstallCheckpoint | null {
+  if (!value || Array.isArray(value) || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.schemaVersion !== DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION ||
+    record.packageManifest !== "package.json" ||
+    record.lockfile !== "pnpm-lock.yaml" ||
+    typeof record.packageManifestSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(record.packageManifestSha256) ||
+    typeof record.lockfileSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(record.lockfileSha256)
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION,
+    packageManifest: "package.json",
+    packageManifestSha256: record.packageManifestSha256,
+    lockfile: "pnpm-lock.yaml",
+    lockfileSha256: record.lockfileSha256,
+  };
+}
+
+function readDependencyInstallState(
+  root: string,
+  expected: DependencyInstallCheckpoint,
+): DependencyInstallReadBack {
+  const packagePath = inside(root, expected.packageManifest);
+  const lockPath = inside(root, expected.lockfile);
+  if (
+    !existsSync(packagePath) ||
+    !lstatSync(packagePath).isFile() ||
+    !existsSync(lockPath) ||
+    !lstatSync(lockPath).isFile()
+  ) {
+    return {
+      ...expected,
+      state: "input_mismatch",
+      installedModulesReadBack: false,
+      installedLockfileReadBack: false,
+      requiredToolingReadBack: false,
+      message: "The checkpointed package manifest or lockfile is missing or not a regular file.",
+    };
+  }
+
+  const currentPackageSha256 = sha256(packagePath);
+  const currentLockSha256 = sha256(lockPath);
+  if (
+    currentPackageSha256 !== expected.packageManifestSha256 ||
+    currentLockSha256 !== expected.lockfileSha256
+  ) {
+    return {
+      ...expected,
+      state: "input_mismatch",
+      installedModulesReadBack: false,
+      installedLockfileReadBack: false,
+      requiredToolingReadBack: false,
+      message:
+        "package.json or pnpm-lock.yaml changed after the dependency operation was checkpointed.",
+    };
+  }
+
+  const modulesPath = inside(root, "node_modules");
+  const installedModulesReadBack = existsSync(modulesPath) && lstatSync(modulesPath).isDirectory();
+  const installedLockPath = inside(root, "node_modules/.pnpm/lock.yaml");
+  const installedLockfileReadBack =
+    installedModulesReadBack &&
+    existsSync(installedLockPath) &&
+    lstatSync(installedLockPath).isFile() &&
+    sha256(installedLockPath) === expected.lockfileSha256;
+  const binaryDirectory = inside(root, "node_modules/.bin");
+  const commandInstalled = (name: string) =>
+    [name, `${name}.cmd`, `${name}.ps1`].some((candidate) =>
+      existsSync(resolve(binaryDirectory, candidate)),
+    );
+  const requiredToolingReadBack =
+    installedModulesReadBack && commandInstalled("tsc") && commandInstalled("playwright");
+  return {
+    ...expected,
+    state:
+      installedModulesReadBack && installedLockfileReadBack && requiredToolingReadBack
+        ? "verified"
+        : "not_applied",
+    installedModulesReadBack,
+    installedLockfileReadBack,
+    requiredToolingReadBack,
+    message:
+      installedModulesReadBack && installedLockfileReadBack && requiredToolingReadBack
+        ? null
+        : "The exact child dependency installation is absent or incomplete on read-back.",
+  };
 }
 
 function repositorySnapshot(root: string): RepositorySnapshot {
@@ -278,6 +399,53 @@ function artifactPaths(root: string, context: WorkflowHandlerContext) {
   const nodeId = safeSegment(context.node.id, "node ID");
   const reference = `reports/launch/${runId}/product/${nodeId}.json`;
   return { reference, absolute: inside(root, reference) };
+}
+
+function dependencyInstallEvidencePaths(
+  root: string,
+  runIdInput: string,
+  nodeIdInput = "install-dependencies",
+) {
+  const runId = safeSegment(runIdInput, "run ID");
+  const nodeId = safeSegment(nodeIdInput, "dependency install node ID");
+  const reference = `reports/launch/${runId}/product/${nodeId}.json`;
+  return { reference, absolute: inside(root, reference) };
+}
+
+function dependencyReconciliationEvidencePaths(
+  root: string,
+  runIdInput: string,
+  nodeIdInput: string,
+) {
+  const runId = safeSegment(runIdInput, "run ID");
+  const nodeId = safeSegment(nodeIdInput, "dependency install node ID");
+  const reference = `reports/launch/${runId}/product/${nodeId}.reconcile.json`;
+  return { reference, absolute: inside(root, reference) };
+}
+
+function checkpointFromInstallEvidence(
+  root: string,
+  runId: string,
+  nodeId: string,
+): DependencyInstallCheckpoint | null {
+  const paths = dependencyInstallEvidencePaths(root, runId, nodeId);
+  if (!existsSync(paths.absolute) || !lstatSync(paths.absolute).isFile()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(paths.absolute, "utf8"));
+  } catch {
+    return null;
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return null;
+  const record = parsed as Record<string, unknown>;
+  if (record.runId !== runId || record.nodeId !== nodeId) return null;
+  return dependencyInstallCheckpoint({
+    schemaVersion: DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION,
+    packageManifest: record.packageManifest,
+    packageManifestSha256: record.packageManifestSha256,
+    lockfile: record.lockfile,
+    lockfileSha256: record.lockfileSha256,
+  });
 }
 
 function verifiedChangedFiles(root: string, changedFiles: readonly string[]): string[] {
@@ -751,7 +919,28 @@ async function runAgentTask(
     options.redactor,
   );
   context.trace({ host: options.agentHost.id, evidenceArtifact, status: result.status });
-  return { output, effectVerified: true, evidenceArtifact };
+  const meteredTokens = result.usage ? result.usage.inputTokens + result.usage.outputTokens : 0;
+  return {
+    output,
+    effectVerified: true,
+    evidenceArtifact,
+    ...(context.node.cost.unit === "tokens" && meteredTokens > 0
+      ? {
+          costs: [
+            {
+              kind: "model" as const,
+              category: context.node.budgetCategory,
+              amount: meteredTokens,
+              unit: "tokens",
+              inputTokens: result.usage!.inputTokens,
+              outputTokens: result.usage!.outputTokens,
+              tool: options.agentHost.id,
+              metadata: { cachedInputTokens: result.usage!.cachedInputTokens },
+            },
+          ],
+        }
+      : {}),
+  };
 }
 
 async function runQualityCommand(
@@ -797,6 +986,324 @@ async function runQualityCommand(
     output: { command: ["pnpm", ...args], exitCode: result.exitCode },
     evidenceArtifact,
   };
+}
+
+async function runDependencyInstall(
+  options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "commandRunner">> & {
+    redactor: Redactor;
+    now: () => Date;
+    checkpointOperation: boolean;
+    waitOnFailure: boolean;
+  },
+  context: WorkflowHandlerContext,
+): Promise<WorkflowHandlerResult> {
+  const startedAt = options.now().toISOString();
+  const packagePath = inside(options.rootDir, "package.json");
+  const lockPath = inside(options.rootDir, "pnpm-lock.yaml");
+  let result: Awaited<ReturnType<CommandRunner["run"]>> | null = null;
+  let invocationError: string | null = null;
+  let packageManifestSha256: string | null = null;
+  let lockfileSha256: string | null = null;
+  let installedModulesReadBack = false;
+  let installedLockfileReadBack = false;
+  let requiredToolingReadBack = false;
+  let checkpoint: DependencyInstallCheckpoint | null = null;
+
+  try {
+    if (!existsSync(packagePath) || !lstatSync(packagePath).isFile()) {
+      throw new Error("package.json is missing or is not a regular file");
+    }
+    if (!existsSync(lockPath) || !lstatSync(lockPath).isFile()) {
+      throw new Error("pnpm-lock.yaml is missing or is not a regular file");
+    }
+    packageManifestSha256 = sha256(packagePath);
+    lockfileSha256 = sha256(lockPath);
+    checkpoint = {
+      schemaVersion: DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION,
+      packageManifest: "package.json",
+      packageManifestSha256,
+      lockfile: "pnpm-lock.yaml",
+      lockfileSha256,
+    };
+    if (options.checkpointOperation) {
+      context.checkpointOperation?.(checkpoint as unknown as JsonValue);
+    }
+    result = await options.commandRunner.run({
+      command: "pnpm",
+      args: CHILD_DEPENDENCY_INSTALL_ARGS,
+      cwd: options.rootDir,
+      signal: context.signal,
+    });
+    if (result.exitCode === 0) {
+      const readBack = readDependencyInstallState(options.rootDir, checkpoint);
+      installedModulesReadBack = readBack.installedModulesReadBack;
+      installedLockfileReadBack = readBack.installedLockfileReadBack;
+      requiredToolingReadBack = readBack.requiredToolingReadBack;
+      if (readBack.state === "input_mismatch") {
+        throw new Error(readBack.message ?? "the frozen dependency inputs changed");
+      }
+      if (readBack.state !== "verified") {
+        throw new Error(
+          "pnpm exited successfully but the exact locked modules and required development tools were absent on read-back",
+        );
+      }
+    }
+  } catch (error) {
+    invocationError = options.redactor.redactText(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  const evidenceArtifact = persistEvidence(
+    options.rootDir,
+    context,
+    {
+      schemaVersion: 1,
+      runId: context.runId,
+      nodeId: context.node.id,
+      handler: context.node.handler,
+      startedAt,
+      finishedAt: options.now().toISOString(),
+      command: ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      packageManifest: "package.json",
+      packageManifestSha256,
+      lockfile: "pnpm-lock.yaml",
+      lockfileSha256,
+      frozenLockfile: true,
+      parentWorkspaceIgnored: true,
+      lifecycleScriptsDisabled: true,
+      installedModulesReadBack,
+      installedLockfileReadBack,
+      requiredToolingReadBack,
+      exitCode: result?.exitCode ?? null,
+      stdoutExcerpt: options.redactor.redactText(result?.stdout ?? "").slice(-4_000),
+      stderrExcerpt: options.redactor.redactText(result?.stderr ?? "").slice(-4_000),
+      invocationError,
+    },
+    options.redactor,
+  );
+  context.trace({
+    command: ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+    exitCode: result?.exitCode ?? null,
+    evidenceArtifact,
+  });
+  if (!result || result.exitCode !== 0 || invocationError) {
+    const reason = invocationError ?? `pnpm exited ${result?.exitCode ?? "without a result"}`;
+    if (checkpoint && options.waitOnFailure && context.checkpointOperation) {
+      return {
+        wait: {
+          kind: "external",
+          reason: `Frozen child dependency install failed (${reason}); repair local package-manager or registry availability, then resume the same run. Inspect ${evidenceArtifact}.`,
+        },
+        evidenceArtifact,
+      };
+    }
+    throw new WorkflowExecutionError(
+      "DEPENDENCY_INSTALL_FAILED",
+      `Frozen child dependency install failed (${reason}); inspect ${evidenceArtifact}. No source publish or deployment node can start from this failed dependency.`,
+    );
+  }
+  return {
+    output: {
+      command: ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      exitCode: 0,
+      packageManifest: "package.json",
+      packageManifestSha256,
+      lockfile: "pnpm-lock.yaml",
+      lockfileSha256,
+      frozenLockfile: true,
+      installedModulesReadBack: true,
+      installedLockfileReadBack: true,
+      requiredToolingReadBack: true,
+      lifecycleScriptsDisabled: true,
+    },
+    effectVerified: true,
+    evidenceArtifact,
+  };
+}
+
+function persistDependencyReconciliationEvidence(
+  root: string,
+  context: WorkflowReconciliationContext,
+  readBack: DependencyInstallReadBack,
+  redactor: Redactor,
+  now: () => Date,
+): string {
+  const paths = dependencyReconciliationEvidencePaths(root, context.runId, context.node.id);
+  writeJsonAtomic(
+    paths.absolute,
+    redactor.redact({
+      runId: context.runId,
+      nodeId: context.node.id,
+      handler: context.node.handler,
+      reason: context.reason,
+      observedAt: now().toISOString(),
+      ...readBack,
+    }),
+  );
+  const persisted = JSON.parse(readFileSync(paths.absolute, "utf8")) as {
+    runId?: string;
+    nodeId?: string;
+    state?: string;
+  };
+  if (
+    persisted.runId !== context.runId ||
+    persisted.nodeId !== context.node.id ||
+    persisted.state !== readBack.state
+  ) {
+    throw new WorkflowExecutionError(
+      "DEPENDENCY_RECONCILIATION_EVIDENCE_INVALID",
+      "Dependency reconciliation evidence failed atomic read-back.",
+    );
+  }
+  return paths.reference;
+}
+
+function reconcileDependencyInstall(
+  options: Required<Pick<LaunchProductBindingsOptions, "rootDir">> & {
+    redactor: Redactor;
+    now: () => Date;
+  },
+  context: WorkflowReconciliationContext,
+): WorkflowReconciliationResult {
+  const checkpoint = dependencyInstallCheckpoint(context.operation.checkpoint);
+  if (!checkpoint) {
+    return {
+      status: "failed",
+      code: "DEPENDENCY_CHECKPOINT_INVALID",
+      message:
+        "The dependency operation has no valid immutable package/lock checkpoint; start a deliberate new launch instead of guessing at mutable local state.",
+    };
+  }
+  const readBack = readDependencyInstallState(options.rootDir, checkpoint);
+  const evidenceArtifact = persistDependencyReconciliationEvidence(
+    options.rootDir,
+    context,
+    readBack,
+    options.redactor,
+    options.now,
+  );
+  context.trace({
+    dependencyReconciliation: readBack.state,
+    evidenceArtifact,
+  });
+  if (readBack.state === "input_mismatch") {
+    return {
+      status: "failed",
+      code: "DEPENDENCY_INPUT_CHANGED",
+      message:
+        readBack.message ??
+        "The package manifest or lockfile no longer matches the checkpointed install inputs.",
+    };
+  }
+  if (readBack.state === "not_applied") return { status: "not_applied" };
+  return {
+    status: "verified",
+    output: {
+      command: ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      exitCode: 0,
+      packageManifest: checkpoint.packageManifest,
+      packageManifestSha256: checkpoint.packageManifestSha256,
+      lockfile: checkpoint.lockfile,
+      lockfileSha256: checkpoint.lockfileSha256,
+      frozenLockfile: true,
+      installedModulesReadBack: true,
+      installedLockfileReadBack: true,
+      requiredToolingReadBack: true,
+      lifecycleScriptsDisabled: true,
+      reconciled: true,
+    },
+    evidenceArtifact,
+  };
+}
+
+function dependencyCheckpointForHandler(
+  root: string,
+  context: WorkflowHandlerContext,
+): { checkpoint: DependencyInstallCheckpoint | null; expected: boolean; nodeId: string } {
+  for (const nodeId of ["finalize-dependencies", "install-dependencies"] as const) {
+    const direct = context.dependencyOutputs[nodeId];
+    if (direct && !Array.isArray(direct) && typeof direct === "object") {
+      const checkpoint = dependencyInstallCheckpoint({
+        schemaVersion: DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION,
+        packageManifest: direct.packageManifest,
+        packageManifestSha256: direct.packageManifestSha256,
+        lockfile: direct.lockfile,
+        lockfileSha256: direct.lockfileSha256,
+      });
+      return { checkpoint, expected: true, nodeId };
+    }
+  }
+  for (const nodeId of ["finalize-dependencies", "install-dependencies"] as const) {
+    const paths = dependencyInstallEvidencePaths(root, context.runId, nodeId);
+    if (existsSync(paths.absolute)) {
+      return {
+        checkpoint: checkpointFromInstallEvidence(root, context.runId, nodeId),
+        expected: true,
+        nodeId,
+      };
+    }
+  }
+  return { checkpoint: null, expected: false, nodeId: "install-dependencies" };
+}
+
+async function ensureCurrentDependencyInstall(
+  options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "commandRunner">> & {
+    redactor: Redactor;
+    now: () => Date;
+  },
+  context: WorkflowHandlerContext,
+): Promise<void> {
+  const selected = dependencyCheckpointForHandler(options.rootDir, context);
+  // Isolated handler unit tests do not construct the launch graph. The real web
+  // graph always supplies the direct install output or its durable evidence.
+  if (!selected.expected) return;
+  if (!selected.checkpoint) {
+    throw new WorkflowExecutionError(
+      "DEPENDENCY_CHECKPOINT_INVALID",
+      "The prior dependency-install evidence is missing or malformed; no product or quality command was started.",
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+  const readBack = readDependencyInstallState(options.rootDir, selected.checkpoint);
+  if (readBack.state === "input_mismatch") {
+    throw new WorkflowExecutionError(
+      "DEPENDENCY_INPUT_CHANGED",
+      `${readBack.message ?? "Dependency inputs changed."} No product or quality command was started.`,
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+  if (readBack.state === "verified") return;
+
+  const installContext: WorkflowHandlerContext = {
+    ...context,
+    node: {
+      ...context.node,
+      id: selected.nodeId,
+      handler: "launch.installDependencies",
+      effect: "local_write",
+    },
+    dependencyOutputs: {},
+    idempotencyKey: `${context.runId}:${selected.nodeId}:repair`,
+  };
+  try {
+    await runDependencyInstall(
+      {
+        ...options,
+        checkpointOperation: false,
+        waitOnFailure: false,
+      },
+      installContext,
+    );
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "DEPENDENCY_REPAIR_FAILED",
+      `The checkpointed child dependencies were absent and the bounded reinstall failed; no product or quality command was started. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
 }
 
 function productionDeploymentUrl(context: WorkflowHandlerContext): string {
@@ -850,6 +1357,7 @@ function productionDeploymentUrl(context: WorkflowHandlerContext): string {
 
 async function runPostDeployVerification(
   options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "commandRunner">> & {
+    brief: FounderBrief;
     redactor: Redactor;
     now: () => Date;
   },
@@ -861,7 +1369,12 @@ async function runPostDeployVerification(
     command: "pnpm",
     args: POST_DEPLOY_TEST_ARGS,
     cwd: options.rootDir,
-    env: { PLAYWRIGHT_BASE_URL: deploymentUrl },
+    env: {
+      PLAYWRIGHT_BASE_URL: deploymentUrl,
+      ...(options.brief.domain
+        ? { EXPECTED_PUBLIC_ORIGIN: `https://${options.brief.domain}` }
+        : {}),
+    },
     signal: context.signal,
   });
   const evidenceArtifact = persistEvidence(
@@ -926,16 +1439,38 @@ export function createLaunchProductBindings(
   const redactor = options.redactor ?? new Redactor();
   const now = options.now ?? (() => new Date());
   const handlers: NonNullable<WorkflowBindings["handlers"]> = {};
+  const reconcilers: NonNullable<WorkflowBindings["reconcilers"]> = {};
+  const rail = routeRail(options.brief);
 
   for (const [handler, instructions] of Object.entries(AGENT_TASKS)) {
-    handlers[handler] = (context) =>
-      runAgentTask(
+    handlers[handler] = async (context) => {
+      if (rail.appKind === "web") {
+        await ensureCurrentDependencyInstall(
+          { rootDir, commandRunner: options.commandRunner, redactor, now },
+          context,
+        );
+      }
+      return runAgentTask(
         { rootDir, brief: options.brief, agentHost: options.agentHost, redactor, now },
         instructions,
         context,
       );
+    };
   }
-  const rail = routeRail(options.brief);
+  handlers["launch.installDependencies"] = (context) =>
+    runDependencyInstall(
+      {
+        rootDir,
+        commandRunner: options.commandRunner,
+        redactor,
+        now,
+        checkpointOperation: true,
+        waitOnFailure: true,
+      },
+      context,
+    );
+  reconcilers["launch.installDependencies"] = (context) =>
+    reconcileDependencyInstall({ rootDir, redactor, now }, context);
   if (rail.mobileStack !== "none") {
     handlers["launch.prepareRepository"] = (context) =>
       runMobileScaffoldTask(
@@ -950,17 +1485,31 @@ export function createLaunchProductBindings(
       );
   }
   for (const [handler, args] of Object.entries(QUALITY_COMMANDS)) {
-    handlers[handler] = (context) =>
-      runQualityCommand(
+    handlers[handler] = async (context) => {
+      if (rail.appKind === "web") {
+        await ensureCurrentDependencyInstall(
+          { rootDir, commandRunner: options.commandRunner, redactor, now },
+          context,
+        );
+      }
+      return runQualityCommand(
         { rootDir, commandRunner: options.commandRunner, redactor, now },
         args,
         context,
       );
+    };
   }
-  handlers["launch.verifyProduction"] = (context) =>
-    runPostDeployVerification(
-      { rootDir, commandRunner: options.commandRunner, redactor, now },
+  handlers["launch.verifyProduction"] = async (context) => {
+    if (rail.appKind === "web") {
+      await ensureCurrentDependencyInstall(
+        { rootDir, commandRunner: options.commandRunner, redactor, now },
+        context,
+      );
+    }
+    return runPostDeployVerification(
+      { rootDir, commandRunner: options.commandRunner, brief: options.brief, redactor, now },
       context,
     );
-  return { handlers };
+  };
+  return { handlers, reconcilers };
 }

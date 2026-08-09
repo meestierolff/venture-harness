@@ -32,6 +32,7 @@ export function sanitizeJson(value: unknown, secrets: readonly string[] = []): J
   if (typeof value === "object") {
     const out: Record<string, JsonValue> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (item === undefined) continue;
       const isReference =
         REFERENCE_KEY.test(key) || /(credential|secret|token|apiKey)Ref$/i.test(key);
       out[key] = SECRET_KEY.test(key) && !isReference ? "[REDACTED]" : sanitizeJson(item, secrets);

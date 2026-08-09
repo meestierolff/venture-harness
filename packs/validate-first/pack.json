@@ -1,0 +1,7 @@
+{
+  "id": "validate-first",
+  "version": "0.2.0",
+  "coreCompatibility": "^0.2.0",
+  "commands": ["validation.plan", "validation.evaluate"],
+  "uninstall": "reversible_if_unused"
+}

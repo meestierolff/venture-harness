@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "@/lib/cli";
+import { createDefaultCliServices } from "@/lib/cli/default-services";
 import { createHarnessLock, parseHarnessLock } from "@/lib/config/harness-lock";
 import type { CommandInvocation, CommandResult, CommandRunner } from "@/lib/credentials";
+import {
+  compileVentureMaterialization,
+  createLaunchGrant,
+  materializeVenture,
+  NodeMaterializationFileSystem,
+  type LaunchGrantInput,
+} from "@/lib/materialization";
 import {
   MigrationRegistry,
   type MigrationFileSystem,
@@ -42,6 +50,19 @@ class MemoryFileSystem implements MigrationFileSystem {
   }
 
   async remove(path: string): Promise<void> {
+    this.files.delete(path);
+  }
+
+  async prepareEmpty(): Promise<void> {
+    if (this.files.size > 0) throw new Error("materialization target is not empty");
+  }
+
+  async writeExclusive(path: string, content: string): Promise<void> {
+    if (this.files.has(path)) throw new Error(`materialization path already exists: ${path}`);
+    this.files.set(path, content);
+  }
+
+  async removeCreated(path: string): Promise<void> {
     this.files.delete(path);
   }
 }
@@ -125,6 +146,71 @@ function release(): HarnessRelease {
   };
 }
 
+function webChildGrantInput(): LaunchGrantInput {
+  return {
+    ownerOrganizationId: "founder-company",
+    ventureName: "Upgrade Proof",
+    ventureSlug: "upgrade-proof",
+    ideaDigest: "b".repeat(64),
+    seed: { id: "agentic-web-saas", version: "0.2.0" },
+    stackProfile: { id: "founder-default", version: "0.2.0" },
+    repository: { owner: "founder-company", name: "upgrade-proof", visibility: "private" },
+    providerAccounts: [
+      {
+        capability: "source.repository.create",
+        provider: "github",
+        externalAccountId: "github-founder-company",
+        ownerOrganizationId: "founder-company",
+        stackClass: "company",
+        ownership: "company_owned",
+      },
+    ],
+    autonomyProfile: "owner_preview",
+    allowedExternalEffects: ["repository.create"],
+    modelExecutionPolicy: {
+      mode: "fixture_no_model_execution",
+      maxBuildAgentTasks: 1,
+      attestation: "fixture_build_host",
+      usageAccounting: "none",
+    },
+    providerOperationBudget: {
+      maxOperations: 1,
+      maxDirectChargeMinorUnits: 0,
+      currency: "EUR",
+      estimateBasis: "reviewed_known_zero_direct_charge",
+      ongoingAccountPlanUsageCovered: false,
+    },
+    permissions: {
+      productionDeployment: false,
+      domainConfiguration: false,
+      liveCommerceConfiguration: false,
+    },
+    createdAt: "2026-08-04T11:00:00.000Z",
+    expiresAt: "2026-08-05T12:00:00.000Z",
+    grantedBy: { actorId: "founder-user", actorType: "founder" },
+    approvalRef: "approval:web-child-upgrade",
+    revokedAt: null,
+  };
+}
+
+async function materializedWebChild(): Promise<{
+  fileSystem: MemoryFileSystem;
+  lock: ReturnType<typeof parseHarnessLock>;
+}> {
+  const plan = compileVentureMaterialization({
+    grant: createLaunchGrant(webChildGrantInput()),
+    at: fixedClock(),
+    coreVersion: "0.2.0",
+    workflowRefSha: "a".repeat(40),
+  });
+  const fileSystem = new MemoryFileSystem({});
+  await materializeVenture(plan, fileSystem, fixedClock());
+  return {
+    fileSystem,
+    lock: parseHarnessLock(fileSystem.files.get("harness.lock")!),
+  };
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -190,6 +276,295 @@ describe("migration registry", () => {
 });
 
 describe("operational child upgrade", () => {
+  it("runs dry-run and apply through the public CLI for a disk-materialized ordinary child", async () => {
+    const childRoot = mkdtempSync(join(tmpdir(), "vh-ordinary-child-"));
+    const releaseRoot = mkdtempSync(join(tmpdir(), "vh-ordinary-release-"));
+    temporaryDirectories.push(childRoot, releaseRoot);
+    const plan = compileVentureMaterialization({
+      grant: createLaunchGrant(webChildGrantInput()),
+      at: fixedClock(),
+      coreVersion: "0.2.0",
+      workflowRefSha: "a".repeat(40),
+    });
+    await materializeVenture(plan, new NodeMaterializationFileSystem(childRoot), fixedClock());
+    const venturePath = "app/page.tsx";
+    const originalVentureContent = readFileSync(join(childRoot, venturePath), "utf8");
+    const incomingVentureContent = "release must not replace this disk child page\n";
+    const markerPath = "core-upgrade-marker.txt";
+    const markerContent = "public child upgrade verified\n";
+    mkdirSync(join(releaseRoot, "app"), { recursive: true });
+    writeFileSync(join(releaseRoot, venturePath), incomingVentureContent);
+    writeFileSync(join(releaseRoot, markerPath), markerContent);
+    writeFileSync(
+      join(releaseRoot, "harness.lock"),
+      stringify(
+        createHarnessLock({
+          source: { kind: "release", ref: "v0.2.0" },
+          managed_files: [
+            { path: venturePath, ownership: "venture_owned", sha256: hash(incomingVentureContent) },
+            { path: markerPath, ownership: "core_owned", sha256: hash(markerContent) },
+          ],
+        }),
+      ),
+    );
+    const runner = new FakeRunner();
+    const store = new FileWorkflowStore({ rootDir: join(childRoot, ".venture", "runs") });
+    const services = createDefaultCliServices({
+      rootDir: childRoot,
+      store,
+      upgradeCommandRunner: runner,
+      now: fixedClock,
+    });
+    const ioLines = { stdout: [] as string[], stderr: [] as string[] };
+    const io: CliIo = {
+      stdout: (line) => ioLines.stdout.push(line),
+      stderr: (line) => ioLines.stderr.push(line),
+    };
+
+    const dryRun = await runCli(["upgrade", "--release", releaseRoot, "--dry-run", "--json"], {
+      io,
+      services,
+      store,
+    });
+    expect(dryRun.exitCode).toBe(0);
+    expect(JSON.parse(ioLines.stdout.at(-1)!)).toMatchObject({
+      status: "planned",
+      verification: [{ id: "child_verify", args: ["verify"], status: "planned" }],
+    });
+    expect(readFileSync(join(childRoot, venturePath), "utf8")).toBe(originalVentureContent);
+    expect(runner.invocations).toEqual([]);
+
+    const applied = await runCli(["upgrade", "--release", releaseRoot, "--json"], {
+      io,
+      services,
+      store,
+    });
+    expect(applied.exitCode).toBe(0);
+    expect(JSON.parse(ioLines.stdout.at(-1)!)).toMatchObject({
+      status: "applied",
+      verification: [{ id: "child_verify", status: "passed" }],
+      lockUpdated: true,
+    });
+    expect(runner.invocations).toEqual([{ command: "pnpm", args: ["verify"], cwd: childRoot }]);
+    expect(readFileSync(join(childRoot, venturePath), "utf8")).toBe(originalVentureContent);
+    expect(readFileSync(join(childRoot, markerPath), "utf8")).toBe(markerContent);
+  });
+
+  it("dry-runs and applies a real ordinary web child with fixed child verification and lock last", async () => {
+    const { fileSystem, lock } = await materializedWebChild();
+    const runner = new FakeRunner();
+    const venturePath = "app/page.tsx";
+    const ventureContent = fileSystem.files.get(venturePath)!;
+    const childRelease: HarnessRelease = {
+      version: "0.2.0",
+      configContractVersion: 2,
+      source: { kind: "release", ref: "fixture:ordinary-web-0.2.0" },
+      files: [
+        {
+          path: venturePath,
+          ownership: "venture_owned",
+          content: "release must not replace this venture page\n",
+        },
+        {
+          path: "runtime/core-upgrade-marker.txt",
+          ownership: "core_owned",
+          content: "ordinary child upgrade verified\n",
+        },
+      ],
+    };
+    fileSystem.writes.length = 0;
+
+    const dryRun = await applyOperationalUpgrade({
+      fileSystem,
+      currentLock: lock,
+      release: childRelease,
+      commandRunner: runner,
+      rootDir: "/ordinary-child",
+      dryRun: true,
+      clock: fixedClock,
+    });
+
+    expect(dryRun).toMatchObject({
+      status: "planned",
+      dryRun: true,
+      verification: [{ id: "child_verify", command: "pnpm", args: ["verify"], status: "planned" }],
+      lockUpdated: false,
+    });
+    expect(dryRun.files).toContainEqual(
+      expect.objectContaining({ path: venturePath, action: "preserve" }),
+    );
+    expect(fileSystem.writes).toEqual([]);
+    expect(runner.invocations).toEqual([]);
+
+    const applied = await applyOperationalUpgrade({
+      fileSystem,
+      currentLock: lock,
+      release: childRelease,
+      commandRunner: runner,
+      rootDir: "/ordinary-child",
+      clock: fixedClock,
+    });
+
+    expect(applied).toMatchObject({
+      status: "applied",
+      verification: [{ id: "child_verify", status: "passed", exitCode: 0 }],
+      lockUpdated: true,
+      rolledBack: false,
+    });
+    expect(runner.invocations).toEqual([
+      { command: "pnpm", args: ["verify"], cwd: "/ordinary-child" },
+    ]);
+    expect(fileSystem.files.get(venturePath)).toBe(ventureContent);
+    expect(fileSystem.files.get("runtime/core-upgrade-marker.txt")).toBe(
+      "ordinary child upgrade verified\n",
+    );
+    expect(fileSystem.writes.at(-1)).toBe("harness.lock");
+  });
+
+  it("fails before writes rather than executing a verification script supplied by a release", async () => {
+    const { fileSystem, lock } = await materializedWebChild();
+    const runner = new FakeRunner();
+    const currentPackage = JSON.parse(fileSystem.files.get("package.json")!) as {
+      scripts: Record<string, string>;
+    };
+    const releasePackage = `${JSON.stringify(
+      {
+        ...currentPackage,
+        scripts: { ...currentPackage.scripts, verify: "node release-supplied-command.mjs" },
+      },
+      null,
+      2,
+    )}\n`;
+    fileSystem.writes.length = 0;
+
+    const report = await applyOperationalUpgrade({
+      fileSystem,
+      currentLock: lock,
+      release: {
+        version: "0.2.0",
+        configContractVersion: 2,
+        source: { kind: "release", ref: "fixture:untrusted-verification-command" },
+        files: [{ path: "package.json", ownership: "merge_managed", content: releasePackage }],
+      },
+      commandRunner: runner,
+      rootDir: "/ordinary-child",
+      clock: fixedClock,
+    });
+
+    expect(report).toMatchObject({
+      status: "failed",
+      error: {
+        code: "untrusted_upgrade_verification_profile",
+        message: expect.stringContaining("changes the trusted child verify script"),
+      },
+      lockUpdated: false,
+    });
+    expect(fileSystem.writes).toEqual([]);
+    expect(runner.invocations).toEqual([]);
+  });
+
+  it("runs no command when a preexisting child edit tampers with the registered verify script", async () => {
+    const { fileSystem, lock } = await materializedWebChild();
+    const childPackage = JSON.parse(fileSystem.files.get("package.json")!) as {
+      scripts: Record<string, string>;
+    };
+    childPackage.scripts.verify = "node preexisting-child-command.mjs";
+    fileSystem.files.set("package.json", `${JSON.stringify(childPackage, null, 2)}\n`);
+    fileSystem.writes.length = 0;
+    const runner = new FakeRunner();
+
+    const report = await applyOperationalUpgrade({
+      fileSystem,
+      currentLock: lock,
+      release: {
+        version: "0.2.0",
+        configContractVersion: 2,
+        source: { kind: "release", ref: "fixture:preexisting-verify-tamper" },
+        files: [
+          {
+            path: "runtime/core-upgrade-marker.txt",
+            ownership: "core_owned",
+            content: "must not be written\n",
+          },
+        ],
+      },
+      commandRunner: runner,
+      rootDir: "/ordinary-child",
+      clock: fixedClock,
+    });
+
+    expect(report).toMatchObject({
+      status: "failed",
+      error: {
+        code: "untrusted_upgrade_verification_profile",
+        message: expect.stringContaining("verify script does not match agentic-web-saas@0.2.0"),
+      },
+      lockUpdated: false,
+    });
+    expect(fileSystem.files.has("runtime/core-upgrade-marker.txt")).toBe(false);
+    expect(fileSystem.writes).toEqual([]);
+    expect(runner.invocations).toEqual([]);
+  });
+
+  it("runs no command for a preexisting unregistered child migration script", async () => {
+    const { fileSystem, lock } = await materializedWebChild();
+    if (lock.lock_version !== 2) throw new Error("expected a v2 child lock");
+    const childPackage = JSON.parse(fileSystem.files.get("package.json")!) as {
+      scripts: Record<string, string>;
+    };
+    childPackage.scripts["test:migrations"] = "node --test migrations/*.test.mjs";
+    const packageText = `${JSON.stringify(childPackage, null, 2)}\n`;
+    const packageHash = hash(packageText);
+    fileSystem.files.set("package.json", packageText);
+    const managedLock = parseHarnessLock(
+      stringify({
+        ...lock,
+        managed_files: lock.managed_files.map((entry) =>
+          entry.path === "package.json"
+            ? { ...entry, sha256: packageHash, base_sha256: packageHash }
+            : entry,
+        ),
+      }),
+    );
+    fileSystem.files.set("harness.lock", stringify(managedLock));
+    fileSystem.writes.length = 0;
+    const runner = new FakeRunner();
+
+    const report = await applyOperationalUpgrade({
+      fileSystem,
+      currentLock: managedLock,
+      release: {
+        version: "0.2.0",
+        configContractVersion: 2,
+        source: { kind: "release", ref: "fixture:managed-child-migrations" },
+        files: [
+          {
+            path: "runtime/core-upgrade-marker.txt",
+            ownership: "core_owned",
+            content: "migration verification selected\n",
+          },
+        ],
+      },
+      commandRunner: runner,
+      rootDir: "/ordinary-child",
+      clock: fixedClock,
+    });
+
+    expect(report).toMatchObject({
+      status: "failed",
+      error: {
+        code: "untrusted_upgrade_verification_profile",
+        message: expect.stringContaining(
+          "test:migrations script is not registered for agentic-web-saas@0.2.0",
+        ),
+      },
+      lockUpdated: false,
+    });
+    expect(fileSystem.files.has("runtime/core-upgrade-marker.txt")).toBe(false);
+    expect(fileSystem.writes).toEqual([]);
+    expect(runner.invocations).toEqual([]);
+  });
+
   it("plans and applies v0.1 migration plus managed release, verifies, and writes lock last", async () => {
     const fileSystem = new MemoryFileSystem(legacyFiles());
     const runner = new FakeRunner();
@@ -251,6 +626,38 @@ describe("operational child upgrade", () => {
         },
       ]),
     );
+  });
+
+  it("does not run the legacy Core checks for a non-Core repository carrying a v1 lock", async () => {
+    const currentLock = createHarnessLock({ source: { kind: "template", ref: null } });
+    const fileSystem = new MemoryFileSystem({
+      "config/framework.yaml": stringify({
+        framework: { name: "ordinary-child", version: "0.2.0" },
+        package_manager: "pnpm",
+        verification: { primary: "pnpm verify" },
+      }),
+      "harness.lock": stringify(currentLock),
+    });
+    const runner = new FakeRunner();
+
+    const report = await applyOperationalUpgrade({
+      fileSystem,
+      currentLock,
+      release: release(),
+      commandRunner: runner,
+      rootDir: "/not-core",
+      clock: fixedClock,
+    });
+
+    expect(report).toMatchObject({
+      status: "failed",
+      error: {
+        code: "untrusted_upgrade_verification_profile",
+        message: expect.stringContaining("not backed by the canonical Venture Harness Core"),
+      },
+    });
+    expect(fileSystem.writes).toEqual([]);
+    expect(runner.invocations).toEqual([]);
   });
 
   it("uses the staged migration baseline for known harness files and fails closed for unknown ones", async () => {

@@ -28,5 +28,7 @@ claim this template has touched a live account.
 
 - [Operating cadence](OPERATING_CADENCE.md)
 - [Credential rotation](CREDENTIAL_ROTATION.md)
+- [Customer offboarding](OFFBOARDING.md)
 - [Rollback](ROLLBACK.md)
 - [Child-venture upgrades](CHILD_VENTURE_UPGRADES.md)
+- [Fleet upgrades](FLEET_UPGRADES.md)

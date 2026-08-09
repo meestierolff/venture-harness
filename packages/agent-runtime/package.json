@@ -1,0 +1,40 @@
+{
+  "name": "@venture-harness/agent-runtime",
+  "version": "0.2.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js",
+      "require": "./dist/contracts.cjs"
+    }
+  },
+  "dependencies": {
+    "@venture-harness/audit": "workspace:*",
+    "@venture-harness/billing": "workspace:*",
+    "@venture-harness/command-bus": "workspace:*",
+    "@venture-harness/config": "workspace:*",
+    "@venture-harness/connections": "workspace:*",
+    "@venture-harness/core": "workspace:*",
+    "@venture-harness/entitlements": "workspace:*",
+    "@venture-harness/events": "workspace:*",
+    "@venture-harness/loops": "workspace:*",
+    "@venture-harness/organizations": "workspace:*",
+    "@venture-harness/policy": "workspace:*",
+    "@venture-harness/telemetry": "workspace:*",
+    "yaml": "^2.7.0"
+  },
+  "scripts": {
+    "build": "node ../../scripts/workspace-build.mjs agent-runtime"
+  }
+}

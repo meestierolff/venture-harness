@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "profileId": "founder-default",
+  "ownerOrganizationId": "replace-with-your-company-id",
+  "roles": {
+    "source.repository": {
+      "credentialRef": "cred://github/founder-default",
+      "accountId": "replace-with-github-owner",
+      "organizationId": "replace-with-github-owner",
+      "scopes": ["repo", "workflow"],
+      "verification": { "status": "unverified" }
+    },
+    "hosting.web": {
+      "credentialRef": "cred://vercel/founder-default",
+      "accountId": "replace-with-vercel-account",
+      "teamId": "replace-with-vercel-team",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    },
+    "database.postgres": {
+      "credentialRef": "cred://neon/founder-default",
+      "accountId": "replace-with-neon-account",
+      "organizationId": "replace-with-neon-organization",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    },
+    "commerce.web": {
+      "credentialRef": "cred://stripe/founder-default",
+      "accountId": "replace-with-stripe-account",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    },
+    "commerce.native": {
+      "credentialRef": "cred://revenuecat/founder-default",
+      "accountId": "replace-with-revenuecat-account",
+      "organizationId": "replace-with-revenuecat-project",
+      "scopes": [
+        "project_configuration:apps:read_write",
+        "project_configuration:entitlements:read_write",
+        "project_configuration:offerings:read_write",
+        "project_configuration:integrations:read_write"
+      ],
+      "verification": { "status": "unverified" }
+    },
+    "email.transactional": {
+      "credentialRef": "cred://brevo/founder-default",
+      "accountId": "replace-with-brevo-account",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    },
+    "growth.google": {
+      "credentialRef": "cred://google/founder-default",
+      "accountId": "replace-with-google-account",
+      "organizationId": "replace-with-google-organization",
+      "scopes": [
+        "https://www.googleapis.com/auth/analytics.edit",
+        "https://www.googleapis.com/auth/siteverification",
+        "https://www.googleapis.com/auth/webmasters"
+      ],
+      "verification": { "status": "unverified" }
+    },
+    "search.bing": {
+      "credentialRef": "cred://bing/founder-default",
+      "accountId": "replace-with-bing-account",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    },
+    "dns.records": {
+      "organizationId": "replace-with-domain-owner",
+      "scopes": [],
+      "verification": { "status": "unverified" }
+    }
+  },
+  "writableCredentialBackend": {
+    "mode": "shared",
+    "backend": "macos_keychain"
+  },
+  "launchDefaults": {
+    "neon": { "region": "aws-eu-central-1" },
+    "stripe": { "mode": "test" },
+    "brevo": {
+      "senderName": "Replace with your sender name",
+      "senderEmail": "founder@example.com",
+      "templateName": "Welcome",
+      "templateSubject": "Welcome",
+      "templateHtml": "<p>Replace with your reviewed transactional message.</p>"
+    },
+    "google": { "analyticsAccountId": "replace-with-ga-account" },
+    "bing": { "authMode": "api_key" },
+    "dns": {
+      "providerId": "dns",
+      "adapter": "manual_generic",
+      "registrarAccountId": "replace-with-registrar-account",
+      "zoneId": "replace-with-zone-id"
+    }
+  },
+  "writableRefs": {
+    "neonDatabaseUriTemplate": "cred://neon/{ventureSlug}-database",
+    "stripeWebhookSigningTemplate": "cred://stripe/{ventureSlug}-webhook",
+    "googleAnalyticsMeasurementIdTemplate": "cred://google/{ventureSlug}-measurement-id"
+  }
+}

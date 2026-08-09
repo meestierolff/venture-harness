@@ -122,6 +122,7 @@ export type CreativeObjectKind =
   | "ad";
 
 export interface CreativeProviderObject {
+  readonly organizationId: string;
   readonly creativeId: string;
   readonly deliveryVariantId: string | null;
   readonly provider: CreativeProvider;

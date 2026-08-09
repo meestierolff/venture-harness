@@ -16,6 +16,7 @@ import {
   type HttpFetcher,
   type HttpRequest,
   type ProviderExecutionContext,
+  type ProviderOperation,
   type ProviderPlanRequest,
 } from "@/lib/providers";
 import { providerPlanFixtures } from "./fixtures/provider/requests";
@@ -60,6 +61,77 @@ describe("provider execution", () => {
     expect(transport.calls).toHaveLength(0);
   });
 
+  it("classifies read-back outages as unavailable and successful contradictions as mismatched", async () => {
+    const operation: ProviderOperation = {
+      id: "github.fixture.readback",
+      provider: "github",
+      capability: "repository",
+      action: "repository.create_from_source",
+      title: "Fixture read-back classification",
+      transport: "cli",
+      environment: "preview",
+      riskClass: "high",
+      effectClass: "reversible_external",
+      reversibility: "reversible",
+      idempotencyKey: "github:fixture:readback",
+      dependsOn: [],
+      command: { binary: "gh", args: ["repo", "create", "fixture"] },
+      readBack: {
+        transport: "cli",
+        command: { binary: "gh", args: ["repo", "view", "fixture", "--json", "name"] },
+        description: "fixture repository matches",
+        assertions: [{ path: "name", operator: "equals", expected: "fixture" }],
+      },
+      verification: { strategy: "read_back", description: "verify fixture repository" },
+    };
+    const failedCommand = new CommandProviderTransport({
+      runner: {
+        async run() {
+          return { exitCode: 1, stdout: "", stderr: "fixture provider unavailable" };
+        },
+      },
+    });
+    const execution = {
+      status: "succeeded" as const,
+      message: "fixture apply accepted",
+      effectOutcome: "confirmed_write" as const,
+    };
+
+    await expect(
+      failedCommand.readBack(operation, execution, { redactor: new Redactor() }),
+    ).resolves.toMatchObject({ status: "unavailable" });
+
+    const contradictoryHttp = new HttpProviderTransport({
+      async fetch() {
+        return { status: 200, body: { name: "different" } };
+      },
+    });
+    const httpOperation: ProviderOperation = {
+      ...operation,
+      transport: "http",
+      http: { method: "POST", url: "https://api.example.test/repositories" },
+      command: undefined,
+      readBack: {
+        transport: "http",
+        http: { method: "GET", url: "https://api.example.test/repositories/fixture" },
+        description: "fixture repository matches",
+        assertions: [{ path: "name", operator: "equals", expected: "fixture" }],
+      },
+    };
+    await expect(
+      contradictoryHttp.readBack(httpOperation, execution, { redactor: new Redactor() }),
+    ).resolves.toMatchObject({ status: "mismatched" });
+
+    const unavailableHttp = new HttpProviderTransport({
+      async fetch() {
+        return { status: 503, body: { error: "fixture outage" } };
+      },
+    });
+    await expect(
+      unavailableHttp.readBack(httpOperation, execution, { redactor: new Redactor() }),
+    ).resolves.toMatchObject({ status: "unavailable" });
+  });
+
   it("applies, reads back, and verifies through injected transports", async () => {
     const transport = new MockProviderTransport("cli", async () => ({
       status: "succeeded",
@@ -73,6 +145,8 @@ describe("provider execution", () => {
       authorization: "approved",
       transports: { cli: transport },
       redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
     const report = await adapter.apply(plan, context);
     const readBack = await adapter.readBack(report, context);
@@ -98,6 +172,7 @@ describe("provider execution", () => {
       transports: { http: transport },
       redactor: new Redactor(),
       idempotencyLedger: ledger,
+      fixtureMode: true,
     };
 
     const first = await adapter.apply(plan, context);
@@ -136,6 +211,7 @@ describe("provider execution", () => {
       transports: { http: transport },
       redactor: new Redactor(),
       idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     });
 
     expect(report.state).toBe("applied");
@@ -150,6 +226,79 @@ describe("provider execution", () => {
       expected: "prod_from_verified_create",
     });
     expect(JSON.stringify(report)).not.toContain("{dependency.");
+  });
+
+  it("captures a Stripe webhook secret into a writable credential ref before redacting evidence", async () => {
+    const rawSecret = "whsec_fixture_capture_boundary_123456789";
+    const requests: HttpRequest[] = [];
+    const fetcher: HttpFetcher = {
+      async fetch(request) {
+        requests.push(request);
+        return request.method === "POST"
+          ? {
+              status: 201,
+              body: {
+                id: "we_fixture",
+                url: "https://example.test/api/stripe/webhook",
+                enabled_events: ["checkout.session.completed"],
+                secret: rawSecret,
+              },
+            }
+          : {
+              status: 200,
+              body: {
+                id: "we_fixture",
+                url: "https://example.test/api/stripe/webhook",
+                enabled_events: ["checkout.session.completed"],
+              },
+            };
+      },
+    };
+    const memory = new MemoryCredentialBackend();
+    const broker = new CredentialBroker([memory]);
+    await broker.store({
+      ref: "cred://stripe/primary",
+      provider: "stripe",
+      kind: "api_key",
+      backend: "memory",
+      value: "sk_test_fixture_primary_123456789",
+    });
+    broker.register({
+      ref: "cred://stripe/webhook-secret",
+      provider: "stripe",
+      kind: "ci_secret",
+      backend: "memory",
+    });
+    const adapter = getProviderAdapter("stripe");
+    const plan = adapter.plan({
+      environment: "sandbox",
+      capabilities: ["webhook"],
+      credentialRef: "cred://stripe/primary",
+      inputs: {
+        webhookUrl: "https://example.test/api/stripe/webhook",
+        enabledEvents: ["checkout.session.completed"],
+        webhookSecretCredentialRef: "cred://stripe/webhook-secret",
+      },
+      dryRun: false,
+    });
+    const context: ProviderExecutionContext = {
+      authorization: "approved",
+      transports: { http: new HttpProviderTransport(fetcher) },
+      credentials: broker,
+      redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
+    };
+
+    const report = await adapter.apply(plan, context);
+    const readBack = await adapter.readBack(report, context);
+    const captured = await broker.withSecret("cred://stripe/webhook-secret", (value) => value);
+
+    expect(captured).toBe(rawSecret);
+    expect(requests).toHaveLength(2);
+    expect(readBack.results[0].status).toBe("matched");
+    expect(JSON.stringify({ report, readBack })).not.toContain(rawSecret);
+    expect(JSON.stringify(report)).toContain("[REDACTED]");
   });
 
   it("reconciles mutable local source again instead of trusting a stale ledger entry", async () => {
@@ -170,6 +319,7 @@ describe("provider execution", () => {
       transports: { cli: transport },
       redactor: new Redactor(),
       idempotencyLedger: ledger,
+      fixtureMode: true,
     };
 
     const first = await adapter.apply(plan, context);
@@ -203,6 +353,8 @@ describe("provider execution", () => {
       authorization: "approved",
       transports: { http: transport },
       redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     });
 
     expect(report.state).toBe("degraded");
@@ -237,6 +389,8 @@ describe("provider execution", () => {
         transports: { http: transport },
         redactor: broker.redactor,
         credentials: broker,
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
       },
     );
     expect(JSON.stringify(report)).not.toContain(raw);
@@ -274,6 +428,8 @@ describe("provider execution", () => {
       transports: { cli: new CommandProviderTransport({ runner }) },
       credentials: broker,
       redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     });
 
     expect(invocations).toHaveLength(1);
@@ -307,6 +463,8 @@ describe("provider execution", () => {
       authorization: "approved",
       transports: { cli: new CommandProviderTransport({ runner }) },
       redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     });
     expect(called).toBe(false);
     expect(report.operations[0].result).toMatchObject({
@@ -345,6 +503,8 @@ describe("provider execution", () => {
         transports: { http: new HttpProviderTransport(fetcher) },
         credentials: broker,
         redactor: broker.redactor,
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
       },
     );
 
@@ -384,6 +544,8 @@ describe("provider execution", () => {
       transports: { http: new HttpProviderTransport(fetcher) },
       credentials: broker,
       redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
     const report = await adapter.apply(
       adapter.plan(planRequest(providerPlanFixtures.stripe, ["product"])),
@@ -422,6 +584,8 @@ describe("provider execution", () => {
       authorization: "approved",
       transports: { cli: new CommandProviderTransport({ runner }) },
       redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
 
     const report = await adapter.apply(plan, context);
@@ -450,6 +614,8 @@ describe("provider execution", () => {
       authorization: "approved",
       transports: { cli: new CommandProviderTransport({ runner }) },
       redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
 
     const report = await adapter.apply(plan, context);
@@ -497,6 +663,8 @@ describe("provider execution", () => {
       transports: { cli: new CommandProviderTransport({ runner }) },
       credentials: broker,
       redactor: broker.redactor,
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
     };
 
     const report = await adapter.apply(plan, context);
@@ -542,6 +710,8 @@ describe("provider execution", () => {
         transports: { http: transport },
         credentials: broker,
         redactor: broker.redactor,
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
       },
     );
 

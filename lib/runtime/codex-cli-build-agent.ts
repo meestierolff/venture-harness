@@ -144,6 +144,20 @@ const CODEX_ENVIRONMENT_KEYS = [
   "PATHEXT",
 ] as const;
 
+const PRODUCT_COMMAND_ENVIRONMENT_KEYS = [
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "PATHEXT",
+] as const;
+
 /**
  * Deliberately excludes venture/provider credential environment variables.
  * The Codex CLI must use its own authenticated CLI session.
@@ -156,6 +170,32 @@ export function codexBuildAgentEnvironment(source: NodeJS.ProcessEnv): NodeJS.Pr
         source[key] === undefined ? [] : [[key, source[key]]],
       ),
     ),
+  };
+}
+
+/**
+ * Environment for deterministic commands executed inside a generated child.
+ * Provider credentials, the founder's Codex auth directory, and user package
+ * configuration are deliberately excluded. HOME/XDG/npm configuration are
+ * redirected into the child-owned private runtime directory.
+ */
+export function productCommandEnvironment(
+  source: NodeJS.ProcessEnv,
+  isolatedHome: string,
+): NodeJS.ProcessEnv {
+  const home = resolve(isolatedHome);
+  return {
+    NODE_ENV: source.NODE_ENV ?? "production",
+    ...Object.fromEntries(
+      PRODUCT_COMMAND_ENVIRONMENT_KEYS.flatMap((key) =>
+        source[key] === undefined ? [] : [[key, source[key]]],
+      ),
+    ),
+    HOME: home,
+    USERPROFILE: home,
+    XDG_CONFIG_HOME: resolve(home, ".config"),
+    npm_config_userconfig: resolve(home, ".npmrc"),
+    NPM_CONFIG_USERCONFIG: resolve(home, ".npmrc"),
   };
 }
 
@@ -319,17 +359,38 @@ export class CodexCliBuildAgentHost implements BuildAgentHost {
         cwd: this.rootDir,
       });
       if (result.exitCode === 0) {
+        const login = await this.runner.run({
+          command: this.binary,
+          args: ["login", "status"],
+          cwd: this.rootDir,
+        });
+        const loginStatus = this.redactor.redactText(`${login.stdout}\n${login.stderr}`);
+        const billingMode =
+          login.exitCode !== 0
+            ? "unknown"
+            : /logged in using chatgpt|chatgpt (?:account|subscription)/iu.test(loginStatus)
+              ? "chatgpt_subscription"
+              : /api[ -]?key|openai_api_key/iu.test(loginStatus)
+                ? "api_key_metered"
+                : "unknown";
         return {
           host: this.id,
           status: "available",
           version: compactVersion(result.stdout || result.stderr, this.redactor),
-          nextAction: null,
+          billingMode,
+          billingEvidence: "codex_login_status",
+          nextAction:
+            billingMode === "chatgpt_subscription"
+              ? null
+              : "Run codex login with a ChatGPT subscription account; API-key or unknown billing cannot satisfy the founder non-metered build policy.",
         };
       }
       return {
         host: this.id,
         status: "unavailable",
         version: null,
+        billingMode: "unknown",
+        billingEvidence: null,
         nextAction: `codex exists but its version check exited ${result.exitCode}; authenticate or repair the Codex CLI before launch apply.`,
       };
     } catch (error) {
@@ -338,6 +399,8 @@ export class CodexCliBuildAgentHost implements BuildAgentHost {
         host: this.id,
         status: missing ? "missing" : "unavailable",
         version: null,
+        billingMode: "unknown",
+        billingEvidence: null,
         nextAction: missing
           ? "Install and authenticate the Codex CLI, then rerun the same launch command."
           : `Codex CLI inspection failed: ${this.redactor.redactText(

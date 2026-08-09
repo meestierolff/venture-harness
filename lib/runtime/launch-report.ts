@@ -86,6 +86,7 @@ export interface LaunchReportInput {
     approvalRef: string;
     expiresAt: string;
     spendCeiling: { amount: number; currency: string };
+    spendScope?: "reviewed_direct_provider_operations_only";
   };
   nodes: readonly LaunchReportNodeOutcome[];
   providers: readonly LaunchReportProviderOutcome[];
@@ -287,7 +288,9 @@ export function createLaunchReportInputFromRun(input: LaunchRunReportInput): Lau
     .filter(
       (record) =>
         record.definition.kind === "manual_action" ||
-        record.error?.code === "provider_manual_action_required",
+        record.error?.code === "provider_manual_action_required" ||
+        record.state === "waiting_for_auth" ||
+        record.state === "waiting_for_external_action",
     )
     .map((record) => {
       const contract = launchManualActionContracts[record.definition.id as LaunchManualNodeId];
@@ -295,7 +298,7 @@ export function createLaunchReportInputFromRun(input: LaunchRunReportInput): Lau
       return {
         nodeId: record.definition.id,
         resolved: record.state === "succeeded" || record.state === "compensated",
-        action: contract?.effect ?? record.definition.purpose,
+        action: contract?.effect ?? record.waiting?.reason ?? record.definition.purpose,
         requiredFields: contract?.requiredFields ?? [],
         risk: contract?.risk ?? record.definition.risk,
         evidenceNeeded: contract?.completionEvidence ?? [record.definition.completion.description],
@@ -405,7 +408,11 @@ function overallState(input: LaunchReportInput): LaunchReportOverallState {
   if (
     input.run.status === "waiting" ||
     input.nodes.some(
-      ({ state }) => state === "waiting_for_approval" || state === "waiting_for_manual_action",
+      ({ state }) =>
+        state === "waiting_for_approval" ||
+        state === "waiting_for_manual_action" ||
+        state === "waiting_for_auth" ||
+        state === "waiting_for_external_action",
     )
   ) {
     return "waiting";
@@ -429,6 +436,8 @@ function isGenuinelyUnresolved(
   return (
     node.state === "waiting_for_approval" ||
     node.state === "waiting_for_manual_action" ||
+    node.state === "waiting_for_auth" ||
+    node.state === "waiting_for_external_action" ||
     node.errorCode === "provider_manual_action_required"
   );
 }
@@ -473,7 +482,7 @@ function lineItems(values: readonly string[], empty: string): string {
 
 function renderMarkdown(document: LaunchReportDocument): string {
   const authorization = document.authorization
-    ? `${document.authorization.profile}; approval ${document.authorization.approvalRef}; expires ${document.authorization.expiresAt}; ceiling ${document.authorization.spendCeiling.amount} ${document.authorization.spendCeiling.currency}`
+    ? `${document.authorization.profile}; approval ${document.authorization.approvalRef}; expires ${document.authorization.expiresAt}; ${document.authorization.spendScope === "reviewed_direct_provider_operations_only" ? "reviewed direct-operation ceiling" : "ceiling"} ${document.authorization.spendCeiling.amount} ${document.authorization.spendCeiling.currency}${document.authorization.spendScope === "reviewed_direct_provider_operations_only" ? "; ongoing account-plan usage excluded" : ""}`
     : "No session authorization metadata was supplied";
   const nodeLines = document.nodes.map(
     (node) =>

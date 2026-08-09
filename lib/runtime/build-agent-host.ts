@@ -63,6 +63,9 @@ export interface BuildAgentHostInspection {
   host: string;
   status: "available" | "missing" | "unavailable";
   version: string | null;
+  billingMode:
+    "chatgpt_subscription" | "api_key_metered" | "fixture_no_model_execution" | "unknown";
+  billingEvidence: "codex_login_status" | "fixture_attestation" | null;
   nextAction: string | null;
 }
 

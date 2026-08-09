@@ -82,6 +82,31 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
     capabilities: ["project", "environment_variable", "deployment", "domain"],
     environment: "preview",
   },
+  "provider.vercel-database-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "preview",
+  },
+  "provider.vercel-stripe-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "preview",
+  },
+  "provider.vercel-stripe-webhook-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "preview",
+  },
+  "provider.vercel-brevo-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "preview",
+  },
+  "provider.vercel-ga-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "preview",
+  },
   "provider.revenuecat-entitlements": {
     provider: "revenuecat",
     capabilities: ["app", "entitlement", "offering", "webhook"],

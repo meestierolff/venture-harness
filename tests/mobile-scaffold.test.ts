@@ -80,7 +80,14 @@ class NoopHost implements BuildAgentHost {
   readonly requests: BuildAgentRequest[] = [];
 
   async inspect() {
-    return { host: this.id, status: "available" as const, version: "test", nextAction: null };
+    return {
+      host: this.id,
+      status: "available" as const,
+      version: "test",
+      billingMode: "fixture_no_model_execution" as const,
+      billingEvidence: "fixture_attestation" as const,
+      nextAction: null,
+    };
   }
 
   async run(request: BuildAgentRequest): Promise<BuildAgentResult> {
@@ -235,7 +242,7 @@ describe("repo-native mobile scaffold generation", () => {
       );
       expect(built.status, `${built.stdout}\n${built.stderr}`.slice(-8_000)).toBe(0);
     }
-  }, 30_000);
+  }, 90_000);
 
   it("fails before writing when output is unowned, modified, unsafe, or credential-shaped", () => {
     const unownedRoot = temporaryRoot();

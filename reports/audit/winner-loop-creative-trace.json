@@ -5,7 +5,9 @@
   "identity": {
     "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
     "deliveryVariantId": "dv_01KZK69SG0BJS07ENW3AHRZ001",
-    "lineage": ["cr_01KZK69SG0BJS07ENW3AHRZ6DM"]
+    "lineage": [
+      "cr_01KZK69SG0BJS07ENW3AHRZ6DM"
+    ]
   },
   "providerObjects": [
     {
@@ -26,7 +28,9 @@
   ],
   "organic": {
     "snapshotsIngested": 3,
-    "missingMetrics": ["saves"]
+    "missingMetrics": [
+      "saves"
+    ]
   },
   "evaluation": {
     "recommendationId": "rec_01KZK69SG0BJS07ENW3AHRZ6DM",
@@ -58,9 +62,13 @@
       "window": "D0",
       "attributionClass": "DETERMINISTIC",
       "creativeLevelCertainty": true,
-      "cacMinor": null,
-      "netRevenueMinor": 0,
-      "missingData": ["installs"]
+      "cacMinor": 4650,
+      "netRevenueMinor": 1998,
+      "missingData": [
+        "installs",
+        "onboarding_completions",
+        "paywall_views"
+      ]
     },
     {
       "window": "D7",
@@ -68,7 +76,11 @@
       "creativeLevelCertainty": true,
       "cacMinor": 4650,
       "netRevenueMinor": 1998,
-      "missingData": ["installs"]
+      "missingData": [
+        "installs",
+        "onboarding_completions",
+        "paywall_views"
+      ]
     },
     {
       "window": "D30",
@@ -76,13 +88,591 @@
       "creativeLevelCertainty": true,
       "cacMinor": 4650,
       "netRevenueMinor": 1998,
-      "missingData": ["installs"]
+      "missingData": [
+        "installs",
+        "onboarding_completions",
+        "paywall_views"
+      ]
     }
   ],
   "learning": {
     "learningId": "learn_01KZK69SG0BJS07ENW3AHRZ6DM",
     "recommendedSurface": "campaign_page",
     "confidence": "supported",
-    "limitations": []
+    "limitations": [
+      "Cohort window is not mature; later events may change this snapshot."
+    ]
+  },
+  "productionBoundarySteps": [
+    {
+      "step": 1,
+      "name": "create_venture",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "ventureId": "sample-venture",
+        "fixture": true
+      }
+    },
+    {
+      "step": 2,
+      "name": "install_winner_loop",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "installed": true,
+        "pack": "winner-loop"
+      }
+    },
+    {
+      "step": 3,
+      "name": "load_growth_contract",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "contractVersion": 2,
+        "ventureId": "sample-venture"
+      }
+    },
+    {
+      "step": 4,
+      "name": "connect_synthetic_tiktok",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "provider": "synthetic_tiktok",
+        "connected": true
+      }
+    },
+    {
+      "step": 5,
+      "name": "connect_synthetic_creative_provider",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "provider": "local_renderer",
+        "connected": true
+      }
+    },
+    {
+      "step": 6,
+      "name": "connect_synthetic_attribution_provider",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "provider": "fixture_attribution",
+        "connected": true
+      }
+    },
+    {
+      "step": 7,
+      "name": "connect_synthetic_revenuecat",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "provider": "fixture_revenuecat",
+        "connected": true
+      }
+    },
+    {
+      "step": 8,
+      "name": "create_hypothesis",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "hypothesisId": "hyp-fixture-001"
+      }
+    },
+    {
+      "step": 9,
+      "name": "create_family_and_variants",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeFamilyId": "fam-fixture-001",
+        "variantCount": 1
+      }
+    },
+    {
+      "step": 10,
+      "name": "mint_creative_ids",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "fingerprintVersion": "v2"
+      }
+    },
+    {
+      "step": 11,
+      "name": "render",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "renderJobId": "fixture-render-1"
+      }
+    },
+    {
+      "step": 12,
+      "name": "reconcile_render_result",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "renderJobId": "fixture-render-1",
+        "reconciled": true
+      }
+    },
+    {
+      "step": 13,
+      "name": "approve_rights",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "manifestVersion": 1,
+        "rightsApproved": true
+      }
+    },
+    {
+      "step": 14,
+      "name": "create_organic_draft",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "deliveryVariantId": "dv_01KZK69SG0BJS07ENW3AHRZ001",
+        "draft": true
+      }
+    },
+    {
+      "step": 15,
+      "name": "approve_organic_publication",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "organicApproved": true
+      }
+    },
+    {
+      "step": 16,
+      "name": "publish_fixture_post",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "publicationId": "fixture-tt-post",
+        "fixture": true
+      }
+    },
+    {
+      "step": 17,
+      "name": "ingest_metric_snapshots",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "snapshots": 3
+      }
+    },
+    {
+      "step": 18,
+      "name": "preserve_missing_metrics",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "missingMetric": "saves",
+        "preservedAsNull": true
+      }
+    },
+    {
+      "step": 19,
+      "name": "compute_baselines",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "accountBaselineSampleSize": 40,
+        "format": "talking_head_with_screen_recording"
+      }
+    },
+    {
+      "step": 20,
+      "name": "evaluate_creative",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "recommendation": "PAID_TEST_CANDIDATE",
+        "score": 0.9050179211469533
+      }
+    },
+    {
+      "step": 21,
+      "name": "create_paid_proposal",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "proposalId": "prop_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "automaticallyApproved": false
+      }
+    },
+    {
+      "step": 22,
+      "name": "prove_spend_grant_required",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "blocked": true,
+        "reason": "proposal_not_approved"
+      }
+    },
+    {
+      "step": 23,
+      "name": "approve_exact_proposal",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "proposalId": "prop_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "status": "APPROVED",
+        "exactTermsApproved": true
+      }
+    },
+    {
+      "step": 24,
+      "name": "create_spend_grant",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "proposalId": "prop_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "grantId": "grant_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "totalMinorUnits": 10000
+      }
+    },
+    {
+      "step": 25,
+      "name": "reserve_spend_transactionally",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "grantId": "grant_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "reservationHeld": true,
+        "amountMinorUnits": 5000
+      }
+    },
+    {
+      "step": 26,
+      "name": "create_spark_ad_fixture",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "sparkAdId": "fixture-spark-ad",
+        "fixture": true
+      }
+    },
+    {
+      "step": 27,
+      "name": "reconcile_paid_result",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "sparkAdId": "fixture-spark-ad",
+        "reconciled": true,
+        "settledMinorUnits": 4650
+      }
+    },
+    {
+      "step": 28,
+      "name": "ingest_paid_metrics",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "paidMetric": "spend_minor",
+        "value": 4650
+      }
+    },
+    {
+      "step": 29,
+      "name": "ingest_revenuecat_events",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "duplicateRejected": true,
+        "outOfOrderHandled": true
+      }
+    },
+    {
+      "step": 30,
+      "name": "compute_cohorts",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "windows": "D0,D7,D30",
+        "cohortCount": 3
+      }
+    },
+    {
+      "step": 31,
+      "name": "classify_attribution",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "attributionClass": "DETERMINISTIC",
+        "creativeLevelCertainty": true
+      }
+    },
+    {
+      "step": 32,
+      "name": "generate_final_recommendation",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "recommendation": "PAID_TEST_CANDIDATE",
+        "recommendedSurface": "campaign_page"
+      }
+    },
+    {
+      "step": 33,
+      "name": "emit_distributionpr_learning",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "learningId": "learn_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "confidence": "supported",
+        "causalityClaimed": false
+      }
+    },
+    {
+      "step": 34,
+      "name": "trace_creative_lineage",
+      "occurredAt": "2026-08-09T12:00:00.000Z",
+      "details": {
+        "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+        "lineageLength": 1,
+        "providerObjectCount": 3
+      }
+    }
+  ],
+  "productionBoundaries": {
+    "commandBus": {
+      "runCommand": "winner.run-fixture-d",
+      "stepCommand": "winner.record-fixture-step",
+      "steps": 34,
+      "meteredCommands": 1
+    },
+    "graph": {
+      "runId": "winner-loop-fixture-d",
+      "graphId": "winner-loop-fixture-d-production-boundaries",
+      "durableStore": "file"
+    },
+    "assets": {
+      "assetId": "fixture-rendered-asset",
+      "sha256": "dedd884ef5895244687e1dce3d4d7221643563d701d6eed537dbfd899a0afa4f",
+      "readBackMatched": true,
+      "durableStore": "file"
+    },
+    "audit": {
+      "path": "fixture-workspace/audit/command-chain.json",
+      "records": 70,
+      "chainVerified": true
+    },
+    "persistence": {
+      "spend": true,
+      "manifests": true,
+      "paidTests": true,
+      "evidence": true,
+      "subscriptions": true
+    },
+    "providers": {
+      "fixtureOnly": true,
+      "packageSdk": "@venture-harness/provider-sdk",
+      "registry": "@venture-harness/provider-registry",
+      "stackProfileId": "winner-loop-fixture-v1",
+      "durableStore": "file",
+      "connections": {
+        "fixture_organic_content": "ready",
+        "fixture_local_renderer": "ready",
+        "fixture_aggregated_attribution": "ready",
+        "fixture_revenuecat": "ready"
+      },
+      "operations": [
+        {
+          "adapterId": "fixture_local_renderer",
+          "feature": "creative_render",
+          "capability": "creative.video.generate",
+          "operationId": "fixture-step-11-render",
+          "doctor": "ready",
+          "dryRun": "planned",
+          "apply": "succeeded",
+          "readBack": "matched",
+          "verify": "verified_fixture",
+          "reconcile": "matched",
+          "providerInvoked": false,
+          "externalEffectOccurred": false,
+          "spendAllowed": false,
+          "packageSdk": "@venture-harness/provider-sdk",
+          "registryResolved": true,
+          "stackProfileId": "winner-loop-fixture-v1",
+          "durableReplay": false
+        },
+        {
+          "adapterId": "fixture_organic_content",
+          "feature": "organic_create_draft",
+          "capability": "distribution.content.draft",
+          "operationId": "fixture-step-14-create_organic_draft",
+          "doctor": "ready",
+          "dryRun": "planned",
+          "apply": "succeeded",
+          "readBack": "matched",
+          "verify": "verified_fixture",
+          "reconcile": "matched",
+          "providerInvoked": false,
+          "externalEffectOccurred": false,
+          "spendAllowed": false,
+          "packageSdk": "@venture-harness/provider-sdk",
+          "registryResolved": true,
+          "stackProfileId": "winner-loop-fixture-v1",
+          "durableReplay": false
+        },
+        {
+          "adapterId": "fixture_organic_content",
+          "feature": "organic_publish_direct",
+          "capability": "distribution.content.publish",
+          "operationId": "fixture-step-16-publish_fixture_post",
+          "doctor": "ready",
+          "dryRun": "planned",
+          "apply": "succeeded",
+          "readBack": "matched",
+          "verify": "verified_fixture",
+          "reconcile": "matched",
+          "providerInvoked": false,
+          "externalEffectOccurred": false,
+          "spendAllowed": false,
+          "packageSdk": "@venture-harness/provider-sdk",
+          "registryResolved": true,
+          "stackProfileId": "winner-loop-fixture-v1",
+          "durableReplay": false
+        },
+        {
+          "adapterId": "fixture_tiktok_spark",
+          "feature": "paid_promote_existing_post_contract",
+          "capability": "ads.organic-post.boost",
+          "operationId": "fixture-step-26-create_spark_ad_fixture",
+          "doctor": "ready",
+          "dryRun": "planned",
+          "apply": "succeeded",
+          "readBack": "matched",
+          "verify": "verified_fixture",
+          "reconcile": "matched",
+          "providerInvoked": false,
+          "externalEffectOccurred": false,
+          "spendAllowed": false,
+          "packageSdk": "@venture-harness/provider-sdk",
+          "registryResolved": true,
+          "stackProfileId": "winner-loop-fixture-v1",
+          "durableReplay": false
+        },
+        {
+          "adapterId": "fixture_revenuecat",
+          "feature": "subscription_read_lifecycle",
+          "capability": "subscription.lifecycle.read",
+          "operationId": "fixture-step-29-ingest_revenuecat_events",
+          "doctor": "ready",
+          "dryRun": "planned",
+          "apply": "succeeded",
+          "readBack": "matched",
+          "verify": "verified_fixture",
+          "reconcile": "matched",
+          "providerInvoked": false,
+          "externalEffectOccurred": false,
+          "spendAllowed": false,
+          "packageSdk": "@venture-harness/provider-sdk",
+          "registryResolved": true,
+          "stackProfileId": "winner-loop-fixture-v1",
+          "durableReplay": false
+        },
+        {
+          "adapterId": "fixture_aggregated_attribution",
+          "feature": "attribution_read_aggregates",
+          "capability": "attribution.campaign.read",
+          "operationId": "fixture-step-31-classify_attribution",
+          "doctor": "ready",
+          "dryRun": "planned",
+          "apply": "succeeded",
+          "readBack": "matched",
+          "verify": "verified_fixture",
+          "reconcile": "matched",
+          "providerInvoked": false,
+          "externalEffectOccurred": false,
+          "spendAllowed": false,
+          "packageSdk": "@venture-harness/provider-sdk",
+          "registryResolved": true,
+          "stackProfileId": "winner-loop-fixture-v1",
+          "durableReplay": false
+        }
+      ],
+      "liveVerified": false
+    },
+    "eventPack": {
+      "installed": true,
+      "enabled": true,
+      "eventsRecorded": 19,
+      "destination": "first_party_evidence"
+    }
+  },
+  "distributionPr": {
+    "proposalId": "fixture-distribution-pr-1",
+    "ventureId": "sample-venture",
+    "source": "winner_loop",
+    "state": "fixture_proposal_only",
+    "fixtureOnly": true,
+    "repositoryMutated": false,
+    "pullRequestOpened": false,
+    "publicationAllowed": false,
+    "evidence": {
+      "learningId": "learn_01KZK69SG0BJS07ENW3AHRZ6DM",
+      "creativeIds": [
+        "cr_01KZK69SG0BJS07ENW3AHRZ6DM"
+      ],
+      "creativeFamilyId": "fam-fixture-001",
+      "cohortWindows": [
+        {
+          "label": "D0",
+          "reportingWindowStart": "2026-08-09T00:00:00.000Z",
+          "reportingWindowEnd": "2026-08-10T00:00:00.000Z",
+          "mature": false
+        },
+        {
+          "label": "D7",
+          "reportingWindowStart": "2026-08-09T00:00:00.000Z",
+          "reportingWindowEnd": "2026-08-17T00:00:00.000Z",
+          "mature": false
+        },
+        {
+          "label": "D30",
+          "reportingWindowStart": "2026-08-09T00:00:00.000Z",
+          "reportingWindowEnd": "2026-09-09T00:00:00.000Z",
+          "mature": false
+        }
+      ],
+      "attributionClass": "DETERMINISTIC",
+      "creativeLevelCertainty": true,
+      "providerKind": "tiktok_content",
+      "observation": "Organic evidence and downstream intent both clear their thresholds."
+    },
+    "targetSurface": "campaign_page",
+    "hypothesis": {
+      "statement": "Test whether a clearer payout comparison is associated with qualified intent.",
+      "confidence": "supported",
+      "causalStatus": "not_established"
+    },
+    "implementation": "Prepare a fixture campaign-page CTA variant for a bounded comparison.",
+    "diff": {
+      "summary": "Fixture-only campaign-page CTA candidate linked to Winner Loop evidence.",
+      "files": [
+        {
+          "path": "src/campaigns/payout-rank-cta.ts",
+          "operation": "modify",
+          "before": "Existing fixture campaign CTA",
+          "after": "Candidate fixture CTA for the observed audience segment"
+        }
+      ]
+    },
+    "preview": {
+      "kind": "fixture_description",
+      "description": "Static fixture preview metadata for operator review.",
+      "url": null
+    },
+    "measurement": {
+      "plan": "Re-evaluate cr_01KZK69SG0BJS07ENW3AHRZ6DM against the same baseline and cohort windows after the change ships.",
+      "creativeIds": [
+        "cr_01KZK69SG0BJS07ENW3AHRZ6DM"
+      ],
+      "cohortWindows": [
+        "D0",
+        "D7",
+        "D30"
+      ],
+      "causalInterpretationAllowed": false
+    },
+    "rollback": "Revert the change and restore the previous surface; no provider state is affected.",
+    "limitations": [
+      "Cohort window is not mature; later events may change this snapshot.",
+      "Observed associations do not establish that the creative or proposed change caused the outcome.",
+      "Fixture-only proposal: no repository was changed, no preview was deployed, and no pull request was opened."
+    ],
+    "createdAt": "2026-08-09T12:00:00.000Z"
   }
 }

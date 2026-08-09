@@ -126,14 +126,20 @@ function validateNode(node: WorkflowNodeDefinition, issues: string[]): void {
     issues.push(`${prefix} timeoutMs must be a positive integer`);
   if (!Number.isInteger(node.retry.maxAttempts) || node.retry.maxAttempts < 1)
     issues.push(`${prefix} retry.maxAttempts must be a positive integer`);
-  if (node.retry.backoff.initialMs < 0 || node.retry.backoff.maxMs < 0)
-    issues.push(`${prefix} retry backoff values cannot be negative`);
+  if (
+    !Number.isFinite(node.retry.backoff.initialMs) ||
+    !Number.isFinite(node.retry.backoff.maxMs) ||
+    node.retry.backoff.initialMs < 0 ||
+    node.retry.backoff.maxMs < 0
+  )
+    issues.push(`${prefix} retry backoff values must be non-negative and finite`);
   if (node.retry.backoff.maxMs < node.retry.backoff.initialMs)
     issues.push(`${prefix} retry.backoff.maxMs cannot be below initialMs`);
-  if (node.retry.backoff.multiplier < 1)
-    issues.push(`${prefix} retry.backoff.multiplier must be at least 1`);
+  if (!Number.isFinite(node.retry.backoff.multiplier) || node.retry.backoff.multiplier < 1)
+    issues.push(`${prefix} retry.backoff.multiplier must be finite and at least 1`);
   if (!Number.isFinite(node.cost.amount) || node.cost.amount < 0)
     issues.push(`${prefix} cost.amount must be a non-negative finite number`);
+  if (!node.cost.unit.trim()) issues.push(`${prefix} cost.unit is required`);
   if (node.condition.kind === "handler" && !node.condition.handler)
     issues.push(`${prefix} handler condition requires condition.handler`);
   if (node.kind === "human_approval" && node.transport !== "human_approval")
@@ -142,6 +148,30 @@ function validateNode(node: WorkflowNodeDefinition, issues: string[]): void {
     issues.push(`${prefix} manual_action nodes must use manual transport`);
   if (node.effect === "external_irreversible" && !node.authorization.required)
     issues.push(`${prefix} external irreversible effects require authorization`);
+  if (node.reconciliation) {
+    if (!node.reconciliation.handler.trim())
+      issues.push(`${prefix} reconciliation.handler is required`);
+    if (
+      !Number.isInteger(node.reconciliation.pollIntervalMs) ||
+      node.reconciliation.pollIntervalMs < 0
+    ) {
+      issues.push(`${prefix} reconciliation.pollIntervalMs must be a non-negative integer`);
+    }
+    if (
+      !Number.isInteger(node.reconciliation.maxPollAttempts) ||
+      node.reconciliation.maxPollAttempts < 1
+    ) {
+      issues.push(`${prefix} reconciliation.maxPollAttempts must be a positive integer`);
+    }
+  }
+  if (node.loop && (!Number.isInteger(node.loop.maxIterations) || node.loop.maxIterations < 1)) {
+    issues.push(`${prefix} loop.maxIterations must be a positive integer`);
+  }
+  if (node.loop && node.effect !== "none" && node.effect !== "read") {
+    issues.push(
+      `${prefix} effectful loops require separate DAG nodes with unique idempotency keys per effect`,
+    );
+  }
 }
 
 export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefinition {

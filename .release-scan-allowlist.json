@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "path": "tests/quality-profiles.test.ts",
+      "rule": "stripe-access-token",
+      "line": 79,
+      "sha256": "7438757f2996a1b43385c0936df0c1cf91c6355bf322b1a9b1ae4d722725897b",
+      "reason": "Synthetic redaction canary; never accepted by a provider."
+    },
+    {
+      "path": "tests/quality-profiles.test.ts",
+      "rule": "stripe-access-token",
+      "line": 83,
+      "sha256": "7438757f2996a1b43385c0936df0c1cf91c6355bf322b1a9b1ae4d722725897b",
+      "reason": "Synthetic redaction canary; never accepted by a provider."
+    },
+    {
+      "path": "tests/mobile-scaffold.test.ts",
+      "rule": "stripe-access-token",
+      "line": 293,
+      "sha256": "014c07288c45eaf54c4b9b7b252576e7a5cd30ac39cbdf7342602166c949a51a",
+      "reason": "Synthetic scaffold leak canary."
+    },
+    {
+      "path": "tests/runtime-provider-lifecycle.test.ts",
+      "rule": "stripe-access-token",
+      "line": 203,
+      "sha256": "c71dc50c6d0af42b23a5ff24d7885193ce30ab962a1e412441ff90058c9383da",
+      "reason": "Synthetic lifecycle redaction canary."
+    },
+    {
+      "path": "tests/runtime-build-agent-host.test.ts",
+      "rule": "stripe-access-token",
+      "line": 255,
+      "sha256": "014c07288c45eaf54c4b9b7b252576e7a5cd30ac39cbdf7342602166c949a51a",
+      "reason": "Synthetic model-context leak canary."
+    },
+    {
+      "path": "tests/runtime-build-agent-host.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 351,
+      "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
+      "reason": "Synthetic model-context database URL canary."
+    },
+    {
+      "path": "tests/runtime-build-agent-host.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 371,
+      "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
+      "reason": "Synthetic generated-product command environment isolation canary."
+    },
+    {
+      "path": "tests/cli-learning-integration.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 167,
+      "sha256": "e6781d2a22b5ef97cc59b62157947636950026955596edaa93901bca2c8522c2",
+      "reason": "Synthetic learning-runtime database fixture."
+    },
+    {
+      "path": "tests/default-data-learning-runtime.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 21,
+      "sha256": "1fc6252c8398eedd880e371d6a70bf217f1ad4aea19e1758509b86f20113e5e5",
+      "reason": "Synthetic direct-data database fixture."
+    },
+    {
+      "path": "tests/providers-neon.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 88,
+      "sha256": "8cfc98b5bec74acf368a20fa99b33766793f1236e6723d3af5881d716ca2ea88",
+      "reason": "Synthetic Neon transport fixture."
+    },
+    {
+      "path": "tests/providers-neon.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 117,
+      "sha256": "8a3a1c048002344b520beaa34d499e3fde439459bf65e1e26b9260232d4d3c26",
+      "reason": "Synthetic Neon read-back fixture."
+    },
+    {
+      "path": "tests/providers-neon.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 159,
+      "sha256": "a30436991af76413d1f54efce3c59c81ff729203ca1c230fc0f4c071b7558de3",
+      "reason": "Synthetic Neon mismatch fixture."
+    },
+    {
+      "path": "tests/providers-neon.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 407,
+      "sha256": "5a95d93ad5b54d238723c5d68a3381a26648c172e4e6624969f5620e9c852116",
+      "reason": "Synthetic Neon generated-secret fixture."
+    },
+    {
+      "path": "tests/providers-neon.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 460,
+      "sha256": "8a3a1c048002344b520beaa34d499e3fde439459bf65e1e26b9260232d4d3c26",
+      "reason": "Synthetic Neon retry fixture."
+    },
+    {
+      "path": "tests/providers-execution.test.ts",
+      "rule": "stripe-access-token",
+      "line": 371,
+      "sha256": "a7f61932adf6fb44cbcdb79e8e93c5380f3a7c0025af9dc8ef1ba028247065d6",
+      "reason": "Synthetic provider-output redaction canary."
+    },
+    {
+      "path": "tests/providers-execution.test.ts",
+      "rule": "stripe-access-token",
+      "line": 490,
+      "sha256": "186c65f3bc9edbf6c15cfece405e33dcd74c1fa86a13d908d181245f696aeca7",
+      "reason": "Synthetic HTTP-boundary redaction canary."
+    },
+    {
+      "path": "tests/providers-execution.test.ts",
+      "rule": "stripe-access-token",
+      "line": 264,
+      "sha256": "7e306ff7dca038cc8639c0113c89d207fd4cfa7d23e272ff7618987a4f316bba",
+      "reason": "Synthetic provider dependency-output credential capture fixture."
+    },
+    {
+      "path": "tests/fixtures/founder-golden-path-runtime.ts",
+      "rule": "database-url-with-credentials",
+      "line": 296,
+      "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
+      "reason": "Synthetic founder Golden Path credential-capture fixture."
+    },
+    {
+      "path": "tests/fixtures/synthetic-founder-golden-path.ts",
+      "rule": "database-url-with-credentials",
+      "line": 779,
+      "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
+      "reason": "Synthetic Golden Path durable-secret absence canary."
+    },
+    {
+      "path": "tests/founder-golden-path-runtime.test.ts",
+      "rule": "stripe-access-token",
+      "line": 47,
+      "sha256": "7ac5d8b4ec088646ad91c8b00d8916868aa411eec789a962cb0c52df14858aed",
+      "reason": "Synthetic founder Golden Path in-memory credential fixture."
+    },
+    {
+      "path": "tests/provider-idempotency-safety.test.ts",
+      "rule": "stripe-access-token",
+      "line": 179,
+      "sha256": "19c90a6d5f305cbd85b8db30328ed4c956d4e41e0564d4cdcfc256cf8a3d17a2",
+      "reason": "Synthetic provider-ledger private-output canary."
+    },
+    {
+      "path": "tests/provider-idempotency-safety.test.ts",
+      "rule": "stripe-access-token",
+      "line": 218,
+      "sha256": "59c3dace5da2015a1e7fa0ed3267965b75a4df83a13892e15f30e456e48c801f",
+      "reason": "Synthetic provider-ledger dependency-replay canary."
+    },
+    {
+      "path": "tests/recursive-command-surfaces.test.ts",
+      "rule": "github-token",
+      "line": 479,
+      "sha256": "d66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9",
+      "reason": "Synthetic recursive parser credential-classifier canary."
+    },
+    {
+      "path": "tests/recursive-command-surfaces.test.ts",
+      "rule": "slack-token",
+      "line": 480,
+      "sha256": "a7bb57e898c5315b00ef2d615da9b3ce8b9656a513a7a351a3081af683c207c9",
+      "reason": "Synthetic recursive parser credential-classifier canary."
+    },
+    {
+      "path": "tests/recursive-command-surfaces.test.ts",
+      "rule": "aws-access-key",
+      "line": 481,
+      "sha256": "457643f44d19aed85fd756aa50cc0cd6b57376d4e8f5a72f9f85972a522002a3",
+      "reason": "Synthetic recursive parser credential-classifier canary."
+    },
+    {
+      "path": "tests/winner-loop-integrations.test.ts",
+      "rule": "github-token",
+      "line": 678,
+      "sha256": "d66f4cc7d7c08ec57ca73717f8625478602fd28781494d2876f871b01f4f35b9",
+      "reason": "Synthetic Winner fixture credential-classifier canary."
+    },
+    {
+      "path": "tests/winner-loop-integrations.test.ts",
+      "rule": "slack-token",
+      "line": 679,
+      "sha256": "a7bb57e898c5315b00ef2d615da9b3ce8b9656a513a7a351a3081af683c207c9",
+      "reason": "Synthetic Winner fixture credential-classifier canary."
+    },
+    {
+      "path": "tests/winner-loop-integrations.test.ts",
+      "rule": "aws-access-key",
+      "line": 680,
+      "sha256": "457643f44d19aed85fd756aa50cc0cd6b57376d4e8f5a72f9f85972a522002a3",
+      "reason": "Synthetic Winner fixture credential-classifier canary."
+    }
+  ]
+}

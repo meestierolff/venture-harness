@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,10 +13,20 @@ import {
   FileProviderLifecycleStore,
   ProviderLifecycleStoreError,
 } from "@/lib/runtime";
-import { workflowNode, type WorkflowHandlerContext } from "@/lib/workflow";
+import { workflowNode, type JsonValue, type WorkflowHandlerContext } from "@/lib/workflow";
 
 const now = new Date("2026-08-04T12:00:00.000Z");
 const policies = createDefaultPoliciesConfig();
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(",")}}`;
+}
 
 function context(runId = "provider-lifecycle-run"): WorkflowHandlerContext {
   return {
@@ -33,6 +44,7 @@ function context(runId = "provider-lifecycle-run"): WorkflowHandlerContext {
     idempotencyKey: "provider-lifecycle:github-provider",
     signal: new AbortController().signal,
     trace: () => undefined,
+    checkpointOperation: () => undefined,
   };
 }
 
@@ -320,5 +332,118 @@ describe("verified provider lifecycle persistence", () => {
     });
     expect(transport.calls).toHaveLength(1);
     expect(await readFile(lifecyclePath, "utf8")).toBe("not-json");
+  });
+
+  it("rebuilds a lifecycle-proven crash checkpoint through the trusted adapter without a second write", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vh-provider-lifecycle-reconstruct-"));
+    const lifecycleStore = new FileProviderLifecycleStore(join(directory, "lifecycle.json"));
+    const runId = "provider-lifecycle-reconstruct";
+    let checkpoint: JsonValue | undefined;
+    let readBacks = 0;
+    const transport = new MockProviderTransport(
+      "cli",
+      async () => ({
+        status: "succeeded",
+        message: "fixture repository applied",
+        output: {
+          branch: "main",
+          commitOid: "a".repeat(40),
+          treeOid: "b".repeat(40),
+        },
+        effectOutcome: "confirmed_write",
+      }),
+      async (operation) => {
+        readBacks += 1;
+        return {
+          operationId: operation.id,
+          status: "matched",
+          message: "fixture repository matched",
+          evidence: { verified: true },
+        };
+      },
+    );
+    const bindings = createProviderWorkflowBindings({
+      planFactories: {
+        "provider.github": async () => ({
+          provider: "github",
+          request: {
+            environment: "preview",
+            capabilities: ["repository"],
+            dryRun: false,
+            credentialRef: "cred://github/primary",
+            inputs: {
+              repository:
+                (await lifecycleStore.list()).length === 0
+                  ? "founder/lifecycle-crash-original"
+                  : "founder/lifecycle-factory-after-crash",
+              sourceDirectory: ".",
+              visibility: "private",
+            },
+          },
+        }),
+      },
+      policies,
+      authorization: authorization(runId),
+      context: {
+        transports: { cli: transport },
+        redactor: new Redactor(),
+        idempotencyLedger: new FileProviderIdempotencyLedger(join(directory, "ledger.json")),
+      },
+      lifecycleStore,
+      now: () => now,
+    });
+    const workflow = context(runId);
+    workflow.checkpointOperation = (value) => {
+      checkpoint = value;
+    };
+
+    await expect(bindings.handlers!["provider.github"](workflow)).resolves.toMatchObject({
+      effectVerified: true,
+    });
+    expect(checkpoint).toBeDefined();
+    expect(transport.calls).toHaveLength(1);
+    expect(readBacks).toBe(1);
+
+    const reconcile = (durableCheckpoint: JsonValue) =>
+      bindings.reconcilers!["provider.github"]({
+        runId,
+        node: workflow.node,
+        attempt: 1,
+        dependencyOutputs: {},
+        idempotencyKey: workflow.idempotencyKey,
+        operation: {
+          attempt: 1,
+          idempotencyKey: workflow.idempotencyKey,
+          phase: "handler_completed",
+          preparedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          reconcileAttempts: 0,
+          checkpoint: durableCheckpoint,
+        },
+        reason: "restart",
+        signal: new AbortController().signal,
+        trace: () => undefined,
+      });
+    await expect(reconcile(checkpoint!)).resolves.toMatchObject({ status: "verified" });
+    expect(transport.calls).toHaveLength(1);
+    expect(readBacks).toBe(2);
+
+    const tampered = structuredClone(checkpoint!) as Record<string, JsonValue>;
+    const snapshot = tampered.snapshot as Record<string, JsonValue>;
+    const plan = snapshot.plan as Record<string, JsonValue>;
+    const operations = plan.operations as Record<string, JsonValue>[];
+    operations[0] = {
+      ...operations[0],
+      command: { binary: "untrusted-checkpoint-command", args: [] },
+    };
+    tampered.digest = createHash("sha256").update(canonicalJson(snapshot)).digest("hex");
+
+    await expect(reconcile(tampered)).resolves.toMatchObject({
+      status: "failed",
+      code: "provider_reconciliation_target_mismatch",
+      effectState: "unknown",
+    });
+    expect(transport.calls).toHaveLength(1);
+    expect(readBacks).toBe(2);
   });
 });

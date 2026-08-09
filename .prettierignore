@@ -1,5 +1,7 @@
 node_modules/
 .next/
+bin/vh.mjs
+reports/audit/winner-loop-creative-trace.json
 .agents/
 .claude/skills/
 pnpm-lock.yaml

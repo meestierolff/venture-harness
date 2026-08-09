@@ -9,21 +9,30 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { Redactor, type CommandInvocation, type CommandRunner } from "@/lib/credentials";
 import { createDefaultCliServices } from "@/lib/cli/default-services";
-import { founderBriefSchema } from "@/lib/launch";
+import { compileLaunchGraph, founderBriefSchema } from "@/lib/launch";
 import {
   assertBuildAgentHostAvailable,
+  CHILD_DEPENDENCY_INSTALL_ARGS,
   CodexCliBuildAgentHost,
   codexBuildAgentEnvironment,
+  productCommandEnvironment,
   createLaunchProductBindings,
   type BuildAgentHost,
   type BuildAgentRequest,
   type BuildAgentResult,
 } from "@/lib/runtime";
-import { FileWorkflowStore, workflowNode, type WorkflowHandlerContext } from "@/lib/workflow";
+import {
+  FileWorkflowStore,
+  WorkflowExecutor,
+  workflowNode,
+  type WorkflowDefinition,
+  type WorkflowHandlerContext,
+  type WorkflowNodeDefinition,
+} from "@/lib/workflow";
 
 const webBrief = founderBriefSchema.parse(
   parse(readFileSync("fixtures/web-saas/brief.yaml", "utf8")),
@@ -65,6 +74,8 @@ class FakeBuildAgentHost implements BuildAgentHost {
       host: this.id,
       status: this.available ? ("available" as const) : ("missing" as const),
       version: this.available ? "fake 1.0" : null,
+      billingMode: this.available ? ("fixture_no_model_execution" as const) : ("unknown" as const),
+      billingEvidence: this.available ? ("fixture_attestation" as const) : null,
       nextAction: this.available ? null : "Install the fake host.",
     };
   }
@@ -103,6 +114,46 @@ function handlerContext(
   };
 }
 
+function installTooling(root: string): void {
+  mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
+  mkdirSync(join(root, "node_modules/.pnpm"), { recursive: true });
+  writeFileSync(join(root, "node_modules/.bin/tsc"), "fixture TypeScript shim\n");
+  writeFileSync(join(root, "node_modules/.bin/playwright"), "fixture Playwright shim\n");
+  copyFileSync(join(root, "pnpm-lock.yaml"), join(root, "node_modules/.pnpm/lock.yaml"));
+}
+
+function dependencyInstallNode(): WorkflowNodeDefinition {
+  const node = compileLaunchGraph(webBrief).nodes.find(({ id }) => id === "install-dependencies");
+  if (!node) throw new Error("web launch graph did not compile install-dependencies");
+  return structuredClone(node);
+}
+
+function dependencyFinalizationNode(dependencies: readonly string[]): WorkflowNodeDefinition {
+  const node = dependencyInstallNode();
+  return {
+    ...node,
+    id: "finalize-dependencies",
+    dependencies: [...dependencies],
+    idempotencyKey: "launch:fixture:finalize-dependencies",
+    evidence: {
+      required: true,
+      artifact: "reports/quality/dependency-finalization.json",
+    },
+  };
+}
+
+function dependencyWorkflow(nodes: WorkflowNodeDefinition[]): WorkflowDefinition {
+  return {
+    id: "dependency-bootstrap-regression",
+    name: "Dependency bootstrap regression",
+    version: "0.2.0",
+    nodes,
+    maxParallel: 1,
+    maxIterations: 20,
+    budgets: { dependencies: 0, default: 0, quality: 0 },
+  };
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -128,6 +179,7 @@ describe("Codex CLI build-agent host", () => {
     };
     const runner = new FakeRunner([
       { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
       {
         exitCode: 0,
         stdout: [
@@ -164,6 +216,11 @@ describe("Codex CLI build-agent host", () => {
     expect(runner.calls[0]).toMatchObject({ command: "codex", args: ["--version"], cwd: root });
     expect(runner.calls[1]).toMatchObject({
       command: "codex",
+      args: ["login", "status"],
+      cwd: root,
+    });
+    expect(runner.calls[2]).toMatchObject({
+      command: "codex",
       args: [
         "exec",
         "--sandbox",
@@ -178,14 +235,15 @@ describe("Codex CLI build-agent host", () => {
       cwd: root,
       sensitiveStdin: true,
     });
-    expect(runner.calls[1].args.join(" ")).not.toContain("private founder concept");
-    expect(runner.calls[1].stdin).toContain("private founder concept appears only on stdin");
+    expect(runner.calls[2].args.join(" ")).not.toContain("private founder concept");
+    expect(runner.calls[2].stdin).toContain("private founder concept appears only on stdin");
   });
 
   it("rejects credential material before starting Codex and rejects malformed final output", async () => {
     const root = temporaryRoot();
     const credentialRunner = new FakeRunner([
       { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
     ]);
     const credentialHost = new CodexCliBuildAgentHost({ rootDir: root, runner: credentialRunner });
     await expect(
@@ -197,10 +255,11 @@ describe("Codex CLI build-agent host", () => {
         context: { value: "sk_live_1234567890abcdef" },
       }),
     ).rejects.toMatchObject({ code: "credential_material" });
-    expect(credentialRunner.calls).toHaveLength(1);
+    expect(credentialRunner.calls).toHaveLength(2);
 
     const malformedRunner = new FakeRunner([
       { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
       { exitCode: 0, stdout: "not-jsonl\n", stderr: "" },
     ]);
     const malformedHost = new CodexCliBuildAgentHost({ rootDir: root, runner: malformedRunner });
@@ -216,6 +275,7 @@ describe("Codex CLI build-agent host", () => {
 
     const noCompletionRunner = new FakeRunner([
       { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
       {
         exitCode: 0,
         stdout: JSON.stringify({
@@ -250,6 +310,36 @@ describe("Codex CLI build-agent host", () => {
     ).rejects.toMatchObject({ code: "invalid_final_result" });
   });
 
+  it("attests ChatGPT subscription login and fails closed for API-key billing", async () => {
+    const root = temporaryRoot();
+    const subscription = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner: new FakeRunner([
+        { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+        { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
+      ]),
+    });
+    await expect(subscription.inspect()).resolves.toMatchObject({
+      status: "available",
+      billingMode: "chatgpt_subscription",
+      billingEvidence: "codex_login_status",
+      nextAction: null,
+    });
+
+    const apiKey = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner: new FakeRunner([
+        { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+        { exitCode: 0, stdout: "Logged in using an API key\n", stderr: "" },
+      ]),
+    });
+    await expect(apiKey.inspect()).resolves.toMatchObject({
+      status: "available",
+      billingMode: "api_key_metered",
+      nextAction: expect.stringMatching(/ChatGPT subscription/i),
+    });
+  });
+
   it("passes only a credential-free environment allowlist to the default host runner", () => {
     expect(
       codexBuildAgentEnvironment({
@@ -268,6 +358,31 @@ describe("Codex CLI build-agent host", () => {
       CODEX_HOME: "/safe-codex",
     });
   });
+
+  it("isolates generated-product commands from provider and agent credentials", () => {
+    expect(
+      productCommandEnvironment(
+        {
+          NODE_ENV: "test",
+          PATH: "/bin",
+          HOME: "/founder-home",
+          CODEX_HOME: "/founder-codex",
+          VERCEL_TOKEN: "provider-secret",
+          DATABASE_URL: "postgresql://user:secret@example.test/db",
+          NPM_TOKEN: "registry-secret",
+        },
+        "/venture/.venture/product-command-home",
+      ),
+    ).toEqual({
+      NODE_ENV: "test",
+      PATH: "/bin",
+      HOME: "/venture/.venture/product-command-home",
+      USERPROFILE: "/venture/.venture/product-command-home",
+      XDG_CONFIG_HOME: "/venture/.venture/product-command-home/.config",
+      npm_config_userconfig: "/venture/.venture/product-command-home/.npmrc",
+      NPM_CONFIG_USERCONFIG: "/venture/.venture/product-command-home/.npmrc",
+    });
+  });
 });
 
 describe("default launch product bindings", () => {
@@ -279,6 +394,9 @@ describe("default launch product bindings", () => {
     mkdirSync(join(root, "config"), { recursive: true });
     mkdirSync(join(root, "lib/analytics"), { recursive: true });
     writeFileSync(join(root, "harness.lock"), "{}\n");
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    installTooling(root);
     writeFileSync(join(root, "app/page.tsx"), "export default function Page() { return null; }\n");
     writeFileSync(join(root, "docs/brand/DESIGN.md"), "# Design\n\nTemplate state.\n");
     writeFileSync(join(root, "tests/core-journey.test.ts"), "// pending journey test\n");
@@ -398,6 +516,7 @@ describe("default launch product bindings", () => {
       };
     });
     const qualityRunner = new FakeRunner([
+      { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" },
       { exitCode: 0, stdout: "fast passed\n", stderr: "" },
       { exitCode: 0, stdout: "mvp passed\n", stderr: "" },
     ]);
@@ -408,6 +527,14 @@ describe("default launch product bindings", () => {
       commandRunner: qualityRunner,
       redactor,
       now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+
+    const dependencyInstall = await bindings.handlers!["launch.installDependencies"](
+      handlerContext("launch-product", "install-dependencies", "launch.installDependencies"),
+    );
+    expect(dependencyInstall).toMatchObject({
+      effectVerified: true,
+      output: { frozenLockfile: true, lockfile: "pnpm-lock.yaml" },
     });
 
     const agentHandlers = [
@@ -434,6 +561,7 @@ describe("default launch product bindings", () => {
 
     expect(host.requests).toHaveLength(4);
     expect(qualityRunner.calls.map(({ command, args }) => [command, ...args])).toEqual([
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
       ["pnpm", "verify:fast"],
       ["pnpm", "verify:mvp"],
     ]);
@@ -467,6 +595,373 @@ describe("default launch product bindings", () => {
     expect(existsSync(join(root, "reports/launch/launch-product/product/verify-launch.json"))).toBe(
       true,
     );
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(root, "reports/launch/launch-product/product/install-dependencies.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({
+      command: ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      frozenLockfile: true,
+      parentWorkspaceIgnored: true,
+      lifecycleScriptsDisabled: true,
+      installedModulesReadBack: true,
+      installedLockfileReadBack: true,
+      requiredToolingReadBack: true,
+      packageManifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      lockfileSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      exitCode: 0,
+    });
+  });
+
+  it("persists a failed frozen dependency install before any quality command can run", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    const runner = new FakeRunner([
+      {
+        exitCode: 1,
+        stdout: "",
+        stderr: "ERR_PNPM_OUTDATED_LOCKFILE package.json and pnpm-lock.yaml disagree\n",
+      },
+    ]);
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+
+    await expect(
+      bindings.handlers!["launch.installDependencies"](
+        handlerContext(
+          "launch-install-failure",
+          "install-dependencies",
+          "launch.installDependencies",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "DEPENDENCY_INSTALL_FAILED" });
+    expect(runner.calls).toHaveLength(1);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(root, "reports/launch/launch-install-failure/product/install-dependencies.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ exitCode: 1, frozenLockfile: true });
+  });
+
+  it("reconciles a failed dependency attempt and resumes the same run without starting descendants early", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    let installAttempts = 0;
+    const runner: CommandRunner = {
+      async run(invocation) {
+        expect([invocation.command, ...invocation.args]).toEqual([
+          "pnpm",
+          ...CHILD_DEPENDENCY_INSTALL_ARGS,
+        ]);
+        installAttempts += 1;
+        if (installAttempts === 1) {
+          return { exitCode: 1, stdout: "", stderr: "fixture registry unavailable\n" };
+        }
+        installTooling(root);
+        return { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" };
+      },
+    };
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+    const descendant = vi.fn(() => ({ output: { dependencyReady: true } }));
+    bindings.handlers!["fixture.afterInstall"] = descendant;
+    const definition = dependencyWorkflow([
+      dependencyInstallNode(),
+      workflowNode("after-install", {
+        dependencies: ["install-dependencies"],
+        handler: "fixture.afterInstall",
+      }),
+    ]);
+    const executor = new WorkflowExecutor({
+      store: new FileWorkflowStore({ rootDir: join(root, "runs") }),
+      bindings,
+    });
+
+    let state = await executor.start(definition, { runId: "dependency-failure-resume" });
+    expect(state.status).toBe("waiting");
+    expect(state.nodes["install-dependencies"]).toMatchObject({
+      state: "waiting_for_external_action",
+      attempts: 1,
+      operation: {
+        checkpoint: {
+          packageManifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          lockfileSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
+    });
+    expect(descendant).not.toHaveBeenCalled();
+
+    state = await executor.resume(definition, "dependency-failure-resume");
+    expect(state.status).toBe("succeeded");
+    expect(state.nodes["install-dependencies"]).toMatchObject({
+      state: "succeeded",
+      attempts: 2,
+      effectVerified: true,
+    });
+    expect(descendant).toHaveBeenCalledOnce();
+    expect(installAttempts).toBe(2);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(
+            root,
+            "reports/launch/dependency-failure-resume/product/install-dependencies.reconcile.json",
+          ),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ state: "not_applied" });
+  });
+
+  it("revalidates a successful mutable install and performs one bounded reinstall before quality", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    const calls: string[][] = [];
+    const runner: CommandRunner = {
+      async run(invocation) {
+        calls.push([invocation.command, ...invocation.args]);
+        if (invocation.args.join("\u0000") === CHILD_DEPENDENCY_INSTALL_ARGS.join("\u0000")) {
+          installTooling(root);
+          return { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" };
+        }
+        expect(invocation.args).toEqual(["verify:fast"]);
+        return { exitCode: 0, stdout: "fast checks passed\n", stderr: "" };
+      },
+    };
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+    const definition = dependencyWorkflow([
+      dependencyInstallNode(),
+      workflowNode("repair-checkpoint", {
+        kind: "human_approval",
+        transport: "human_approval",
+        handler: undefined,
+        dependencies: ["install-dependencies"],
+      }),
+      workflowNode("verify-local", {
+        capability: "quality.fast",
+        dependencies: ["repair-checkpoint"],
+        handler: "launch.verifyLocal",
+        evidence: { required: true, artifact: "reports/quality/launch-fast.json" },
+      }),
+    ]);
+    const executor = new WorkflowExecutor({
+      store: new FileWorkflowStore({ rootDir: join(root, "runs") }),
+      bindings,
+    });
+
+    let state = await executor.start(definition, { runId: "dependency-repair-resume" });
+    expect(state.status).toBe("waiting");
+    rmSync(join(root, "node_modules/.bin/tsc"));
+    await executor.approve("dependency-repair-resume", "repair-checkpoint", {
+      approvedBy: "fixture-founder",
+    });
+    state = await executor.resume(definition, "dependency-repair-resume");
+
+    expect(state.status).toBe("succeeded");
+    expect(calls).toEqual([
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      ["pnpm", "verify:fast"],
+    ]);
+    expect(existsSync(join(root, "node_modules/.bin/tsc"))).toBe(true);
+  });
+
+  it("checkpoints a coherent dependency change after product planning before quality", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\ninitial: true\n");
+    const calls: string[][] = [];
+    const runner: CommandRunner = {
+      async run(invocation) {
+        calls.push([invocation.command, ...invocation.args]);
+        if (invocation.args.join("\u0000") === CHILD_DEPENDENCY_INSTALL_ARGS.join("\u0000")) {
+          installTooling(root);
+          return { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" };
+        }
+        expect(invocation.args).toEqual(["verify:fast"]);
+        return { exitCode: 0, stdout: "fast checks passed\n", stderr: "" };
+      },
+    };
+    const productBindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+    const definition = dependencyWorkflow([
+      dependencyInstallNode(),
+      workflowNode("plan-dependency-change", {
+        capability: "product.dependencies",
+        dependencies: ["install-dependencies"],
+        handler: "fixture.planDependencyChange",
+        effect: "local_write",
+      }),
+      dependencyFinalizationNode(["plan-dependency-change"]),
+      workflowNode("verify-local", {
+        capability: "quality.fast",
+        dependencies: ["finalize-dependencies"],
+        handler: "launch.verifyLocal",
+        evidence: { required: true, artifact: "reports/quality/launch-fast.json" },
+      }),
+    ]);
+    const executor = new WorkflowExecutor({
+      store: new FileWorkflowStore({ rootDir: join(root, "runs") }),
+      bindings: {
+        ...productBindings,
+        handlers: {
+          ...productBindings.handlers,
+          "fixture.planDependencyChange": async () => {
+            writeFileSync(
+              join(root, "package.json"),
+              '{"dependencies":{"reviewed-dependency":"1.0.0"}}\n',
+            );
+            writeFileSync(
+              join(root, "pnpm-lock.yaml"),
+              "lockfileVersion: '9.0'\nreviewed-dependency: 1.0.0\n",
+            );
+            return {
+              output: { dependencyPlan: "reviewed-dependency@1.0.0" },
+              effectVerified: true,
+            };
+          },
+        },
+      },
+    });
+
+    const state = await executor.start(definition, { runId: "dependency-finalization" });
+
+    expect(state.status).toBe("succeeded");
+    expect(state.nodes["finalize-dependencies"]).toMatchObject({
+      state: "succeeded",
+      effectVerified: true,
+    });
+    expect(calls).toEqual([
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      ["pnpm", "verify:fast"],
+    ]);
+  });
+
+  it("fails closed without reinstalling when checkpointed dependency inputs change", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    let calls = 0;
+    const runner: CommandRunner = {
+      async run(invocation) {
+        calls += 1;
+        expect(invocation.args).toEqual([...CHILD_DEPENDENCY_INSTALL_ARGS]);
+        installTooling(root);
+        return { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" };
+      },
+    };
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+    const definition = dependencyWorkflow([
+      dependencyInstallNode(),
+      dependencyFinalizationNode(["install-dependencies"]),
+      workflowNode("input-review", {
+        kind: "human_approval",
+        transport: "human_approval",
+        handler: undefined,
+        dependencies: ["finalize-dependencies"],
+      }),
+      workflowNode("verify-local", {
+        capability: "quality.fast",
+        dependencies: ["input-review"],
+        handler: "launch.verifyLocal",
+        evidence: { required: true, artifact: "reports/quality/launch-fast.json" },
+      }),
+    ]);
+    const executor = new WorkflowExecutor({
+      store: new FileWorkflowStore({ rootDir: join(root, "runs") }),
+      bindings,
+    });
+
+    let state = await executor.start(definition, { runId: "dependency-input-change" });
+    expect(state.status).toBe("waiting");
+    writeFileSync(join(root, "package.json"), '{"dependencies":{"unexpected":"1.0.0"}}\n');
+    await executor.approve("dependency-input-change", "input-review", {
+      approvedBy: "fixture-founder",
+    });
+    state = await executor.resume(definition, "dependency-input-change");
+
+    expect(state.status).toBe("failed");
+    expect(state.nodes["verify-local"].error).toMatchObject({
+      code: "DEPENDENCY_INPUT_CHANGED",
+    });
+    expect(calls).toBe(2);
   });
 
   it("runs read-only browser checks against the exact URL from production read-back", async () => {
@@ -474,7 +969,7 @@ describe("default launch product bindings", () => {
     const runner = new FakeRunner([{ exitCode: 0, stdout: "2 passed\n", stderr: "" }]);
     const bindings = createLaunchProductBindings({
       rootDir: root,
-      brief: webBrief,
+      brief: founderBriefSchema.parse({ ...webBrief, domain: "example.com" }),
       agentHost: new FakeBuildAgentHost({
         status: "completed",
         summary: "unused",
@@ -513,7 +1008,10 @@ describe("default launch product bindings", () => {
       expect.objectContaining({
         command: "pnpm",
         args: ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts"],
-        env: { PLAYWRIGHT_BASE_URL: "https://venture-example.vercel.app" },
+        env: {
+          PLAYWRIGHT_BASE_URL: "https://venture-example.vercel.app",
+          EXPECTED_PUBLIC_ORIGIN: "https://example.com",
+        },
       }),
     ]);
     expect(result.evidenceArtifact).toBe(
@@ -759,6 +1257,7 @@ describe("default launch product bindings", () => {
     const root = temporaryRoot();
     mkdirSync(join(root, "config"));
     copyFileSync("config/policies.yaml", join(root, "config/policies.yaml"));
+    copyFileSync("config/providers.yaml", join(root, "config/providers.yaml"));
     const store = new FileWorkflowStore({ rootDir: join(root, ".venture/runs") });
     const unavailableHost = new FakeBuildAgentHost(
       {

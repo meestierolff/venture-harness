@@ -118,6 +118,15 @@ export interface ProviderHttpSpec {
   encoding?: "json" | "form";
   auth?: HttpAuthSpec;
   nativeIdempotency?: boolean;
+  /**
+   * Stores one string field from a successful JSON response directly behind
+   * an already-registered writable credential reference. The captured value
+   * is registered with the redactor before any response evidence is emitted.
+   */
+  captureCredential?: {
+    credentialRef: string;
+    outputPath: string;
+  };
 }
 
 export interface ProviderManualSpec {
@@ -237,6 +246,11 @@ export interface ProviderTransportResult {
   output?: unknown;
   retryable?: boolean;
   verified?: boolean;
+  /**
+   * Whether the transport can prove that an external write did or did not
+   * happen. Network failures and timeouts must remain `unknown`.
+   */
+  effectOutcome?: "confirmed_write" | "confirmed_no_write" | "unknown";
 }
 
 export interface ProviderReadBackResult {
@@ -264,11 +278,60 @@ export interface ProviderTransport {
     execution: ProviderTransportResult,
     context: ProviderTransportContext,
   ): Promise<ProviderReadBackResult>;
+  /**
+   * Reconcile a prior ambiguous attempt without repeating the write. An
+   * adapter may only return `definitive_no_write` when provider evidence proves
+   * the original operation did not take effect.
+   */
+  reconcile?(
+    operation: ProviderOperation,
+    context: ProviderTransportContext,
+  ): Promise<ProviderReconciliationResult>;
+}
+
+export interface ProviderReconciliationResult {
+  status: "matched" | "definitive_no_write" | "unknown";
+  message: string;
+  result?: ProviderTransportResult;
+  evidence?: unknown;
+}
+
+export type IdempotencyClaim =
+  | { status: "acquired" }
+  | { status: "replay"; result: ProviderTransportResult }
+  | { status: "pending_reconciliation"; result: ProviderTransportResult }
+  | { status: "conflict" };
+
+export interface IdempotencyReplaySelection {
+  /**
+   * Scalar public-result paths needed to materialize declared dependencies or
+   * execute provider read-back after a process restart. Durable ledgers must
+   * independently validate both paths and values before persisting them.
+   */
+  outputPaths: readonly string[];
 }
 
 export interface IdempotencyLedger {
+  /** Production provider writes require a process-safe durable atomic implementation. */
+  readonly durability?: "fixture_only" | "durable_atomic";
+  /**
+   * Stable opaque identity of this exact ledger generation. Durable ledgers
+   * persist it alongside their entries so workflow checkpoints can reject a
+   * replaced, deleted, or newly initialized ledger before reconciliation.
+   */
+  identity(): Promise<string>;
   get(key: string): Promise<ProviderTransportResult | null>;
   put(key: string, result: ProviderTransportResult): Promise<void>;
+  /** Atomically bind a key to the complete canonical operation request. */
+  claim(key: string, requestHash: string): Promise<IdempotencyClaim>;
+  /** Persist the only safe terminal outcomes of an attempted provider write. */
+  settle(
+    key: string,
+    requestHash: string,
+    state: "succeeded" | "definitive_no_write" | "pending_reconciliation",
+    result: ProviderTransportResult,
+    replay?: IdempotencyReplaySelection,
+  ): Promise<void>;
 }
 
 export interface ProviderExecutionContext {
@@ -278,6 +341,14 @@ export interface ProviderExecutionContext {
   credentials?: CredentialBroker;
   redactor: Redactor;
   idempotencyLedger?: IdempotencyLedger;
+  /** Explicit escape hatch for deterministic adapter fixtures; never set by production runtimes. */
+  fixtureMode?: boolean;
+  /**
+   * A workflow retry must replay already-successful operations without invoking
+   * even an operation that normally opts into reconcile-on-replay execution.
+   * Provider read-back still runs after the plan report is reconstructed.
+   */
+  reuseSuccessfulOperations?: boolean;
   signal?: AbortSignal;
 }
 
@@ -315,6 +386,15 @@ export interface ProviderAdapter {
   ): Promise<ProviderDoctorResult>;
   plan(request: ProviderPlanRequest): ProviderPlan;
   apply(plan: ProviderPlan, context: ProviderExecutionContext): Promise<ProviderExecutionReport>;
+  /**
+   * Resolve the durable outcome of a previously prepared plan without invoking
+   * any provider write. Implementations must bind every operation to its exact
+   * idempotency request hash before returning an outcome.
+   */
+  reconcile?(
+    plan: ProviderPlan,
+    context: ProviderExecutionContext,
+  ): Promise<ProviderExecutionReport>;
   readBack(
     report: ProviderExecutionReport,
     context: ProviderExecutionContext,

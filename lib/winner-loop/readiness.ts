@@ -169,11 +169,10 @@ export function assessReadiness(
   // VBO requires the contract to permit it, the value rung, and a live eligible
   // provider answer. Reaching VALUE_READY does not itself switch it on.
   const vboAllowed =
-    contract.paid.vbo_policy === "allowed" ||
-    (contract.paid.vbo_policy === "requires_value_ready" &&
-      (stage === "VALUE_READY" || stage === "SCALE_READY") &&
-      eligibility === "eligible" &&
-      blockers.length === 0);
+    contract.paid.vbo_policy !== "forbidden" &&
+    (stage === "VALUE_READY" || stage === "SCALE_READY") &&
+    eligibility === "eligible" &&
+    blockers.length === 0;
 
   if (!vboAllowed && contract.paid.vbo_policy !== "forbidden") {
     evidence.push("Value-based optimisation stays off until its preconditions all hold.");

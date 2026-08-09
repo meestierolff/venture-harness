@@ -5,10 +5,15 @@ import { parse } from "yaml";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   buildCreativeTrace,
+  buildLearning,
+  createMetricSnapshot,
   createSqliteSpendStore,
+  FIXTURE_D_STEPS,
+  recordMetricValue,
   runFixtureD,
   ULID_PATTERN,
   type FixtureDResult,
+  type MetricId,
   type SpendStore,
 } from "@/lib/winner-loop";
 import { parseGrowthContract } from "@/lib/config/growth-contract-schema";
@@ -31,13 +36,71 @@ function store(): SpendStore {
 /** The committed config/growth.yaml, not a test-local copy. */
 const contract = parseGrowthContract(parse(readFileSync("config/growth.yaml", "utf8")));
 
+function baselineHistory(multiplier: number) {
+  const generatedAt = new Date("2026-08-09T12:00:00.000Z");
+  const metric = (metricId: MetricId, value: number, capturedAt: string, source: string) =>
+    recordMetricValue({
+      metric: metricId,
+      definition: {
+        definitionId: `tiktok_content:${metricId}_v1`,
+        definitionVersion: "1",
+        metric: metricId,
+        provider: "tiktok_content",
+        unit: metricId === "view_velocity" ? "count_per_hour" : "ratio",
+        description: `Fixture ${metricId}`,
+      },
+      provider: "tiktok_content",
+      externalAccountId: "fixture-tt-account",
+      sourceObjectId: source,
+      availability: "available",
+      value,
+      missingReason: null,
+      reportingWindowStart: capturedAt,
+      reportingWindowEnd: capturedAt,
+      sourceTime: capturedAt,
+      latencySeconds: 60,
+      fetchedAt: capturedAt,
+      attributionWindow: null,
+      confidence: "high",
+      rawReference: `fixture://${source}/${metricId}`,
+    });
+  return Array.from({ length: 40 }, (_, index) => {
+    const capturedAt = new Date(
+      generatedAt.getTime() - 60 * 60_000 - ((39 - index) * 29 * 86_400_000) / 39,
+    ).toISOString();
+    const source = `sensitivity-history-${index}`;
+    return createMetricSnapshot({
+      organizationId: "fixture-organization",
+      ventureId: contract.venture_id,
+      provider: "tiktok_content",
+      externalAccountId: "fixture-tt-account",
+      creativeId: `sensitivity-creative-${index}`,
+      publicationId: source,
+      format: "talking_head_with_screen_recording",
+      durationSeconds: 22,
+      geography: "NL",
+      offsetMinutes: 1_440,
+      capturedAt,
+      values: [
+        metric("view_velocity", 500 * multiplier, capturedAt, source),
+        metric("completion", 0.3 * multiplier, capturedAt, source),
+        metric("watch_time_ratio", 0.4 * multiplier, capturedAt, source),
+      ],
+    });
+  });
+}
+
 let result: FixtureDResult;
 
 beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), "vh-fixture-d-boot-"));
   const booted = createSqliteSpendStore(join(dir, "spend.db"));
   try {
-    result = await runFixtureD({ contract, store: booted });
+    result = await runFixtureD({
+      organizationId: "fixture-organization",
+      contract,
+      store: booted,
+    });
   } finally {
     booted.close();
     rmSync(dir, { recursive: true, force: true });
@@ -47,6 +110,14 @@ beforeAll(async () => {
 describe("Fixture D runs the whole loop through production modules", () => {
   it("is labelled synthetic and contacts no real provider", () => {
     expect(result.label).toMatch(/SYNTHETIC_FIXTURE/);
+  });
+
+  it("records all 34 required production-boundary milestones in exact order", () => {
+    expect(result.steps).toHaveLength(34);
+    expect(result.steps.map(({ step }) => step)).toEqual(
+      Array.from({ length: 34 }, (_, index) => index + 1),
+    );
+    expect(result.steps.map(({ name }) => name)).toEqual(FIXTURE_D_STEPS);
   });
 
   it("mints one opaque creative id and carries it through every provider object", () => {
@@ -65,9 +136,32 @@ describe("Fixture D runs the whole loop through production modules", () => {
   });
 
   it("produces a baseline-adjusted recommendation with its scoring version", () => {
+    expect(result.evaluation).toMatchObject({
+      organizationId: result.organizationId,
+      ventureId: result.ventureId,
+    });
     expect(result.evaluation.scoringVersion).toBe("winner-score-v1");
     expect(result.evaluation.recommendation).toBe("PAID_TEST_CANDIDATE");
     expect(result.evaluation.spendEligible).toBe(true);
+    expect(result.evaluation.baselineId).toBe(result.baseline.baselineId);
+    expect(result.baseline.sourceRefs).toHaveLength(40);
+    expect(Object.isFrozen(result.baseline)).toBe(true);
+    expect(Object.isFrozen(result.baseline.duration)).toBe(true);
+  });
+
+  it("changes the recommendation inputs when scoped source history changes", async () => {
+    const highBaseline = await runFixtureD({
+      organizationId: "fixture-organization",
+      contract,
+      store: store(),
+      baselineSourceSnapshots: baselineHistory(2),
+    });
+
+    expect(highBaseline.baseline.account.medianViewVelocityPerHour).toBe(1_000);
+    expect(highBaseline.evaluation.features).toContainEqual(
+      expect.objectContaining({ feature: "viewVelocityVsBaseline", baseline: 1_000 }),
+    );
+    expect(highBaseline.evaluation.score).not.toBe(result.evaluation.score);
   });
 
   it("refuses paid creation at both gates and never reaches the adapter", () => {
@@ -100,6 +194,10 @@ describe("Fixture D runs the whole loop through production modules", () => {
   it("computes D0, D7 and D30 cohorts carrying their attribution class", () => {
     expect(result.cohorts.map((cohort) => cohort.window.label)).toEqual(["D0", "D7", "D30"]);
     for (const cohort of result.cohorts) {
+      expect(cohort).toMatchObject({
+        organizationId: result.organizationId,
+        ventureId: result.ventureId,
+      });
       expect(cohort.attributionClass).toBe("DETERMINISTIC");
       expect(cohort.revenueCatProject).toBe("fixture-rc-project");
       expect(cohort.missingData).toContain("installs");
@@ -113,8 +211,64 @@ describe("Fixture D runs the whole loop through production modules", () => {
     expect(["suggestive", "supported", "strong"]).toContain(result.learning.confidence);
   });
 
+  it("rejects evaluation or cohort evidence laundered across organizations", () => {
+    const input = {
+      learningId: "learning-scope-check",
+      organizationId: result.organizationId,
+      ventureId: result.ventureId,
+      evaluation: result.evaluation,
+      cohorts: result.cohorts,
+      hypothesis: result.learning.hypothesis,
+      provider: result.learning.providerContext.provider,
+      externalAccountId: result.learning.providerContext.externalAccountId,
+      organicWindow: result.learning.organicWindow,
+      paidWindow: result.learning.paidWindow,
+      createdAt: result.learning.createdAt,
+    };
+    expect(() => buildLearning({ ...input, organizationId: "forged-organization" })).toThrow(
+      /tenant_scope_mismatch/,
+    );
+    expect(() =>
+      buildLearning({
+        ...input,
+        cohorts: [{ ...result.cohorts[0]!, organizationId: "forged-organization" }],
+      }),
+    ).toThrow(/tenant_scope_mismatch/);
+    expect(() => buildLearning({ ...input, externalAccountId: "forged-account" })).toThrow(
+      /tenant_scope_mismatch/,
+    );
+    expect(() =>
+      buildLearning({
+        ...input,
+        cohorts: [{ ...result.cohorts[0]!, creativeId: "different-creative" }],
+      }),
+    ).toThrow(/creative_lineage_mismatch/);
+    expect(() =>
+      buildLearning({
+        ...input,
+        cohorts: [{ ...result.cohorts[0]!, creativeFamilyId: "different-family" }],
+      }),
+    ).toThrow(/creative_lineage_mismatch/);
+    expect(() =>
+      buildLearning({
+        ...input,
+        cohorts: [result.cohorts[1]!, result.cohorts[0]!],
+      }),
+    ).toThrow(/cohort_window_order_invalid/);
+    expect(() =>
+      buildLearning({
+        ...input,
+        cohorts: [result.cohorts[0]!, result.cohorts[0]!],
+      }),
+    ).toThrow(/cohort_window_order_invalid/);
+  });
+
   it("is deterministic across runs", async () => {
-    const second = await runFixtureD({ contract, store: store() });
+    const second = await runFixtureD({
+      organizationId: "fixture-organization",
+      contract,
+      store: store(),
+    });
     expect(second.creativeId).toBe(result.creativeId);
     expect(second.evaluation.score).toBe(result.evaluation.score);
     expect(second.settledSpendMinor).toBe(result.settledSpendMinor);

@@ -13,6 +13,8 @@ const eslintConfig = [
       ".claude/skills/**",
       "examples/**",
       "coverage/**",
+      "**/dist/**",
+      "bin/vh.mjs",
       "next-env.d.ts",
     ],
   },
