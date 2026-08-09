@@ -118,3 +118,31 @@ export {
   type ProposalStatus,
   type RightsState,
 } from "./paid-test";
+export {
+  ATTRIBUTION_CLASSES,
+  classifyAttribution,
+  createAttributionLedger,
+  type AttributionClass,
+  type AttributionConfidence,
+  type AttributionEvidence,
+  type AttributionLedger,
+  type AttributionLedgerOptions,
+  type AttributionRecord,
+  type AttributionRecordInput,
+} from "./attribution";
+export {
+  D90_WINDOW,
+  DEFAULT_COHORT_WINDOWS,
+  SUBSCRIPTION_EVENT_TYPES,
+  createSubscriptionIngestor,
+  type CohortMetrics,
+  type CohortSnapshot,
+  type CohortWindow,
+  type IngestEnvironment,
+  type IngestOutcome,
+  type SubscriberState,
+  type SubscriptionEvent,
+  type SubscriptionEventType,
+  type SubscriptionIngestor,
+  type SubscriptionIngestorOptions,
+} from "./subscriptions";
