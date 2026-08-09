@@ -1,6 +1,6 @@
 ---
 name: quality-gate
-description: Pre-completion verification of any change - run the full check suite, browser flows, responsive screenshots, accessibility, crawler HTML, and report honestly what could not run. Use before reporting any task done. Never report completion before pnpm verify has run.
+description: Select and run the capability-aware fast, MVP, or release verification profile before completion, covering changed code, critical journeys, provider dry runs/read-backs, migrations, security, privacy, truth, accessibility, web crawling, mobile readiness, fixtures, and generated parity. Use before reporting any repository change done or preparing a PR/release; never call a skipped check a pass.
 ---
 
 <!-- GENERATED FILE - do not edit. Canonical source: skills/quality-gate/SKILL.md. Regenerate with: pnpm agents:sync -->
@@ -9,87 +9,84 @@ description: Pre-completion verification of any change - run the full check suit
 
 ## Purpose
 
-Stand between "I changed it" and "it is done": run every applicable
-check, exercise the real flows, and report what passed, what failed, and
-what could not be verified — with the exact next action.
+Prove the changed behavior at a depth proportionate to capability and risk while
+always preserving secrets, PII, prices, truth, migrations, and critical journeys.
 
 ## Trigger conditions
 
-- Any task is about to be reported complete.
-- A pull request is being prepared.
-- Invoked by other skills as their final step.
+- Any task is about to be reported complete, committed for review, or released.
+- A staged quality command or launch graph invokes this gate.
 
 ## When not to use
 
-- As a substitute for writing tests (missing coverage gets filed, not
-  papered over by a manual pass).
+- As a substitute for tests or as permission to lower a failing threshold.
 
 ## Required inputs
 
-- The change set; config/quality.yaml (required commands and thresholds).
+Change set, active capabilities/rail/environment, `config/quality.yaml`, active
+plan, provider evidence, and product truth when public claims changed.
 
 ## Documents to read
 
-AGENTS.md (definition of done), config/quality.yaml, the active plan,
-docs/product/PRODUCT_TRUTH.md when claims changed.
+Read the active plan, quality contract, relevant capability runbooks, and
+product truth for public surfaces. Load `references/v0.1-monolithic-gate.md`
+only for compatibility questions.
 
 ## Files this skill may change
 
-Nothing product-facing. It may fix what checks reveal only when the fix
-is unambiguous; otherwise it reports. It may write to `reports/quality/*`.
+Sanitized quality/release reports and unambiguous defect fixes revealed by the
+checks. It does not broaden product scope.
 
 ## Files this skill must not change
 
-`config/quality.yaml` thresholds (loosening requires an ADR), any
-generated directory, memory files except via append scripts.
+Quality thresholds, provider evidence, generated directories, or product truth
+to make checks pass.
 
 ## Execution steps
 
-1. Run the always-required commands (config/quality.yaml → this is
-   `pnpm verify`): agent parity, skill/doc/link/claim validation, SEO
-   static checks, consent checks, analytics event and PII checks,
-   experiment assignment checks, pricing recording checks, typecheck,
-   unit/integration tests.
-2. Run formatting and lint (`pnpm format:check`, `pnpm lint`) and the
-   production build (`pnpm build`) when the change touches code.
-3. With a running build: browser flows (forms submit, consent
-   accept/decline/withdraw, experiment variants render), desktop and
-   mobile viewports with screenshots, accessibility spot-checks
-   (keyboard, contrast, focus), `pnpm verify:raw-html` for the three
-   user agents, metadata and structured data inspection, broken-link
-   pass.
-4. Compare claims on changed surfaces against PRODUCT_TRUTH.md.
-5. Confirm docs match the changed behaviour.
-6. Write the quality report (reports/quality/ when substantial): what
-   ran, what passed, what failed, what could not run and why.
+1. Select `fast`, `mvp`, or `release` and resolve the capability-to-check map.
+2. Always run applicable config/graph, secret, PII, price, product-truth,
+   migration, critical-journey, and generated-parity checks.
+3. Fast: changed formatting/lint/type/tests plus affected contracts and obvious
+   leaks; use for inner loops, never final release evidence.
+4. MVP: full typecheck/build, critical unit/integration/journeys, database and
+   active payment/email/analytics checks, core accessibility/responsiveness,
+   public HTML/metadata/sitemap, and provider dry-run.
+5. Release: every applicable check, full e2e, desktop/mobile screenshots,
+   accessibility/crawler passes, checkout/webhook/email, upgrade/rollback,
+   graph resume/idempotency, sandbox/live read-back when authorized, mobile
+   build/TestFlight readiness, ASO, and release report.
+6. Run independent checks in parallel when isolation is safe; cache only by
+   declared deterministic inputs.
+7. Record exact commands, pass/fail/skipped status, artifacts, and limitations.
 
 ## Hard rules
 
-- Never report completion before `pnpm verify` has run.
-- A skipped check is reported as skipped with: what, why, the missing
-  evidence, and the exact next action. Silence is not a pass.
-- Failing output is quoted, not summarised into vagueness.
-- Desktop AND mobile flows are exercised for UI changes.
+- Never report completion before the compatibility `pnpm verify` gate has run.
+- A skipped check states why, missing credential/environment, exact command,
+  and expected evidence.
+- Capability selection removes irrelevant checks, never invariant checks.
+- Mock/dry-run provider evidence is labeled and never a live pass.
+- Desktop and mobile flows are both exercised for responsive UI changes.
+- Never weaken tests, thresholds, truth, consent, or migration safety for green.
 
 ## Expected output
 
-A three-sentence progress report (what changed, what failed or remains
-unknown, what should happen next) backed by check results, plus a quality
-report entry for substantial changes.
+A three-sentence progress report backed by a machine/human quality report with
+commands, artifacts, passes, failures, skips, limitations, and next action.
 
 ## Validation
 
-The gate validates everything else; its own validation is that every
-required command in config/quality.yaml was either run or reported
-skipped with reasons.
+The selected profile itself must resolve deterministically from capabilities;
+every required check is either executed or explicitly skipped with the required
+four fields.
 
 ## Failure behaviour
 
-On failure: stop, report the failing command and output, fix if
-unambiguous, otherwise hand back with the failure quoted. Never
-downgrade a failure to a warning.
+Quote the failing command/output. Fix only an unambiguous in-scope defect, then
+rerun the affected and enclosing profile; otherwise return the exact blocker.
 
 ## Human approval boundaries
 
-The gate verifies; it does not deploy, publish, merge, or approve. A
-green gate is a precondition for human approval, not a substitute.
+This gate verifies only. Green does not deploy, publish, submit, charge, send,
+merge, or approve an effect.

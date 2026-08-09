@@ -1,36 +1,18 @@
 # Generic frontier-agent guide
 
-For any coding agent that can read repository files (Cursor, Windsurf, and
-future agents). A ready-made bootstrap prompt lives at
-[examples/prompts/generic-agent-bootstrap.md](../../examples/prompts/generic-agent-bootstrap.md).
+For any agent that can read and edit the repository:
 
-## Procedure
+1. Read [AGENTS.md](../../AGENTS.md), [PROJECT.md](../../PROJECT.md),
+   [PRODUCT_TRUTH.md](../product/PRODUCT_TRUTH.md) and the active plan.
+2. Load the relevant canonical `skills/<name>/SKILL.md` procedure.
+3. Read typed config before inferring venture, provider or authorization state.
+4. Plan external effects through the provider/runtime contracts; never serialize
+   credentials or call a successful request “verified” without read-back.
+5. Keep local reversible work moving under progressive commitment; stop for
+   deception, unsafe defaults, indispensable missing auth or effects outside the
+   envelope.
+6. Run `pnpm verify` and the applicable staged quality profile before completion.
 
-1. Read [AGENTS.md](../../AGENTS.md) — constitution, navigation map, hard
-   rules, definition of done.
-2. Read [PROJECT.md](../../PROJECT.md) — current venture state.
-3. Read the active plan under [docs/plans/active/](../plans/active/).
-4. Read the relevant canonical skill: `skills/<name>/SKILL.md`. The skill
-   routing table in AGENTS.md maps tasks to skills.
-5. Read the task-relevant source-of-truth docs (the skill lists them).
-6. Preserve product truth: no public claim beyond
-   [docs/product/PRODUCT_TRUTH.md](../product/PRODUCT_TRUTH.md).
-7. Use the deterministic scripts (`package.json` scripts) for
-   transformation, validation, and aggregation — do not re-derive them.
-8. Run verification before reporting completion:
-
-   ```bash
-   pnpm verify
-   ```
-
-9. Do not perform human-gated actions: sending messages, publishing
-   content, charging customers, changing production infrastructure,
-   deploying, merging self-improvement proposals, or enabling scheduled
-   external actions.
-
-## Cursor and Windsurf
-
-Both read `AGENTS.md` as the canonical general instruction source. Do not
-create `.cursorrules` or Windsurf rule files that duplicate it; if a thin
-pointer file is desired, it should contain only "Read AGENTS.md first" and
-the verification command.
+Cursor, Windsurf and other agents should point to AGENTS.md rather than duplicate
+it. Publication, deploy, send, charge, merge and production mutation remain
+bounded by explicit user authorization and the active run envelope.

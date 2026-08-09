@@ -1,30 +1,28 @@
 # RESEARCH
 
-- Status: TEMPLATE — optional input, append as evidence arrives
+- Status: TEMPLATE — optional evidence input
 - Owner: founder
-- Last updated: 2026-07-21
+- Last updated: 2026-08-04
 
-> Raw research the founder or agents have gathered: interview notes, market
-> data, competitor observations, community threads. Every entry must carry a
-> source and a date. Unsourced beliefs belong in VENTURE_BRIEF.md, not here.
->
-> Agents treat this file as evidence input for `$venture-bootstrap` and
-> `$offer-architect`. They must record the distinction between first-hand
-> evidence (interviews, observed behaviour) and second-hand evidence
-> (reports, forum posts).
+Keep dated, sourced market or user evidence here. Unsourced beliefs belong in
+the brief's assumptions. Raw personal interview/support content should remain in
+an approved private store; commit only de-identified findings.
 
 ## Entry format
 
-```
+```markdown
 ### <short title>
-- Date: YYYY-MM-DD
-- Source: <link, person role (no names needed), or dataset>
-- Type: interview | observation | secondary | competitor | community
-- Confidence: high | medium | low
 
-<what was learned, in the customer's own words where possible>
+- Date: YYYY-MM-DD
+- Source: <link, de-identified role, or dataset reference>
+- Type: interview | observation | secondary | competitor | community | provider-data
+- Reporting window: <when applicable>
+- Confidence: high | medium | low
+- Limitations: <sampling, consent population, lag, missing fields>
+
+<finding; use short compliant quotes only when necessary>
 ```
 
 ## Entries
 
-<!-- none yet -->
+None.

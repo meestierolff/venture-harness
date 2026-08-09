@@ -1,0 +1,22 @@
+# SYNTHETIC scheduler fixture: an enabled cadence with no live connector binding.
+contract_version: 1
+
+loops:
+  daily_fixture:
+    cadence: daily
+    enabled: true
+    trigger: { kind: cron, expression: "15 5 * * *" }
+    inputs: []
+    primary_metrics: []
+    guardrail_metrics: []
+    decision_rules: []
+    maximum_actions: 1
+    maximum_iterations: 1
+    autonomy: propose
+    authorized_effect_types: [none, local_write, git_write]
+    output_destination: reports/learning/daily
+    next_run_at: null
+    stop_condition: Stop when required data is missing or stale; report the exact missing source.
+    extensions: {}
+
+extensions: {}

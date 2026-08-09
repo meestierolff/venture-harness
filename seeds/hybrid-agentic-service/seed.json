@@ -1,0 +1,15 @@
+{
+  "id": "hybrid-agentic-service",
+  "version": "0.2.0",
+  "rail": "hybrid",
+  "coreCompatibility": "^0.2.0",
+  "ownershipClasses": ["core_owned", "merge_managed", "venture_owned"],
+  "runtime": [
+    "organizations",
+    "subscriptions",
+    "entitlements",
+    "connections",
+    "command-bus",
+    "agent-gateway"
+  ]
+}

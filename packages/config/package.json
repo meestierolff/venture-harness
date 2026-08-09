@@ -1,0 +1,29 @@
+{
+  "name": "@venture-harness/config",
+  "version": "0.2.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./growth-contract": {
+      "types": "./dist/growth-contract.d.ts",
+      "import": "./dist/growth-contract.js",
+      "require": "./dist/growth-contract.cjs"
+    }
+  },
+  "dependencies": {
+    "@venture-harness/core": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "scripts": {
+    "build": "node ../../scripts/workspace-build.mjs config"
+  }
+}

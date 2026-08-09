@@ -1,0 +1,11 @@
+
+> venture-harness@0.2.0 fixture:winner-loop /Users/meestierolff/projects/venture-harness
+> tsx scripts/run-winner-loop-fixture.ts
+
+SYNTHETIC_FIXTURE — no provider was contacted
+workflow        winner-loop-fixture-d (succeeded)
+command audit   70 records
+provider SDK    6 fixture lifecycles
+event pack      19 first-party events
+DistributionPR  fixture-distribution-pr-1 (fixture proposal only)
+trace           reports/audit/winner-loop-creative-trace.json

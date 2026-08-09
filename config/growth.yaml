@@ -1,0 +1,102 @@
+# Growth Contract — the policy boundary Winner Loop reads at runtime.
+#
+# This is not documentation. The evaluator, readiness ladder, paid-test proposal,
+# and spend gate all take their limits from this file, validated by
+# lib/config/growth-contract-schema.ts.
+#
+# Money is integer minor units (cents). Sample values below describe a synthetic
+# venture; replace them before any real spend.
+contract_version: 2
+venture_id: sample-venture
+
+goal:
+  primary_event: purchase
+  secondary_events:
+    - trial_start
+  # What paid delivery currently optimises toward. The readiness ladder may
+  # recommend a different rung; it never switches this on its own.
+  current_optimization_event: trial_start
+  allowed_fallback_events:
+    - paywall_view
+    - onboarding_complete
+
+economics:
+  currency: EUR
+  subscription_price_minor: 999
+  billing_period: monthly
+  store_fee_rate: 0.15
+  tax_rate: 0.21
+  refund_rate: 0.05
+  variable_serving_cost_minor: 40
+  creative_generation_cost_minor: 300
+  expected_subscriber_lifetime_months: 6
+  # Affordability is computed from net contribution after fees, tax, refunds and
+  # serving cost — never from the gross price above.
+  target_cac_minor: 1500
+  hard_max_cac_minor: 2500
+  payback_target_days: 60
+  minimum_contribution_margin_minor: 500
+  d7_retention_floor: 0.35
+  d30_retention_floor: 0.2
+  d90_retention_floor: 0.1
+  refund_rate_ceiling: 0.08
+
+organic:
+  allowed_providers:
+    - tiktok_content
+  allowed_accounts:
+    - sample-tiktok-account
+  max_accounts: 2
+  max_posts_per_account_per_day: 3
+  duplicate_content_policy: forbid
+  default_review_mode: REVIEW_BEFORE_PUBLISH
+  snapshot_cadence_minutes: [30, 120, 360, 1440, 4320, 10080]
+  ai_disclosure_required: true
+
+paid:
+  allowed_networks:
+    - tiktok_paid
+  allowed_accounts:
+    - sample-tiktok-ads-account
+  allowed_objectives:
+    - conversions
+  allowed_events:
+    - trial_start
+    - purchase
+  # Total budget for the complete bounded test matrix and the independent
+  # lifetime ceiling for any single creative in that matrix.
+  test_budget_minor: 10000
+  per_creative_cap_minor: 10000
+  daily_account_cap_minor: 12000
+  daily_venture_cap_minor: 15000
+  monthly_venture_cap_minor: 100000
+  # Cross-grant/customer and whole-platform ceilings are independently enforced.
+  daily_customer_cap_minor: 12000
+  monthly_customer_cap_minor: 80000
+  emergency_platform_cap_minor: 250000
+  # Zero means every non-zero amount needs an explicit human approval.
+  approval_threshold_minor: 0
+  auto_pause_allowed: true
+  # Schema-pinned to false in V1; there is no code path that raises a cap.
+  auto_scale_allowed: false
+  vbo_policy: requires_value_ready
+  stop_conditions:
+    max_spend_without_trial_minor: 3000
+    max_spend_without_purchase_minor: 8000
+    max_cac_breach_count: 2
+
+compliance:
+  rights_required: true
+  ai_disclosure_required: true
+  prohibited_claims:
+    - guaranteed income
+    - risk-free returns
+  allowed_geographies:
+    - NL
+    - BE
+  restricted_audiences: []
+  restricted_categories: []
+  # Re-established from provider state at runtime; never assumed.
+  provider_policy_state: unknown
+
+extensions: {}

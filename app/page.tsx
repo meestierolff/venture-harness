@@ -7,9 +7,9 @@ import { TruthClaim } from "@/components/TruthClaim";
 import { LeadForm } from "@/components/LeadForm";
 
 export const metadata: Metadata = {
-  title: "Validation-site foundation",
+  title: "Launch operating-system prototype",
   description:
-    "The Venture Harness validation-site foundation: consent, typed analytics, experiments, and first-party evidence — awaiting a venture's identity.",
+    "Venture Harness v0.2: a tested local prototype for typed launch planning, resumable execution, provider operations, and evidence loops.",
   alternates: { canonical: "/" },
 };
 
@@ -19,25 +19,30 @@ export default function HomePage() {
       <StructuredData
         data={{
           "@context": "https://schema.org",
-          "@type": "Organization",
-          name: "Venture Harness template",
+          "@type": "SoftwareSourceCode",
+          name: "Venture Harness v0.2 prototype",
           description:
-            "Template validation-site foundation. Replaced at venture bootstrap with the venture's own organization data.",
+            "Open-source template with locally tested launch planning and workflow runtime. It is not evidence of a launched child venture.",
           url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
         }}
       />
 
       <SectionViewTracker sectionId="hero">
-        <h1>This is the validation-site foundation, waiting for a venture.</h1>
+        <SampleLabel kind="illustrative" />
+        <h1>One brief becomes a launch plan you can inspect, authorize, pause, and resume.</h1>
         <p>
-          Everything operational already works on this page:{" "}
-          <TruthClaim id="truth-000">
-            consent-gated analytics, a typed event taxonomy, deterministic experiment assignment,
-            and first-party evidence recording that stores the exact price a visitor was shown
+          Venture Harness v0.2 is a local prototype, not proof of a live venture.{" "}
+          <TruthClaim id="truth-001">
+            Its tested router selects a launch mode, product rail, payment source, and dry-run graph
+            from a typed founder brief
           </TruthClaim>
-          . What it deliberately lacks is an identity — the <code>$venture-bootstrap</code> and{" "}
-          <code>$design-director</code> skills replace this copy and design with the venture&apos;s
-          own.
+          .{" "}
+          <TruthClaim id="truth-002">
+            Its tested workflow runtime persists redacted state, pauses for manual work, resumes the
+            same run, and reuses verified effects
+          </TruthClaim>
+          . Provider plans and end-to-end fixtures use mocks until an authorized account is read
+          back; they do not claim a production deployment.
         </p>
         <p>
           <Link href="/pricing">See the pricing-evidence demo →</Link>
@@ -45,14 +50,23 @@ export default function HomePage() {
       </SectionViewTracker>
 
       <SectionViewTracker sectionId="how-it-works">
-        <h2>How a venture uses this page</h2>
+        <h2>From progressive commitment to evidence</h2>
         <ol>
           <li>
-            Fill in the briefs under <code>inputs/</code>.
+            Give <code>vh create</code> the specific user, problem, useful outcome, smallest
+            journey, success signal, constraints, truths, and assumptions.
           </li>
-          <li>Run the bootstrap skill — it refuses to build before the offer is coherent.</li>
-          <li>Replace this placeholder with the venture&apos;s hero, proof, pricing, and form.</li>
-          <li>Run it for 30–90 days as a measured commercial experiment.</li>
+          <li>
+            Inspect <code>vh plan</code> and <code>vh launch --dry-run</code>.
+          </li>
+          <li>
+            Apply one time-bounded authorization profile. Reversible work may proceed; unsafe or
+            genuinely manual work remains an explicit checkpoint.
+          </li>
+          <li>
+            Verify the core journey, ingest direct data, and run bounded learning loops. A 30/60/90
+            decision cadence is optional for <code>validate_first</code>, not a universal gate.
+          </li>
         </ol>
       </SectionViewTracker>
 
@@ -67,10 +81,15 @@ export default function HomePage() {
       </SectionViewTracker>
 
       <SectionViewTracker sectionId="apply">
-        <h2>Qualification form (live demo of the evidence path)</h2>
+        <h2>Qualification form (prototype evidence path)</h2>
         <p>
-          Submissions persist server-side before any analytics fires, and entered values never reach
-          third-party analytics. In template state, submissions land in the local dev fallback.
+          This sample form is not a live lead channel.{" "}
+          <TruthClaim id="truth-007">
+            When storage is configured, the prototype attempts to save the private submission before
+            best-effort analytics; without a store, its API returns an error, and form values are
+            excluded from the analytics taxonomy
+          </TruthClaim>
+          .
         </p>
         <LeadForm />
       </SectionViewTracker>

@@ -1,0 +1,7 @@
+{
+  "id": "winner-loop",
+  "version": "0.2.0",
+  "coreCompatibility": "^0.2.0",
+  "commands": ["winner-loop.publish", "winner-loop.evaluate", "winner-loop.propose-paid-test"],
+  "uninstall": "preserve_evidence"
+}

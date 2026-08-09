@@ -1,0 +1,18 @@
+# Exact historical fingerprints for reviewed synthetic canaries and one
+# documented prose false positive. A path, rule, line, or content change must
+# be reviewed and fingerprinted again; test directories are never broadly
+# excluded.
+652fb29b67ccfaf4ee9d4b269498737737f1f9f0:README.md:generic-api-key:149
+645f126ceb9ecdc6a94a2f91be362e6f82cfca2d:tests/quality-profiles.test.ts:stripe-access-token:67
+645f126ceb9ecdc6a94a2f91be362e6f82cfca2d:tests/quality-profiles.test.ts:stripe-access-token:71
+43fb06c5aa57cbd80255f0cbd2e558d40bfe6792:tests/mobile-scaffold.test.ts:stripe-access-token:286
+25fbb044939d193f991da8abb8bae5a5713962b1:tests/runtime-provider-lifecycle.test.ts:stripe-access-token:191
+25fbb044939d193f991da8abb8bae5a5713962b1:tests/runtime-build-agent-host.test.ts:stripe-access-token:197
+
+# Exact current-tree fingerprints used by `gitleaks dir` / `--no-git`.
+README.md:generic-api-key:149
+tests/quality-profiles.test.ts:stripe-access-token:67
+tests/quality-profiles.test.ts:stripe-access-token:71
+tests/mobile-scaffold.test.ts:stripe-access-token:286
+tests/runtime-provider-lifecycle.test.ts:stripe-access-token:191
+tests/runtime-build-agent-host.test.ts:stripe-access-token:197

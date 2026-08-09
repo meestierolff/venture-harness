@@ -1,69 +1,49 @@
 # EXPERIMENTS
 
-- Status: TEMPLATE
-- Owner: unassigned
-- Last updated: 2026-07-21
+- Status: TEMPLATE — optional
+- Owner: founder
+- Last updated: 2026-08-04
 
 ## Purpose
 
-The experiment program: what is being tested, how variants are assigned and
-exposed, which metrics decide, and what every result's limitations were.
-Definitions live in `config/experiments.yaml` (machine-checked); this
-document holds interpretation and history. The `$validation-engine` decides
-_what_ to test; the `$experiment-analytics-engine` decides _how_ it is
-assigned, tracked, stored, and analysed.
+Record controlled experiments only when traffic and decision value justify
+assignment overhead. Exploration, interviews, product use and simple before/after
+learning remain valid evidence when labeled correctly.
 
 ## Standing rules
 
-- One core concept per experiment.
-- Assignment: deterministic hash, first-party cookie, recorded in Neon.
-- Analysis denominators use `experiment_exposed`, never assignment alone.
-- Displayed offer and price are stored verbatim with each exposure.
-- Stopping rules and minimum observations are declared before start.
-- No winner is declared from weak evidence; "inconclusive" is a result.
-- Exploration (unassigned copy changes) is recorded as exploration, never
-  reported as a controlled test.
+- Change one conceptual hypothesis per affected journey.
+- Declare population, assignment, exposure, primary metric, guardrails, minimum
+  observations and stop rules before launch.
+- Use `experiment_exposed`, never assignment alone, as the denominator.
+- Store the exact offer and price displayed with exposure and conversion.
+- State consent population, data gaps and limitations.
+- “Inconclusive” is a valid outcome. Do not manufacture a winner.
+- A copy or product change without controlled assignment is exploration.
 
 ## Register
 
-| Id                             | Type    | Concept             | Status | Primary metric          | Decision |
-| ------------------------------ | ------- | ------------------- | ------ | ----------------------- | -------- |
-| exp-000-example-pricing-anchor | pricing | (synthetic example) | draft  | qualification_completed | —        |
-
-## Test-type notes
-
-| Type                 | What it varies         | What must stay fixed                             |
-| -------------------- | ---------------------- | ------------------------------------------------ |
-| ICP test             | who the page addresses | offer, price, layout                             |
-| Headline / hero test | the promise framing    | audience, price                                  |
-| Proof test           | which proof is shown   | promise, price                                   |
-| CTA test             | action framing         | promise, proof                                   |
-| Pricing test         | price/structure shown  | promise, audience                                |
-| Fake-door test       | existence of an option | everything else; disclosure required after click |
-
-## Consent limitations
-
-GA4-side funnel views cover consented visitors only; Neon-side exposure and
-conversion records are consent-independent (anonymous visitor id, no
-personal data). Every analysis states which population it used.
+| Id              | Journey           | Concept        | Status | Primary metric | Decision |
+| --------------- | ----------------- | -------------- | ------ | -------------- | -------- |
+| exp-000-example | synthetic example | no active test | draft  | —              | —        |
 
 ## Results log
 
-<!-- One dated entry per decided experiment: exposures per variant, primary
-     metric per variant, guardrails, limitations, decision. Archived
-     experiments move to the bottom, never deleted. -->
+For each decided experiment, record dated exposures by variant, the primary and
+guardrail results, excluded observations, limitations, decision and evidence
+references. Archive; do not delete.
 
 ## Evidence
 
-None — template state.
+None — the template contains no live experiment exposure or result.
 
 ## Assumptions
 
-None recorded.
+No experiment is required merely because a venture has pricing.
 
 ## Unresolved questions
 
-None recorded.
+Whether the first child venture has sufficient traffic for a controlled test.
 
 ## Related documents
 

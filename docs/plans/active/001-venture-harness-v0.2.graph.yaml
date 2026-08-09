@@ -1,0 +1,230 @@
+graph:
+  name: venture-harness-v0-2
+  goal: Build and prove the repository-level Venture Harness v0.2 launch workflow.
+  authorised_by: Founder /goal received 2026-08-04 and Plan 001
+  implicit_invocation: false
+
+nodes:
+  - id: audit-and-decisions
+    kind: model
+    purpose: Audit v0.1, preserve recent discovery work, and record target ADRs.
+    model_tier: capable
+    inputs:
+      repository: AGENTS.md, required docs, config, scripts, tests, skills, history
+      goal: founder /goal received 2026-08-04
+    output:
+      artifact: docs/decisions and this active plan
+      validator: pnpm validate:docs && pnpm validate:links
+    isolation: none
+    retries: 1
+    est_latency: 20m
+    est_cost: medium
+  - id: contracts-and-migrations
+    kind: code
+    purpose: Implement v0.2 contracts, lock, and idempotent v0.1 migrations.
+    model_tier: none
+    inputs:
+      decisions: audit-and-decisions
+      v0_1_contracts: config and lib/config/schemas.ts
+    output:
+      artifact: config, lib/config, lib/migrations, harness.lock
+      validator: pnpm test:migrations && pnpm exec vitest run tests/config-schemas.test.ts
+    isolation: worktree
+    retries: 1
+    est_latency: 35m
+    est_cost: low
+  - id: runtime-and-cli
+    kind: code
+    purpose: Implement durable graph state, scheduling, interruption, resume, and vh commands.
+    model_tier: none
+    inputs:
+      decisions: audit-and-decisions
+      contracts: contracts-and-migrations
+    output:
+      artifact: bin, lib/cli, lib/workflow, scripts
+      validator: pnpm test:workflow && pnpm vh -- --help
+    isolation: worktree
+    retries: 1
+    est_latency: 60m
+    est_cost: low
+  - id: credentials-and-providers
+    kind: code
+    purpose: Implement credential backends, authorization, provider contracts, adapters, and redaction.
+    model_tier: none
+    inputs:
+      decisions: audit-and-decisions
+      contracts: contracts-and-migrations
+      official_docs: current official provider CLI and API references
+    output:
+      artifact: lib/authorization, lib/credentials, lib/providers, tests/providers
+      validator: pnpm test:providers && pnpm test:authorization
+    isolation: worktree
+    retries: 1
+    est_latency: 75m
+    est_cost: low
+  - id: rails-and-fixtures
+    kind: code
+    purpose: Implement launch routing, web/mobile/hybrid rails, and two synthetic fixtures.
+    model_tier: none
+    inputs:
+      contracts: contracts-and-migrations
+      runtime: runtime-and-cli
+      providers: credentials-and-providers
+    output:
+      artifact: lib/launch, fixtures, tests/fixtures
+      validator: pnpm test:fixtures
+    isolation: worktree
+    retries: 1
+    est_latency: 60m
+    est_cost: low
+  - id: evidence-and-loops
+    kind: code
+    purpose: Implement event packs, normalized data sync, discovery inputs, and bounded learning loops.
+    model_tier: none
+    inputs:
+      contracts: contracts-and-migrations
+      provider_data_contracts: credentials-and-providers
+    output:
+      artifact: lib/analytics, lib/data, lib/learning, config/loops.yaml
+      validator: pnpm test:data && pnpm test:learning
+    isolation: worktree
+    retries: 1
+    est_latency: 50m
+    est_cost: low
+  - id: skills-docs-and-quality
+    kind: model
+    purpose: Refactor router skills, staged checks, CI, docs, and generated adapters around implemented behavior.
+    model_tier: capable
+    inputs:
+      implementation: runtime-and-cli, credentials-and-providers, rails-and-fixtures, evidence-and-loops
+      preserved_discovery_content: audit-and-decisions
+    output:
+      artifact: skills, docs, config/quality.yaml, .github/workflows, generated adapters
+      validator: pnpm agents:check && pnpm validate:skills && pnpm validate:docs
+    isolation: none
+    retries: 1
+    est_latency: 45m
+    est_cost: medium
+  - id: integration-and-release-verification
+    kind: code
+    purpose: Integrate slices, run all capability-aware gates, and fix bounded failures.
+    model_tier: none
+    inputs:
+      runtime: runtime-and-cli
+      providers: credentials-and-providers
+      rails: rails-and-fixtures
+      loops: evidence-and-loops
+      docs: skills-docs-and-quality
+    output:
+      artifact: reports/quality and reports/launch synthetic reports
+      validator: pnpm verify:release
+    isolation: none
+    retries: 2
+    est_latency: 60m
+    est_cost: low
+  - id: commit-and-draft-pr
+    kind: human_approval
+    purpose: Commit the verified change, push its branch, and open a draft PR without merging.
+    model_tier: none
+    inputs:
+      verified_change: integration-and-release-verification
+      authorization: founder /goal received 2026-08-04
+    output:
+      artifact: git commit and draft pull request URL or exact auth blocker
+      validator: git status and GitHub read-back
+    isolation: none
+    retries: 1
+    est_latency: 10m
+    est_cost: low
+
+edges:
+  - from: audit-and-decisions
+    to: contracts-and-migrations
+    carries: approved v0.2 invariants and compatibility decisions
+  - from: contracts-and-migrations
+    to: runtime-and-cli
+    carries: typed run, authorization, provider, and lock contracts
+  - from: audit-and-decisions
+    to: credentials-and-providers
+    carries: transport and trust-boundary decisions
+  - from: contracts-and-migrations
+    to: credentials-and-providers
+    carries: provider and credential-reference schemas
+  - from: runtime-and-cli
+    to: rails-and-fixtures
+    carries: graph compiler, executor, and CLI launch surface
+  - from: credentials-and-providers
+    to: rails-and-fixtures
+    carries: adapter registry and dry-run/apply contracts
+  - from: contracts-and-migrations
+    to: rails-and-fixtures
+    carries: venture and launch-mode contracts
+  - from: contracts-and-migrations
+    to: evidence-and-loops
+    carries: event-pack and loop configuration contracts
+  - from: credentials-and-providers
+    to: evidence-and-loops
+    carries: normalized provider read-back contracts
+  - from: runtime-and-cli
+    to: skills-docs-and-quality
+    carries: implemented CLI and graph behavior to document
+  - from: credentials-and-providers
+    to: skills-docs-and-quality
+    carries: implemented provider/auth behavior to document
+  - from: rails-and-fixtures
+    to: skills-docs-and-quality
+    carries: implemented product rails and fixture evidence
+  - from: evidence-and-loops
+    to: skills-docs-and-quality
+    carries: implemented ingestion and learning cadence behavior
+  - from: runtime-and-cli
+    to: integration-and-release-verification
+    carries: executable runtime and CLI tests
+  - from: credentials-and-providers
+    to: integration-and-release-verification
+    carries: provider contract and redaction tests
+  - from: rails-and-fixtures
+    to: integration-and-release-verification
+    carries: synthetic launch runs and reports
+  - from: evidence-and-loops
+    to: integration-and-release-verification
+    carries: data freshness and learning-loop tests
+  - from: skills-docs-and-quality
+    to: integration-and-release-verification
+    carries: regenerated adapters and capability-to-check map
+  - from: integration-and-release-verification
+    to: commit-and-draft-pr
+    carries: passing release report and audited diff
+
+patterns:
+  fan_out:
+    - runtime-and-cli
+    - credentials-and-providers
+    - evidence-and-loops
+  fan_in: integration-and-release-verification
+  barriers:
+    - rails-and-fixtures
+    - skills-docs-and-quality
+    - integration-and-release-verification
+  verifier_nodes:
+    - integration-and-release-verification
+  convergent_cycle:
+    nodes:
+      - integration-and-release-verification
+    stability_condition: All applicable checks pass or a terminal external limitation is documented once.
+    dedup: Code compares failures against all prior attempt fingerprints.
+
+human_approval:
+  nodes:
+    - commit-and-draft-pr
+  gates:
+    - sending
+    - publishing
+    - charging
+    - deploying
+    - merging
+
+run_summary:
+  outcomes: null
+  cost_vs_estimate: null
+  structure_lessons: null

@@ -12,7 +12,7 @@ behaviour that has not been tested — untested rows say so.
 | GitHub Copilot         | AGENTS.md              | `.github/copilot-instructions.md`                    | `skills/` (canonical) | reference skill in prompt/issue                      | `pnpm verify`        | instruction size limits; inline completions ignore context | untested — pointer file only                         |
 | Cursor                 | AGENTS.md              | — (reads AGENTS.md)                                  | `skills/` (canonical) | prompt names skill                                   | `pnpm verify`        | agent mode required for multi-file work                    | untested                                             |
 | Windsurf               | AGENTS.md              | — (reads AGENTS.md)                                  | `skills/` (canonical) | prompt names skill                                   | `pnpm verify`        | same as Cursor                                             | untested                                             |
-| Generic frontier agent | AGENTS.md              | docs/agents/GENERIC_AGENT.md                         | `skills/` (canonical) | follow the 9-step procedure                          | `pnpm verify`        | manual read order                                          | n/a — procedure, not integration                     |
+| Generic frontier agent | AGENTS.md              | docs/agents/GENERIC_AGENT.md                         | `skills/` (canonical) | follow the generic procedure                         | `pnpm verify`        | manual read order                                          | n/a — procedure, not integration                     |
 
 ## Maintenance
 

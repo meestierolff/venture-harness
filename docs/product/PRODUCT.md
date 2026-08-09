@@ -1,38 +1,39 @@
 # PRODUCT
 
-- Status: TEMPLATE
-- Owner: unassigned
-- Last updated: 2026-07-21
+- Status: TEMPLATE — child venture not defined
+- Owner: founder
+- Last updated: 2026-08-04
 
 ## Purpose
 
-What the product is and is not, at the current stage. During
-demand-validation the "product" is the validation website plus any concierge
-delivery behind it. Scope expands only when evidence in
-[VALIDATION.md](VALIDATION.md) supports it.
+Define the smallest useful product selected by the launch mode. A validation
+website is one possible product, not the universal starting point.
 
 ## Current product definition
 
-| Question                                            | Answer |
-| --------------------------------------------------- | ------ |
-| What does a customer get today?                     | —      |
-| How is it delivered? (software / concierge / mixed) | —      |
-| First useful result, and when?                      | —      |
-| What is explicitly out of scope right now?          | —      |
+| Question                | Answer                                        |
+| ----------------------- | --------------------------------------------- |
+| Initial user            | —                                             |
+| Useful outcome          | —                                             |
+| Smallest core journey   | —                                             |
+| Delivery rail           | web / iOS / hybrid / concierge — not selected |
+| Entitlement source      | none / Stripe / RevenueCat — not selected     |
+| Explicitly out of scope | —                                             |
 
 ## Capability inventory
 
-<!-- Every capability with its PRODUCT_TRUTH status. Nothing appears on the
-     website that is missing from this table. -->
+Capabilities are selected in `config/venture.yaml`; provider lifecycle lives in
+`config/providers.yaml`. Add a PRODUCT_TRUTH row before public wording.
 
-| Capability | Status (from PRODUCT_TRUTH) | Notes |
-| ---------- | --------------------------- | ----- |
-| —          | —                           | —     |
+| Capability | Active? | Truth id | Provider state/evidence |
+| ---------- | ------- | -------- | ----------------------- |
+| —          | —       | —        | —                       |
 
 ## Scope-expansion triggers
 
-<!-- The evidence that would justify building each next capability. Ties to
-     the build_threshold in config/venture.yaml. -->
+Record the evidence that justifies each next capability. Reversible local work
+does not need a 30/60/90 gate, but product scope still needs a stated outcome and
+success signal.
 
 ## Evidence
 
@@ -44,11 +45,11 @@ None recorded.
 
 ## Unresolved questions
 
-None recorded.
+The founder brief must select the first user, outcome and journey.
 
 ## Related documents
 
 - [PRODUCT_TRUTH.md](PRODUCT_TRUTH.md)
 - [VALIDATION.md](VALIDATION.md)
-- [ROADMAP.md](ROADMAP.md)
 - [USER_JOURNEYS.md](USER_JOURNEYS.md)
+- [../../config/venture.yaml](../../config/venture.yaml)

@@ -1,48 +1,40 @@
-# Reddit launch notes (for the template itself)
+# Reddit launch notes
 
-How to present Venture Harness on Reddit without violating the framework's
-own distribution rules. Everything here is a draft aid; a human posts.
+Draft aid for a human posting the central harness. Verify each community's rules
+at posting time; never automate or astroturf a post.
 
 ## Positioning
 
-Lead with the problem, not the artifact: _AI made software cheap to build
-and did nothing for proving demand._ The repository is the receipt, not the
-pitch.
+Lead with the problem: agents can build quickly, but a founder still needs a
+truthful path from an idea to an independent repository, app, infrastructure,
+production URL, provider evidence and bounded learning. Present v0.2 as an
+open-source, founder-operated launch factory with locally/fixture-verified
+components and prior-source fixture evidence for the root-CLI Golden Path. Say
+that the final-tree refresh remains pending in socket-capable CI; do not present
+the prior run as a current-tree pass or as proof of revenue, demand, production
+adoption or live autonomous provisioning.
 
-## Candidate communities
+Use the exact executable center:
 
-Research each subreddit's rules before posting (record them in a habitat
-map, per `$distribution-engine`): r/SaaS, r/EntrepreneurRideAlong,
-r/startups, r/SideProject, r/ClaudeAI, r/ChatGPTCoding — fit and rules
-verified at posting time, not assumed from this list.
+```bash
+vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
+```
 
-## Title patterns that fit the framework's honesty rules
+Explain that a read-only production dry run comes first, a Launch Grant binds
+the destinations/effects, and a provider boundary returns an exact waiting
+action rather than invented success.
 
-- "I kept building products nobody wanted, so I built a harness that makes
-  me prove demand first — MIT licensed"
-- "A template repo that makes Codex/Claude/Gemini follow the same venture
-  playbook"
+## Body shape
 
-No fabricated results in titles. No "went from 0 to $Xk" claims — the
-template has no revenue claims to make.
+1. The repeated gap between locally generated code and an operational product.
+2. One-time `founder-default`, one idea file, one reviewed launch command.
+3. Independent ordinary Next.js child, provider boundaries, primary journey,
+   honest report and three-class upgrades.
+4. The labeled synthetic Golden Path and its exact non-live evidence ceiling.
+5. What remains external/unverified: every real provider read-back, unsupported
+   DNS, KYC/propagation and experimental iOS/advanced packs.
+6. Repository link and invitation to inspect or reproduce the Golden Path.
 
-## Body structure
-
-1. The recurring failure (2–3 sentences, first person).
-2. The enforced sequence (the 30–90 day model, one short list).
-3. What's actually in the repo (skills, checks, analytics contract).
-4. What it does NOT do (no fabrication, human-gated actions, not legal advice).
-5. Link + invitation to tear it apart.
-
-## Expected objections, honest answers
-
-| Objection                     | Answer                                                               |
-| ----------------------------- | -------------------------------------------------------------------- |
-| "Process theater"             | The checks are executable; run `pnpm verify` yourself                |
-| "Landing pages prove nothing" | Agreed — that is why Layer 3 stores qualified behaviour, not signups |
-| "Agents will ignore all this" | Parity and claim checks fail CI when they do                         |
-
-## Rules for the post itself
-
-Human posts it. Disclose authorship. Answer every substantive comment.
-Never astroturf; never use multiple accounts.
+Do not claim customers, revenue, launch speed, provider coverage in production,
+App Store acceptance or learning outcomes without rows and evidence in
+PRODUCT_TRUTH. A human discloses authorship, posts and replies.

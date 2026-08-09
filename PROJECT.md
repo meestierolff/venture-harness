@@ -1,58 +1,122 @@
 # PROJECT
 
-- Status: TEMPLATE — no venture loaded
-- Owner: unassigned
-- Last updated: 2026-07-21
+- Status: FOUNDER ALPHA — local/fixture web rail; first real launch pending
+- Owner: harness maintainers
+- Last updated: 2026-08-09
 
 ## Purpose
 
-This file holds the current state of the venture built from this repository.
-Agents read it first. It answers: what venture is this, what stage is it in,
-what is the current focus, and what decision is pending.
+Venture Harness is the open-source Core and local execution harness for turning
+one founder idea into an independent application in founder-owned provider
+accounts. This repository is not a child venture or a hosted SaaS control plane.
 
-In the template, it is intentionally empty of venture facts.
+## Current state
 
-## Current venture
+The primary v0.2 product is one founder-operated web-app launch rail:
 
-None. This repository is the Venture Harness template.
+```text
+one-time founder-default connection
+  -> idea.md
+  -> complete production dry run
+  -> immutable Launch Grant
+  -> independent ordinary Next.js child
+  -> provider graph, source push, production deployment and primary journey
+  -> sanitized report, exact waiting action, and later Core upgrade
+```
 
-To start a venture:
+The exact apply command is:
 
-1. Create a new repository from this template.
-2. Fill in `inputs/VENTURE_BRIEF.md` and `inputs/DESIGN_BRIEF.md`.
-3. Run `pnpm init:venture -- --name "<venture-name>"`.
-4. Invoke the `$venture-bootstrap` skill with your coding agent.
+```bash
+vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
+```
 
-## Stage
+Prior-source fixture evidence covers the complete Exception Desk root-CLI
+Golden Path: idea compilation, Stack persistence/doctor, Launch Grant binding,
+materialization, workflow, provider transports, local source push, standalone
+web journey, reporting, replay and upgrade preservation all crossed their
+labeled synthetic boundaries. On the current final tree, the product and
+runtime slices pass; the root slice reached the standalone child server check
+and still needs a socket-capable CI refresh after this local sandbox denied
+loopback listening. No provider has been live verified from this template. No
+founder-owned child repository, external deployment, DNS record, payment
+resource, email delivery, indexed site, customer, sale or scheduled external
+job is recorded as created.
 
-`template` — see `config/venture.yaml` for the stage contract. Venture stages:
-`ideation → demand_validation → build | iterate | reposition | stopped`.
+## Start a child venture
 
-## Current focus
+Use the [Founder quickstart](docs/public/FOUNDER_QUICKSTART.md). In outline:
 
-Not applicable in the template. After bootstrap, this section names the one
-active plan (under `docs/plans/active/`) and the one experiment concept
-currently under test.
+1. Register the exact GitHub, Vercel, Neon, Stripe, RevenueCat, Brevo, Google
+   and Bing credential references; use a manual DNS role when no supported
+   adapter is installed.
+2. Copy and edit the credential-free
+   [founder-default example](docs/public/founder-default.example.json).
+3. Run `vh stack create founder-default --file <connection.json>` and the
+   read-only `vh stack doctor founder-default`.
+4. Write `idea.md` with the initial user, outcome, journey, success signal,
+   rail, capabilities, domain and one exact price when using Stripe.
+5. Run:
 
-## Pending decisions
+   ```bash
+   vh launch --idea ./idea.md --stack founder-default --production --dry-run --non-interactive
+   ```
 
-None.
+6. Review exact accounts/resources/effects/blockers, then invoke the apply
+   command above. A provider/KYC/DNS boundary may produce one precise waiting
+   action; resume the same run rather than treating it as success.
+7. If unfinished provider work reaches the Grant or envelope expiry, use only
+   the exact same-profile authorization renewal command printed by `vh resume`;
+   the renewed run envelope remains bounded by the immutable original Grant.
+
+The older `vh create --brief`, `vh plan`, explicit authorized `vh launch`, run
+inspection/resume, data/learning and generated Agent Surface commands remain
+available as advanced/compatibility paths. They do not replace or complicate
+the public founder command.
+
+## Optional work retained
+
+- Expo/SwiftUI, RevenueCat, EAS and App Store Connect are experimental mobile
+  boundaries; public App Store approval does not block the founder web alpha.
+- Recursive customer organizations, Connection Hub, Service Blueprints,
+  Service/Agent Grants and generated API/CLI/MCP/SDK surfaces are for ventures
+  that sell delegated orchestrated services, not ordinary apps.
+- Validate-first, DistributionPR, Winner Loop, iOS subscription and advanced
+  Fleet operations remain optional. Winner Loop never auto-scales; posting and
+  spend require distinct human authority.
 
 ## Evidence
 
-None — template state.
+- Founder compiler and Stack: [lib/founder-launch/](lib/founder-launch/)
+- Canonical root CLI: [lib/cli/](lib/cli/), [scripts/vh-bundle.ts](scripts/vh-bundle.ts)
+- Launch routing/graph: [lib/launch/](lib/launch/), [lib/workflow/](lib/workflow/)
+- Independent seeds: [lib/materialization/](lib/materialization/), [seeds/](seeds/)
+- Provider/credential boundaries: [lib/providers/](lib/providers/),
+  [lib/credentials/](lib/credentials/)
+- Synthetic proofs: [fixtures/](fixtures/), [tests/](tests/)
+- Upgrade contract: [harness.lock](harness.lock), [lib/upgrade/](lib/upgrade/)
+- Public evidence ceiling: [docs/product/PRODUCT_TRUTH.md](docs/product/PRODUCT_TRUTH.md)
 
 ## Assumptions
 
-None recorded.
+- The founder owns every external account and reviews exact destinations before
+  issuing the production Launch Grant.
+- Credential values stay behind Keychain, 1Password, CI/environment or official
+  CLI session references and never enter Git, reports or model context.
+- The first dogfood venture is a narrow web SaaS using Stripe test mode and
+  manual DNS if necessary.
 
 ## Unresolved questions
 
-None recorded.
+- Which founder-owned account set and domain will provide the first real Stack
+  doctor and provider read-backs?
+- Which exact external action, if any, will pause the first dogfood launch?
+- Which reviewed Core patch will prove the first real child upgrade?
 
 ## Related documents
 
-- [AGENTS.md](AGENTS.md)
-- [docs/business/OFFER.md](docs/business/OFFER.md)
-- [docs/product/VALIDATION.md](docs/product/VALIDATION.md)
-- [docs/plans/active/](docs/plans/active/)
+- [README.md](README.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [Feature Status](docs/product/FEATURE_STATUS.md)
+- [Roadmap](docs/product/ROADMAP.md)
+- [Founder quickstart](docs/public/FOUNDER_QUICKSTART.md)
+- [Ownership and offboarding](docs/operations/OFFBOARDING.md)

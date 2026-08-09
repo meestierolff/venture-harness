@@ -1,0 +1,58 @@
+# Founder input consumed by `vh create --brief`. Empty strings intentionally
+# fail validation until replaced. Do not add secrets or private customer data.
+id: replace-me
+name: ""
+specific_user_or_audience: ""
+problem_or_job: ""
+intended_outcome: ""
+smallest_core_journey: ""
+primary_success_signal: ""
+material_constraints: []
+known_truths: []
+assumptions: []
+
+app_kind: web # web | mobile_ios | mobile_cross_platform | hybrid
+requested_mobile_stack: none # none | expo_react_native | swiftui | auto
+business_model: unselected
+monetization_model: none # none | subscription | one_time | usage_based | transaction_fee | lead_generation | services | hybrid
+native_digital_goods: false
+target_market: null # optional narrower market description; null uses the audience statement
+domain: null # hostname only, no scheme/path; may stay null before domain selection
+locale: en
+currency: EUR
+timezone: Europe/Amsterdam
+repository_visibility: private
+bundle_identifier: null # required before a real mobile build, e.g. com.example.product
+app_scheme: null # optional mobile deep-link scheme, e.g. example
+
+# Use unknown when the founder genuinely does not know. The router records its
+# assumptions and the evidence that could change its choice.
+factors:
+  smallest_useful_build_cost: unknown
+  smallest_useful_build_time: unknown
+  reversibility: unknown
+  regulatory_or_safety_risk: unknown
+  real_usage_required: unknown
+  marketplace_cold_start: unknown
+  operational_burden: unknown
+  founder_evidence: unknown
+  concierge_delivery_fit: unknown
+  app_store_required: unknown
+  deep_native_requirements: unknown
+  on_device_requirements: unknown
+
+needs:
+  authenticated_product: false
+  database: false
+  file_storage: false
+  transactional_email: false
+  lifecycle_email: false
+  feedback: true
+  analytics: true
+  search_discovery: false
+  scheduled_learning: true
+
+preferred_dns_provider: manual # mijndomein | manual | provider_api | delegated
+deceptive_request: false
+unsafe_non_defaultable_choice: null
+indispensable_missing_credential: null

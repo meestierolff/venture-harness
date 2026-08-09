@@ -1,6 +1,8 @@
 # FRONTEND
 
-The web foundation: visually neutral, operationally complete.
+The web foundation: visually neutral and locally tested. A child venture is not
+production-ready until its active capabilities and critical journeys pass the
+applicable quality profile and provider read-back.
 
 ## Stack
 
@@ -13,7 +15,7 @@ experiment-rendered variants, trackers).
 | Path                        | Role                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------ |
 | `app/layout.tsx`            | metadata defaults, consent + analytics providers                               |
-| `app/page.tsx`              | placeholder validation-site home (labeled sections)                            |
+| `app/page.tsx`              | placeholder public home; replace or remove when the rail has no public site    |
 | `app/pricing/page.tsx`      | placeholder pricing page with experiment slot                                  |
 | `app/api/lead/route.ts`     | qualified-lead intake (Layer 3)                                                |
 | `app/api/evidence/route.ts` | assignment/exposure/intent persistence (Layer 3)                               |
@@ -33,7 +35,8 @@ experiment-rendered variants, trackers).
 - Every public capability statement is wrapped in `<TruthClaim id>` linking
   it to `docs/product/PRODUCT_TRUTH.md` (checked by `pnpm validate:claims`).
 - Sample data and illustrative interfaces carry a visible label component.
-- Mobile is re-composed, not stacked; both are tested before done.
+- Public web is optional. When active, mobile web is re-composed rather than
+  stacked and desktop/mobile critical paths are both tested.
 - The template's visual style is deliberately neutral. `$design-director`
   replaces it per venture; the operational components stay.
 

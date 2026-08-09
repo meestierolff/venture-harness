@@ -1,0 +1,43 @@
+# Bounded learning-loop contracts. Disabled until their required direct data
+# sources are configured and freshness can be verified.
+contract_version: 1
+
+loops:
+  daily_early_signal:
+    cadence: daily
+    enabled: false
+    trigger: { kind: cron, expression: "15 5 * * *" }
+    inputs: []
+    primary_metrics: []
+    guardrail_metrics: []
+    # Define aggregate-only derivations after the corresponding direct source
+    # and database event names are configured. Missing data is never zero.
+    metric_definitions: []
+    candidate_rules: []
+    decision_rules: []
+    maximum_actions: 1
+    maximum_iterations: 1
+    autonomy: propose
+    authorized_effect_types: [none, local_write, git_write]
+    output_destination: reports/learning/daily
+    next_run_at: null
+    stop_condition: Stop when required data is missing or stale; report the exact missing source.
+    extensions: {}
+  weekly_growth:
+    cadence: weekly
+    enabled: false
+    trigger: { kind: cron, expression: "25 5 * * 1" }
+    maximum_actions: 3
+    output_destination: reports/learning/weekly
+  biweekly_product:
+    cadence: biweekly
+    enabled: false
+    trigger: { kind: cron, expression: "0 7 1,15 * *" }
+    output_destination: reports/learning/biweekly
+  monthly_strategy:
+    cadence: monthly
+    enabled: false
+    trigger: { kind: cron, expression: "35 5 1 * *" }
+    output_destination: reports/learning/monthly
+
+extensions: {}

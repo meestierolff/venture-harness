@@ -1,0 +1,8 @@
+{
+  "id": "agentic-ios-subscription",
+  "version": "0.2.0",
+  "rail": "ios",
+  "coreCompatibility": "^0.2.0",
+  "ownershipClasses": ["core_owned", "merge_managed", "venture_owned"],
+  "runtime": ["organizations", "subscriptions", "entitlements", "connections", "agent-gateway"]
+}

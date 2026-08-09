@@ -1,48 +1,66 @@
 # Contributing to Venture Harness
 
-Thanks for improving the harness. This repository is a template for building
-ventures; contributions should improve the _framework_, not add venture facts.
+Thanks for improving the harness. Contributions should strengthen the reusable
+framework without adding venture-specific facts, credentials, private evidence,
+or unverified public claims.
+
+By participating, you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). The
+[governance model](GOVERNANCE.md) explains maintainer and release decisions.
+Security reports belong in the private process in [SECURITY.md](SECURITY.md),
+not in public issues.
 
 ## Ground rules
 
-- Read [AGENTS.md](AGENTS.md) first. It applies to humans too.
-- One conceptual change per pull request.
-- Deterministic work belongs in `scripts/`, judgement belongs in `skills/`.
-- Never commit secrets, real customer data, or real analytics exports.
-- Never edit generated directories (`.agents/skills/`, `.claude/skills/`)
-  directly — edit `skills/` and run `pnpm agents:sync`.
+- Read [AGENTS.md](AGENTS.md) and the active plan before changing behavior.
+- Keep one conceptual change per pull request and preserve unrelated work.
+- Put deterministic plumbing in code and judgement procedures in canonical
+  `skills/` files.
+- Never commit secrets, production payloads, customer data, or provider exports.
+- Never edit generated agent-skill mirrors directly; edit `skills/`, run
+  `pnpm agents:sync`, and review the generated diff.
+- Label fixtures, prototypes, samples, mocks, and concierge behavior.
+- Do not send, deploy, publish, charge, merge, or mutate a provider unless the
+  exact effect has been authorized.
 
-## Workflow
+## Local workflow
 
-1. Fork and branch from `main`.
-2. Make your change. Update docs in the same PR when behaviour changes.
-3. Run the full gate locally:
+1. Fork the repository and branch from `main`.
+2. Install the exact dependency graph with `pnpm install --frozen-lockfile`.
+3. Add or update tests and documentation with the behavior change.
+4. Run the compatibility and staged gates:
 
    ```bash
-   pnpm install
-   pnpm agents:sync
    pnpm verify
+   pnpm verify:mvp
+   pnpm release:check
    ```
 
-4. Open a PR using the template. State what changed, what you verified, and
-   what remains unknown.
+5. Run `pnpm verify:release` for release-facing changes. A reported `SKIP` is an
+   incomplete check, not a pass; include the named missing evidence.
+6. Open a pull request using the template and state what changed, what failed or
+   remains unknown, and what should happen next.
 
-## What we accept
+## Security fixtures
 
-- Bug fixes in scripts, checks, and the web foundation.
-- Sharper skill procedures backed by real usage (say which agent/model).
-- New verification checks that catch real failure modes.
-- Documentation that removes ambiguity.
+Do not broadly exclude `tests/` from secret scanning. Credential-shaped test
+canaries must be assembled dynamically where practical. If the exact literal is
+essential, run the scanners, review that it can never authenticate, then add
+only its exact path/rule/line/content fingerprint. Any content or line change
+must be reviewed again; stale allowlist entries fail the release check.
 
-## What we decline
+## Accepted contributions
 
-- Branded styling, marketing copy, or venture-specific content.
-- Always-on instruction growth (new global rules in AGENTS.md) when a
-  script, test, or skill-local rule would do.
-- Features that require paid services to pass CI.
-- Anything that lets an agent send, publish, charge, deploy, or merge
-  without human approval.
+- bug fixes with focused regression tests;
+- stronger safety, privacy, provenance, or release checks;
+- clearer errors and documentation that remove recurring ambiguity;
+- provider contracts grounded in official behavior and honest read-back gaps;
+- accessibility, raw-HTML, consent, and critical-journey improvements.
 
-## Reporting issues
+## Out of scope
 
-Use the issue templates. For security problems see [SECURITY.md](SECURITY.md).
+- venture-specific brand, pricing, customer, or market claims;
+- paid services required merely to run the local test suite;
+- broad instruction growth when a focused test or lint rule can enforce it;
+- autonomous external effects or bypasses around authorization checkpoints;
+- claims that mocks, fixtures, request acceptance, or local tests prove live
+  provider state.

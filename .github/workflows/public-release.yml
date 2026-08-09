@@ -5,23 +5,39 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release-safety:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan complete history for credentials
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Mechanical release-safety checks
+      - name: Inspect public repository and package contents
         run: pnpm release:check
-      - name: Full gate
-        run: pnpm verify
+      - name: Reject high-severity production dependency advisories
+        run: pnpm audit --prod --audit-level=high
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Capability-aware release gate
+        run: pnpm verify:release
       - name: Human checklist reminder
         run: |
           echo "Mechanical checks passed. The HUMAN half of the checklist"

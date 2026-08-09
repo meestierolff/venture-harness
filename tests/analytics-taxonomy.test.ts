@@ -59,6 +59,11 @@ describe("event taxonomy", () => {
       "pilot_selected",
       "checkout_intent",
       "reservation_intent",
+      "subscription_checkout_started",
+      "subscription_started",
+      "one_time_checkout_started",
+      "one_time_payment_completed",
+      "mobile_store_subscription_started",
     ] as const) {
       expect(EVENTS[name].props).toContain("displayed_price");
       expect(EVENTS[name].neon).toBe(true);

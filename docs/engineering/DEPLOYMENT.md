@@ -1,40 +1,72 @@
 # DEPLOYMENT
 
-The template deploys nothing. Every venture deploys itself, independently.
-Deploying to production is a human-gated action.
+The template deploys nothing. A child launch compiles only the resources its
+capabilities need, and an apply runs only inside a reviewed run envelope.
 
-## Per-venture launch checklist
+## Launch flow
 
-Mirrors `config/venture.yaml` (infrastructure block); flip booleans only
-after human verification.
+```bash
+vh doctor
+vh plan
+vh launch --dry-run
+vh launch --apply --authorization <profile>
+vh status <run-id>
+```
 
-1. **Domain** — registered, DNS at the venture's own registrar/provider.
-2. **Vercel** — its own Vercel project linked to the venture repo;
-   production domain attached; environment variables set via `vercel env`
-   (never copied from another venture).
-3. **Neon** — its own Neon project; `DATABASE_URL` in Vercel env; schema
-   from [BACKEND.md](BACKEND.md) applied; preview branches optional.
-4. **GA4** — its own property + web data stream;
-   `NEXT_PUBLIC_GA_MEASUREMENT_ID` set; advertising features off;
-   retention 14 months.
-5. **Vercel Web Analytics** — enabled on the project if used; consent mode
-   per `config/analytics.yaml`.
-6. **Google Search Console** — domain property verified; sitemap submitted.
-7. **Bing Webmaster Tools** — site verified (GSC import is acceptable);
-   sitemap submitted.
-8. **Smoke test** — `pnpm verify:raw-html --url https://<domain>` passes
-   for all three user agents; consent banner appears; a test submission
-   reaches Neon; no GA request observed before opt-in.
+Planning lists resource identities, transport, risk, estimated cost,
+reversibility, idempotency strategy, read-back and manual work. Provider state
+moves through the lifecycle in `config/providers.yaml`; a boolean or successful
+request is never launch proof.
+
+## Web rail
+
+Typical dependency order:
+
+1. prepare and verify the child repository;
+2. create/link the Vercel project and preview deployment;
+3. use a read-back-verified Neon database and run executable migrations when needed;
+4. configure test-mode commerce and email resources when active;
+5. produce one additive DNS plan, preserving existing mail/security records;
+6. attach the domain, deploy under authorization, then read back the exact URL/state;
+7. run a separate read-only post-deploy barrier against that URL in desktop and
+   mobile Chromium; the launch report remains blocked if HTTPS smoke or the
+   critical public-surface journey fails;
+8. verify the remaining raw HTML, consent, accessibility, events, webhooks and
+   provider state;
+9. submit sitemap only after the production URL and verification are real.
+
+## iOS rail
+
+Build and TestFlight are separate effects. The first App Store Connect app record
+may pause as a manual node while independent `eas-build` work continues.
+`eas-submit` joins the manual Apple identifiers with that same-run EAS build ID;
+the following App Store Connect stage must read the exact version/build as
+processed and read the exact TestFlight group assignment back. A completed build
+does not prove upload, processing or group membership, and TestFlight does not
+mean public App Store release. See
+[IOS_TESTFLIGHT.md](../operations/IOS_TESTFLIGHT.md).
 
 ## Environments
 
-| Env         | Analytics        | Evidence store         | Robots  |
-| ----------- | ---------------- | ---------------------- | ------- |
-| development | console log only | JSONL fallback allowed | n/a     |
-| preview     | disabled         | Neon branch optional   | noindex |
-| production  | per consent      | Neon required          | index   |
+| Environment  | External effects                                  | Evidence rule                                          |
+| ------------ | ------------------------------------------------- | ------------------------------------------------------ |
+| local        | local files/tests only unless explicitly expanded | fixture/local reports labeled synthetic                |
+| test/sandbox | provider test resources                           | retain mode/account/resource ID and read-back          |
+| preview      | reversible deploy and preview data branch         | noindex; no production claim                           |
+| production   | only effects allowed by the active envelope       | production URL/state and critical journeys read back   |
+| TestFlight   | authorized build/upload                           | build and submission IDs/status; not store publication |
 
-## Rollbacks
+## Rollback
 
-Vercel instant rollback is acceptable for the validation site. Evidence
-tables are append-only; a rollback never deletes evidence.
+The launch handoff must link the applicable provider-specific rollback or
+forward-repair option. Never delete evidence to roll back an app. DNS rollback
+restores only the changed record after preserving the previous value;
+nameserver changes need a separate checkpoint. Full procedure:
+[ROLLBACK.md](../operations/ROLLBACK.md).
+
+## Related
+
+- [../operations/FIRST_LAUNCH.md](../operations/FIRST_LAUNCH.md)
+- [../operations/VERCEL.md](../operations/VERCEL.md)
+- [../operations/MIJNDOMEIN_DNS.md](../operations/MIJNDOMEIN_DNS.md)
+- [SECURITY.md](SECURITY.md)

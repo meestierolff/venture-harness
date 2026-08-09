@@ -9,10 +9,9 @@ description: Design, implement, verify, and analyse behavioural tracking, consen
 
 ## Purpose
 
-Own the measurement machinery: event taxonomy, providers, consent
-implementation, experiment assignment and exposure, pricing-test
-recording, commercial-intent persistence, attribution, weekly funnel
-analysis, experiment reports, and analytics PII controls.
+Own the measurement machinery: capability-selected event packs, providers,
+consent, experiment assignment/exposure, exact-price and commercial evidence,
+attribution, data freshness, analysis, and analytics PII controls.
 
 ## Trigger conditions
 
@@ -29,7 +28,7 @@ analysis, experiment reports, and analytics PII controls.
 
 ## Required inputs
 
-- config/analytics.yaml, config/experiments.yaml (validated)
+- config/analytics.yaml, config/experiments.yaml, venture active capabilities (validated)
 - lib/analytics/taxonomy.ts, lib/experiments.ts, lib/consent.ts
 - docs/engineering/ANALYTICS.md, docs/legal/ANALYTICS_AND_CONSENT.md
 
@@ -55,41 +54,47 @@ thresholds, `docs/product/PRODUCT_TRUTH.md`, `skills/**`, `AGENTS.md`.
 
 ## Execution steps
 
-1. Maintain the three layers: Vercel Web Analytics (aggregate), GA4
-   (consented behaviour), Neon (first-party commercial evidence — the
-   source of truth).
-2. Keep config/analytics.yaml and lib/analytics/taxonomy.ts in lockstep;
-   `pnpm verify:analytics-events` must pass.
-3. Implement consent per config: strict mode loads nothing third-party
+1. Activate the smallest relevant packs from `core_product`, `web_acquisition`,
+   `lead_generation`, `onboarding`, `authentication`, `subscription`,
+   `one_time_payment`, `content`, `experiment`, `mobile`, `feedback`, and
+   `reliability`; every core journey needs sufficient measurement.
+2. Maintain aggregate, consented behavioural, and first-party commercial
+   layers. First-party server-confirmed evidence is authoritative for material
+   outcomes even when the selected providers differ by rail.
+3. Keep config/analytics.yaml and typed taxonomy/packs in lockstep;
+   `pnpm verify:analytics-events` must pass. No inactive pack is required.
+4. Implement consent per config: strict mode loads nothing third-party
    before opt-in; withdrawal disables immediately; consent events go
    first-party only.
-4. Implement experiments: deterministic assignment
+5. Implement experiments only when justified: deterministic assignment
    (lib/experiments.ts), first-party cookie persistence, eligibility →
    assignment → exposure event order, exposure only when the variant
    renders.
-5. Record pricing exactly: displayed_offer and displayed_price strings
+6. Record pricing exactly: displayed_offer and displayed_price strings
    stored verbatim with exposures and selections; verify with
    `pnpm verify:pricing-recording`.
-6. Persist high-intent evidence server-side via app/api/evidence and
+7. Persist high-intent evidence server-side via app/api/evidence and
    app/api/lead; submissions must succeed independently of tracking.
-7. Attribution: store first- and last-touch UTM + referrer domain with
+8. Attribution: store first- and last-touch UTM + referrer domain with
    qualified submissions and conversions.
-8. Analyse weekly: funnels by layer, experiment exposures vs conversions,
-   guardrails, consent-population caveats; write to reports/.
-9. Report experiments only with: exposures per variant, primary metric,
-   guardrails, sample limitations, and the pre-declared decision rule
-   applied.
+9. Normalize explicit reporting windows, timezone, source/account, fetched time,
+   freshness, and sampling/threshold limitations; provider failure is visible.
+10. Analyse at the configured cadence: funnels by layer, experiment exposures
+    vs conversions, guardrails, consent-population caveats; write to reports/.
+11. Report experiments only with: exposures per variant, primary metric,
+    guardrails, sample limitations, and the pre-declared decision rule
+    applied.
 
 ## Hard rules
 
-- Vercel and GA4 are supporting tools; Neon is the source of truth for
-  material commercial evidence.
+- Aggregate and behavioral providers are supporting tools; first-party
+  server-confirmed records are the source of truth for material evidence.
 - No personal form values, raw search text, email addresses, keystrokes,
   session replay, cursor recording, or advertising features. Ever.
 - No Google Analytics before consent in strict mode; consent withdrawable.
 - Exact price shown must match exact price stored.
 - High-intent submissions survive analytics failures.
-- Experiments have primary metrics and stopping rules before start.
+- Experiments are optional and have primary metrics/stopping rules before start.
 - One core concept per experiment.
 - No automatic publication, deployment, or winner rollout.
 - No scattered gtag calls — all tracking through lib/analytics/track.ts.
@@ -102,7 +107,7 @@ behaviour changes.
 
 ## Validation
 
-`pnpm verify` (includes verify:consent, verify:analytics-events,
+`pnpm verify` plus the active capability profile (includes verify:consent, verify:analytics-events,
 verify:analytics-pii, verify:experiment-assignment,
 verify:pricing-recording) plus `pnpm test`.
 

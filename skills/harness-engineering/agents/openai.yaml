@@ -1,7 +1,7 @@
 # Codex skill metadata
 name: harness-engineering
 description: >-
-  Make the repository easier for the next agent run: audit drift and
-  friction, promote repeated corrections into docs, config, tests, evals,
-  scripts, or lint rules — not into an ever-growing AGENTS.md.
+  Audit and improve the launch harness: context size, provider and graph drift,
+  migrations/upgrades, weak errors, missing tests, and recurring corrections.
+  Promote fixes into the cheapest durable mechanism.
 entrypoint: SKILL.md

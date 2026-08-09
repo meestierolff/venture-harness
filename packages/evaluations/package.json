@@ -1,0 +1,23 @@
+{
+  "name": "@venture-harness/evaluations",
+  "version": "0.2.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "dependencies": {
+    "@venture-harness/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "node ../../scripts/workspace-build.mjs evaluations"
+  }
+}

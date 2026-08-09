@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { PricingTable, type PricingPlan } from "@/components/PricingTable";
 import { SampleLabel } from "@/components/SampleLabel";
 import { StructuredData } from "@/components/StructuredData";
+import { TruthClaim } from "@/components/TruthClaim";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Template pricing page demonstrating the pricing-evidence contract: the exact price displayed is the exact price stored.",
+    "Prototype pricing page demonstrating the locally tested exact-displayed-price event contract.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -56,9 +57,13 @@ export default function PricingPage() {
       />
       <h1>Pricing (template demonstration)</h1>
       <p>
-        <SampleLabel kind="illustrative" /> These plans are placeholders. What is real: selecting a
-        plan records the exact price string you see, the billing period, and an anonymous visitor id
-        to first-party storage — the evidence a pricing experiment is judged on.
+        <SampleLabel kind="illustrative" /> These plans are placeholders.{" "}
+        <TruthClaim id="truth-000">
+          Local tests verify that price-bearing prototype events carry the exact displayed price
+          string
+        </TruthClaim>
+        . Persistence still requires a configured evidence store; this page is not proof of a sale,
+        customer, or production experiment.
       </p>
       <PricingTable plans={TEMPLATE_PLANS} />
     </>

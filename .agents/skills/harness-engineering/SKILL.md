@@ -9,9 +9,9 @@ description: Make the repository easier for the next agent run to understand and
 
 ## Purpose
 
-Improve the harness itself: reduce agent friction, eliminate drift, and
-make corrections cumulative by promoting them into the cheapest durable
-mechanism — never by endlessly growing AGENTS.md.
+Improve the launch harness itself: reduce context and operational friction,
+eliminate drift, preserve upgradeability, and promote corrections into the
+cheapest durable mechanism — never by endlessly growing AGENTS.md.
 
 ## Trigger conditions
 
@@ -33,15 +33,16 @@ mechanism — never by endlessly growing AGENTS.md.
 
 ## Documents to read
 
-AGENTS.md, ARCHITECTURE.md, docs/engineering/HARNESS_ENGINEERING.md,
-docs/plans/TECH_DEBT.md, the audit checklist in HARNESS_ENGINEERING.md.
+AGENTS.md, ARCHITECTURE.md, `harness.lock`, relevant ADRs,
+docs/engineering/HARNESS_ENGINEERING.md, docs/plans/TECH_DEBT.md, the active
+plan, and the audit checklist in HARNESS_ENGINEERING.md.
 
 ## Files this skill may change
 
 `docs/**`, `scripts/**`, `tests/**`, `evals/**`, `skills/**` (with
-`pnpm agents:sync` after), `config/quality.yaml`, `eslint.config.mjs`,
-`AGENTS.md` (last resort, keep under ~150 lines), `.github/workflows/*`,
-`docs/plans/TECH_DEBT.md`.
+`pnpm agents:sync` after), harness-owned `lib/config|migrations|workflow|providers|upgrade/**`,
+`config/quality.yaml`, `eslint.config.mjs`, `AGENTS.md` (last resort, keep under
+~150 lines), `.github/workflows/*`, `docs/plans/TECH_DEBT.md`.
 
 ## Files this skill must not change
 
@@ -55,23 +56,26 @@ content (structure fixes fine); `LICENSE`; generated directories
    instruction size, stale docs, missing architecture, code/docs drift,
    unclear commands, weak errors, missing tests, unclear boundaries,
    unsupported claims, stale active plans, repeated corrections,
-   unverifiable tasks, uninspectable analytics/experiments, untested
-   consent behaviour.
+   unverifiable tasks, uninspectable analytics/experiments, untested consent
+   behaviour, provider no-ops, unredacted traces, migration conflicts, graph
+   resume/idempotency, fixture coverage, empty scheduled runs, and managed drift.
 2. For each finding, choose the cheapest durable fix using the promotion
    table (doc < config+schema < test/script < eval < skill rule <
    AGENTS.md).
-3. Implement one conceptual improvement at a time; run
+3. Implement one conceptual improvement at a time. Add an idempotent migration
+   and managed-file update when the correction must reach child ventures; run
    `pnpm agents:sync` if skills changed.
 4. Record what was promoted and why in memory (via `pnpm outcome:add`)
    and, when notable, memory/LEARNINGS.md.
 5. Update docs/plans/TECH_DEBT.md: add discovered debt, clear repaid debt.
-6. Run `pnpm verify`.
+6. Run `pnpm verify` and the narrowest affected staged profile; use release
+   verification before publishing a harness version.
 
 ## Hard rules
 
 - Do not solve recurring failures by growing AGENTS.md; it is a map.
-- Every new check must run offline, without paid services, and fail with
-  the exact next action.
+- Every invariant needs an offline fixture path and must fail with the exact
+  next action. Live provider checks are additional evidence, never the only test.
 - Scripts stay idempotent and deterministic.
 - Never weaken consent, PII, or approval rules as "cleanup".
 
@@ -82,8 +86,8 @@ ledger updated, memory entry recorded.
 
 ## Validation
 
-`pnpm verify` passes; if a new check was added, it fails correctly when
-the guarded invariant is broken (demonstrate once in the test).
+`pnpm verify` and the affected profile pass; if a new check was added, it fails
+correctly when the guarded invariant is broken (demonstrate once in the test).
 
 ## Failure behaviour
 

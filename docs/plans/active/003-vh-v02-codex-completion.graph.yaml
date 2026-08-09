@@ -1,0 +1,210 @@
+graph:
+  name: vh-v0-2-codex-completion
+  goal: Complete and prove Venture Harness Core v0.2 and Winner Loop without real provider effects.
+  authorised_by: Founder /goal received 2026-08-09
+  implicit_invocation: false
+  maximum_parallel_nodes: 3
+  evidence_root: reports/audit
+
+nodes:
+  - id: recover-baseline
+    kind: code
+    purpose: Preserve Opus state and independently record Git, test, build, and claim evidence.
+    capability: repository.audit
+    dependencies: []
+    input:
+      branch: sol/vh-core-v0.2-winner-loop
+      expected_prior_claims: [16_commits, 309_tests, lint, format, build, 13_health_commands]
+    output:
+      artifacts:
+        - reports/audit/opus-claims-verification.json
+        - reports/audit/commands-run.json
+      validator: matrices and claim evidence are parseable, sanitized, and reference exact commands
+    effect: local_write
+    risk: low
+    idempotency: starting SHA and artifact schema version
+    timeout: 90m
+    retries: 1
+    concurrency_group: audit
+    completion: backup ref and exact baseline artifacts exist
+
+  - id: core-workspace
+    kind: code
+    purpose: Build real workspace packages/apps, event/audit/assets, command bus, and generated Agent Surfaces.
+    capability: core.workspace.complete
+    dependencies: [recover-baseline]
+    input:
+      requirements: A. Core and Agent Surface rows
+    output:
+      artifacts: [pnpm-workspace.yaml, packages, apps]
+      validator: workspace build, pack inspection, clean consumer, and surface parity pass
+    effect: local_write
+    risk: moderate
+    idempotency: workspace package versions and generated manifest hashes
+    timeout: 8h
+    retries: 2
+    concurrency_group: core
+    completion: no implementable Core row remains partial, stub, missing, or incorrect
+
+  - id: venture-runtime
+    kind: code
+    purpose: Complete Launch Grants, seeds, materialization, recursive tenancy, providers, graphs, loops, packs, and migrations.
+    capability: venture.runtime.complete
+    dependencies: [recover-baseline]
+    input:
+      requirements: B, C, and D matrix groups
+    output:
+      artifacts: [seeds, packs, providers, migrations]
+      validator: launch and recursive-SaaS golden paths plus isolation controls pass
+    effect: local_write
+    risk: high
+    idempotency: venture ID, launch grant ID, seed version, and operation key
+    timeout: 10h
+    retries: 2
+    concurrency_group: venture
+    completion: venture materialization and recursive service flow run through production boundaries
+
+  - id: fleet-evolution
+    kind: code
+    purpose: Complete release manifests, three-way managed upgrades, canaries, batches, and pause/rollback.
+    capability: fleet.upgrade.complete
+    dependencies: [core-workspace]
+    input:
+      requirements: E. Fleet evolution
+    output:
+      artifacts: [apps/fleet-controller, reports/audit/fleet-upgrade.json]
+      validator: two-venture upgrade golden path and canary negative controls pass
+    effect: local_write
+    risk: high
+    idempotency: Core release version plus venture repository ID
+    timeout: 6h
+    retries: 2
+    concurrency_group: fleet
+    completion: unique files survive and a failed canary stops every later batch
+
+  - id: winner-loop
+    kind: code
+    purpose: Complete Winner Loop policy, providers, persistence, event pack, Fixture D, and DistributionPR linkage.
+    capability: distribution.winner_loop.complete
+    dependencies: [core-workspace, venture-runtime]
+    input:
+      requirements: F. Winner Loop
+    output:
+      artifacts:
+        - reports/audit/winner-loop-creative-trace.json
+        - reports/audit/distribution-pr.json
+      validator: full Fixture D and every spend/rights/attribution negative control pass
+    effect: local_write
+    risk: critical
+    authorization: no real publication or spend; fixtures only
+    idempotency: creative, proposal, grant, reservation, and provider operation IDs
+    timeout: 10h
+    retries: 2
+    concurrency_group: winner-loop
+    completion: Fixture D crosses the command bus, graph, provider SDK, persistence, assets, audit, and ledgers
+
+  - id: security-truth-docs
+    kind: code
+    purpose: Complete adversarial security, public-release tooling, Product Truth, and open-source documentation.
+    capability: core.public_release.prepare
+    dependencies: [core-workspace, venture-runtime]
+    input:
+      requirements: G and public-surface requirements
+    output:
+      artifacts:
+        - docs/audits/VH_V02_CODEX_VERIFICATION.md
+        - docs/audits/PROVIDER_CAPABILITY_MATRIX.md
+    validator: claims, secrets, PII, history, package, dependency, and docs checks pass
+    effect: local_write
+    risk: high
+    idempotency: source tree SHA and claim register version
+    timeout: 6h
+    retries: 2
+    concurrency_group: security
+    completion: public claims distinguish runtime, fixture, pending, and planned state
+
+  - id: release-verification
+    kind: code
+    purpose: Integrate slices, run all command/golden/negative/release checks, and repair bounded failures.
+    capability: core.release.verify
+    dependencies: [fleet-evolution, winner-loop, security-truth-docs]
+    input:
+      matrix: reports/audit/vh-v0.2-codex-requirement-matrix.json
+    output:
+      artifacts:
+        - reports/audit/golden-paths.json
+        - reports/audit/negative-controls.json
+        - reports/audit/commands-run.json
+    validator: all applicable checks pass and no implementable P0/P1/P2 row is non-terminal
+    effect: local_write
+    risk: high
+    idempotency: source tree SHA plus verification profile version
+    timeout: 12h
+    retries: 3
+    concurrency_group: integration
+    completion: release profile, pnpm verify, packed consumers, and sanitized artifacts pass
+
+  - id: publish-draft-pr
+    kind: human_approval
+    purpose: Commit coherent slices, push the branch, and create or update a draft PR without merging.
+    capability: source.pull_request.write
+    dependencies: [release-verification]
+    input:
+      authorization: founder /goal received 2026-08-09
+    output:
+      artifacts: [commit SHAs, remote branch read-back, draft PR URL, CI evidence]
+      validator: GitHub read-back matches branch SHA and PR remains draft
+    effect: reversible_external_write
+    risk: high
+    idempotency: repository, branch, and draft PR head SHA
+    timeout: 3h
+    retries: 2
+    concurrency_group: github
+    completion: applicable CI is green or an exact external blocker is recorded
+
+edges:
+  - { from: recover-baseline, to: core-workspace, carries: verified baseline and matrix }
+  - { from: recover-baseline, to: venture-runtime, carries: verified baseline and matrix }
+  - { from: core-workspace, to: fleet-evolution, carries: package and upgrade contracts }
+  - { from: core-workspace, to: winner-loop, carries: command, event, asset, and pack boundaries }
+  - {
+      from: venture-runtime,
+      to: winner-loop,
+      carries: grants,
+      tenancy,
+      providers,
+      graph,
+      and persistence,
+    }
+  - { from: core-workspace, to: security-truth-docs, carries: package and public-surface behavior }
+  - { from: venture-runtime, to: security-truth-docs, carries: tenant and credential boundaries }
+  - { from: fleet-evolution, to: release-verification, carries: fleet fixture evidence }
+  - { from: winner-loop, to: release-verification, carries: Fixture D and spend-safety evidence }
+  - {
+      from: security-truth-docs,
+      to: release-verification,
+      carries: public-release and claim evidence,
+    }
+  - {
+      from: release-verification,
+      to: publish-draft-pr,
+      carries: terminal matrix and clean verified tree,
+    }
+
+budgets:
+  provider_spend_minor: 0
+  advertising_spend_minor: 0
+  customer_messages: 0
+  production_mutations: 0
+  maximum_repair_iterations_per_failure: 3
+
+human_interrupts:
+  forbidden_without_new_authorization:
+    - real venture deployment
+    - social publication
+    - advertising spend
+    - customer communication
+    - customer charge
+    - destructive provider mutation
+    - package or release publication
+    - pull request merge

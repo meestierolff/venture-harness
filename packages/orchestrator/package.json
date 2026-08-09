@@ -1,0 +1,26 @@
+{
+  "name": "@venture-harness/orchestrator",
+  "version": "0.2.0",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "dependencies": {
+    "@venture-harness/command-bus": "workspace:*",
+    "@venture-harness/core": "workspace:*",
+    "@venture-harness/provider-registry": "workspace:*",
+    "@venture-harness/workflow-backend-local": "workspace:*"
+  },
+  "scripts": {
+    "build": "node ../../scripts/workspace-build.mjs orchestrator"
+  }
+}

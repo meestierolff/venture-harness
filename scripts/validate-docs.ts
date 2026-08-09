@@ -88,7 +88,9 @@ for (const doc of projectDocs) {
 if (contractClean) r.ok(`${projectDocs.length} project documents follow the contract`);
 
 // 4. One active plan discipline ---------------------------------------------
-const activePlans = walk(join(ROOT, "docs/plans/active")).filter((f) => f.endsWith(".md"));
+const activePlans = walk(join(ROOT, "docs/plans/active")).filter(
+  (file) => file.endsWith(".md") && !file.endsWith("-brief.md") && !file.endsWith("_MATRIX.md"),
+);
 if (activePlans.length === 0)
   r.fail(
     "active plan",

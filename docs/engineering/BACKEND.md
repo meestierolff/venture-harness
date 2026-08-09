@@ -1,82 +1,54 @@
 # BACKEND
 
-Server-side surface of the validation site: small by design.
+The backend rail is capability-driven. A public-only venture may not need a
+database; a venture that records material evidence, auth state, webhooks or
+entitlements does.
 
-## Evidence store (Layer 3)
+## Evidence storage
 
-Per-venture Neon Postgres, connection via `DATABASE_URL`. Development
-fallback: JSONL under `.data/` (gitignored) when
-`EVIDENCE_LOCAL_FALLBACK=true`. Production requires Neon; the API refuses
-silent no-op persistence.
+The existing web foundation writes typed experiment, consent and commercial
+events through [../../lib/evidence-store.ts](../../lib/evidence-store.ts).
+Personal submission payloads are isolated from analytics. Production requires a
+venture-owned database; development may use the gitignored JSONL fallback only
+when explicitly enabled.
 
-### Schema
+Rules:
 
-```sql
--- experiment lifecycle
-create table if not exists experiment_events (
-  id          bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event       text not null,          -- experiment_eligible|assigned|exposed|primary_conversion|guardrail_event
-  experiment_id text not null,
-  variant_key text,
-  visitor_id  text not null,          -- anonymous first-party id, no PII
-  route       text,
-  displayed_offer text,
-  displayed_price text,               -- EXACT string shown to the visitor
-  metric      text
-);
+- persist a qualified submission before best-effort analytics;
+- store exact displayed prices rather than reconstructing them;
+- keep private payloads out of analytics and normalized data;
+- use one database per venture and least-privilege roles;
+- reject unknown input and rate-limit public endpoints.
 
--- commercial intent and conversions
-create table if not exists commercial_events (
-  id          bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event       text not null,          -- plan_selected|pilot_selected|checkout_intent|reservation_intent|form_submission_confirmed|qualification_completed|...
-  visitor_id  text not null,
-  plan_key    text,
-  displayed_price text,
-  billing_period  text,
-  experiment_id   text,
-  variant_key     text,
-  qualified   boolean,
-  qualification_tier text,
-  attribution jsonb                    -- {first_touch, last_touch, utm_*} — domains and utm values only
-);
+## Executable migrations only
 
--- qualified submissions (the only table holding personal data)
-create table if not exists submissions (
-  id          bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  form_id     text not null,
-  visitor_id  text not null,
-  payload     jsonb not null,          -- form answers; NEVER copied to analytics
-  qualified   boolean not null,
-  qualification_tier text
-);
+Database schemas must be applied from versioned executable SQL files and tracked
+in a migration ledger. SQL copied only from prose is not a launch artifact. A
+Neon plan may create a project, branch, database and role, but it must not call
+the backend `verified` until the applicable SQL migration files run and a
+read/write health check succeeds.
 
--- consent ledger (anonymous)
-create table if not exists consent_events (
-  id          bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event       text not null,
-  visitor_id  text not null,
-  from_state  text,
-  to_state    text
-);
-```
+At this revision, the repository's committed
+[001-v0-1-to-v0-2 migration](../../migrations/001-v0-1-to-v0-2.yaml) upgrades
+harness config—not the Neon evidence schema. If no executable database migration
+is present for a child venture, the launch report must state that gap instead of
+asking the operator to paste the former example schema.
 
-## Rules
+## Migration evidence
 
-- High-intent submissions must survive analytics failures: the form POST is
-  its own request; tracking is fire-and-forget after persistence succeeds.
-- Personal data lives only in `submissions.payload`. Nothing joins it to
-  analytics providers.
-- `displayed_price` is stored verbatim as rendered; analysis never
-  reconstructs prices from config history.
-- Rate-limit and validate all API input with Zod; reject unknown fields.
-- No shared databases between ventures, ever.
+Record migration ID, checksum, environment, start/end time, result and safe
+rollback/forward-repair path. Destructive production migrations require a
+distinct checkpoint even when the broader run has launch authorization.
+
+## Provider credentials
+
+Connection strings and generated role passwords go directly to the credential
+broker. Repository config and reports keep only `cred://...` references and
+non-secret project/database/role IDs.
 
 ## Related
 
 - [ANALYTICS.md](ANALYTICS.md)
 - [SECURITY.md](SECURITY.md)
 - [DEPLOYMENT.md](DEPLOYMENT.md)
+- [../operations/NEON.md](../operations/NEON.md)

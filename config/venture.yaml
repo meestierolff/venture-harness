@@ -9,11 +9,41 @@ venture:
   domain: null # production domain, e.g. "example.com"
   market: null # one line, e.g. "small property managers, DACH"
   language: en
+  locale: en
   currency: EUR
   timezone: Europe/Berlin
   stage: template # template | ideation | demand_validation | build | iterate | reposition | stopped
   repository_visibility: private # private | public
   production_status: none # none | validation_site_live | product_live
+  harness_version: 0.2.0
+  app_kind: web # web | mobile_ios | mobile_cross_platform | hybrid
+  launch_mode: validate_first # conservative template default; the router must reassess it
+  business_model: unselected
+  monetization_model: unselected
+  target_market: null
+  risk_profile: unassessed
+  privacy_profile: unassessed
+  mobile_stack: none # none | expo_react_native | swiftui | auto
+  outcomes:
+    primary:
+      statement: null
+      success_signal: null
+    secondary: []
+  capabilities:
+    # Desired capabilities, independent of provider configuration state.
+    active:
+      - public_website
+      - database
+      - ga4
+      - gsc
+      - bing_webmaster
+      - vercel_analytics
+      - web_seo_aeo_geo
+      - feedback_intake
+      - scheduled_learning_loops
+    # Venture-specific additions must be namespaced: x.vendor.capability.
+    open: []
+  extensions: {}
 
 # The 30-to-90-day demand-validation operating model. Thresholds are
 # hypotheses: set them at bootstrap, before launch, and change them only via
@@ -31,8 +61,9 @@ validation:
   iterate_threshold: null # evidence level that justifies another cycle
   stop_threshold: null # explicit kill criteria — write them before launch
 
-# Operational independence checklist. Every venture has its OWN instances.
-# Booleans flip to true only when verified by a human.
+# Deprecated v0.1 compatibility checklist, not provider lifecycle state.
+# `config/providers.yaml` is authoritative for v0.2; new runs do not infer
+# `verified` from these booleans or mutate them as provider evidence.
 infrastructure:
   domain_registered: false
   vercel_project_created: false
@@ -41,3 +72,5 @@ infrastructure:
   vercel_analytics_enabled: false
   google_search_console_verified: false
   bing_webmaster_verified: false
+
+extensions: {}

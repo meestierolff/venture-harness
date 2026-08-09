@@ -1,0 +1,1518 @@
+lock_version: 1
+harness_version: 0.2.0
+config_contract_version: 2
+source:
+  kind: release
+  ref: v0.2.0
+managed_files:
+  - path: .agents/skills/design-director/agents/openai.yaml
+    ownership: generated
+    sha256: 2b59b584df698d36be79ca0e6a428635a59915a71a42273370b90fbebda3f113
+  - path: .agents/skills/design-director/references/anti-slop-checklist.md
+    ownership: generated
+    sha256: 929e6d628874888bd95e62cb11578c0572b7ccd6d66c1690eacb2d492fe12e6e
+  - path: .agents/skills/design-director/SKILL.md
+    ownership: generated
+    sha256: b713b25aff8fd9fe488c807e359bb2eacade9c1f0948692d8fbeff19fe5d9c9e
+  - path: .agents/skills/distribution-engine/agents/openai.yaml
+    ownership: generated
+    sha256: 1cf28ee0bd6e2fcdf715688e4718d668c38beb6ffbc8be3c0fb774cabb497003
+  - path: .agents/skills/distribution-engine/SKILL.md
+    ownership: generated
+    sha256: a3e5e71e0b36414ccf5d365b23bbf7d6ca09f520fcc6dd0905c7d68ce47f3c74
+  - path: .agents/skills/experiment-analytics-engine/agents/openai.yaml
+    ownership: generated
+    sha256: 3340637dcf12d67c9821f452d57f031aea8a26b8d467733c33939b2de2020457
+  - path: .agents/skills/experiment-analytics-engine/SKILL.md
+    ownership: generated
+    sha256: 74a052e9bd167d020d7a9be41ac3582380f34fd4be5073e462b8da3a0ab3cfeb
+  - path: .agents/skills/harness-engineering/agents/openai.yaml
+    ownership: generated
+    sha256: ef2f1b213d043bdb39e7bd2cbfe2f4fee2c1a814d6d93ac6c476b9602942afbb
+  - path: .agents/skills/harness-engineering/SKILL.md
+    ownership: generated
+    sha256: 4675e09598dca56adab2518f80f30ee751aee903da68ae3cfe9e9118614b615a
+  - path: .agents/skills/knowledge-graph-engineering/agents/openai.yaml
+    ownership: generated
+    sha256: 7302e4be90d4b52910639c81e163cae5ce5f7cb1271fc45705df8f54ccc1dc33
+  - path: .agents/skills/knowledge-graph-engineering/SKILL.md
+    ownership: generated
+    sha256: 6e4a7d951d0a3b60655306385fb3934642efa16465b01de3d5f92ec5b4b2a3e7
+  - path: .agents/skills/launch-orchestrator/agents/openai.yaml
+    ownership: generated
+    sha256: 3863333e2c792b7c1a93874f76f07ffac31b6555b5d5fb31cbca831f4ac37fbe
+  - path: .agents/skills/launch-orchestrator/SKILL.md
+    ownership: generated
+    sha256: 3ec70e0768d313933c8e91ecd88c5db208573ca4a1835280cebed517518614d5
+  - path: .agents/skills/learning-loops/agents/openai.yaml
+    ownership: generated
+    sha256: e3833d340a1183763f44206cd36e63c14b1379fb6be1ca205cebb4cc6dde00de
+  - path: .agents/skills/learning-loops/SKILL.md
+    ownership: generated
+    sha256: 12f42ff9a7de642d5e72f496ab04c39cee801f07f0f0d873124df621745371f9
+  - path: .agents/skills/mobile-launch/agents/openai.yaml
+    ownership: generated
+    sha256: 0ad95875fe50a6013c421d79cfc1ec12a97ae40bfe6922b6f7d4211e3d538e8e
+  - path: .agents/skills/mobile-launch/SKILL.md
+    ownership: generated
+    sha256: c3f3e0f0e811862e22c310fbdd7bc0818991e85b4073f30427adfa7a6267e91b
+  - path: .agents/skills/offer-architect/agents/openai.yaml
+    ownership: generated
+    sha256: 063be63e88bcd318e27102b158e876604aff695b12cf48ca6c72605b1c5d2bcc
+  - path: .agents/skills/offer-architect/references/offer-checklist.md
+    ownership: generated
+    sha256: 938c04dc91016df8b6cee45859d0fd485fb188dcf7b45a468b5dbcb20ceee56a
+  - path: .agents/skills/offer-architect/scripts/thirty-day-cash.ts
+    ownership: generated
+    sha256: aafde356f52b1205735cf356689042a2423029d83b01ede2e5def1a8b810d79e
+  - path: .agents/skills/offer-architect/SKILL.md
+    ownership: generated
+    sha256: 043ae17d695c48d31f80bedee0049f49da6d3384a35a8bedefad2af6ca67b1dd
+  - path: .agents/skills/product-truth/agents/openai.yaml
+    ownership: generated
+    sha256: 27999aee6481cea636d641f6f53f903f221193c0abfa19839a6ded936cad0ff0
+  - path: .agents/skills/product-truth/SKILL.md
+    ownership: generated
+    sha256: 08bc5e7b652e1fa95cbe8652360fab9d4db63279231ae62c575db770d3636805
+  - path: .agents/skills/provider-operations/agents/openai.yaml
+    ownership: generated
+    sha256: 62bdd37f082fabc0b4cbb201f690ffa22f66ca168e11acc13077480567e6712b
+  - path: .agents/skills/provider-operations/SKILL.md
+    ownership: generated
+    sha256: d2bde50b95de3d3caa76927fdae2a25bd78f8ae68bb99a594486ae7705dbdac4
+  - path: .agents/skills/quality-gate/agents/openai.yaml
+    ownership: generated
+    sha256: 1dea005492ffa37abe423cd082dbf7a81f1142dbbf11e9267037921155112fae
+  - path: .agents/skills/quality-gate/references/v0.1-monolithic-gate.md
+    ownership: generated
+    sha256: bf4cafcd75abd8b1cf041a741ce737ec93dcec22a85af5e31ac4387dd45bf0f5
+  - path: .agents/skills/quality-gate/SKILL.md
+    ownership: generated
+    sha256: 470469a1f27e5f2f6dcc3d3fbdc41f82cf7891f34aa24fb0bc13bb61222e23c2
+  - path: .agents/skills/README.md
+    ownership: generated
+    sha256: 01ffbe5c45c928032eafa8b17c1fbc5bbf1bad88954bc7d003bdc4ff9b91f59e
+  - path: .agents/skills/seo-aeo-engine/agents/openai.yaml
+    ownership: generated
+    sha256: 2beb7215d7d2a8cb9c27121d7dd718ae9ac7a6bf8b8aa8152a1b9da197c313dd
+  - path: .agents/skills/seo-aeo-engine/references/aeo-geo.md
+    ownership: generated
+    sha256: b25d0494a37f84052c1e71c914d75147c32da5b2b77d04e8024376e82f41e2b6
+  - path: .agents/skills/seo-aeo-engine/references/aso.md
+    ownership: generated
+    sha256: 1c9eb14facd3b8aa027c5b72cd981ac76554d38f665bbc6f2b8249617dd3fa20
+  - path: .agents/skills/seo-aeo-engine/references/measurement-and-operations.md
+    ownership: generated
+    sha256: df95d8df7072c81393c44423ec51d298b392064bdb4b9b6de28edd0497100603
+  - path: .agents/skills/seo-aeo-engine/references/seo-aeo-v0.1-preserved.md
+    ownership: generated
+    sha256: 6146d7addb2c64e0f080fdef3aeb2515bbe00adca5d61654252f7eaf417c7d6d
+  - path: .agents/skills/seo-aeo-engine/references/seo-topical-system.md
+    ownership: generated
+    sha256: c8254d41ca901bab989b44000f6710e165891fe45f25e844a5100e8809f50b5c
+  - path: .agents/skills/seo-aeo-engine/references/technical-discovery.md
+    ownership: generated
+    sha256: cbe705410039b4105c8ddfce962584bb971a9d0272fb5f5385cb923ae9a22320
+  - path: .agents/skills/seo-aeo-engine/SKILL.md
+    ownership: generated
+    sha256: 7c070c5de6a2ed921d62904079e4f643d98bc6800bed337da1af80e1e6c0cf0d
+  - path: .agents/skills/validation-engine/agents/openai.yaml
+    ownership: generated
+    sha256: df87b291a1048732c2778f2d2b9bf267a5c8c9d352fbffa86da83eace21b9269
+  - path: .agents/skills/validation-engine/SKILL.md
+    ownership: generated
+    sha256: 75bc265248c6a8db154d8b1665f0820ca4364d6ca00a4a05d752d029eed551aa
+  - path: .agents/skills/venture-bootstrap/agents/openai.yaml
+    ownership: generated
+    sha256: 11ba82e2651adeac246b082b92f7872bbc05e7c793742a358a126db93e97a9df
+  - path: .agents/skills/venture-bootstrap/references/bootstrap-blockers.md
+    ownership: generated
+    sha256: 0aa10d8502d04cfbdce45ed9c8449b48a6441f050432b34ab54b721dbd1926fa
+  - path: .agents/skills/venture-bootstrap/references/validation-bootstrap-v0.1.md
+    ownership: generated
+    sha256: e75cfe79d55269f0ddb3874b5fbef53193bb895388a88a13b4441fbc83501340
+  - path: .agents/skills/venture-bootstrap/SKILL.md
+    ownership: generated
+    sha256: 38bd022f486c734638cb726d2cc3276d04e8a747409725e527eef70fbe618856
+  - path: .agents/skills/weekly-learning/agents/openai.yaml
+    ownership: generated
+    sha256: 319afeeb614acecfd9450f6c2a743c7e18836f8d74aabde8de8da1e674336415
+  - path: .agents/skills/weekly-learning/references/v0.1-weekly-review.md
+    ownership: generated
+    sha256: d56469ab2231faec9c928c965c434ed3ff3dae9680eec61dc1c00c0785562b4b
+  - path: .agents/skills/weekly-learning/SKILL.md
+    ownership: generated
+    sha256: ca370d20fb19a0390663efcdb1fd1ba2995d4c8f61961171aa6f548fa2a8f0d9
+  - path: .agents/skills/workflow-graph-engineering/agents/openai.yaml
+    ownership: generated
+    sha256: 376660c01dcdfc65c2b698c151a816383e87c84950e830de50fea17b7af6010c
+  - path: .agents/skills/workflow-graph-engineering/assets/graph-plan.yaml
+    ownership: generated
+    sha256: bec1207ee14da4601fb9dea8098202d01535afee8ae6624dc5dca4906d915f52
+  - path: .agents/skills/workflow-graph-engineering/references/planning-v0.1.md
+    ownership: generated
+    sha256: 90381a398060fdddc14b23ed645214f3da9dcc74d046c06dedee5cf8b627793b
+  - path: .agents/skills/workflow-graph-engineering/SKILL.md
+    ownership: generated
+    sha256: 64782d11af87f66d887308c44c764b2506241b9a20bfc7da71b97c37566be4e1
+  - path: .claude/skills/design-director/references/anti-slop-checklist.md
+    ownership: generated
+    sha256: 929e6d628874888bd95e62cb11578c0572b7ccd6d66c1690eacb2d492fe12e6e
+  - path: .claude/skills/design-director/SKILL.md
+    ownership: generated
+    sha256: b713b25aff8fd9fe488c807e359bb2eacade9c1f0948692d8fbeff19fe5d9c9e
+  - path: .claude/skills/distribution-engine/SKILL.md
+    ownership: generated
+    sha256: a3e5e71e0b36414ccf5d365b23bbf7d6ca09f520fcc6dd0905c7d68ce47f3c74
+  - path: .claude/skills/experiment-analytics-engine/SKILL.md
+    ownership: generated
+    sha256: 74a052e9bd167d020d7a9be41ac3582380f34fd4be5073e462b8da3a0ab3cfeb
+  - path: .claude/skills/harness-engineering/SKILL.md
+    ownership: generated
+    sha256: 4675e09598dca56adab2518f80f30ee751aee903da68ae3cfe9e9118614b615a
+  - path: .claude/skills/knowledge-graph-engineering/SKILL.md
+    ownership: generated
+    sha256: 6e4a7d951d0a3b60655306385fb3934642efa16465b01de3d5f92ec5b4b2a3e7
+  - path: .claude/skills/launch-orchestrator/SKILL.md
+    ownership: generated
+    sha256: 3ec70e0768d313933c8e91ecd88c5db208573ca4a1835280cebed517518614d5
+  - path: .claude/skills/learning-loops/SKILL.md
+    ownership: generated
+    sha256: 12f42ff9a7de642d5e72f496ab04c39cee801f07f0f0d873124df621745371f9
+  - path: .claude/skills/mobile-launch/SKILL.md
+    ownership: generated
+    sha256: c3f3e0f0e811862e22c310fbdd7bc0818991e85b4073f30427adfa7a6267e91b
+  - path: .claude/skills/offer-architect/references/offer-checklist.md
+    ownership: generated
+    sha256: 938c04dc91016df8b6cee45859d0fd485fb188dcf7b45a468b5dbcb20ceee56a
+  - path: .claude/skills/offer-architect/scripts/thirty-day-cash.ts
+    ownership: generated
+    sha256: aafde356f52b1205735cf356689042a2423029d83b01ede2e5def1a8b810d79e
+  - path: .claude/skills/offer-architect/SKILL.md
+    ownership: generated
+    sha256: 043ae17d695c48d31f80bedee0049f49da6d3384a35a8bedefad2af6ca67b1dd
+  - path: .claude/skills/product-truth/SKILL.md
+    ownership: generated
+    sha256: 08bc5e7b652e1fa95cbe8652360fab9d4db63279231ae62c575db770d3636805
+  - path: .claude/skills/provider-operations/SKILL.md
+    ownership: generated
+    sha256: d2bde50b95de3d3caa76927fdae2a25bd78f8ae68bb99a594486ae7705dbdac4
+  - path: .claude/skills/quality-gate/references/v0.1-monolithic-gate.md
+    ownership: generated
+    sha256: bf4cafcd75abd8b1cf041a741ce737ec93dcec22a85af5e31ac4387dd45bf0f5
+  - path: .claude/skills/quality-gate/SKILL.md
+    ownership: generated
+    sha256: 470469a1f27e5f2f6dcc3d3fbdc41f82cf7891f34aa24fb0bc13bb61222e23c2
+  - path: .claude/skills/README.md
+    ownership: generated
+    sha256: f2cff57757778e68a4ecc13993068d59ef20c15d4c3943fcb2846735e8d476a9
+  - path: .claude/skills/seo-aeo-engine/references/aeo-geo.md
+    ownership: generated
+    sha256: b25d0494a37f84052c1e71c914d75147c32da5b2b77d04e8024376e82f41e2b6
+  - path: .claude/skills/seo-aeo-engine/references/aso.md
+    ownership: generated
+    sha256: 1c9eb14facd3b8aa027c5b72cd981ac76554d38f665bbc6f2b8249617dd3fa20
+  - path: .claude/skills/seo-aeo-engine/references/measurement-and-operations.md
+    ownership: generated
+    sha256: df95d8df7072c81393c44423ec51d298b392064bdb4b9b6de28edd0497100603
+  - path: .claude/skills/seo-aeo-engine/references/seo-aeo-v0.1-preserved.md
+    ownership: generated
+    sha256: 6146d7addb2c64e0f080fdef3aeb2515bbe00adca5d61654252f7eaf417c7d6d
+  - path: .claude/skills/seo-aeo-engine/references/seo-topical-system.md
+    ownership: generated
+    sha256: c8254d41ca901bab989b44000f6710e165891fe45f25e844a5100e8809f50b5c
+  - path: .claude/skills/seo-aeo-engine/references/technical-discovery.md
+    ownership: generated
+    sha256: cbe705410039b4105c8ddfce962584bb971a9d0272fb5f5385cb923ae9a22320
+  - path: .claude/skills/seo-aeo-engine/SKILL.md
+    ownership: generated
+    sha256: 7c070c5de6a2ed921d62904079e4f643d98bc6800bed337da1af80e1e6c0cf0d
+  - path: .claude/skills/validation-engine/SKILL.md
+    ownership: generated
+    sha256: 75bc265248c6a8db154d8b1665f0820ca4364d6ca00a4a05d752d029eed551aa
+  - path: .claude/skills/venture-bootstrap/references/bootstrap-blockers.md
+    ownership: generated
+    sha256: 0aa10d8502d04cfbdce45ed9c8449b48a6441f050432b34ab54b721dbd1926fa
+  - path: .claude/skills/venture-bootstrap/references/validation-bootstrap-v0.1.md
+    ownership: generated
+    sha256: e75cfe79d55269f0ddb3874b5fbef53193bb895388a88a13b4441fbc83501340
+  - path: .claude/skills/venture-bootstrap/SKILL.md
+    ownership: generated
+    sha256: 38bd022f486c734638cb726d2cc3276d04e8a747409725e527eef70fbe618856
+  - path: .claude/skills/weekly-learning/references/v0.1-weekly-review.md
+    ownership: generated
+    sha256: d56469ab2231faec9c928c965c434ed3ff3dae9680eec61dc1c00c0785562b4b
+  - path: .claude/skills/weekly-learning/SKILL.md
+    ownership: generated
+    sha256: ca370d20fb19a0390663efcdb1fd1ba2995d4c8f61961171aa6f548fa2a8f0d9
+  - path: .claude/skills/workflow-graph-engineering/assets/graph-plan.yaml
+    ownership: generated
+    sha256: bec1207ee14da4601fb9dea8098202d01535afee8ae6624dc5dca4906d915f52
+  - path: .claude/skills/workflow-graph-engineering/references/planning-v0.1.md
+    ownership: generated
+    sha256: 90381a398060fdddc14b23ed645214f3da9dcc74d046c06dedee5cf8b627793b
+  - path: .claude/skills/workflow-graph-engineering/SKILL.md
+    ownership: generated
+    sha256: 64782d11af87f66d887308c44c764b2506241b9a20bfc7da71b97c37566be4e1
+  - path: .github/copilot-instructions.md
+    ownership: harness
+    sha256: d51b6633f2aa0c28072e1eb2e54acadc915fd08c47d74026c6eeadcb4d248268
+  - path: .github/dependabot.yml
+    ownership: harness
+    sha256: 03553629031b40f9d553e537b3c8ea42a93bbaef0007b55b63a16955e84bd727
+  - path: .github/ISSUE_TEMPLATE/bug_report.md
+    ownership: harness
+    sha256: 32daffb18e6018e325f7284c726a818494070ca17864ccf2d41f1aad86c38046
+  - path: .github/ISSUE_TEMPLATE/config.yml
+    ownership: harness
+    sha256: 11d74a845a4e845d42362973560f8942635e90ec7ebc23f7b3b2181f90565a59
+  - path: .github/ISSUE_TEMPLATE/framework_improvement.md
+    ownership: harness
+    sha256: 4f0a1564b4c58420cfa97fb2ac7f88896859471f37a57a8e3e81e70d66af361e
+  - path: .github/pull_request_template.md
+    ownership: harness
+    sha256: 38b07ba575f1a24768f4c1b6bd638972bdc935e322189446ed1cb7734cc42f5d
+  - path: .github/workflows/agent-parity.yml
+    ownership: harness
+    sha256: af8eb2afce14ff4ebb00089787e2ce4bb5fe8faac6aecd3ac4b059ba20893f30
+  - path: .github/workflows/codeql.yml
+    ownership: harness
+    sha256: 6421bd18992d386cc7bb09cda34674c893640156b26701d9872d922b07e05dc3
+  - path: .github/workflows/dependency-review.yml
+    ownership: harness
+    sha256: a48d175f7269485e8bf500bf7df7c6e0a2447434b90ebc833b57fba1be7c1caa
+  - path: .github/workflows/final-evidence.yml
+    ownership: harness
+    sha256: 451d3619bd604d0d31810b7df57f6736f3feaad8138cf24c4626d5fee92c9bf3
+  - path: .github/workflows/learning-cadence.yml
+    ownership: harness
+    sha256: 2d8bd381083fd6279c1715a24de05ba9675f51710485490f7093455c6155ca38
+  - path: .github/workflows/public-release.yml
+    ownership: harness
+    sha256: ae685297a9b10283adca8d4291288e053225e4c472ee4a7f87bbf1e394cafc30
+  - path: .github/workflows/quality.yml
+    ownership: harness
+    sha256: 55564b40c4b158abc268356db6321b8854af1e6b7ada5c8e7930f5233aa36e3d
+  - path: .github/workflows/security.yml
+    ownership: harness
+    sha256: 4b6a3e4b2756f0b2c6e450b16bdbd324626dcc60df345720aa8890ad75bc4498
+  - path: .github/workflows/venture-verify.yml
+    ownership: harness
+    sha256: d979089f49cef0cab62b89baa5a6d8794aa0141dfaf8505ec9f6445e03bff3b1
+  - path: .github/workflows/weekly-analysis.yml
+    ownership: harness
+    sha256: a54009974bd0ee99fbc2a547639d9bb81efd25440e44cd7ca8491b35d3ee13a6
+  - path: .gitignore
+    ownership: harness
+    sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
+  - path: bin/vh.mjs
+    ownership: harness
+    sha256: 7f6a1053a99a5696b03b58f5f23562668e3c1cba1a92ae71e2223e3790c8e141
+  - path: config/framework.yaml
+    ownership: harness
+    sha256: 33bdb50d3198c1ad1d19835509f298a6c326353225a24032b07b4c98ae4b1e9f
+  - path: config/quality.yaml
+    ownership: harness
+    sha256: 212728c361252d98e068665fc28cfd36eca5d4c7c3ae3d1ea849d4263ce2fd6f
+  - path: eslint.config.mjs
+    ownership: harness
+    sha256: 9c351c61b1b40c0aaee4363100826d7090b309d86ec1d5c28b9be7eb6811f8a4
+  - path: fixtures/founder-stack/founder-default.json
+    ownership: harness
+    sha256: dcd9617179ec85cdd398a8ecce8cea9fdc0e07b2b66af3cb0cf8aa9e439b7395
+  - path: fixtures/ideas/synthetic-founder-web.md
+    ownership: harness
+    sha256: ac18404cc377db76bb887be77ea622c7c72b2d7c2673eb879b89ff2746c33a6f
+  - path: fixtures/ideas/synthetic-payout-rank.md
+    ownership: harness
+    sha256: 091d9d3618cc02acebeccd7d47642750e5cfae3d39c69e7ccbd172dd63064cb7
+  - path: fixtures/ios-subscription/brief.yaml
+    ownership: harness
+    sha256: b069633783637d2c18da5894f4ccce17ca1dcd1b28aa382f0a7b6565b39189a3
+  - path: fixtures/README.md
+    ownership: harness
+    sha256: 863965e98cc7c1eead73d1c7feb0257be7026ab9af4d64591e4023bd4be993b0
+  - path: fixtures/web-saas/brief.yaml
+    ownership: harness
+    sha256: d72e3d53c146b2eded85dbf354dba2004f11b675b1dda630a9521b90d0b5923b
+  - path: lib/analytics/index.ts
+    ownership: harness
+    sha256: 6c8f39293f0c74d11e0f208f7af4bb62fb444f3a0ec5e33f0c73af27fbc32174
+  - path: lib/analytics/pack-config.ts
+    ownership: harness
+    sha256: 70b74dc959ac0d5ab0c05eddc6bd07210771acfdfadddfffe401abfb9befbfa7
+  - path: lib/analytics/packs.ts
+    ownership: harness
+    sha256: 177bd9eb71f454396792fb98ce3247dfd209b1468c958348bbe9dce7ad541bea
+  - path: lib/analytics/scheduled-fixture.ts
+    ownership: harness
+    sha256: ddb39978b01d4fbca37523b8413334d54b7f35a3a2cfb1bfdda53c414d727825
+  - path: lib/analytics/taxonomy.ts
+    ownership: harness
+    sha256: 079b615d6a4b8183c653d4f442782d3ecb87517ca45aae1c53e8dcd0f37b47f9
+  - path: lib/analytics/track.ts
+    ownership: harness
+    sha256: f613aab5a323cc6f4218db7c5d367adf6403c802f68445c9cfae2cc4bc22e89d
+  - path: lib/authorization/checkpoint-grant.ts
+    ownership: harness
+    sha256: 77f05deb6701faec123e23307625a0a9341b6f08aca01e76955f812e40e00c26
+  - path: lib/authorization/engine.ts
+    ownership: harness
+    sha256: 9cbdf8558d739d61a99b429e55d60f14bc7c338f04ed3afc64acc249cd6556e7
+  - path: lib/authorization/index.ts
+    ownership: harness
+    sha256: c74ebe6b37ca907d6653a68ddd039cfbd8988ecabdf78d24322ae29a14884789
+  - path: lib/cli/default-credential-testers.ts
+    ownership: harness
+    sha256: cfaa514dc852d996943ebfaa13fc672ac483dd27eefc065efe5aca05952ed53c
+  - path: lib/cli/default-learning-runtime.ts
+    ownership: harness
+    sha256: 598288b78fbff0f744371537a788567a0f68a9b5905d8d09ae1fcdc5e5bc69bb
+  - path: lib/cli/default-provider-runtime.ts
+    ownership: harness
+    sha256: 9694fd678789a5524079d15ef17f469c7d7872bf6e744e5159de6b2a2f1235d9
+  - path: lib/cli/default-services.ts
+    ownership: harness
+    sha256: 391167f7623629af69060094fbe7b25a7ded4ad7193d510ffc9a51bc4906b38b
+  - path: lib/cli/index.ts
+    ownership: harness
+    sha256: 96503f53bac1d61325874bb5bfc25841894afe17ac53e09e9f090173e2f13d5c
+  - path: lib/cli/platform-command-runtime.ts
+    ownership: harness
+    sha256: 0f8e5f27c705f47a20f7616dcedc16104c9904ccdc911e6baa31e180974d9fa4
+  - path: lib/cli/types.ts
+    ownership: harness
+    sha256: 2de23bb9b06c91b9eaa1e8282734cbbb6472c2e7b46f45369a20308bac37a0be
+  - path: lib/config/contracts.ts
+    ownership: harness
+    sha256: f03edd8ab63d449115bac1aeda407609e4d1619b9b0f4402688580087c3983bb
+  - path: lib/config/growth-contract-schema.ts
+    ownership: harness
+    sha256: 1a456412db4070eb676ac572710a709da4974c286a3101b3259e3a22e0bb23a4
+  - path: lib/config/harness-lock.ts
+    ownership: harness
+    sha256: bf7cf4572806f404e0a7106c44b46e4ac39b0e8b0ffb1baaa839c707c01b74a0
+  - path: lib/config/launch-schema.ts
+    ownership: harness
+    sha256: 79eb6152fa879743a288006831ce3667ff560d49658fadce95c04e9eff3c3130
+  - path: lib/config/loop-schema.ts
+    ownership: harness
+    sha256: 25b750f9b4ecdc44eb0ca603bdfbfadc5040081192a37fb13fb1690a71f84fe0
+  - path: lib/config/mobile-schema.ts
+    ownership: harness
+    sha256: 16bb49d62c56a6c31e0e2e8ffa55cf8a0688a89b14ef03273d291d709caf88f0
+  - path: lib/config/policy-schema.ts
+    ownership: harness
+    sha256: b3a7a8c2f53eb9b9017378a06bd49ea9a7a59553264afa191df9cb053c73f246
+  - path: lib/config/provider-schema.ts
+    ownership: harness
+    sha256: 43e47104a5db057c4bc1e09166f64eb1496b4d7fa72095281213d357bfa7bdbf
+  - path: lib/config/schemas.ts
+    ownership: harness
+    sha256: 89ee31f574ceb2f0cb9f134feb50a1b927c36777337d0854164f9e7c1db1b775
+  - path: lib/config/venture-schema.ts
+    ownership: harness
+    sha256: d42f27815e7e43c8fb20869ca67893d308b323be3cf62254046621d1fd42c7b9
+  - path: lib/consent.ts
+    ownership: harness
+    sha256: 23b43e3b8fec7da255c168081a9b15d5b946a3889c615aba16df16096fb4f099
+  - path: lib/credentials/backends.ts
+    ownership: harness
+    sha256: 36d9a7f0b76b2c27b688bdd44f010452ca05e5c091f82f39474f6469ecfed343
+  - path: lib/credentials/broker.ts
+    ownership: harness
+    sha256: f4581f614e060ffc658d083f4ce9ebaa5c0ee67e4b14f2a2bf4967cfe84f532f
+  - path: lib/credentials/catalog.ts
+    ownership: harness
+    sha256: d68c5a3a1f7ea3c8ad4433b82f062d28c229c051addf2737786749c2273bafd4
+  - path: lib/credentials/cli-doctor.ts
+    ownership: harness
+    sha256: 5a88906233a38a90bcb1df36d18d55635bf720d3ed4b28b9aa862b1568143227
+  - path: lib/credentials/cli-session.ts
+    ownership: harness
+    sha256: 304c58513302a62690c5c36a5c1d1d4efb5aa9362ed6ffdcb8bdf6df6975972f
+  - path: lib/credentials/index.ts
+    ownership: harness
+    sha256: 03dec90eac6246f99660465202781d3c81d2b62b84d72f3a0daa01062c886a40
+  - path: lib/credentials/node-runner.ts
+    ownership: harness
+    sha256: f7ff9b48e98f1bb6205018d4295d8397a739033868515af5df03c5b3c36a07a9
+  - path: lib/credentials/redaction.ts
+    ownership: harness
+    sha256: 36b6d6a1202bcee7e35f562e6b21bb8f8f1a60eae0d3856651cc58aa7aed054e
+  - path: lib/credentials/types.ts
+    ownership: harness
+    sha256: 22bf206c1341f3ddd0b52b1aa3022f5dfa12aae1c81f2b11219e6680d24f0ed7
+  - path: lib/data/connectors.ts
+    ownership: harness
+    sha256: 9822ba30d206de95fb8ac91d42a9d2c448a4ef8b8f87e64c51d1beca52c0416d
+  - path: lib/data/index.ts
+    ownership: harness
+    sha256: 9cb7410705cad4e3a82e6737d305ab4fcb122dc6e4f4852f7032d64d391b804f
+  - path: lib/data/neon-commercial-connector.ts
+    ownership: harness
+    sha256: 9de0849d66419eedc18335f6f0605c563290a1a980f1e0a034f3aba3fb9a1a9a
+  - path: lib/data/normalize.ts
+    ownership: harness
+    sha256: 25247bda0a03702f05917616f7241722aab8abef8f3dd7d0bddd5e73638ab4d2
+  - path: lib/data/official-http-connectors.ts
+    ownership: harness
+    sha256: 85bb6ac06110e961abe360dc30b47568c32eca2165f8eb0c2c40c431911e8fe6
+  - path: lib/data/release-log-connector.ts
+    ownership: harness
+    sha256: 234e54cbfd629a3100e9050ef5f88fe472da26325bc5b2a75e2cb9e7a00c630c
+  - path: lib/data/sync.ts
+    ownership: harness
+    sha256: 61a6de4d3ece66a499a8d9f76ffa3b598611547cb80f0c99d29f7651faa82a85
+  - path: lib/data/types.ts
+    ownership: harness
+    sha256: 20dd5e5d82e1dc41ed3668b96cff7f3520b8dc47ba6a0173604b0a5cc990311d
+  - path: lib/evidence-store.ts
+    ownership: harness
+    sha256: cab6f0d691423ddb4b3c500b0cd6d93c2ba7054ba5a2c46dbe4bd2e4f7150fc1
+  - path: lib/experiments.ts
+    ownership: harness
+    sha256: 862cc1b79716ae0c80efc46c1c2c794c9b2e5c8b9ff176581ad80bcd411ee7e8
+  - path: lib/fleet/controller.ts
+    ownership: harness
+    sha256: 44cfe6ecbe55a63a79d93fa7533e3ae1598826edb7648f7a35f6104e4c8792b7
+  - path: lib/fleet/identity.ts
+    ownership: harness
+    sha256: 105b1b40eaf0a7f8171ea330a77eb6823c15e3b76032b40b6c45aadd83b95e5d
+  - path: lib/fleet/index.ts
+    ownership: harness
+    sha256: f161d2514b9da026c4f8061850e53ec8c3b07720ba6db94c032f42664f442652
+  - path: lib/fleet/release.ts
+    ownership: harness
+    sha256: 10fa13e7c3b38e16a8eb573b89c115fb02224bbb0334ee6c875d2d29fb01c1f8
+  - path: lib/fleet/store.ts
+    ownership: harness
+    sha256: f57ad76727cef28ef7ba695ddb0f2856cab0eeed1109db2635530873d9fad01f
+  - path: lib/fleet/types.ts
+    ownership: harness
+    sha256: f0d73b1ba4b785968852c54d82e26025dc328700ed1af4301cafee1261bc6aa5
+  - path: lib/founder-launch/idea.ts
+    ownership: harness
+    sha256: fd8dd4a168c9ee0fc68466de66af4bc9052580ad30501778595fac3c32f57f8b
+  - path: lib/founder-launch/index.ts
+    ownership: harness
+    sha256: 8d42599c2e8d075fe105e80a6a749e347cbc1936e674864a098b3abbdfb7f74b
+  - path: lib/founder-launch/orchestrator.ts
+    ownership: harness
+    sha256: ed26aa7802116295aab59144601f8031a5631424a76123152a31c014903e2157
+  - path: lib/founder-launch/stack.ts
+    ownership: harness
+    sha256: 4fbe6e0636f3d0e6fcfc9717b889e72ea90c432b0f2bdcf9a920ec39ff802ea7
+  - path: lib/launch/authorization-scope.ts
+    ownership: harness
+    sha256: 3ee184a119e80bdc35ea316be6692b7aaa8a13c0efa3f51e2d19b31be1f463a1
+  - path: lib/launch/compiler.ts
+    ownership: harness
+    sha256: 5517a35f193178d77fd352bd05f14d3818134bd7c208ad66c5417e649665e808
+  - path: lib/launch/index.ts
+    ownership: harness
+    sha256: 307a0e7f6d6afaf1b2ed89e52c57db816cd04e64fc0da3edf399e6296efc0c2e
+  - path: lib/launch/manual-evidence.ts
+    ownership: harness
+    sha256: 85f6cff953481d56deb435928d1ca6b5c11a7a6fe780dd9e56c77e477ab4598c
+  - path: lib/launch/router.ts
+    ownership: harness
+    sha256: fe55dddd0bae7f4c23260f5739bfbda4ffe4e5d080c97b0085e1b08cedaeb56f
+  - path: lib/launch/types.ts
+    ownership: harness
+    sha256: f855305ae82c1348a38cd77f40fb0f2c653b81bb71443c10e7cebecb615283b1
+  - path: lib/learning/default-data-runtime.ts
+    ownership: harness
+    sha256: 05acc4e836d8b59d4d8722022694573ddd92f8d3e65058a197a2f7db3e638ec7
+  - path: lib/learning/derive.ts
+    ownership: harness
+    sha256: d1d44dc434abf94259216dd5cd17890fb616ebd475afd864945f1c8ff3532c86
+  - path: lib/learning/engine.ts
+    ownership: harness
+    sha256: a3cfade817b2e64b1e11b4b92941fc4fe7e162533b8287c9cd9a6e0d649738fe
+  - path: lib/learning/index.ts
+    ownership: harness
+    sha256: c8b5bc06e90ef25f27df82b3193f5467cf1ff175107254a8e0ef81bf7638efc1
+  - path: lib/learning/report.ts
+    ownership: harness
+    sha256: f678efebf61c46f11efa1c0de4a4ea965a91df79a9fe039eba0abc86f1c61c67
+  - path: lib/learning/schedule.ts
+    ownership: harness
+    sha256: 8b830d212357f99838099f631348f196664948ce09ae6016485ff787091f031f
+  - path: lib/learning/types.ts
+    ownership: harness
+    sha256: 44053ba74fe5c278269fa14ddbf5a92fb19345ca5815a757a8783244666d6614
+  - path: lib/materialization/grant.ts
+    ownership: harness
+    sha256: be7c3e5d02e46db235608326423d24ae88443f48bda4f20410ff1cae7b573944
+  - path: lib/materialization/index.ts
+    ownership: harness
+    sha256: 08858d2e1f5d46e17baa7d60aeffa130b052d47b309edf23b562005e4b2f72a1
+  - path: lib/materialization/launch-command.ts
+    ownership: harness
+    sha256: 26d06508e8adce291f1fb968c2eb574687313ea287da2f0fe0ffaa41698885f1
+  - path: lib/materialization/materializer.ts
+    ownership: harness
+    sha256: 7297075d3c0054e15d2401264e28c7ffee4829136c0534f9e898c0d84368678b
+  - path: lib/materialization/packs.ts
+    ownership: harness
+    sha256: def3bfb8101ee569bd06a1168cdc5032a9ec2dddf20fcd8ebc577bf105fba528
+  - path: lib/materialization/provider-effects.ts
+    ownership: harness
+    sha256: a9af2c3737a348eee874883c96eed9e809ac3c9427f532d6d568858e2e67e717
+  - path: lib/materialization/seeds.ts
+    ownership: harness
+    sha256: b7e5bbc86dd42a170aa6eb7ab3879fe8493201605c5707dba2c2d8046652a640
+  - path: lib/materialization/types.ts
+    ownership: harness
+    sha256: dd4e3b4ceefcb443d7a5a386bd6d5067f1586ac54fa59b4dc382346bcfd57ae6
+  - path: lib/materialization/web-seed-lock.ts
+    ownership: harness
+    sha256: 6f59f1ddc682c9740229aeb7867e6b19a248a131aadc3600f32da13abf179472
+  - path: lib/migrations/file-system.ts
+    ownership: harness
+    sha256: 8a403c21fd8d3456788e2b23b6c808d98a48e8419ed55bcf6eedf32daa0955c9
+  - path: lib/migrations/index.ts
+    ownership: harness
+    sha256: 8a63264be30c0fa812f1dce7a84ad62a7bec40bc6525433daa0dfb24cc1b9e59
+  - path: lib/migrations/registry.ts
+    ownership: harness
+    sha256: b8f3cfde1b7729b71fe2c35ce48826c340b22d2fb0e98b751f99145bad2b2b8a
+  - path: lib/migrations/runner.ts
+    ownership: harness
+    sha256: ef0ff741a7a9ab59bfa69442377e99df4640a94802dd72fccd95a303a3315355
+  - path: lib/migrations/types.ts
+    ownership: harness
+    sha256: 6c93930877ebadfe198f17a0506d61ef6614d2dad05939ff93ba86fe3e112098
+  - path: lib/migrations/v0-1-to-v0-2.ts
+    ownership: harness
+    sha256: 547c88dd812a01da3877e6c07c440423be62ce2acc393d77e9e757c0f83ce722
+  - path: lib/mobile/index.ts
+    ownership: harness
+    sha256: 76879645f02cf8446f53213e85df63014a27c790f3625ab5c87f883a74b90139
+  - path: lib/mobile/scaffold.ts
+    ownership: harness
+    sha256: 4be3ed003fb08e6834668cb13402fa1cd232d2514bda1d3418ed805d4fcac8ee
+  - path: lib/mobile/templates.ts
+    ownership: harness
+    sha256: dfc9e0ab1c49ec3a08dbff15bc770704f0cfe688062ebff1010dc7167b72d5d4
+  - path: lib/mobile/types.ts
+    ownership: harness
+    sha256: d9aa209ff2bb35f82d5e28f999f2739587badf38fc15b52b9103479b1c5ef871
+  - path: lib/providers/adapter.ts
+    ownership: harness
+    sha256: fff0addba822f3af8059eae7daf73c71afe95e1db97d3b8bdbceac63ea918887
+  - path: lib/providers/descriptors.ts
+    ownership: harness
+    sha256: e343d49dea6d0c9e55579feca55efd7c4dd6ba233aa908faa663ef133b663a97
+  - path: lib/providers/github-source-publication.ts
+    ownership: harness
+    sha256: 96c660ae3a3a1366aa867d89edab77feed938f5d94425f29ce1cf2b4ed37ca9e
+  - path: lib/providers/index.ts
+    ownership: harness
+    sha256: 41325ad4c4f71b0df42ff3bcddec645d54536190b434ab359995905b51ee54bc
+  - path: lib/providers/plan-helpers.ts
+    ownership: harness
+    sha256: d2f95a293412852f8abcec4187ddf393e7a5656f367cbc6a7272e58c662f4568
+  - path: lib/providers/plans.ts
+    ownership: harness
+    sha256: d1ffdfee9448105c4eb0fbb9df814d9e17653fe8e3d93c348644a4499db01315
+  - path: lib/providers/public-evidence.ts
+    ownership: harness
+    sha256: ca334502d1bb477b09bc99f0de56804be2eb045633f93d0e898af2b4a2032e5e
+  - path: lib/providers/registry.ts
+    ownership: harness
+    sha256: 100411101e14498f28a5d7ff8e77e0b852144e9d46460a24a596b6fff610572c
+  - path: lib/providers/retry.ts
+    ownership: harness
+    sha256: f482e4a52500d893f5f77253c8894a8a4bc0e3e5ca3df0bc65a9d1c6c8fd0457
+  - path: lib/providers/stack-command-runtime.ts
+    ownership: harness
+    sha256: 800243793ef8218f4a968d40202bd6854b26e7852f9bf862b2155cadf9b3c8a4
+  - path: lib/providers/stack-profiles.ts
+    ownership: harness
+    sha256: 885bfeb9165657ad462d83c13f9249c5b6d278f7ef776e86421f3820c62a5aa2
+  - path: lib/providers/transports.ts
+    ownership: harness
+    sha256: 4251dba16eaa232de7abf95049c42d46066902407b8799d2be19dfa736f7c8a7
+  - path: lib/providers/types.ts
+    ownership: harness
+    sha256: 0797543f318529c64e3d141c311292ceecfcce089a38e55e7265bf50ceaea146
+  - path: lib/qualification.ts
+    ownership: harness
+    sha256: f612f0ba96211e79a875a7a701a75ac40377031b7efd6f9a3494182bbe512ddb
+  - path: lib/rate-limit.ts
+    ownership: harness
+    sha256: 980258869f745de3656e8050edbeee18c7c274948d650bea2ccae23d2ceca28e
+  - path: lib/runtime/build-agent-host.ts
+    ownership: harness
+    sha256: 004d28bce35e1db15743cfa60e49c1950196fcf7922cf13d7012fd498f936d1c
+  - path: lib/runtime/checkpoint-evidence.ts
+    ownership: harness
+    sha256: 625496fdd9b06e8ef05ab1dc6a661077cc9e900d56fe8a78a5a3a37b89478a8d
+  - path: lib/runtime/codex-cli-build-agent.ts
+    ownership: harness
+    sha256: 3c8507b22537be79719cb7e621ed9cbf10def6b50866a95b67bc3b0fc925c2ac
+  - path: lib/runtime/file-idempotency-ledger.ts
+    ownership: harness
+    sha256: 2126e4ec27863d2bea4e9d576f365d682f4cc6ad747b433e2c96f682f355ce26
+  - path: lib/runtime/index.ts
+    ownership: harness
+    sha256: 473fb3372f39ec4342f1c879803c42060de40beabecf2b9ecb513d837f413655
+  - path: lib/runtime/launch-product-bindings.ts
+    ownership: harness
+    sha256: ef514a850fa2f8eff371cd55bece112c336d66b27ee7459fb69981e2ab8ac727
+  - path: lib/runtime/launch-report.ts
+    ownership: harness
+    sha256: 70a875b1bc6c57a7481b976634e36fd9d3698ca366bba178541a82ef64f0006a
+  - path: lib/runtime/native-http-fetcher.ts
+    ownership: harness
+    sha256: 59fc5813a44ff04c784b0487ce6be7107daf01210157bd52c83a32313aec1b89
+  - path: lib/runtime/provider-bindings.ts
+    ownership: harness
+    sha256: f90e18966ab970ca6b5222fbd32ad09c308887d4efcdb88aac03f513b2714b72
+  - path: lib/runtime/provider-lifecycle-store.ts
+    ownership: harness
+    sha256: ab7c29d2706b549fbadf46152e7884c7fade7de7dec451799463e0f3237a8a71
+  - path: lib/security/index.ts
+    ownership: harness
+    sha256: 59820c068124c1158aa395c602c532bf0667de19b05671cb4a2b76782ffdbe62
+  - path: lib/security/oauth.ts
+    ownership: harness
+    sha256: 4548d9925189c5b19e8294eea0f322133ed04c94cbd71afc90e61518c5126238
+  - path: lib/security/outbound-http.ts
+    ownership: harness
+    sha256: c8f82be570665b79843b173db3fd15714d026368ff55f246c4e5de888cf8d75e
+  - path: lib/security/uploads.ts
+    ownership: harness
+    sha256: dd0f530792658d7e7cd6d240f8c21d38d63601c9f6007cd021de2d91fa0b5dac
+  - path: lib/security/webhooks.ts
+    ownership: harness
+    sha256: cf7b60f4388e138ae84039a0f6751b3fbc16a110e2c3e4ad3afa3effe14b6da5
+  - path: lib/upgrade/engine.ts
+    ownership: harness
+    sha256: e452d21c37677f99274b8dc05d98f445fd5728d3c9d0d7fcbda48e4084461803
+  - path: lib/upgrade/index.ts
+    ownership: harness
+    sha256: 9e7d45a59e4fcf7be24a7f28f0379c3e7522ae7d566d2ce20086ec103895c467
+  - path: lib/upgrade/local-release.ts
+    ownership: harness
+    sha256: 4e2c6f92c51f955ed4960258da4738b07d8d344f1ee20cf2bd80b7b5577583d1
+  - path: lib/upgrade/operational.ts
+    ownership: harness
+    sha256: 234d16bbf5819e802cb0e6e156174b999196653e91a22c32e6e6306203485607
+  - path: lib/upgrade/types.ts
+    ownership: harness
+    sha256: aa2a76b71f1dccd6bbd84921460af159d217ebd1b3dd977d676aafb1620354d2
+  - path: lib/venture-runtime/command-runtime.ts
+    ownership: harness
+    sha256: dbed9769565146b2470130a110d720a82b2fc5b9c47714d41bd4dcd41440b7c9
+  - path: lib/venture-runtime/credential-broker.ts
+    ownership: harness
+    sha256: 905fa08c65ef99bd9298ad0d1bd71c232c2adf6897c50239efa10e6fa723dff7
+  - path: lib/venture-runtime/index.ts
+    ownership: harness
+    sha256: 2ce5baea1e6608f2344b361be7b5c900c20a279c25f89e90f9011222f7a26ead
+  - path: lib/venture-runtime/service.ts
+    ownership: harness
+    sha256: 976ebfe4e348b03dd7fd4a4c72b8f127bba2b7b6b68502856237a0b5a2eb89fb
+  - path: lib/venture-runtime/store.ts
+    ownership: harness
+    sha256: cf2b1c5f98d61e4675461237a9a784d852399ad0c41d936483890a974a01950f
+  - path: lib/venture-runtime/types.ts
+    ownership: harness
+    sha256: 8d537cbefb9635e4c767d2b3e473a0b0e0197e74ba47449c5f5196602280dea0
+  - path: lib/visitor.ts
+    ownership: harness
+    sha256: 4284e7e3613bd89d5a2163158114ff5adec9facc5ee56836de4e44fb94c89aa0
+  - path: lib/winner-integrations/analytics.ts
+    ownership: harness
+    sha256: ccffe90cd1d5f42a371c3dcb6b3e30a71ce80d91a9f34a9f9a083a93765433ef
+  - path: lib/winner-integrations/capability-bridge.ts
+    ownership: harness
+    sha256: acaf096a47bb4d5490bc41bd62e35e072a92a8142eba14056410e2b0cdfebe7a
+  - path: lib/winner-integrations/distribution-pr.ts
+    ownership: harness
+    sha256: f523c432b54a143f0833fadcf0e3bbac6a2b324834168bf9b07028aa04826824
+  - path: lib/winner-integrations/index.ts
+    ownership: harness
+    sha256: f51c4657d63aed5e7227c78960af5a9ccf0ab2209f72cdebc41f653c6b0a62e5
+  - path: lib/winner-integrations/live-providers.ts
+    ownership: harness
+    sha256: 0afcadbeddeaafc2ce0e274f91eeb278985ac274875834c671975c7d9c8eba64
+  - path: lib/winner-integrations/providers.ts
+    ownership: harness
+    sha256: 15d6527426c95c469b705e01905637eb4985f6d18add7ede0fc25ebf411ffc58
+  - path: lib/winner-loop/attribution.ts
+    ownership: harness
+    sha256: 6eedfbb2fe9c3eb73f69ea5ba99ebb3f1f97654efa4b87278d35a23e7018ba3c
+  - path: lib/winner-loop/baseline.ts
+    ownership: harness
+    sha256: 025bed3ffea955bd8d05f6a38eb8237babbd81d0e473accbdd4f7b9a988d4182
+  - path: lib/winner-loop/creative-ledger-store.ts
+    ownership: harness
+    sha256: 84dd49a2b02f892fb427445afc3d75da7e14979067f9a9f640e0bc47541df2f7
+  - path: lib/winner-loop/creative-ledger.ts
+    ownership: harness
+    sha256: b67b1e1fe1c0a28308c1d2f1b44657506e0ca01ad0831f161cfc108b0686197e
+  - path: lib/winner-loop/creative-manifest.ts
+    ownership: harness
+    sha256: a9b7bdc497b437cd2553bba74b1a8add5b326bbff6713d2ec14700b2a5794f01
+  - path: lib/winner-loop/evaluator.ts
+    ownership: harness
+    sha256: e659ebee384110be045d462c6ce04ffba7d1fe614cc21ac27d88cdb5d0a6dae5
+  - path: lib/winner-loop/evidence-store.ts
+    ownership: harness
+    sha256: a20b0473afd2a7ff1602010fccd7b8917815b397c34c43c5c6da179a1f095d3c
+  - path: lib/winner-loop/fingerprint.ts
+    ownership: harness
+    sha256: 8598ef5a0860e388f58021f51a26d6cc73ca29132ea0cf4effbbefbdbf2a4d6c
+  - path: lib/winner-loop/fixture-d-runtime.ts
+    ownership: harness
+    sha256: c042654c5d4057ecda4a5f73c8e7d30a731116300f38be4188e7eb51c59f5ec9
+  - path: lib/winner-loop/fixture-d.ts
+    ownership: harness
+    sha256: a3f0711ab0da33610e6b8cb9500c5a5e98eb99041aaa196fc8d1c0125c3a8a99
+  - path: lib/winner-loop/ids.ts
+    ownership: harness
+    sha256: 8d033b31ae9ee1b5176da1950da803de4bed5c9f0e7117b63bde78ebe2636af0
+  - path: lib/winner-loop/index.ts
+    ownership: harness
+    sha256: f72028c9abf56af83279182630e5f0055e3466fe4511024f84156ebfa23bbdc6
+  - path: lib/winner-loop/learnings.ts
+    ownership: harness
+    sha256: e3a2393859cd6c5bcf6ca3c87c413f368eb507bd713ad772b2334328ba06fad2
+  - path: lib/winner-loop/legacy-adoption.ts
+    ownership: harness
+    sha256: 981b14b998e8e21b10101fc0603690aa36a335af86b282670868c9e09f97c53c
+  - path: lib/winner-loop/metrics.ts
+    ownership: harness
+    sha256: b7d5318aac0d5e2f1465c5f953f68e8b294c3285a8f62a71fb15bdf14eb742a8
+  - path: lib/winner-loop/organic-policy-store.ts
+    ownership: harness
+    sha256: ffec256e9e1b6344585a9a1bf858790a498a9c477c6966391474d2ae1ea49ac6
+  - path: lib/winner-loop/organic-policy.ts
+    ownership: harness
+    sha256: 4593b8af7f64a7bbb104e06580b2258ea35ff73fbea6d8f14cd175d4b75d2cbe
+  - path: lib/winner-loop/paid-test-store.ts
+    ownership: harness
+    sha256: aab53bafeac9312b7d34432dd5fd75a7060b5c23b78a05033502f4e5a4d83708
+  - path: lib/winner-loop/paid-test.ts
+    ownership: harness
+    sha256: 0bfc61ccfa1ff33574350d3ef220bb0966b48f73908eae5350c7a634d0317699
+  - path: lib/winner-loop/readiness.ts
+    ownership: harness
+    sha256: 95b642ed0b87c64e23d4b2a70aeedbf975a33ef448dc83fb70192866369791f4
+  - path: lib/winner-loop/spend-store.ts
+    ownership: harness
+    sha256: 2129e0900413e1fabf39b092fa022c476a8257d2c835be8a8cc06c5293b07db4
+  - path: lib/winner-loop/spend.ts
+    ownership: harness
+    sha256: 5068cbd1f88b8ae7a85d400cb95f5d3c6aaea8e2d107fbd67553c5a397ef387a
+  - path: lib/winner-loop/subscription-store.ts
+    ownership: harness
+    sha256: c8dadb7fd486c39e5f24541af925c278897dc7cd7c0cae7671851922f5bbc21c
+  - path: lib/winner-loop/subscriptions.ts
+    ownership: harness
+    sha256: 6ce81c1a3c20e8f5b6f4d966317b24efd1e2297f28d71faa4832f65558812829
+  - path: lib/winner-loop/types.ts
+    ownership: harness
+    sha256: 885e378d0784b087933f1988d609bab402fdc8303f6bdd7f4fa03f37839ed84b
+  - path: lib/workflow/errors.ts
+    ownership: harness
+    sha256: 95f009ad96405cf794a81317386eaa7e67088fe3919add7f0da1bdaefa9f6887
+  - path: lib/workflow/executor.ts
+    ownership: harness
+    sha256: 68819e0c25dac9f0a232147b8dc43d838bb06be948057191dcd8cbacc25f0f34
+  - path: lib/workflow/index.ts
+    ownership: harness
+    sha256: 4a752bb93c2f70209b60a9ce91c2c88a25f071338ac5d901192a0d4ced7386f3
+  - path: lib/workflow/redaction.ts
+    ownership: harness
+    sha256: 0febc1697c7c4ae8e981c2f4e740bdcef45549350b7bf775a0ecba4a09656181
+  - path: lib/workflow/store.ts
+    ownership: harness
+    sha256: 2f7633ec6d6bb60e48730387e0ae4c300f68b09329be3cc16cf994f145a52b09
+  - path: lib/workflow/types.ts
+    ownership: harness
+    sha256: 6c766ae82e7ed4db5711db28903dc7db5dc50dc5bb396b0227fdf937a0cd04bb
+  - path: lib/workflow/validation.ts
+    ownership: harness
+    sha256: 29749ee8bfa9fdc7e967b35f8e7be35b32b5e7d0d6e76cc2b435477c9af894f2
+  - path: migrations/001-v0-1-to-v0-2.yaml
+    ownership: harness
+    sha256: 96b9386bea08123827d6bffbd8ce4edfb379c88887e17155cf3ac5fdca22193b
+  - path: migrations/sql/001_core_evidence.down.sql
+    ownership: harness
+    sha256: 776d1cdc473472b74d2a6fec500ef016b546bb95fbdc28c823ce2c58232b90fe
+  - path: migrations/sql/001_core_evidence.up.sql
+    ownership: harness
+    sha256: f5d6728cb6290bafbaa9b8802b4d123a9689521a8f321bc4d036a89ed1b591f2
+  - path: migrations/sql/README.md
+    ownership: harness
+    sha256: 9e6359940b399f06a571eed24cb024d03cdad8c2cfc88dde23a1ff9aaabb540c
+  - path: migrations/winner-loop/001_winner_loop_state.down.sql
+    ownership: harness
+    sha256: 70b26568c63867a9d61b5d7ff52340c4180c978a5150bccbaeff46528eb4a51e
+  - path: migrations/winner-loop/001_winner_loop_state.up.sql
+    ownership: harness
+    sha256: fac099be5322d0f1765ac398c019527ddf91b48aaf128aaa90111201281f5b09
+  - path: migrations/winner-loop/002_spend_reconciliation_caps.down.sql
+    ownership: harness
+    sha256: 85670834b3dfc03459cf4767832d896cf90081636e66fbbf4d4d14c038928458
+  - path: migrations/winner-loop/002_spend_reconciliation_caps.up.sql
+    ownership: harness
+    sha256: 447e3e4b5db222d77fd88d5fb724c404317ce823a33279d5380fef596c2e490b
+  - path: migrations/winner-loop/003_creative_identity_ledger.down.sql
+    ownership: harness
+    sha256: f3e153fe45693420843781a6656d82c7aebb03081210ead9936d6c0926716104
+  - path: migrations/winner-loop/003_creative_identity_ledger.up.sql
+    ownership: harness
+    sha256: a326ebc5925571acbce875d40111044e8c5742c83f85266181808599114d2392
+  - path: migrations/winner-loop/004_growth_contract_v1_to_v2.yaml
+    ownership: harness
+    sha256: 1c7ea77b2bf775dd4f99291ca874f3e6f49452e17f1cd8236ff4e4ac81f4bd6a
+  - path: migrations/winner-loop/004_provider_pause_obligations.down.sql
+    ownership: harness
+    sha256: 3f60fccbdaf81faf98f5ff728b177cc46dae667a892719d2fbaf4205bbdc62f3
+  - path: migrations/winner-loop/004_provider_pause_obligations.up.sql
+    ownership: harness
+    sha256: b61c80dcee253cafdcd24257f8e246dba23bde67daf093c7db7903fd971917d7
+  - path: migrations/winner-loop/005_organic_publication_policy.down.sql
+    ownership: harness
+    sha256: 7dc5cffb2f57f83b779c7a3b16b0b9b9e8e05be9458b281963ec2e03e63ea18a
+  - path: migrations/winner-loop/005_organic_publication_policy.up.sql
+    ownership: harness
+    sha256: 9bae8005276df79a43c1043e9912577d206ec68a90e0320ec44ce2da15f4ec05
+  - path: next.config.ts
+    ownership: harness
+    sha256: 5fa04a810adc1aaac0575af373dd8b43b61690efb2e13f6a116c270782c6f791
+  - path: package.json
+    ownership: harness
+    sha256: f2852bdd826a42fff79b47009c765455baeb55a22f20e8894ac446bc79e19308
+  - path: pnpm-lock.yaml
+    ownership: harness
+    sha256: b7bde852e033c8e0177df0ff8843c85573885675cfd404a71fa5dc6f76729160
+  - path: scripts/append-experiment.ts
+    ownership: harness
+    sha256: 5f101895463f94074ab810fe14e79da9fe8c9895c15e84d044d043995867ecf7
+  - path: scripts/append-outcome.ts
+    ownership: harness
+    sha256: d73553f544e8fb5e590f0791bb77eedbced855488b75f90e47d84112e39c7a0e
+  - path: scripts/audit-test-controls.mjs
+    ownership: harness
+    sha256: ae7e03012717233057f08bc434cf494d8216dd6fcdf44bf1478b0e29ddd412aa
+  - path: scripts/build-vh-executable.mjs
+    ownership: harness
+    sha256: 315386ec357b000b948edfde5b7990e6d9a8077ea8c2e82fd055fbe4f13796ea
+  - path: scripts/check-agent-parity.ts
+    ownership: harness
+    sha256: ac9d66f797b290acfb1262f235027bdb4b752fa49b1e0fc2e5674b85994ab313
+  - path: scripts/framework-health.ts
+    ownership: harness
+    sha256: 122895d65fd2baa3aa1c065a1947e648650b1f78243add98ad09d20160314edc
+  - path: scripts/github-publish-source.ts
+    ownership: harness
+    sha256: 97e0f6676c98a9299f4177c346c51dc1ed6b81dd850e1fc615d495ab36b30f6c
+  - path: scripts/init-venture.ts
+    ownership: harness
+    sha256: 42b1597ad330a15855d93ea69b236997e9563aa8a1a5c9e5144f803218e6d423
+  - path: scripts/lib/release-security.ts
+    ownership: harness
+    sha256: 33c8d4933a6a9763edc205de6f71c008e5950315853d38c6b84b5b05f5fa25c5
+  - path: scripts/lib/requirement-proofs.ts
+    ownership: harness
+    sha256: b15ea49d31bdecd49f78a481e19e5cfd5297081b537b92d91114d070e62b0aee
+  - path: scripts/lib/skill-sync.ts
+    ownership: harness
+    sha256: 7009b6e75305d4903485b922db82de22a9886e31d43ac8c4802ea489cf9aa768
+  - path: scripts/lib/util.ts
+    ownership: harness
+    sha256: 4c2c8fb1595ea25b99e200e8201d746353495460d92dea842b6e18226ad4ca9f
+  - path: scripts/propose-improvement.ts
+    ownership: harness
+    sha256: 45868e96423f8465ed58a8490e64e51bcb33df25a83a840cf6b8188b46571d10
+  - path: scripts/public-release-check.ts
+    ownership: harness
+    sha256: 8ac07b45c7c5c7e5acb3482d176244aabfb1f68e60a944acc8c567e9bc9bc816
+  - path: scripts/refresh-harness-lock.ts
+    ownership: harness
+    sha256: 04b7a61ce7e7db9172f6ae132d4ffb7347b3298efd35c651b8dc45a2686ba526
+  - path: scripts/render-vh-v02-completion-matrix.ts
+    ownership: harness
+    sha256: 769baee5bbce3637ac334c4c16974ab922023344f8e267875814351b2538837e
+  - path: scripts/run-audit-command.mjs
+    ownership: harness
+    sha256: a05d00eabd8bb0b56d1597d7af14aa1a8429024912fa09621dac96b8a8ef4e71
+  - path: scripts/run-quality-profile.ts
+    ownership: harness
+    sha256: ac781d183b7430ab8ab7d2339868fa9212b8bcf49b4ea83b53b91689eb086da8
+  - path: scripts/run-synthetic-venture-launch.mts
+    ownership: harness
+    sha256: 3a6aee9765313bef5b523270ec63b211c3a4f191ca71d0fbfdf7a0cef374faa2
+  - path: scripts/run-weekly-demand-analysis.ts
+    ownership: harness
+    sha256: 2059285a10ee2424f0303b5b7334d39ad3a12d22e3f665156677a4df0da8f933
+  - path: scripts/run-winner-loop-fixture.ts
+    ownership: harness
+    sha256: 803d506d7b9218980d0f5ba4154b37ffcbb5e9ba41eb1b2aa893b2eb6f19e4fb
+  - path: scripts/sync-agent-skills.ts
+    ownership: harness
+    sha256: 7dee18bf2ed44d0121ca6786b8cd8f4b688ef4663dfd4fe63107d4faae44d9c5
+  - path: scripts/validate-claims.ts
+    ownership: harness
+    sha256: bcc72cebe51de8770b5286c88d4af5808bce8494c803594664db5b8feb18f60e
+  - path: scripts/validate-docs.ts
+    ownership: harness
+    sha256: f3c6e863f8f051714f5e99df2da1d8d87ec139ce438535cc0769cfec05daf7e8
+  - path: scripts/validate-links.ts
+    ownership: harness
+    sha256: 6f5e9bd0d52ad752312479887db1a43f26d081806afe73b98016acf358ed7374
+  - path: scripts/validate-skills.ts
+    ownership: harness
+    sha256: 8b3fd4665dd81bd6dcf6af8366b3e7a86810ef7dfcd333d9ac55fac5abb3c005
+  - path: scripts/verify-analytics-events.ts
+    ownership: harness
+    sha256: be2022dae379d13345c941ee2bacb91835af554230fc1af8bb621a80294a9d9c
+  - path: scripts/verify-analytics-pii.ts
+    ownership: harness
+    sha256: ca06ed5ccdbfd1e3c7c2d77d541899af50abd20cdb5e89d076f268c69cb1010f
+  - path: scripts/verify-consent.ts
+    ownership: harness
+    sha256: c23497b3d1ea42d68b1a796e8e30d0c6ad0a6540e1b0045cfd98a93eb7cb04b3
+  - path: scripts/verify-experiment-assignment.ts
+    ownership: harness
+    sha256: 9e1032789f5bc9c44ea78725286c46e5200be56cd41381ae30d2856fea313ad0
+  - path: scripts/verify-pricing-recording.ts
+    ownership: harness
+    sha256: f0dc61abbba5c9b8bfcf21d09cbb4575df52812781cf4cf4668e9e53a691f09c
+  - path: scripts/verify-raw-html.ts
+    ownership: harness
+    sha256: a7b3fe6061344524e7ba37e20dbf9cee4457b9c5095adbfbf65bce67f6a20917
+  - path: scripts/verify-seo.ts
+    ownership: harness
+    sha256: 7f8f55fa1b1998cddc8accf765867180533c90f01e9108d3a98ee0851b7d6397
+  - path: scripts/vh-bundle.ts
+    ownership: harness
+    sha256: 06a1a172b94f249109d29039cb18c542f826de34c068325f9179458b2a51768f
+  - path: scripts/vh.ts
+    ownership: harness
+    sha256: fe37282bd6b11feae0edea29c53c65f86527cf3bb2031856ef69f248bde86d5a
+  - path: scripts/workspace-build.mjs
+    ownership: harness
+    sha256: a43d61447be346b5845973669ffa7f023c8ad299dcd5e6300d057061ee3b5f85
+  - path: scripts/workspace-check.mjs
+    ownership: harness
+    sha256: 16ec0005bc3ba94d92669c15522ba217b5670fd0265ba7adfbba0b8fab1bf7f4
+  - path: scripts/workspace-pack.mjs
+    ownership: harness
+    sha256: 7f271e503b02dcfaaac0e9799257178ba2b33775eff45c125f4264bab83bbedf
+  - path: skills/design-director/agents/openai.yaml
+    ownership: harness
+    sha256: 2b59b584df698d36be79ca0e6a428635a59915a71a42273370b90fbebda3f113
+  - path: skills/design-director/references/anti-slop-checklist.md
+    ownership: harness
+    sha256: 929e6d628874888bd95e62cb11578c0572b7ccd6d66c1690eacb2d492fe12e6e
+  - path: skills/design-director/SKILL.md
+    ownership: harness
+    sha256: 5cdcde7110a59d75c5e7cd45a9dba618f3b3171d3aa44c43150fd57b1cac6519
+  - path: skills/distribution-engine/agents/openai.yaml
+    ownership: harness
+    sha256: 1cf28ee0bd6e2fcdf715688e4718d668c38beb6ffbc8be3c0fb774cabb497003
+  - path: skills/distribution-engine/SKILL.md
+    ownership: harness
+    sha256: 3f11a4b3e58b680e74af6852bc26500394626b4641203c3e05d3aede5f619f1f
+  - path: skills/experiment-analytics-engine/agents/openai.yaml
+    ownership: harness
+    sha256: 3340637dcf12d67c9821f452d57f031aea8a26b8d467733c33939b2de2020457
+  - path: skills/experiment-analytics-engine/SKILL.md
+    ownership: harness
+    sha256: 8f0276c41ae22d02d935072b3e59e96877880781e34bccb174c8f7ab938e7e13
+  - path: skills/harness-engineering/agents/openai.yaml
+    ownership: harness
+    sha256: ef2f1b213d043bdb39e7bd2cbfe2f4fee2c1a814d6d93ac6c476b9602942afbb
+  - path: skills/harness-engineering/SKILL.md
+    ownership: harness
+    sha256: be1e03823ffa08d1ba2e6589cf53485af578140bfb1198dfc3c83507747cf86e
+  - path: skills/knowledge-graph-engineering/agents/openai.yaml
+    ownership: harness
+    sha256: 7302e4be90d4b52910639c81e163cae5ce5f7cb1271fc45705df8f54ccc1dc33
+  - path: skills/knowledge-graph-engineering/SKILL.md
+    ownership: harness
+    sha256: 5f805d9ea031179f872b64c5982141341769f871aaa88dad56ea70ca713f96b5
+  - path: skills/launch-orchestrator/agents/openai.yaml
+    ownership: harness
+    sha256: 3863333e2c792b7c1a93874f76f07ffac31b6555b5d5fb31cbca831f4ac37fbe
+  - path: skills/launch-orchestrator/SKILL.md
+    ownership: harness
+    sha256: 303413e2d529e4959befd9bba927a150fa7a9b85c66f80822fa21e98bf622569
+  - path: skills/learning-loops/agents/openai.yaml
+    ownership: harness
+    sha256: e3833d340a1183763f44206cd36e63c14b1379fb6be1ca205cebb4cc6dde00de
+  - path: skills/learning-loops/SKILL.md
+    ownership: harness
+    sha256: 7dcfecb325a5602c09a05413994af50a89dd5592afbdc30b81b2a7a4341b2981
+  - path: skills/mobile-launch/agents/openai.yaml
+    ownership: harness
+    sha256: 0ad95875fe50a6013c421d79cfc1ec12a97ae40bfe6922b6f7d4211e3d538e8e
+  - path: skills/mobile-launch/SKILL.md
+    ownership: harness
+    sha256: f7eb10bdd07cc3b211fd7f1ff815ddd6319e2b5b5d66b3c025f9505d486c676a
+  - path: skills/offer-architect/agents/openai.yaml
+    ownership: harness
+    sha256: 063be63e88bcd318e27102b158e876604aff695b12cf48ca6c72605b1c5d2bcc
+  - path: skills/offer-architect/references/offer-checklist.md
+    ownership: harness
+    sha256: 938c04dc91016df8b6cee45859d0fd485fb188dcf7b45a468b5dbcb20ceee56a
+  - path: skills/offer-architect/scripts/thirty-day-cash.ts
+    ownership: harness
+    sha256: aafde356f52b1205735cf356689042a2423029d83b01ede2e5def1a8b810d79e
+  - path: skills/offer-architect/SKILL.md
+    ownership: harness
+    sha256: 38bc981abfdd6de97437139532dc4d5f8f2dcc694793834a856523e0f2886319
+  - path: skills/product-truth/agents/openai.yaml
+    ownership: harness
+    sha256: 27999aee6481cea636d641f6f53f903f221193c0abfa19839a6ded936cad0ff0
+  - path: skills/product-truth/SKILL.md
+    ownership: harness
+    sha256: 52065650ff36e10ef30a9bd42bdb8dda3ccac47989ee19a5cfebaa73394728d2
+  - path: skills/provider-operations/agents/openai.yaml
+    ownership: harness
+    sha256: 62bdd37f082fabc0b4cbb201f690ffa22f66ca168e11acc13077480567e6712b
+  - path: skills/provider-operations/SKILL.md
+    ownership: harness
+    sha256: 6ba9dabc429e7840005812c83faebf7a712d14510f6d087dcb14299a4de993dd
+  - path: skills/quality-gate/agents/openai.yaml
+    ownership: harness
+    sha256: 1dea005492ffa37abe423cd082dbf7a81f1142dbbf11e9267037921155112fae
+  - path: skills/quality-gate/references/v0.1-monolithic-gate.md
+    ownership: harness
+    sha256: bf4cafcd75abd8b1cf041a741ce737ec93dcec22a85af5e31ac4387dd45bf0f5
+  - path: skills/quality-gate/SKILL.md
+    ownership: harness
+    sha256: 1a527035f8e3d751ff4903a629ec97ed71e4405466b5c7c7cacf561f394770a0
+  - path: skills/seo-aeo-engine/agents/openai.yaml
+    ownership: harness
+    sha256: 2beb7215d7d2a8cb9c27121d7dd718ae9ac7a6bf8b8aa8152a1b9da197c313dd
+  - path: skills/seo-aeo-engine/references/aeo-geo.md
+    ownership: harness
+    sha256: b25d0494a37f84052c1e71c914d75147c32da5b2b77d04e8024376e82f41e2b6
+  - path: skills/seo-aeo-engine/references/aso.md
+    ownership: harness
+    sha256: 1c9eb14facd3b8aa027c5b72cd981ac76554d38f665bbc6f2b8249617dd3fa20
+  - path: skills/seo-aeo-engine/references/measurement-and-operations.md
+    ownership: harness
+    sha256: df95d8df7072c81393c44423ec51d298b392064bdb4b9b6de28edd0497100603
+  - path: skills/seo-aeo-engine/references/seo-aeo-v0.1-preserved.md
+    ownership: harness
+    sha256: 6146d7addb2c64e0f080fdef3aeb2515bbe00adca5d61654252f7eaf417c7d6d
+  - path: skills/seo-aeo-engine/references/seo-topical-system.md
+    ownership: harness
+    sha256: c8254d41ca901bab989b44000f6710e165891fe45f25e844a5100e8809f50b5c
+  - path: skills/seo-aeo-engine/references/technical-discovery.md
+    ownership: harness
+    sha256: cbe705410039b4105c8ddfce962584bb971a9d0272fb5f5385cb923ae9a22320
+  - path: skills/seo-aeo-engine/SKILL.md
+    ownership: harness
+    sha256: fb90a56fd0eb9b78222c47dd65f004dc13221dc8115efa04d2c545ca2f8ac74c
+  - path: skills/validation-engine/agents/openai.yaml
+    ownership: harness
+    sha256: df87b291a1048732c2778f2d2b9bf267a5c8c9d352fbffa86da83eace21b9269
+  - path: skills/validation-engine/SKILL.md
+    ownership: harness
+    sha256: f29c1f2ab94fb35093f3cbac4a3b09e48353b25394aa9e6b57846dbe5f63567f
+  - path: skills/venture-bootstrap/agents/openai.yaml
+    ownership: harness
+    sha256: 11ba82e2651adeac246b082b92f7872bbc05e7c793742a358a126db93e97a9df
+  - path: skills/venture-bootstrap/references/bootstrap-blockers.md
+    ownership: harness
+    sha256: 0aa10d8502d04cfbdce45ed9c8449b48a6441f050432b34ab54b721dbd1926fa
+  - path: skills/venture-bootstrap/references/validation-bootstrap-v0.1.md
+    ownership: harness
+    sha256: e75cfe79d55269f0ddb3874b5fbef53193bb895388a88a13b4441fbc83501340
+  - path: skills/venture-bootstrap/SKILL.md
+    ownership: harness
+    sha256: 90cf2341590e8630f3131aaf715b59b175182fdf310d56c3dbaf4f868468cf49
+  - path: skills/weekly-learning/agents/openai.yaml
+    ownership: harness
+    sha256: 319afeeb614acecfd9450f6c2a743c7e18836f8d74aabde8de8da1e674336415
+  - path: skills/weekly-learning/references/v0.1-weekly-review.md
+    ownership: harness
+    sha256: d56469ab2231faec9c928c965c434ed3ff3dae9680eec61dc1c00c0785562b4b
+  - path: skills/weekly-learning/SKILL.md
+    ownership: harness
+    sha256: f219184f2cafb44fca248fa2d657b396d56a009dac41de82e61b3e4ee9e6326d
+  - path: skills/workflow-graph-engineering/agents/openai.yaml
+    ownership: harness
+    sha256: 376660c01dcdfc65c2b698c151a816383e87c84950e830de50fea17b7af6010c
+  - path: skills/workflow-graph-engineering/assets/graph-plan.yaml
+    ownership: harness
+    sha256: bec1207ee14da4601fb9dea8098202d01535afee8ae6624dc5dca4906d915f52
+  - path: skills/workflow-graph-engineering/references/planning-v0.1.md
+    ownership: harness
+    sha256: 90381a398060fdddc14b23ed645214f3da9dcc74d046c06dedee5cf8b627793b
+  - path: skills/workflow-graph-engineering/SKILL.md
+    ownership: harness
+    sha256: 4d62055c83abac027c6eea15a0f3ca3e403bb2376fdd574d9650aea27389c1a2
+  - path: tests/agent-learning-loop-runtime.test.ts
+    ownership: harness
+    sha256: ac5a434fd8c97f572addd4b5a7256b546dd91a23519b6a659a981548e6fc0244
+  - path: tests/analytics-packs.test.ts
+    ownership: harness
+    sha256: 7a5d2897854dd61e198d1540efe30f7e09c2d9bca141fd789db2e60eaff3e53d
+  - path: tests/analytics-taxonomy.test.ts
+    ownership: harness
+    sha256: db74ad86a1b015e3cc77fce0cf1952ca7e3dcd2260ca58230ade9d5e4b373861
+  - path: tests/analytics-weekly.test.ts
+    ownership: harness
+    sha256: d70092148bc011a5ac5a7fadf1fba804dfb2d2a45d714a0543a38f0f92e38d21
+  - path: tests/authorization.test.ts
+    ownership: harness
+    sha256: 5405b49f3b5edf9d085a5c24ecc630c4dfbd4162290718887813b188dc6e0773
+  - path: tests/checkpoint-evidence.test.ts
+    ownership: harness
+    sha256: c2778af6f748e09133b29378f8f515ff5b06f69382c7aa050af3306ea9c164d9
+  - path: tests/cli-default-credential-testers.test.ts
+    ownership: harness
+    sha256: f69aa62293d19c302eb4213107e7848a9bf95c4b9bbe93460a1a6dadd42d5b47
+  - path: tests/cli-default-provider-runtime.test.ts
+    ownership: harness
+    sha256: 2d3c7ad5aa0e657a08af8feb2126c51f9214b1b14e950abcf6f8aedcd4bb10f7
+  - path: tests/cli-launch-integration.test.ts
+    ownership: harness
+    sha256: 9a33d677f175cb8c6cf2521f0064a1c8373fff01497f60c4acf3ff0bd1355273
+  - path: tests/cli-learning-integration.test.ts
+    ownership: harness
+    sha256: 37d902658d4da0a75f182b544135d0c0bf4ebdd244f0aba8a492564a872b58af
+  - path: tests/cli-runtime-module.test.ts
+    ownership: harness
+    sha256: adf800f8812bd7bb7202306cb32113621b3699ace9e3d86cbdf8fe7a2f6286c2
+  - path: tests/cli-runtime.test.ts
+    ownership: harness
+    sha256: 9f8529402f13641886f91d37eef31f4299ca213f6e48d2aceddcdb1db85c1be0
+  - path: tests/command-bus-idempotency.test.ts
+    ownership: harness
+    sha256: 54842ddaf27ab10b01c8446bac898e6c2d2ce6d518399dbcf25b6a720d318b59
+  - path: tests/command-surfaces-parity.test.ts
+    ownership: harness
+    sha256: 5e7262e81e22520a4aba482b2489ee25a5c900b89c4fdfbe608b5f379367e54c
+  - path: tests/config-schemas.test.ts
+    ownership: harness
+    sha256: ecae6a822109f4814bb3dbac9e92d8dc25eceafb0f5957996c9bf6d34e43af4e
+  - path: tests/consent.test.ts
+    ownership: harness
+    sha256: a43581a6b80d8477a66e7ef52e5fbf95d6ed8d4b4f9cab44db7394e291f33249
+  - path: tests/core-credential-scanner.test.ts
+    ownership: harness
+    sha256: 80b76876d44e1342e8335369d0c3a3426aa83cb432d97cced9637b4db9d1cb69
+  - path: tests/credentials-auth-lifecycle.test.ts
+    ownership: harness
+    sha256: 8c1609f18b03b902f8ca01441728cef66fdab1de8e0c4fceaea01d2d61978d7d
+  - path: tests/credentials-broker.test.ts
+    ownership: harness
+    sha256: b3fc706a959b4bb7fcd8fdcd8473f292e4cc11c9757e5fca667b051942fca1c6
+  - path: tests/credentials-catalog.test.ts
+    ownership: harness
+    sha256: 8001aa01547321c7cfcaf40b3eafb45fbbf7053240ef2e27fcc1a6742b4f0d45
+  - path: tests/credentials-cli-doctor.test.ts
+    ownership: harness
+    sha256: baac720782e52901de43b53fde826723b11098d3262582d8766b61efeb43018a
+  - path: tests/credentials-cli-session.test.ts
+    ownership: harness
+    sha256: bb86317d9c47fc6397575cc31772beb142fa9770fcfc8aaf8dcb8391ec203aee
+  - path: tests/data-provider-http-connectors.test.ts
+    ownership: harness
+    sha256: 63a20bda9753cf1cd7d06172878ffb3250d7f0569fa5f35701cbf167098286a8
+  - path: tests/data-sync.test.ts
+    ownership: harness
+    sha256: 9ffcebf24674bde882c24ef9a3dc4496cbf34d8b7c2dc1a4dfd5b2866457be98
+  - path: tests/default-data-learning-runtime.test.ts
+    ownership: harness
+    sha256: d2f8ac15585a393923001ae096df141318c4a8aef1b7ae09a2c6fef5c07cd148
+  - path: tests/e2e/accessibility.spec.ts
+    ownership: harness
+    sha256: 6932816abc61e270d037353bcd625ba04e7e7e0453690e201d796dd9e3727033
+  - path: tests/e2e/critical-journeys.spec.ts
+    ownership: harness
+    sha256: e292bdb9dc7223015584d91debca68e059f5f46712c91a26898af9d84b7ff8cc
+  - path: tests/e2e/post-deploy-readonly.spec.ts
+    ownership: harness
+    sha256: 695759a1cac6d4eae0ddcbda4996cfeba17cfb512734f1ebe930d46307f3dd72
+  - path: tests/e2e/responsive-screenshots.spec.ts
+    ownership: harness
+    sha256: 2dde2d10439ceace92b257f2cf12faff4e4b6675349f4e89b488b1659b046649
+  - path: tests/experiments.test.ts
+    ownership: harness
+    sha256: 006d6dc90f57e3cba669355fb72067146d744fee5b563fec0f268f37a5d9076b
+  - path: tests/final-evidence-workflow.test.ts
+    ownership: harness
+    sha256: d6ee40b2e57f253e5076b456de4fcb3ab5983ec6f7d7de14dbf49952236b0fc3
+  - path: tests/fixtures/command-bus-process.ts
+    ownership: harness
+    sha256: 801e6dda0a036e47c6fa0bc66fb7772c96b249c0d81bd87b090dd10afe4715e0
+  - path: tests/fixtures/founder-golden-path-product.ts
+    ownership: harness
+    sha256: 095f4c0bbd5a764202dbd4e3663aa4afd4f44e8d683f737f7d4076f6f6b74cbf
+  - path: tests/fixtures/founder-golden-path-runtime.ts
+    ownership: harness
+    sha256: 1efdc3a65d3859c1d1b536041bf81b15f8359bf05777b6eb17baba79cd3e5736
+  - path: tests/fixtures/learning-cadence-enabled.yaml
+    ownership: harness
+    sha256: c8da9e91eb1f693897c73a2bfc4b0806d011f2c9fd545df170ba17c27d738c19
+  - path: tests/fixtures/migrations/concurrent-process.ts
+    ownership: harness
+    sha256: 692781219d2ebbe6ca70f94e0a1fcdea00379bfbef3613ef0c13198b49e1ea7a
+  - path: tests/fixtures/migrations/interrupted-process.ts
+    ownership: harness
+    sha256: 7a05a8f13981c0ad397e90331e933ccc6837628073b587a4f481f78bac3bb518
+  - path: tests/fixtures/migrations/v0-1.sqlite.sql
+    ownership: harness
+    sha256: f4cbf48e38c1ece0d9af5a6aa44eec7f129b49ddfaf358f57f3dc860c57680b3
+  - path: tests/fixtures/packed-production-runtime.mjs
+    ownership: harness
+    sha256: 192b461f994dd6f41cce258d7485c1402283b31ef1486e7079978d999fac8068
+  - path: tests/fixtures/provider/concurrent-apply-worker.ts
+    ownership: harness
+    sha256: f1f98082cd1e564604a59f70d15fdae9613eaeb2f80e7c21978fbad3f3ce7a35
+  - path: tests/fixtures/provider/fixture-d-store-worker.ts
+    ownership: harness
+    sha256: 985e8d0429768073623c04b7c822d672ed00d62197546ce41904fb0a44d63179
+  - path: tests/fixtures/provider/launch-runtime.ts
+    ownership: harness
+    sha256: 0dcf2e30388a189ff05d8ab6c102ade0baad98be56d606290eee574a2a6de272
+  - path: tests/fixtures/provider/requests.ts
+    ownership: harness
+    sha256: 8d6bdbab86ab061ec0e33bf8183337a628be77ba2b9c1d3467885fb35df61779
+  - path: tests/fixtures/quality-profile-process.mjs
+    ownership: harness
+    sha256: 5fc8b91199619f60913f7e246ec98c656529b51d93f734c025f8c7b03ca1f9b2
+  - path: tests/fixtures/synthetic-founder-golden-path.ts
+    ownership: harness
+    sha256: 4bc843f10afd00c08bfc85692d3ff9805ca2ef8ef919e6b83bb7dd76e9e67760
+  - path: tests/fleet-controller.test.ts
+    ownership: harness
+    sha256: bddcbc7ea080c9b99761231e27ea72e5e6296a131556192283178706d7f2f62e
+  - path: tests/founder-golden-path-product.test.ts
+    ownership: harness
+    sha256: 340b99586fc5a56d37c52b15f8231b113f181eea41b46e4ca013b9b4ce8c1ae1
+  - path: tests/founder-golden-path-runtime.test.ts
+    ownership: harness
+    sha256: aa662c57c064ff95c37e8fa25d8fc7ff0eff163eb03fde9c8d21ebcabe0f6e89
+  - path: tests/founder-golden-path.test.ts
+    ownership: harness
+    sha256: 2be4c58abcbd1763365d7711bc1da190521bbbc270a246e216a5b92b43c1e399
+  - path: tests/founder-idea.test.ts
+    ownership: harness
+    sha256: a62ec07948c875b56e5e425ddbb2e366037b5252bad54f586478a3dcd9851f49
+  - path: tests/founder-launch-orchestrator.test.ts
+    ownership: harness
+    sha256: 37ab004746ef46245c4d1e8d32d1a34ced252c61db1ecb1dc6384b7f83371ed7
+  - path: tests/founder-launch-safety.test.ts
+    ownership: harness
+    sha256: 9ff3e8f03274f1af81b2bcb7c15521bd5e3301c0a6c129dc3731a1aac4628bf7
+  - path: tests/founder-stack.test.ts
+    ownership: harness
+    sha256: 076ef4438e6fee814ae58de21bf63d35dc354112e1faeca4b1ff699846b60594
+  - path: tests/harness-lock.test.ts
+    ownership: harness
+    sha256: bdd8c5aef31a0d5aeb47d7185f698a62df07baca9184404a31ee9ff29cf3ba15
+  - path: tests/launch-authorization-scope.test.ts
+    ownership: harness
+    sha256: ccd04e984f9eb823c7eae880533d5a2ec8afbf8819f281bb515a7772047f16eb
+  - path: tests/launch-fixtures.test.ts
+    ownership: harness
+    sha256: cf7ab7eb501685d7767146444b22f41e165da8a69804069c09bac573c2418b57
+  - path: tests/launch-manual-evidence.test.ts
+    ownership: harness
+    sha256: 0318454fa4d8f8e2d0fa17f1c96d7859d8a461fbfdd18f36a1824006d6123e52
+  - path: tests/launch-router.test.ts
+    ownership: harness
+    sha256: dbc40da440d75919bfd52d00c36f8ff7562694f300a81a33d1b6d4b39a734513
+  - path: tests/learning-cadence-workflow.test.ts
+    ownership: harness
+    sha256: 658a6074edaa5a18e00bc82fbbbb94bdddb113ca205cf67441f5e94cfa9f2e9b
+  - path: tests/learning-loops.test.ts
+    ownership: harness
+    sha256: 13eb46c9e9309232bcfd5ace2be05326172e36a811ab735139a58f2455ea714a
+  - path: tests/learning-schedule.test.ts
+    ownership: harness
+    sha256: a1fe6c6bd44ad6cfb1dcfc62460b8708c7d0bec2f1a30a20c96e27082caeca0a
+  - path: tests/materialization-web-build.test.ts
+    ownership: harness
+    sha256: adb76100d16ec23bd2f5d8d6c4468c6a43737d695314ba9d5beb0419b89bafc8
+  - path: tests/materialization-web-seed.test.ts
+    ownership: harness
+    sha256: 06bffefb18d3a327774899dcd0b33ff2d3bd65c27f2acd81f3c3d6846f69600f
+  - path: tests/materialization.test.ts
+    ownership: harness
+    sha256: 4a0f8193a86fbeda2311b4de5c8dffb26be12f535877f132b65435e0c9326ca0
+  - path: tests/migrations.test.ts
+    ownership: harness
+    sha256: 67c1d1a4a51a64243d959a3c482751fa3db29a8e93538ef52d0d5ea31d604e19
+  - path: tests/mobile-scaffold.test.ts
+    ownership: harness
+    sha256: e9e64646ef03821acf27d2f024e34549b7d459540fbc428a8d4e3c370e2a1eba
+  - path: tests/operating-loop-runtime.test.ts
+    ownership: harness
+    sha256: 7ca33ef89e053302c79628f2c4583fbf0dc6c1f98fcc4b776716a0337ee2ac01
+  - path: tests/packaged-quality-command.test.ts
+    ownership: harness
+    sha256: 86df44b21122432c60c91102adf8dc65ac2ab3e8e8a75ad9416a402d5ed31343
+  - path: tests/platform-command-runtime.test.ts
+    ownership: harness
+    sha256: e27085653a020d919ba8cca43f46a572c185d99d17fb2a108ffc0da1c5be59ea
+  - path: tests/platform-command-surfaces.test.ts
+    ownership: harness
+    sha256: 2c4fe9e7137c80f16f36539594dcb3cc1576e04fac8312a3697a4472a3778b7e
+  - path: tests/provider-idempotency-safety.test.ts
+    ownership: harness
+    sha256: ecd897674b4ffe714b0910276b2b3cd9a60829dfe13f6b5e15a6f9e7c5aeabf7
+  - path: tests/provider-stack-profiles.test.ts
+    ownership: harness
+    sha256: 5e938b7d021fc8742ee5f95d01c531338574f8dcd59a69778ff072ec3c7fd03f
+  - path: tests/providers-contract.test.ts
+    ownership: harness
+    sha256: 9dca6f5f1c9f40c60218f20b2789a6d05e97c10eaa69f8f452927ba53da51e65
+  - path: tests/providers-execution.test.ts
+    ownership: harness
+    sha256: 23741fc0f65bd83b158cbb406757c3c3583d3d6459ac396b02cf4776a643fb1d
+  - path: tests/providers-github-source.test.ts
+    ownership: harness
+    sha256: cc689e5207e8c0f8e02ab5ffc83297aa07e3b345de1a61867f3ab2531ab5098c
+  - path: tests/providers-neon.test.ts
+    ownership: harness
+    sha256: 566a31589e8ada1cc96dab2a9d76b9539e1e473cb4ec449a0f59aa38454d8e04
+  - path: tests/qualification.test.ts
+    ownership: harness
+    sha256: 138c55836e1781ff31b6eec3eeae7e70365405479346bb04e92d67bf26063c1f
+  - path: tests/quality-migrations.test.ts
+    ownership: harness
+    sha256: f90652060e39b38e26d1f59d8bfcc0a88bdcd094e91e8e30f310d7af18afefca
+  - path: tests/quality-profiles.test.ts
+    ownership: harness
+    sha256: 22ca631fe17b7304b7e57f72a1f0a81aa343a10d283aaf9fbf1ce8158fbfd2e1
+  - path: tests/recursive-command-surfaces.test.ts
+    ownership: harness
+    sha256: 238a04858d1a110220931043873a0d3874103ee1a6204e36fad365e86091d8fc
+  - path: tests/recursive-packed-credential.test.ts
+    ownership: harness
+    sha256: 4a8330a98385f21a8c38501c1af964a08ef66ed26044df882b941863d1aaebd3
+  - path: tests/requirement-matrix-integrity.test.ts
+    ownership: harness
+    sha256: d6bf6cc9797fe237e2fa3623df5267089c8c20cad271b5a646a691ebc6eeeaae
+  - path: tests/root-cli-dispatch.test.ts
+    ownership: harness
+    sha256: 88fceed69e7a6dc22cbacb06d935de628cba098c4e2ac3d1f51a4c34825104da
+  - path: tests/root-cli-packed-provenance.test.ts
+    ownership: harness
+    sha256: 8a1d54fef04ceea3b7c2882c2dba8972bfc911538b28b0eb21029b4b3eeb03c0
+  - path: tests/runtime-build-agent-host.test.ts
+    ownership: harness
+    sha256: 0c1b35ecd08163e9e22d8efa70ded9905dca1cf889e1a67e9b4a8a5377d8016b
+  - path: tests/runtime-provider-lifecycle.test.ts
+    ownership: harness
+    sha256: 543fac892db7049edda35334a5604947c6a2346c0c9b7589c35c5df7f04bf6e2
+  - path: tests/runtime-provider-report.test.ts
+    ownership: harness
+    sha256: 846ff09bd4e9b115aee5c91c9188c991ed3d998b8d9ca4ca2c166944c3a8157f
+  - path: tests/runtime-provider-transports.test.ts
+    ownership: harness
+    sha256: 883f941f26d3c70d823ab0ac74bcc5872001065ea0a071f7c604d51bed3ade49
+  - path: tests/runtime-provider.test.ts
+    ownership: harness
+    sha256: 9fa647d61ceb06fa24ecefa53fcd19f8b146c8112dc5d6fb79b2424bb6027f2c
+  - path: tests/security-boundaries.test.ts
+    ownership: harness
+    sha256: 1c659085ebcb6aa0cd9aa73d4862e5c086689b703b8f9fafe3c74f311a186961
+  - path: tests/security-release.test.ts
+    ownership: harness
+    sha256: 61c5a1522a6ab7c62f5111ae8cd0fe006ae814683e96ad640e6fc44c8d0b9ae0
+  - path: tests/stack-profile-command-runtime.test.ts
+    ownership: harness
+    sha256: 4e79b1803e2047c86706ce92bcc7a48fae1a5cc8f5c2bfb247d0a64b89c021ec
+  - path: tests/upgrade-operational.test.ts
+    ownership: harness
+    sha256: 00493f97ee73c720dd90a78368ce3173c5176968395537db4b3a86709d8a58a2
+  - path: tests/upgrade.test.ts
+    ownership: harness
+    sha256: 82a12759c38c778c06e4040b9388d2ac1c58921c8e44c3f65f5660bb9e8957ea
+  - path: tests/venture-runtime.test.ts
+    ownership: harness
+    sha256: 4df00e4e4ce793233edb555e61b9e1d14c4d5391820aef5593facdb21f6ddba4
+  - path: tests/vh-generated-parity.test.ts
+    ownership: harness
+    sha256: 2e1f2ea8f8cb700c08e1b14690f1b8d65884313dcc76fddde51a5bec2e837692
+  - path: tests/winner-loop-attribution-cohorts.test.ts
+    ownership: harness
+    sha256: 06a4c4c543eca5141b8517cc559d840cda66eecb98b07cb494005ff5f0dcfc71
+  - path: tests/winner-loop-creative-ledger.test.ts
+    ownership: harness
+    sha256: 6604ff0d66c53de59881ac4c657f072fdf568f5ca515e1eac977de4859cfdeb6
+  - path: tests/winner-loop-creative-persistence.test.ts
+    ownership: harness
+    sha256: 68cb7b1768cd203586732619066cfff71b4eeca9225f4ed8af92b9b204476acc
+  - path: tests/winner-loop-evaluator.test.ts
+    ownership: harness
+    sha256: 4cda70d5f691d87ff97d24e5b231491cc5dc896dbb96d5fad33fc77b19b9459b
+  - path: tests/winner-loop-fixture-d.test.ts
+    ownership: harness
+    sha256: e90bd65b647515dbefbc3253b1c7983b22b85d79f5878b8b2b1930e9185d83e5
+  - path: tests/winner-loop-fixture-runtime.test.ts
+    ownership: harness
+    sha256: 46effd659290f34893933ab627074613f32bd9aadc8024dbdd4471a4335006ae
+  - path: tests/winner-loop-integrations.test.ts
+    ownership: harness
+    sha256: c35a4ff28d2fc655e33dff4cad88ec5cc5d48deb1e97e4c258e495aa22c25a5a
+  - path: tests/winner-loop-legacy-adoption-contract.test.ts
+    ownership: harness
+    sha256: 2c0dccc22e7f262fb3067b704963497d60b080055138c76c00ca3bde28a49a30
+  - path: tests/winner-loop-legacy-adoption.test.ts
+    ownership: harness
+    sha256: df9eba9de99abb73f594678b56be421711d9bfb970e94f84ad607ea5ec116ec1
+  - path: tests/winner-loop-live-provider-commands.test.ts
+    ownership: harness
+    sha256: be341c398b5b34fc5d5e0c0cab9f721edcd1dc97177c5e7491e96788be7c3e8b
+  - path: tests/winner-loop-live-provider-contracts.test.ts
+    ownership: harness
+    sha256: 612c23a25b9d7b6d80d8017bdc6aac9847c7dabfa048639dab8dbd7492ec69c1
+  - path: tests/winner-loop-live-provider-operation-store.test.ts
+    ownership: harness
+    sha256: d883eb313af42f0941955b4e95dd7f362c07d3c2ccd54c2b401f348fcf04709e
+  - path: tests/winner-loop-metrics.test.ts
+    ownership: harness
+    sha256: 41e8ce71516c0681c5a08b9e2a4d72476e710b751d7d611ce9e20e346b66cf0b
+  - path: tests/winner-loop-organic-policy.test.ts
+    ownership: harness
+    sha256: 37c70b6ba7a956ba65bef3b046240c7142cd7b2a562e759424adbd41c0fe3dc1
+  - path: tests/winner-loop-paid-gate.test.ts
+    ownership: harness
+    sha256: 2fb07f0f1fd6ddaf00e9adddb47f4408d135b7dbc2411de052e34c815d64b090
+  - path: tests/winner-loop-provider-pause.test.ts
+    ownership: harness
+    sha256: a934cdedc424154d0c36e928704e9a351ee6d1940e6b40b7604cb44f8e0a0583
+  - path: tests/winner-loop-spend-safety.test.ts
+    ownership: harness
+    sha256: c32d129335df03c749c7c6c20cecb81d2f706c965ce0055e282d50cd41da83ab
+  - path: tests/workflow-control-plane.test.ts
+    ownership: harness
+    sha256: a5457c8268a90a35688d607a3336d34732d074dd048033179839235182893597
+  - path: tests/workflow-durable-recovery.test.ts
+    ownership: harness
+    sha256: 6c8301dec4e0a83f713a7b6837ee80b1df2c5e981bb38e4b2ed5bd55426bdbed
+  - path: tests/workflow-runtime.test.ts
+    ownership: harness
+    sha256: 90f7bf8c8a434b84cd5b19b39c6fe5d54c96a231317a46fe54421dd991908d56
+  - path: tests/workspace-boundaries.test.ts
+    ownership: harness
+    sha256: d832b609c038356c69110d233ae217c9ea21660e62364fe738b1ba9d5e5026a1
+  - path: tests/workspace-pack.test.ts
+    ownership: harness
+    sha256: 2a7e88c6d936e4ee17e5e538ae70340918ab497a8e69ee7f22d234a9f32180f9
+  - path: tsconfig.json
+    ownership: harness
+    sha256: d8cf838419ad00e94cf202d83e9b183042185ed6b51ff1d23b2e852d2584c49d
+  - path: vitest.config.ts
+    ownership: harness
+    sha256: 29a59fec9c14f4130a868aa71475bff68669ad952c4bd775853ed45b1a1c563f
+applied_migrations: []
+extensions: {}

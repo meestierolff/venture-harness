@@ -1,8 +1,7 @@
 # Codex skill metadata
 name: venture-bootstrap
 description: >-
-  Turn an ideation brief and design brief into a coherent venture repository
-  and measurable validation-website plan. Use when starting a new venture
-  from filled-in inputs/ briefs. Refuses to write application code before
-  the commercial logic is coherent.
+  Convert one founder brief into the minimum truthful v0.2 venture contract,
+  assumptions, compact core docs, and a launch-ready mode/rail handoff without
+  blocking reversible work on non-critical unknowns.
 entrypoint: SKILL.md

@@ -2,13 +2,14 @@
 
 - Status: TEMPLATE
 - Owner: unassigned
-- Last updated: 2026-07-21
+- Last updated: 2026-08-04
 
 ## Purpose
 
 Route-level search strategy: which page owns which query, with what intent,
-metadata, and conversion goal. Maintained by `$seo-aeo-engine` from weekly
-Search Console / Bing exports in `data/seo/inbox/`.
+metadata, answer block and conversion goal. Maintained by `$seo-aeo-engine`
+from provenance-aware GSC and Bing datasets produced by `vh data sync`; manual
+exports are an explicit fallback, not the default source.
 
 ## Page register
 
@@ -22,7 +23,7 @@ Search Console / Bing exports in `data/seo/inbox/`.
 
 ## Query opportunities
 
-<!-- From weekly analysis: impressions without a dedicated page, positions
+<!-- From direct-data analysis: impressions without a dedicated page, positions
      6–20, low CTR at useful positions, emerging commercial queries,
      missing comparison pages, cannibalisation. -->
 

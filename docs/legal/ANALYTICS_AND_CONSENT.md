@@ -1,89 +1,75 @@
-# ANALYTICS_AND_CONSENT
+# ANALYTICS AND CONSENT
 
-- Status: TEMPLATE
-- Owner: unassigned
-- Last updated: 2026-07-21
+- Status: TEMPLATE — review per venture and jurisdiction
+- Owner: founder
+- Last updated: 2026-08-04
 
 ## Purpose
 
-The consent and data-processing inventory for this venture's validation
-site. This is an engineering inventory to hand to a qualified professional —
-**it is not legal advice and not a compliance certification.**
+Engineering inventory for the active product rail, event packs, direct-data
+connectors and processors. It is not legal advice or a compliance certification.
 
-## Provider inventory
+## Capability inventory
 
-| Provider             | Purpose             | Data received                                                    | Pre-consent              | Post-consent     |
-| -------------------- | ------------------- | ---------------------------------------------------------------- | ------------------------ | ---------------- |
-| Vercel Web Analytics | aggregate traffic   | pageviews, referrer domain, device class                         | nothing (opt_in default) | aggregate events |
-| Google Analytics 4   | consented behaviour | events per config/analytics.yaml, no PII                         | nothing loads            | consented events |
-| Neon (first-party)   | commercial evidence | anonymous visitor id events; form payloads in `submissions` only | anonymous events         | unchanged        |
+Add only providers/capabilities the venture activates.
 
-## Pre-consent behaviour (strict mode)
+| Provider/store                  | Purpose                                                            | Data categories                                            | Consent/lawful-basis note                      | Region/retention        |
+| ------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------------- | ----------------------- |
+| venture-owned first-party store | material product/commercial evidence; private submissions isolated | anonymous event IDs; private payload only in its own table | document lawful basis; not copied to analytics | —                       |
+| GA4 (optional)                  | consented behavior/acquisition                                     | allowed event properties only                              | strict opt-in default                          | record property setting |
+| Vercel Web Analytics (optional) | aggregate web behavior                                             | route/referrer domain/device class                         | follow configured opt-in mode                  | provider setting        |
+| Stripe/RevenueCat (optional)    | commerce/entitlements                                              | provider transaction/customer data                         | contract and product-specific basis            | provider setting        |
+| Brevo (optional)                | transactional/lifecycle email                                      | recipient/delivery data stays in email system              | consent/purpose and send authorization         | provider setting        |
 
-No third-party script loads. No third-party request fires. First-party
-anonymous events (consent funnel, experiment exposure with anonymous
-visitor id) are recorded in the venture's own database.
+## Strict pre-consent behavior
 
-## Post-consent behaviour
+No third-party analytics script or request loads before opt-in. First-party
+anonymous consent and material events may be stored only when the venture's
+reviewed lawful basis and inventory permit it. The product's core path works when
+analytics consent is declined.
 
-GA4 and Vercel Web Analytics activate for the consenting visitor. The
-consent state change is recorded first-party (`consent_changed`).
+## Withdrawal
 
-## Consent copy
+The settings control must be as reachable as acceptance. Withdrawal stops
+third-party analytics immediately for that browser and records the change
+first-party without personal form content.
 
-Recorded in [../brand/COPY.md](../brand/COPY.md) (block `consent.banner`).
-Requirements: plain language, a real decline option equal in prominence to
-accept, and a settings link (`settings_link_required: true`).
+## Direct-data boundary
 
-## Withdrawal path
+Normalized learning datasets contain aggregates/classifications and provenance,
+not raw provider exports or private text. Do not ingest names, email addresses,
+phone numbers, form values, free-form messages, user content, payment details,
+auth data or advertising identifiers. De-identification needs human review; a
+hash of an email is still personal data.
 
-The consent settings control (footer link) allows withdrawal at any time.
-Withdrawal disables third-party analytics immediately for that browser and
-records `consent_withdrawn` first-party.
+## Retention and deletion
 
-## Data categories
-
-| Category                       | Where                   | Retention                             |
-| ------------------------------ | ----------------------- | ------------------------------------- |
-| Anonymous behavioural events   | GA4 / Vercel            | provider-managed (GA4: 14 months)     |
-| Anonymous commercial evidence  | Neon                    | life of venture                       |
-| Submitted form data (personal) | Neon `submissions` only | until deletion request or venture end |
-
-## Prohibited data
-
-See `prohibited_properties` in [../../config/analytics.yaml](../../config/analytics.yaml):
-no email, names, phone, messages, raw search text, form values, passwords,
-tokens, keystrokes, session replay, or advertising identifiers — enforced
-by `pnpm verify:analytics-pii`.
-
-## Processors
-
-| Processor | Role                          | Region notes                                |
-| --------- | ----------------------------- | ------------------------------------------- |
-| Vercel    | hosting + aggregate analytics | — (record region at launch)                 |
-| Google    | GA4                           | — (record data location settings at launch) |
-| Neon      | first-party database          | — (choose region at creation)               |
+Record retention per active source, deletion request path, processor agreement
+and whether commercial/legal records have a separate required retention. Never
+use a deployment rollback to delete evidence.
 
 ## Items requiring legal review
 
-- Consent banner copy and its jurisdictional adequacy (GDPR/ePrivacy or
-  local equivalent).
-- Lawful basis documentation for the `submissions` table.
-- Privacy policy and imprint pages before launch.
-- Data-processing agreements with Vercel, Google, Neon.
-- Retention schedule sign-off.
+- jurisdictional consent/banner/privacy copy;
+- lawful basis for first-party evidence and submissions;
+- commerce, email and mobile analytics disclosures;
+- processor agreements, regions and cross-border transfers;
+- data-subject access/deletion and retention schedule;
+- App Store privacy labels and nutrition details when mobile is active.
 
 ## Evidence
 
-None — template state.
+Local consent and PII checks provide engineering evidence only. No jurisdiction
+or live provider configuration is verified by the template.
 
 ## Assumptions
 
-None recorded.
+The child venture will remove inactive processors and add every real one before
+launch.
 
 ## Unresolved questions
 
-None recorded.
+Jurisdiction, active processors, lawful bases, regions and retention are unknown.
 
 ## Related documents
 

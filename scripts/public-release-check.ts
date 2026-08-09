@@ -1,144 +1,307 @@
 /**
- * Public-release safety check. Run before making the repository public or
- * tagging a template release. Mechanical checks only — the human half of
- * the checklist lives in docs/public/PUBLIC_RELEASE_CHECKLIST.md.
+ * Public-release safety check. This inspects the full working directory (not
+ * only Git-tracked paths), exact credential-canary fingerprints, and the npm
+ * package manifest. History scanning, dependency analysis, and CodeQL are
+ * separate CI checks documented in docs/public/PUBLIC_RELEASE_CHECKLIST.md.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { ROOT, Reporter, readText, loadYaml } from "./lib/util";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+  evaluateCredentialFindings,
+  scanCredentialText,
+  validateReleaseScanAllowlist,
+} from "./lib/release-security";
+import { ROOT, Reporter, loadYaml, readText, walk } from "./lib/util";
 
-const r = new Reporter("public-release-check");
-
-// Tracked files come from git so .gitignore is respected.
-let tracked: string[] = [];
-try {
-  tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
-} catch {
-  r.fail(
-    "git",
-    "not a git repository or git unavailable",
-    "run inside the repo with git installed",
-  );
-  r.finish();
+interface PackedFile {
+  path: string;
 }
 
-// 1. No env files tracked ----------------------------------------------------
-const envTracked = tracked.filter(
-  (f) => /(^|\/)\.env(\..+)?$/.test(f) && !f.endsWith(".env.example"),
-);
-if (envTracked.length === 0) r.ok("no .env files tracked");
-else
-  for (const f of envTracked)
-    r.fail(f, "environment file is tracked", "git rm --cached it; secrets never enter git");
+interface PackResult {
+  files?: PackedFile[];
+}
 
-// 2. Secret patterns ---------------------------------------------------------
-// Patterns are assembled from parts so this file does not match itself.
-const SECRET_PATTERNS: [RegExp, string][] = [
-  [new RegExp("AKIA" + "[0-9A-Z]{16}"), "AWS access key"],
-  [new RegExp("-----BEGIN " + "(RSA |EC |OPENSSH )?PRIVATE KEY"), "private key"],
-  [new RegExp("gh[pousr]_" + "[A-Za-z0-9]{30,}"), "GitHub token"],
-  [new RegExp("sk-" + "[A-Za-z0-9]{20,}"), "API secret key"],
-  [new RegExp("xox[baprs]-" + "[A-Za-z0-9-]{10,}"), "Slack token"],
-  [new RegExp("postgres(ql)?:\\/\\/[^\\s\"']+:[^\\s\"']+@"), "database URL with credentials"],
+const REQUIRED_PUBLIC_FILES = [
+  "SECURITY.md",
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
+  "GOVERNANCE.md",
+  ".gitleaks.toml",
+  ".gitleaksignore",
+  ".github/ISSUE_TEMPLATE/config.yml",
+  ".github/dependabot.yml",
+  ".github/workflows/codeql.yml",
+  ".github/workflows/dependency-review.yml",
+  ".github/workflows/security.yml",
+  "docs/security/THREAT_MODEL.md",
+  "docs/security/PROVIDER_AUTH_BOUNDARIES.md",
+  "docs/audits/PROVIDER_CAPABILITY_MATRIX.md",
+  "docs/public/OPEN_SOURCE_READINESS.md",
+  "docs/public/PUBLIC_RELEASE_CHECKLIST.md",
 ];
-const SELF = "scripts/public-release-check.ts";
-let secretsClean = true;
-for (const f of tracked) {
-  if (f === SELF || f === "pnpm-lock.yaml") continue;
-  if (!existsSync(join(ROOT, f))) continue;
-  let text: string;
+
+function readableText(path: string): string | null {
   try {
-    text = readText(f);
+    return readFileSync(join(ROOT, path), "utf8");
   } catch {
-    continue; // binary
+    return null;
   }
-  for (const [re, what] of SECRET_PATTERNS) {
-    if (re.test(text)) {
-      secretsClean = false;
+}
+
+export function workflowActionRefs(text: string): string[] {
+  return [...text.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1]);
+}
+
+export function isPinnedActionRef(ref: string): boolean {
+  return ref.startsWith("./") || /^[^@\s]+@[a-f0-9]{40}$/.test(ref);
+}
+
+function lineForOffset(text: string, offset: number): number {
+  return text.slice(0, offset).split("\n").length;
+}
+
+function main(): never {
+  const r = new Reporter("public-release-check");
+  const files = walk(ROOT);
+
+  const envFiles = files.filter((file) => {
+    const basename = file.split("/").at(-1) ?? "";
+    return /^\.env(?:\..+)?$/.test(basename) && basename !== ".env.example";
+  });
+  if (envFiles.length === 0) r.ok("no release-blocking .env files anywhere in the workspace");
+  else {
+    for (const file of envFiles) {
       r.fail(
-        f,
-        `contains a ${what} pattern`,
-        "remove the credential and rotate it — history rewrite may be needed",
+        file,
+        "environment file exists in the release workspace",
+        "remove it from release media and rotate exposed values",
       );
     }
   }
-}
-if (secretsClean) r.ok(`no credential patterns across ${tracked.length} tracked files`);
 
-// 3. License and version coherence ------------------------------------------
-if (existsSync(join(ROOT, "LICENSE"))) r.ok("LICENSE present");
-else r.fail("LICENSE", "missing", "restore the MIT license file");
-const pkg = JSON.parse(readText("package.json")) as { license?: string; version?: string };
-const framework = loadYaml<{ framework: { license: string; version: string } }>(
-  "config/framework.yaml",
-);
-if (pkg.license === framework.framework.license) r.ok("license fields agree");
-else
-  r.fail(
-    "license fields",
-    `package.json "${pkg.license}" != framework.yaml "${framework.framework.license}"`,
-    "align them",
-  );
-if (pkg.version === framework.framework.version) r.ok("version fields agree");
-else
-  r.fail(
-    "version fields",
-    `package.json "${pkg.version}" != framework.yaml "${framework.framework.version}"`,
-    "bump both together (docs/public/TEMPLATE_MAINTENANCE.md)",
-  );
-
-// 4. Synthetic material labeled ---------------------------------------------
-const exampleFiles = tracked.filter(
-  (f) => f.startsWith("examples/sample-venture/") && f.endsWith(".md"),
-);
-let labeled = true;
-for (const f of exampleFiles) {
-  if (!/SYNTHETIC/i.test(readText(f))) {
-    labeled = false;
+  try {
+    const allowlist = validateReleaseScanAllowlist(
+      JSON.parse(readText(".release-scan-allowlist.json")),
+    );
+    const findings = files.flatMap((file) => {
+      const text = readableText(file);
+      return text === null ? [] : scanCredentialText(file, text);
+    });
+    const result = evaluateCredentialFindings(findings, allowlist);
+    for (const finding of result.unexpected) {
+      r.fail(
+        `${finding.path}:${finding.line}`,
+        `unexpected ${finding.rule} fingerprint ${finding.sha256}`,
+        "remove and rotate real credentials; only exact synthetic canaries may be reviewed into the allowlist",
+      );
+    }
+    for (const entry of result.stale) {
+      r.fail(
+        `${entry.path}:${entry.line}`,
+        `stale ${entry.rule} allowlist fingerprint ${entry.sha256}`,
+        "remove the obsolete entry or review the changed synthetic canary at its exact new fingerprint",
+      );
+    }
+    if (result.unexpected.length === 0 && result.stale.length === 0) {
+      r.ok(
+        `no unexpected credential patterns across ${files.length} workspace files (${result.allowed.length} exact synthetic canaries)`,
+      );
+    }
+  } catch (error) {
     r.fail(
-      f,
-      "sample-venture file lacks a SYNTHETIC label",
-      "label all example material as synthetic",
+      "credential scanner configuration",
+      String(error),
+      "repair .release-scan-allowlist.json; scanner configuration errors fail closed",
     );
   }
-}
-if (labeled && exampleFiles.length > 0)
-  r.ok(`sample venture labeled synthetic (${exampleFiles.length} files)`);
 
-// 5. No personal data in committed memory/data ------------------------------
-const memoryFiles = tracked.filter((f) => f.startsWith("memory/") || f.startsWith("data/"));
-let memClean = true;
-for (const f of memoryFiles) {
-  if (!existsSync(join(ROOT, f))) continue;
-  if (/[\w.+-]+@[\w-]+\.[a-z]{2,}/i.test(readText(f))) {
-    memClean = false;
+  if (existsSync(join(ROOT, "LICENSE"))) r.ok("LICENSE present");
+  else r.fail("LICENSE", "missing", "restore the repository license");
+  const pkg = JSON.parse(readText("package.json")) as {
+    license?: string;
+    version?: string;
+  };
+  const framework = loadYaml<{ framework: { license: string; version: string } }>(
+    "config/framework.yaml",
+  );
+  if (pkg.license === framework.framework.license) r.ok("license fields agree");
+  else {
     r.fail(
-      f,
-      "contains an email address",
-      "anonymize before committing — memory/data are public with the repo",
+      "license fields",
+      `package.json ${JSON.stringify(pkg.license)} != framework.yaml ${JSON.stringify(framework.framework.license)}`,
+      "align the reviewed release metadata",
     );
   }
-}
-if (memClean) r.ok("no email addresses in committed memory/ or data/");
-
-// 6. Real analytics exports should not ship with the template ----------------
-const inboxData = tracked.filter((f) => /^data\/(seo|analytics)\/inbox\/.+\.csv$/.test(f));
-if (inboxData.length === 0) r.ok("no analytics/SEO exports committed in inboxes");
-else
-  for (const f of inboxData)
+  if (pkg.version === framework.framework.version) r.ok("version fields agree");
+  else {
     r.fail(
-      f,
-      "export file committed in an inbox",
-      "inboxes are working areas; delete before release (real market data is venture-confidential)",
+      "version fields",
+      `package.json ${JSON.stringify(pkg.version)} != framework.yaml ${JSON.stringify(framework.framework.version)}`,
+      "bump both together per docs/public/TEMPLATE_MAINTENANCE.md",
     );
+  }
 
-// 7. Generated dirs in sync --------------------------------------------------
-try {
-  execFileSync("pnpm", ["agents:check"], { stdio: ["ignore", "pipe", "pipe"] });
-  r.ok("agent parity (generated dirs in sync)");
-} catch {
-  r.fail("agent parity", "pnpm agents:check failing", "run pnpm agents:sync and commit");
+  const exampleFiles = files.filter(
+    (file) => file.startsWith("examples/sample-venture/") && file.endsWith(".md"),
+  );
+  let examplesLabeled = true;
+  for (const file of exampleFiles) {
+    if (!/SYNTHETIC/i.test(readText(file))) {
+      examplesLabeled = false;
+      r.fail(file, "sample lacks a SYNTHETIC label", "label sample material explicitly");
+    }
+  }
+  if (examplesLabeled && exampleFiles.length > 0) {
+    r.ok(`sample venture Markdown labeled synthetic (${exampleFiles.length} files)`);
+  }
+
+  const privateDataFiles = files.filter(
+    (file) => file.startsWith("memory/") || file.startsWith("data/") || file.startsWith("reports/"),
+  );
+  const allowedEmailDomains = new Set([
+    "example.com",
+    "example.org",
+    "example.net",
+    "example.invalid",
+    "users.noreply.github.com",
+  ]);
+  let piiClean = true;
+  for (const file of privateDataFiles) {
+    const text = readableText(file);
+    if (text === null) continue;
+    for (const match of text.matchAll(/[\w.+-]+@([\w.-]+\.[a-z]{2,})/gi)) {
+      if (allowedEmailDomains.has(match[1].toLowerCase())) continue;
+      piiClean = false;
+      r.fail(
+        `${file}:${lineForOffset(text, match.index ?? 0)}`,
+        "contains a non-reserved email address",
+        "remove or irreversibly anonymize private data before release",
+      );
+    }
+  }
+  if (piiClean) r.ok("no non-reserved email addresses in memory/, data/, or reports/");
+
+  const inboxData = files.filter((file) => /^data\/(seo|analytics)\/inbox\/.+\.csv$/.test(file));
+  if (inboxData.length === 0) r.ok("no analytics/SEO inbox exports in the workspace");
+  else {
+    for (const file of inboxData) {
+      r.fail(
+        file,
+        "release workspace contains a provider export",
+        "remove confidential exports before release",
+      );
+    }
+  }
+
+  for (const file of REQUIRED_PUBLIC_FILES) {
+    if (existsSync(join(ROOT, file))) r.ok(`${file} present`);
+    else
+      r.fail(
+        file,
+        "required public-security file is missing",
+        "add and review the documented control or community contract",
+      );
+  }
+
+  for (const file of files.filter(
+    (path) => path.startsWith(".github/") || path === "SECURITY.md",
+  )) {
+    const text = readableText(file);
+    if (text?.includes("github.com/OWNER/")) {
+      r.fail(
+        file,
+        "contains an unresolved GitHub OWNER placeholder",
+        "replace it with the reviewed repository owner before public release",
+      );
+    }
+  }
+
+  const workflowFiles = files.filter((file) => /^\.github\/workflows\/.+\.ya?ml$/.test(file));
+  const unpinned = workflowFiles.flatMap((file) => {
+    const text = readText(file);
+    return workflowActionRefs(text)
+      .filter((ref) => !isPinnedActionRef(ref))
+      .map((ref) => `${file}: ${ref}`);
+  });
+  if (unpinned.length === 0)
+    r.ok(`all third-party workflow actions pinned (${workflowFiles.length} workflows)`);
+  else {
+    for (const value of unpinned) {
+      r.fail(
+        value,
+        "action is not pinned to a full commit SHA",
+        "resolve the reviewed action tag and pin its 40-character commit SHA",
+      );
+    }
+  }
+
+  const npmCache = mkdtempSync(join(tmpdir(), "vh-release-npm-cache-"));
+  try {
+    const packed = JSON.parse(
+      execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: { ...process.env, npm_config_cache: npmCache },
+        maxBuffer: 20 * 1024 * 1024,
+      }),
+    ) as PackResult[];
+    const packedFiles = packed.flatMap((entry) => entry.files ?? []).map((entry) => entry.path);
+    const requiredPacked = [
+      "package.json",
+      "README.md",
+      "LICENSE",
+      "bin/vh.mjs",
+      "bin/vh-build-provenance.json",
+    ];
+    for (const file of requiredPacked) {
+      if (!packedFiles.includes(file)) {
+        r.fail(
+          `npm package ${file}`,
+          "required package file is absent",
+          "repair the package files manifest and rerun npm pack --dry-run",
+        );
+      }
+    }
+    const sensitivePacked = packedFiles.filter((file) =>
+      /(^|\/)(?:\.env(?:\.|$)|memory|data|reports|\.venture|tests?|docs\/plans)(?:\/|$)/.test(file),
+    );
+    if (sensitivePacked.length === 0)
+      r.ok(`npm package contents inspected (${packedFiles.length} files)`);
+    else {
+      for (const file of sensitivePacked) {
+        r.fail(
+          `npm package ${file}`,
+          "sensitive or development-only path would ship",
+          "narrow package.json files before publication",
+        );
+      }
+    }
+  } catch (error) {
+    r.fail(
+      "npm pack --dry-run",
+      String(error),
+      "repair package metadata and inspect the dry-run JSON before release",
+    );
+  } finally {
+    rmSync(npmCache, { recursive: true, force: true });
+  }
+
+  try {
+    execFileSync("pnpm", ["agents:check"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+    r.ok("agent parity (generated directories in sync)");
+  } catch {
+    r.fail(
+      "agent parity",
+      "pnpm agents:check failed",
+      "run pnpm agents:sync, review, and commit the generated parity update",
+    );
+  }
+
+  return r.finish();
 }
 
-r.finish();
+const entry = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (import.meta.url === entry) main();

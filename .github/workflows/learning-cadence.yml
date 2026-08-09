@@ -1,0 +1,232 @@
+name: learning-cadence
+
+# Disabled cadences emit a neutral skip artifact. Enabled cadences sync direct
+# data first, persist an honest report even when evidence is insufficient, then
+# fail unless the sync and report are complete. No fixture is a live fallback.
+on:
+  schedule:
+    - cron: "15 5 * * *"
+    - cron: "25 5 * * 1"
+    - cron: "0 7 1,15 * *"
+    - cron: "35 5 1 * *"
+  workflow_dispatch:
+    inputs:
+      cadence:
+        description: Learning cadence to run
+        required: true
+        type: choice
+        default: daily
+        options: [daily, weekly, biweekly, monthly]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: learning-cadence-${{ github.event.schedule || inputs.cadence || 'manual' }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: cadence
+        name: Select the declared cadence contract
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          MANUAL_CADENCE: ${{ inputs.cadence }}
+        run: |
+          if [ -n "$MANUAL_CADENCE" ]; then
+            cadence="$MANUAL_CADENCE"
+          elif [ "$EVENT_SCHEDULE" = "25 5 * * 1" ]; then
+            cadence="weekly"
+          elif [ "$EVENT_SCHEDULE" = "0 7 1,15 * *" ]; then
+            cadence="biweekly"
+          elif [ "$EVENT_SCHEDULE" = "35 5 1 * *" ]; then
+            cadence="monthly"
+          else
+            cadence="daily"
+          fi
+
+          CADENCE="$cadence" node -e '
+            const { appendFileSync, readFileSync } = require("node:fs");
+            const { parse } = require("yaml");
+            const config = parse(readFileSync("config/loops.yaml", "utf8"));
+            const matches = Object.values(config.loops).filter(
+              (loop) => loop.cadence === process.env.CADENCE,
+            );
+            if (matches.length !== 1) {
+              throw new Error(`Expected one ${process.env.CADENCE} loop, found ${matches.length}.`);
+            }
+            const loop = matches[0];
+            if (process.env.EVENT_SCHEDULE && loop.trigger.expression !== process.env.EVENT_SCHEDULE) {
+              throw new Error(
+                `Workflow/config cron drift for ${process.env.CADENCE}: ${process.env.EVENT_SCHEDULE} != ${loop.trigger.expression}.`,
+              );
+            }
+            if (!/^reports\/learning\/[a-z0-9_-]+$/.test(loop.output_destination)) {
+              throw new Error(`Unsafe learning output destination: ${loop.output_destination}`);
+            }
+            appendFileSync(
+              process.env.GITHUB_OUTPUT,
+              `value=${process.env.CADENCE}\nenabled=${loop.enabled === true}\ndestination=${loop.output_destination}\n`,
+            );
+          '
+      - id: disabled
+        name: Record disabled cadence without syncing
+        if: steps.cadence.outputs.enabled != 'true'
+        env:
+          CADENCE: ${{ steps.cadence.outputs.value }}
+          DESTINATION: ${{ steps.cadence.outputs.destination }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          node -e '
+            const { mkdirSync, writeFileSync } = require("node:fs");
+            const { join } = require("node:path");
+            const generatedAt = new Date().toISOString();
+            const artifact = {
+              schemaVersion: 1,
+              kind: "learning_schedule_skip",
+              cadence: process.env.CADENCE,
+              status: "disabled",
+              generatedAt,
+              runId: process.env.RUN_ID,
+              reason: "config/loops.yaml marks this cadence disabled.",
+              dataSyncAttempted: false,
+              learningReportGenerated: false,
+            };
+            mkdirSync(process.env.DESTINATION, { recursive: true });
+            writeFileSync(
+              join(process.env.DESTINATION, "schedule-skip.json"),
+              `${JSON.stringify(artifact, null, 2)}\n`,
+              { mode: 0o600 },
+            );
+            writeFileSync(
+              join(process.env.DESTINATION, "schedule-skip.md"),
+              `# ${process.env.CADENCE} learning schedule\n\n- Status: **disabled**\n- Data sync attempted: no\n- Learning report generated: no\n- Reason: ${artifact.reason}\n`,
+              { mode: 0o600 },
+            );
+          '
+          echo "::notice title=Learning cadence disabled::${CADENCE} is disabled in config/loops.yaml; no data sync or analysis ran."
+          {
+            echo "### ${CADENCE} learning cadence"
+            echo "- Status: disabled"
+            echo "- Data sync attempted: no"
+            echo "- Report: ${DESTINATION}/schedule-skip.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - id: sync
+        name: Sync direct provider data first
+        if: steps.cadence.outputs.enabled == 'true'
+        env:
+          CADENCE: ${{ steps.cadence.outputs.value }}
+        run: |
+          result_dir=".venture/scheduled/${CADENCE}"
+          mkdir -p "$result_dir"
+          set +e
+          pnpm --silent vh -- data sync --json > "$result_dir/data-sync.json" 2> "$result_dir/data-sync.stderr"
+          sync_exit=$?
+          set -e
+
+          if [ -s "$result_dir/data-sync.stderr" ]; then
+            sed -n '1,80p' "$result_dir/data-sync.stderr" >&2
+          fi
+
+          if [ "$sync_exit" -ne 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "status=command_failed" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Direct data sync"
+              echo "- Status: command_failed"
+              echo "- Exit code: ${sync_exit}"
+              echo "- No fixture or zero-filled fallback was used."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          SYNC_RESULT="$result_dir/data-sync.json" node -e '
+            const { appendFileSync, readFileSync } = require("node:fs");
+            const result = JSON.parse(readFileSync(process.env.SYNC_RESULT, "utf8"));
+            const status = ["complete", "incomplete", "not_configured"].includes(result.status)
+              ? result.status
+              : "invalid_artifact";
+            const ready = status === "complete";
+            appendFileSync(process.env.GITHUB_OUTPUT, `ready=${ready}\nstatus=${status}\n`);
+            const next = String(result.nextAction ?? "Inspect normalized freshness and failures.")
+              .replace(/[\r\n]+/g, " ")
+              .trim();
+            appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `### Direct data sync\n- Status: ${status}\n- Next: ${next}\n- No fixture or zero-filled fallback was used.\n`,
+            );
+          '
+      - id: learn
+        name: Persist typed bounded learning report
+        if: ${{ always() && steps.cadence.outputs.enabled == 'true' }}
+        env:
+          CADENCE: ${{ steps.cadence.outputs.value }}
+        run: pnpm --silent vh -- learn "$CADENCE" --json
+      - name: Upload typed report artifact
+        if: ${{ always() && steps.cadence.outputs.destination != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: learning-${{ steps.cadence.outputs.value }}-${{ github.run_id }}
+          path: ${{ steps.cadence.outputs.destination }}/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Enforce truthful scheduled outcome
+        if: always()
+        env:
+          CADENCE_ENABLED: ${{ steps.cadence.outputs.enabled }}
+          DESTINATION: ${{ steps.cadence.outputs.destination }}
+          SYNC_READY: ${{ steps.sync.outputs.ready }}
+          SYNC_STATUS: ${{ steps.sync.outputs.status }}
+          LEARN_OUTCOME: ${{ steps.learn.outcome }}
+        run: |
+          if [ -z "$DESTINATION" ]; then
+            echo "::error title=Cadence contract unavailable::No declared report destination was selected."
+            exit 1
+          fi
+
+          if [ "$CADENCE_ENABLED" != "true" ]; then
+            test -f "$DESTINATION/schedule-skip.json"
+            test -f "$DESTINATION/schedule-skip.md"
+            echo "Cadence disabled; explicit skip artifacts were uploaded and the run is neutral."
+            exit 0
+          fi
+
+          failed=0
+          if [ "$SYNC_READY" != "true" ]; then
+            echo "::error title=Direct data unavailable::Sync status was ${SYNC_STATUS:-unknown}. Configure read-only direct connectors and credential refs; no fixture was substituted."
+            failed=1
+          fi
+          if [ "$LEARN_OUTCOME" != "success" ]; then
+            echo "::error title=Learning report command failed::vh learn outcome was ${LEARN_OUTCOME:-unknown}."
+            failed=1
+          fi
+
+          report="$DESTINATION/latest.json"
+          if [ ! -f "$report" ]; then
+            echo "::error title=Learning report missing::Expected $report."
+            failed=1
+          else
+            report_status="$(node -e '
+              const { readFileSync } = require("node:fs");
+              const report = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              process.stdout.write(String(report.status ?? "missing"));
+            ' "$report")"
+            echo "Learning report status: $report_status"
+            if [ "$report_status" != "complete" ]; then
+              echo "::error title=Insufficient learning evidence::Report status was $report_status; inspect freshness and limitations in the uploaded artifact."
+              failed=1
+            fi
+          fi
+
+          exit "$failed"
