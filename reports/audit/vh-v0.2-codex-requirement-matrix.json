@@ -1,0 +1,1614 @@
+{
+  "schemaVersion": 1,
+  "phase": "INITIAL_AUDIT",
+  "generatedAt": "2026-08-09",
+  "branch": "sol/vh-core-v0.2-winner-loop",
+  "startingSha": "1ba4a22f08f356a510e0611b9081f5d16eaa2823",
+  "backupRef": "refs/heads/backup/opus-vh-core-v0.2-1ba4a22",
+  "originMain": "de69705a5b1b4404771c66cf169a6cbcf885fb3a",
+  "allowedStatuses": [
+    "VERIFIED_RUNTIME",
+    "VERIFIED_INTEGRATION",
+    "VERIFIED_FIXTURE",
+    "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+    "EXTERNAL_BLOCKER",
+    "NOT_APPLICABLE",
+    "DEFERRED_POST_ALPHA",
+    "PARTIAL",
+    "STUB",
+    "MISSING",
+    "INCORRECT",
+    "CONTRADICTED_BY_RUNTIME"
+  ],
+  "counts": {
+    "VERIFIED_RUNTIME": 0,
+    "VERIFIED_INTEGRATION": 0,
+    "VERIFIED_FIXTURE": 0,
+    "IMPLEMENTED_LIVE_VERIFICATION_PENDING": 0,
+    "EXTERNAL_BLOCKER": 0,
+    "NOT_APPLICABLE": 0,
+    "DEFERRED_POST_ALPHA": 0,
+    "PARTIAL": 49,
+    "STUB": 0,
+    "MISSING": 117,
+    "INCORRECT": 5,
+    "CONTRADICTED_BY_RUNTIME": 3
+  },
+  "priorities": {
+    "P0": 33,
+    "P1": 102,
+    "P2": 39,
+    "P3": 0
+  },
+  "requirements": [
+    {
+      "id": "CORE-001",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "pnpm workspace",
+      "status": "MISSING",
+      "evidence": ["package.json", "pnpm-lock.yaml"],
+      "gap": "No pnpm-workspace.yaml or workspace package manifests existed at recovered HEAD."
+    },
+    {
+      "id": "CORE-002",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "package boundaries",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-003",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "config and schemas",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-004",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "command bus",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-005",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "event log",
+      "status": "PARTIAL",
+      "evidence": ["lib/workflow/store.ts"],
+      "gap": "Workflow JSONL events exist, but there is no general append-only domain event log."
+    },
+    {
+      "id": "CORE-006",
+      "group": "A. Core",
+      "priority": "P0",
+      "requirement": "audit hash chain",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-007",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "asset vault",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-008",
+      "group": "A. Core",
+      "priority": "P0",
+      "requirement": "credential broker",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-009",
+      "group": "A. Core",
+      "priority": "P0",
+      "requirement": "authorization and policy",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-010",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "organizations",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-011",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "subscriptions and entitlements",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-012",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "provider connections",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-013",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "provider SDK",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-014",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "provider registry",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-015",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "graph runtime",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-016",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "loop runtime",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-017",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "CLI",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-018",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "API",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-019",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "MCP",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-020",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "SDK",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-021",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "pack runtime",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-022",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "seed runtime",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-023",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "migrations",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-024",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "telemetry",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-025",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "shared UI",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-026",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "control-plane app boundary",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-027",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "API/worker/docs/Fleet Controller app boundaries",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "CORE-028",
+      "group": "A. Core",
+      "priority": "P1",
+      "requirement": "package exports, packing, and clean-consumer install",
+      "status": "CONTRADICTED_BY_RUNTIME",
+      "evidence": ["package.json", "bin/vh.mjs"],
+      "gap": "The recovered package included 555 monorepo entries and the clean-consumer vh binary failed because tsx was only a devDependency."
+    },
+    {
+      "id": "CORE-029",
+      "group": "A. Core",
+      "priority": "P2",
+      "requirement": "public release checks",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-001",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "idea compiler",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-002",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "Stack Profile resolution",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-003",
+      "group": "B. Venture creation",
+      "priority": "P0",
+      "requirement": "Launch Grant",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-004",
+      "group": "B. Venture creation",
+      "priority": "P0",
+      "requirement": "no external resource before Launch Grant",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-005",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "local isolated workspace",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-006",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "GitHub repository creation",
+      "status": "PARTIAL",
+      "evidence": ["lib/providers/github-source-publication.ts"],
+      "gap": "Source-publication primitives exist, but no Launch-Grant-bound child repository materializer consumes them."
+    },
+    {
+      "id": "VENTURE-007",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "seed materialization",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-008",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "harness.lock",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-009",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "Venture Manifest",
+      "status": "MISSING",
+      "evidence": ["lib/cli/default-services.ts"],
+      "gap": ".venture/project.json is a router snapshot, not the required Venture Manifest."
+    },
+    {
+      "id": "VENTURE-010",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "unique design",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-011",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "unique application",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-012",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "ServiceBlueprint",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-013",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "Connector Manifest",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-014",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "unique Agent Surface",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-015",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "CompanyStack provisioning",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-016",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "source push",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-017",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "preview verification",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-018",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "production deployment planning",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-019",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "live/fixture verification",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-020",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "three versioned seed rails",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "VENTURE-021",
+      "group": "B. Venture creation",
+      "priority": "P1",
+      "requirement": "v0.1-to-v0.2 materialization fixture",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-001",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "customer users",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-002",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "customer organizations and memberships",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-003",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "venture subscriptions",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-004",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "entitlements",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-005",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "Connection Hub",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-006",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "Customer Service Grants",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-007",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "Provider Connections",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-008",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "Agent Grants",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-009",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "customer agent API/CLI/MCP/SDK",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-010",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "usage metering",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-011",
+      "group": "C. Recursive customer service",
+      "priority": "P0",
+      "requirement": "revocation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-012",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "offboarding",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-013",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "customer resource ownership",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-014",
+      "group": "C. Recursive customer service",
+      "priority": "P0",
+      "requirement": "CompanyStack/CustomerStack/AgentAccessStack separation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-015",
+      "group": "C. Recursive customer service",
+      "priority": "P0",
+      "requirement": "cross-tenant isolation at HTTP/command/service/repository/persistence/webhook layers",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-016",
+      "group": "C. Recursive customer service",
+      "priority": "P0",
+      "requirement": "tenant credential resolution and refresh",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-017",
+      "group": "C. Recursive customer service",
+      "priority": "P0",
+      "requirement": "cross-venture asset/run/cohort isolation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "RECUR-018",
+      "group": "C. Recursive customer service",
+      "priority": "P1",
+      "requirement": "subscription and entitlement negative controls",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-001",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "founder default Stack Profile",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-002",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "at least one alternative Stack Profile with real adapters",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-003",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "capability resolution",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-004",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "provider-specific auth",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-005",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "provider state and ownership metadata",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-006",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "read-back verification",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-007",
+      "group": "D. Provider portability",
+      "priority": "P0",
+      "requirement": "unknown-outcome reconciliation",
+      "status": "INCORRECT",
+      "evidence": ["lib/providers/adapter.ts"],
+      "gap": "A crash after provider write but before success-ledger persistence can blindly repeat the effect."
+    },
+    {
+      "id": "PORT-008",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "provider status matrix",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-009",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "failure injection and idempotent retry",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-010",
+      "group": "D. Provider portability",
+      "priority": "P0",
+      "requirement": "no duplicate external writes",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-011",
+      "group": "D. Provider portability",
+      "priority": "P0",
+      "requirement": "revoked delegated access preserves resources",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "PORT-012",
+      "group": "D. Provider portability",
+      "priority": "P2",
+      "requirement": "provider doctor/dry-run/diagnostics without credentials",
+      "status": "PARTIAL",
+      "evidence": ["lib/providers/adapter.ts", "lib/cli/default-provider-runtime.ts"],
+      "gap": "Doctor and dry-run paths exist, but the complete lifecycle and Winner Loop providers are absent."
+    },
+    {
+      "id": "FLEET-001",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "versioned Core packages",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-002",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "Core release manifests",
+      "status": "PARTIAL",
+      "evidence": ["lib/upgrade/local-release.ts"],
+      "gap": "A local release manifest exists, but there are no versioned Core package release manifests."
+    },
+    {
+      "id": "FLEET-003",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "affected-capability calculation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-004",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "managed files",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-005",
+      "group": "E. Fleet evolution",
+      "priority": "P0",
+      "requirement": "three ownership classes and three-way merge",
+      "status": "INCORRECT",
+      "evidence": ["lib/config/harness-lock.ts", "lib/upgrade/engine.ts"],
+      "gap": "Ownership is harness/project/generated and diverged managed files only conflict; merge-managed three-way behavior is absent."
+    },
+    {
+      "id": "FLEET-006",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "reusable workflows pinned to immutable refs",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-007",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "migrations",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-008",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "vh upgrade",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-009",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "upgrade branch",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-010",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "canary",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-011",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "batches",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-012",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "preview verification",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-013",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "automatic merge policy",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-014",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "production verification",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-015",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "pause and rollback",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-016",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "two-independent-venture upgrade fixture",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-017",
+      "group": "E. Fleet evolution",
+      "priority": "P0",
+      "requirement": "canary failure stops rollout",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "FLEET-018",
+      "group": "E. Fleet evolution",
+      "priority": "P1",
+      "requirement": "Fleet Controller outage independence",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-001",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "Growth Contract",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-002",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "creative experiment matrix",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-003",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "creative identity",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-004",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "content fingerprint",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-005",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "delivery variants and lineage",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-006",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "creative manifests",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-007",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "rights and paid-use enforcement",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-008",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "render jobs",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-009",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "organic publishing modes and review default",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-010",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "organic account caps and duplicate policy",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-011",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "organic metric definitions and snapshots",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-012",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "account and format baselines",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-013",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "winner evaluator",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-014",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "PaidTestProposal",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-015",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "human approval and immutable Spend Grant",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-016",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "budget ledger",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-017",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "distributed concurrency safety",
+      "status": "INCORRECT",
+      "evidence": ["lib/winner-loop/spend-store.ts", "tests/winner-loop-spend-safety.test.ts"],
+      "gap": "Recovered runtime leaked a reservation across ventures on idempotency-key reuse, and the concurrency test was sequential rather than simultaneous."
+    },
+    {
+      "id": "WL-018",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "settlement, reconciliation, incident, freeze, kill switch",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-019",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "Spark Ad adapter and fixture",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-020",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "readiness ladder",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-021",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "no auto-scale",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-022",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "VBO fails closed before evidence and eligibility",
+      "status": "INCORRECT",
+      "evidence": ["lib/winner-loop/readiness.ts"],
+      "gap": "Recovered runtime returned vboAllowed=true at NO_SIGNAL when policy was allowed."
+    },
+    {
+      "id": "WL-023",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "attribution ledger",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-024",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "RevenueCat event ingestion",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-025",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "D0/D7/D30 cohorts",
+      "status": "INCORRECT",
+      "evidence": [
+        "lib/winner-loop/subscriptions.ts",
+        "reports/audit/winner-loop-creative-trace.json"
+      ],
+      "gap": "D0 was implemented as a zero-width interval and omitted a same-day purchase from the committed trace."
+    },
+    {
+      "id": "WL-026",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "D90 configuration without mature-proof claim",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-027",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "fatigue state",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-028",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "Winner Loop analytics event pack",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-029",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "creative provider adapter",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-030",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "organic provider adapter",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-031",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "paid provider adapter",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-032",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "attribution provider adapter",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-033",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "RevenueCat provider adapter",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-034",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "DistributionPR linkage",
+      "status": "PARTIAL",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-035",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "Fixture D",
+      "status": "CONTRADICTED_BY_RUNTIME",
+      "evidence": ["lib/winner-loop/fixture-d.ts"],
+      "gap": "The fixture directly composes in-memory helpers and bypasses command, graph, provider, asset, audit, and persistence boundaries."
+    },
+    {
+      "id": "WL-036",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "Fixture D traverses command bus, graph, provider SDK, persistence, assets, audit, budget, and attribution",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-037",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "full creative trace artifact",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-038",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "Winner Loop pack install/uninstall/idempotency",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-039",
+      "group": "F. Winner Loop",
+      "priority": "P2",
+      "requirement": "Winner Loop migration stream",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-040",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "TikTok proof does not imply Meta proof",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-041",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "auto-pause",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-042",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "missing metrics never become zero",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-043",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "incompatible metric definitions never combine",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-044",
+      "group": "F. Winner Loop",
+      "priority": "P1",
+      "requirement": "exact proposal/grant mismatch negative controls",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "WL-045",
+      "group": "F. Winner Loop",
+      "priority": "P0",
+      "requirement": "provider actual overspend recorded honestly",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-001",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "canary-secret non-disclosure across logs/events/reports/CLI/errors/model context",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-002",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "webhook signature verification and routing isolation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-003",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "OAuth state, PKCE, redirect allowlist, and callback validation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-004",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "SSRF protection",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-005",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "upload size/MIME/path traversal protection",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-006",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "command injection protection",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-007",
+      "group": "G. Security and open source",
+      "priority": "P2",
+      "requirement": "Gitleaks or equivalent current-tree/history/package scan",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-008",
+      "group": "G. Security and open source",
+      "priority": "P2",
+      "requirement": "CodeQL or justified local equivalent",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-009",
+      "group": "G. Security and open source",
+      "priority": "P2",
+      "requirement": "dependency review and Dependabot",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-010",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "audit integrity",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-011",
+      "group": "G. Security and open source",
+      "priority": "P0",
+      "requirement": "public repository contains no real private provider/customer/fleet data",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "SEC-012",
+      "group": "G. Security and open source",
+      "priority": "P2",
+      "requirement": "branch/push protection guidance",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-001",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "frozen install",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-002",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "workspace/package build and export validation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-003",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "packed CLI invocation",
+      "status": "CONTRADICTED_BY_RUNTIME",
+      "evidence": ["bin/vh.mjs", "package.json"],
+      "gap": "The packed binary exits ERR_MODULE_NOT_FOUND for tsx in a clean consumer."
+    },
+    {
+      "id": "QUAL-004",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "MCP startup/tool invocation",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-005",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "SDK clean-consumer install",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-006",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "golden path A one-prompt launch",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-007",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "golden path B recursive SaaS",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-008",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "golden path C Winner Loop Fixture D",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-009",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "golden path D fleet upgrade",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-010",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "negative controls artifact",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-011",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "vh verify fast",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-012",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "vh verify mvp",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-013",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "vh verify release",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-014",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "pnpm verify compatibility gate",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-015",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "raw HTML/e2e/accessibility/responsive verification",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-016",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "commands-run evidence with exits/skips",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-017",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "Opus claims verification",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-018",
+      "group": "H. Verification and evidence",
+      "priority": "P2",
+      "requirement": "stubs and dead-code audit",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    },
+    {
+      "id": "QUAL-019",
+      "group": "H. Verification and evidence",
+      "priority": "P0",
+      "requirement": "product-truth and public-claim alignment",
+      "status": "MISSING",
+      "evidence": [],
+      "gap": "Independent runtime verification and/or implementation is still required."
+    }
+  ]
+}
