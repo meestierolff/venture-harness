@@ -608,12 +608,18 @@ managed_files:
   - path: lib/winner-loop/fingerprint.ts
     ownership: harness
     sha256: 8598ef5a0860e388f58021f51a26d6cc73ca29132ea0cf4effbbefbdbf2a4d6c
+  - path: lib/winner-loop/fixture-d.ts
+    ownership: harness
+    sha256: 86465b6ee18da8d8f333054865056a0985a70d9364e43f8c6d994231774b5095
   - path: lib/winner-loop/ids.ts
     ownership: harness
     sha256: 8d033b31ae9ee1b5176da1950da803de4bed5c9f0e7117b63bde78ebe2636af0
   - path: lib/winner-loop/index.ts
     ownership: harness
-    sha256: a62f0627dec0bbba3e19f1010883b639b0e8f617db3c8eac2ab078f6c58f636b
+    sha256: be9b523e38d0f5eafbc552366324888248ba97a90e812a6586549d222f7afc9d
+  - path: lib/winner-loop/learnings.ts
+    ownership: harness
+    sha256: d1134affd1a2a3bbddcb25c0ae5d7325018cffcb55e1e45c556031fa7eb8441f
   - path: lib/winner-loop/metrics.ts
     ownership: harness
     sha256: fce50aba4eb307694aeb95b75e07fde19e62d52d20bd303a665353376d6b2cd2
@@ -673,7 +679,7 @@ managed_files:
     sha256: 5fa04a810adc1aaac0575af373dd8b43b61690efb2e13f6a116c270782c6f791
   - path: package.json
     ownership: harness
-    sha256: 7f9b606954b4ba88c5cb3b34bb9a3f1461484434c1c385c1e1b48a94bfbb21f7
+    sha256: a5fa92156f949034ff05ea9cdbb7ec28b7625c9e6e80eeb3f61fc40cf51eeed3
   - path: pnpm-lock.yaml
     ownership: harness
     sha256: 0a356cb1f76f90a35d5b80a82b39adb5c1c17dcc13dce842d4978811d2c0ccf9
@@ -716,6 +722,9 @@ managed_files:
   - path: scripts/run-weekly-demand-analysis.ts
     ownership: harness
     sha256: 2059285a10ee2424f0303b5b7334d39ad3a12d22e3f665156677a4df0da8f933
+  - path: scripts/run-winner-loop-fixture.ts
+    ownership: harness
+    sha256: c9310005c868a61b9b9d06f6a4896825ffb781434f9aea48d238aee31ef86e18
   - path: scripts/sync-agent-skills.ts
     ownership: harness
     sha256: 7dee18bf2ed44d0121ca6786b8cd8f4b688ef4663dfd4fe63107d4faae44d9c5
@@ -1064,6 +1073,9 @@ managed_files:
   - path: tests/winner-loop-evaluator.test.ts
     ownership: harness
     sha256: e42fee9607e15c5bf2e8a80c4c5430e0e28250d934c230eee42f8dabdfb65a3b
+  - path: tests/winner-loop-fixture-d.test.ts
+    ownership: harness
+    sha256: 67cf517024759a713aa158e64ed9218b9587232a3357929ed5dee07da93f6b8d
   - path: tests/winner-loop-metrics.test.ts
     ownership: harness
     sha256: 424ddcd2a596a017603a233748b19b4c3add3904fedfbc715522e2a1a8cdc74f

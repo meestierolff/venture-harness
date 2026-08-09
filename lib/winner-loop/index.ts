@@ -146,3 +146,18 @@ export {
   type SubscriptionIngestor,
   type SubscriptionIngestorOptions,
 } from "./subscriptions";
+export {
+  buildLearning,
+  learningConfidenceFor,
+  type BuildLearningInput,
+  type LearningConfidence,
+  type ProductSurface,
+  type WinnerLoopLearning,
+} from "./learnings";
+export {
+  FIXTURE_LABEL,
+  buildCreativeTrace,
+  runFixtureD,
+  type FixtureDOptions,
+  type FixtureDResult,
+} from "./fixture-d";

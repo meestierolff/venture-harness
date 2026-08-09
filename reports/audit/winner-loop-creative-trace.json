@@ -1,0 +1,88 @@
+{
+  "label": "SYNTHETIC_FIXTURE — no provider was contacted",
+  "generatedFor": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+  "venture": "sample-venture",
+  "identity": {
+    "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
+    "deliveryVariantId": "dv_01KZK69SG0BJS07ENW3AHRZ001",
+    "lineage": ["cr_01KZK69SG0BJS07ENW3AHRZ6DM"]
+  },
+  "providerObjects": [
+    {
+      "provider": "local_renderer",
+      "objectKind": "render_job",
+      "externalId": "fixture-render-1"
+    },
+    {
+      "provider": "tiktok_content",
+      "objectKind": "organic_post",
+      "externalId": "fixture-tt-post"
+    },
+    {
+      "provider": "tiktok_ads",
+      "objectKind": "spark_ad",
+      "externalId": "fixture-spark-ad"
+    }
+  ],
+  "organic": {
+    "snapshotsIngested": 3,
+    "missingMetrics": ["saves"]
+  },
+  "evaluation": {
+    "recommendationId": "rec_01KZK69SG0BJS07ENW3AHRZ6DM",
+    "scoringVersion": "winner-score-v1",
+    "score": 0.9050179211469533,
+    "confidence": "high",
+    "recommendation": "PAID_TEST_CANDIDATE",
+    "spendEligible": true
+  },
+  "readiness": {
+    "stage": "HIGH_INTENT_EVENT_READY",
+    "recommendedOptimizationEvent": "trial_start",
+    "vboAllowed": false,
+    "blockers": []
+  },
+  "paid": {
+    "blockedWithoutApproval": "proposal_not_approved",
+    "blockedWithoutGrant": "no_spend_grant",
+    "proposalId": "prop_01KZK69SG0BJS07ENW3AHRZ6DM",
+    "grantId": "grant_01KZK69SG0BJS07ENW3AHRZ6DM",
+    "settledSpendMinor": 4650
+  },
+  "subscriptions": {
+    "duplicateEventRejected": true,
+    "outOfOrderHandled": true
+  },
+  "cohorts": [
+    {
+      "window": "D0",
+      "attributionClass": "DETERMINISTIC",
+      "creativeLevelCertainty": true,
+      "cacMinor": null,
+      "netRevenueMinor": 0,
+      "missingData": ["installs"]
+    },
+    {
+      "window": "D7",
+      "attributionClass": "DETERMINISTIC",
+      "creativeLevelCertainty": true,
+      "cacMinor": 4650,
+      "netRevenueMinor": 1998,
+      "missingData": ["installs"]
+    },
+    {
+      "window": "D30",
+      "attributionClass": "DETERMINISTIC",
+      "creativeLevelCertainty": true,
+      "cacMinor": 4650,
+      "netRevenueMinor": 1998,
+      "missingData": ["installs"]
+    }
+  ],
+  "learning": {
+    "learningId": "learn_01KZK69SG0BJS07ENW3AHRZ6DM",
+    "recommendedSurface": "campaign_page",
+    "confidence": "supported",
+    "limitations": []
+  }
+}
