@@ -103,3 +103,18 @@ export {
   type ReadinessStage,
   type ReadinessThresholds,
 } from "./readiness";
+export {
+  PaidTestError,
+  createPaidTestService,
+  hashMaterialTerms,
+  type DisclosureState,
+  type PaidOperationRequest,
+  type PaidTestErrorCode,
+  type PaidTestOptions,
+  type PaidTestProposal,
+  type PaidTestProposalInput,
+  type PaidTestService,
+  type ProposalDecision,
+  type ProposalStatus,
+  type RightsState,
+} from "./paid-test";
