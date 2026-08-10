@@ -196,6 +196,27 @@
       "line": 680,
       "sha256": "35bda0fa107dbfda4d320cc1f49c6f59f73d54a1044593fab8bd1fd6ab7a15e4",
       "reason": "Synthetic Winner fixture credential-classifier canary."
+    },
+    {
+      "path": "tests/stack-connect.test.ts",
+      "rule": "stripe-access-token",
+      "line": 49,
+      "sha256": "4a745ec7531f18aed7965c7ba7bab96593b32ec2664c2a48f546cc4b0f12f328",
+      "reason": "Synthetic argv-rejection canary; proves vh stack connect refuses a credential value as an argument."
+    },
+    {
+      "path": "tests/stack-connect.test.ts",
+      "rule": "stripe-access-token",
+      "line": 50,
+      "sha256": "235d330ebeee14d682470b1d2200c90be55f2df0c3599a1d65b4ca127293ac31",
+      "reason": "Synthetic argv-rejection canary; proves vh stack connect refuses a credential value as an argument."
+    },
+    {
+      "path": "tests/stack-connect.test.ts",
+      "rule": "stripe-access-token",
+      "line": 156,
+      "sha256": "6a1028875fa018d6aac3cebcc43f046cf29c427a6d94b1ad57d23ca652af0ce2",
+      "reason": "Synthetic canary; proves connection planning refuses a value where a cred:// reference is required."
     }
   ]
 }

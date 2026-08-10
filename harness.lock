@@ -379,7 +379,7 @@ managed_files:
     sha256: a810993cfa15106af2394fcaaa226a2d808bc77a59f83764a9124a5d7e224710
   - path: lib/cli/index.ts
     ownership: harness
-    sha256: d2cfea9db3251314f891edbd4c511e4336ef5c6ac95c29e8791a0248ceb131cc
+    sha256: 60bd2f416bc4fd522e46ad973a3b617940961526c015c5b3779945d734a612d2
   - path: lib/cli/platform-command-runtime.ts
     ownership: harness
     sha256: 0f8e5f27c705f47a20f7616dcedc16104c9904ccdc911e6baa31e180974d9fa4
@@ -506,6 +506,12 @@ managed_files:
   - path: lib/founder-launch/orchestrator.ts
     ownership: harness
     sha256: ed26aa7802116295aab59144601f8031a5631424a76123152a31c014903e2157
+  - path: lib/founder-launch/stack-connect-shell.ts
+    ownership: harness
+    sha256: 13fe4c9a1ee66e10146870e035d42de3e84205788bdb1a268c8d36f595a74dfb
+  - path: lib/founder-launch/stack-connect.ts
+    ownership: harness
+    sha256: 00ceedb37ce2d8809999ab2e333bcd29a3c8ab3383b605563eeba0ce40003c68
   - path: lib/founder-launch/stack.ts
     ownership: harness
     sha256: 4fbe6e0636f3d0e6fcfc9717b889e72ea90c432b0f2bdcf9a920ec39ff802ea7
@@ -1436,6 +1442,9 @@ managed_files:
   - path: tests/security-release.test.ts
     ownership: harness
     sha256: 61c5a1522a6ab7c62f5111ae8cd0fe006ae814683e96ad640e6fc44c8d0b9ae0
+  - path: tests/stack-connect.test.ts
+    ownership: harness
+    sha256: 8cb8f9710d6229af3dbd7bc6c87edf156ad8c189e3db999615993199d508c05b
   - path: tests/stack-profile-command-runtime.test.ts
     ownership: harness
     sha256: 4e79b1803e2047c86706ce92bcc7a48fae1a5cc8f5c2bfb247d0a64b89c021ec

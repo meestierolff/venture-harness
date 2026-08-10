@@ -8,6 +8,18 @@ import {
   resolveVenturesRoot,
   saveFounderConfig,
 } from "../founder-launch/founder-config";
+import {
+  assertNoSecretsInArgv,
+  blockingActions,
+  credentialRefFor,
+  planFounderStackConnection,
+  type CollectedRole,
+} from "../founder-launch/stack-connect";
+import {
+  detectSessions,
+  discoverGitHubOwner,
+  discoverVercelScope,
+} from "../founder-launch/stack-connect-shell";
 import type { CliIo, CliLaunchRequest, CliResult, CliServices } from "./types";
 
 export * from "./types";
@@ -30,6 +42,8 @@ Usage:
     --kind <credential-kind> --scopes <comma-separated>
   vh stack create founder-default --file <connection.json>
                                   Persist one credential-free founder Stack connection
+  vh stack connect founder-default
+                                  Guided one-time connection of the default founder Stack
   vh stack doctor founder-default Inspect every founder Stack role without provider effects
   vh config show                  Show persistent founder settings
   vh config set ventures-root <absolute-path>
@@ -183,6 +197,85 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
         );
       }
       return { exitCode: 0 };
+    }
+
+    if (command === "stack" && positional(rest)[0] === "connect") {
+      // Refuse before anything else: an argument is already exposed by the time
+      // we could validate it, so this must run ahead of any other parsing.
+      try {
+        assertNoSecretsInArgv(rest);
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 2 };
+      }
+      const values = positional(rest);
+      if (values.length !== 2 || values[1] !== "founder-default") {
+        io.stderr("Usage: vh stack connect founder-default");
+        return { exitCode: 2 };
+      }
+      const sessions = detectSessions();
+      const collected: CollectedRole[] = [];
+      const githubOwner = discoverGitHubOwner();
+      const vercelScope = discoverVercelScope();
+      if (githubOwner) {
+        collected.push({
+          role: "source.repository",
+          credentialRef: credentialRefFor("github", "founder-default"),
+          identifiers: { accountId: githubOwner, organizationId: githubOwner },
+        });
+      }
+      if (vercelScope) {
+        collected.push({
+          role: "hosting.web",
+          credentialRef: credentialRefFor("vercel", "founder-default"),
+          identifiers: { accountId: vercelScope, teamId: vercelScope },
+        });
+      }
+      const plan = planFounderStackConnection({
+        profileId: "founder-default",
+        ownerOrganizationId: githubOwner ?? "founder",
+        sessions,
+        collected,
+      });
+      const venturesRoot = loadFounderConfig().venturesRoot ?? null;
+      const blocking = blockingActions(plan);
+      emit(
+        io,
+        {
+          command: "stack.connect",
+          profileId: "founder-default",
+          sessions: sessions.map(({ provider, authenticated, account }) => ({
+            provider,
+            authenticated,
+            ...(account ? { account } : {}),
+          })),
+          resolved: plan.resolved,
+          venturesRoot,
+          launchReady: plan.launchReady && venturesRoot !== null,
+          unresolvedActions: [
+            ...plan.unresolved.map((action) => ({
+              role: action.role,
+              provider: action.provider,
+              why: action.why,
+              command: action.command,
+              blocksLaunch: action.blocksLaunch,
+            })),
+            ...(venturesRoot
+              ? []
+              : [
+                  {
+                    role: "workspace",
+                    provider: "local",
+                    why: "No ventures root is configured, so a launch has nowhere safe to materialize a venture.",
+                    command: "vh config set ventures-root <absolute-path>",
+                    blocksLaunch: true,
+                  },
+                ]),
+          ],
+        },
+        json,
+      );
+      return { exitCode: blocking.length === 0 && venturesRoot ? 0 : 1 };
     }
 
     if (command === "stack") {
