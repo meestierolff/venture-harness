@@ -316,7 +316,7 @@ managed_files:
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
   - path: config/quality.yaml
     ownership: harness
-    sha256: 77d4efe71fe041cee90750962a3ec8afe48c32dc1b5571ca45333274fd10eec2
+    sha256: 0586e854476fd88d49fa9a9e07c069d53868f1d9c7074356d7df35e48de98dca
   - path: eslint.config.mjs
     ownership: harness
     sha256: 9c351c61b1b40c0aaee4363100826d7090b309d86ec1d5c28b9be7eb6811f8a4

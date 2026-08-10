@@ -41,6 +41,7 @@ profiles:
   mvp:
     description: Full deterministic gate, build, critical contracts, and capability-selected MVP checks.
     checks:
+      - workspace_packages_build
       - compatibility_verify
       - full_format
       - full_lint
@@ -62,6 +63,7 @@ profiles:
       profile must be able to reach PASS with no live provider connected; it
       never contains a live provider read-back.
     checks:
+      - workspace_packages_build
       - compatibility_verify
       - public_release_safety
       - full_format
@@ -92,6 +94,7 @@ profiles:
       Stable-release gate. Every release check plus the required live provider
       read-back evidence. Remains INCOMPLETE until both are satisfied.
     checks:
+      - workspace_packages_build
       - compatibility_verify
       - public_release_safety
       - full_format
@@ -148,11 +151,11 @@ checks:
     when_paths: [skills/, .agents/, .claude/skills/, AGENTS.md, CLAUDE.md, GEMINI.md]
   compatibility_verify:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify]
   public_release_safety:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, release:check]
   full_format:
     kind: command
@@ -164,31 +167,31 @@ checks:
     command: [pnpm, exec, eslint, --max-warnings=0, .]
   typecheck:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, typecheck]
   unit_integration:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, test]
   workspace_build:
     kind: command
-    phase: 2
+    phase: 3
     command: [pnpm, workspace:build]
   workspace_contract:
     kind: command
-    phase: 3
+    phase: 4
     command: [pnpm, workspace:check]
   workspace_pack_consumer:
     kind: command
-    phase: 4
+    phase: 5
     command: [pnpm, test:workspace]
   production_build:
     kind: command
-    phase: 3
+    phase: 4
     command: [pnpm, build]
   migration_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -202,7 +205,7 @@ checks:
       ]
   migration_rollback_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -215,11 +218,11 @@ checks:
       ]
   provider_contract_tests:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, test:providers]
   synthetic_fixture_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -233,7 +236,7 @@ checks:
       ]
   graph_resume_idempotency:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -248,50 +251,50 @@ checks:
       ]
   analytics_pack_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [pnpm, exec, vitest, run, tests/analytics-packs.test.ts, tests/analytics-taxonomy.test.ts]
   analytics_readiness:
     kind: analytics_readiness
-    phase: 1
+    phase: 2
   provider_dry_run:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [pnpm, exec, vitest, run, tests/providers-contract.test.ts, tests/providers-execution.test.ts]
   seo_static:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify:seo]
   consent_contract:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify:consent]
   pricing_integrity:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify:pricing-recording]
   # Must run after production_build, never beside it. `raw_html` inspects the
   # build result of a prior phase, and a check sharing production_build's phase
   # sees an incomplete result map.
   raw_html:
     kind: raw_html
-    phase: 4
+    phase: 5
     command: [pnpm, verify:raw-html]
   # Playwright starts the production server, so this cannot share a phase with
   # production_build: checks inside a phase run concurrently, and web_e2e was
   # intermittently starting before .next existed.
   web_e2e:
     kind: command
-    phase: 4
+    phase: 5
     command: [pnpm, exec, playwright, test, tests/e2e/critical-journeys.spec.ts]
   accessibility_audit:
     kind: command
-    phase: 5
+    phase: 6
     command: [pnpm, exec, playwright, test, tests/e2e/accessibility.spec.ts]
   responsive_screenshots:
     kind: command
-    phase: 6
+    phase: 7
     command: [pnpm, exec, playwright, test, tests/e2e/responsive-screenshots.spec.ts]
   live_stack_readback:
     kind: provider_readback
@@ -352,7 +355,7 @@ checks:
       expected_evidence: Normalized datasets with source, account, window, timezone, freshness, and limitations.
   mobile_fixture_validation:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
