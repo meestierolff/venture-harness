@@ -901,7 +901,7 @@ managed_files:
     sha256: 5fa04a810adc1aaac0575af373dd8b43b61690efb2e13f6a116c270782c6f791
   - path: package.json
     ownership: harness
-    sha256: 4ab041a2d9bfc9ed931b06f0e75abeeb65736bbde73d0230f094dd0bd2665385
+    sha256: 857c91e10c8e4198073fac16c6f19e2275d814e3e1d9fd858178847e962dccd7
   - path: pnpm-lock.yaml
     ownership: harness
     sha256: b7bde852e033c8e0177df0ff8843c85573885675cfd404a71fa5dc6f76729160
@@ -958,7 +958,7 @@ managed_files:
     sha256: a05d00eabd8bb0b56d1597d7af14aa1a8429024912fa09621dac96b8a8ef4e71
   - path: scripts/run-quality-profile.ts
     ownership: harness
-    sha256: 6ca50ac5ffd81e517b1f1a77837b536ab97470370cbbe2e0df58b6a42c29b7fe
+    sha256: e0c6bff1619c41c4c019fb60e7b2e0a6cf7c30c948e7955fa3befddb3986a5f6
   - path: scripts/run-synthetic-venture-launch.mts
     ownership: harness
     sha256: 3a6aee9765313bef5b523270ec63b211c3a4f191ca71d0fbfdf7a0cef374faa2

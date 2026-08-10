@@ -193,6 +193,19 @@ export function resolveProfileChecks(
   return [...selected];
 }
 
+/**
+ * Packed-distribution suites pack real tarballs and run a real install through
+ * a blocking `spawnSync`, which stops the vitest worker answering its RPC
+ * heartbeat and fails the run with `Timeout calling "onTaskUpdate"` rather than
+ * with anything about the code. They belong in the dedicated distribution job
+ * (`pnpm test:workspace`), which runs them without file parallelism, and never
+ * in the changed-surface loop.
+ */
+const DISTRIBUTION_TEST_FILES = new Set([
+  "tests/workspace-pack.test.ts",
+  "tests/recursive-packed-credential.test.ts",
+]);
+
 function changedTestFiles(changedFiles: readonly string[], root: string): string[] {
   const mappings: [RegExp, string[]][] = [
     [/^(lib\/workflow|docs\/plans\/.*\.graph)/, ["tests/workflow-runtime.test.ts"]],
@@ -293,7 +306,10 @@ function changedTestFiles(changedFiles: readonly string[], root: string): string
       if (pattern.test(file)) candidates.forEach((candidate) => tests.add(candidate));
     }
   }
-  return [...tests].filter((file) => existsSync(join(root, file))).sort();
+  return [...tests]
+    .filter((file) => !DISTRIBUTION_TEST_FILES.has(file))
+    .filter((file) => existsSync(join(root, file)))
+    .sort();
 }
 
 async function execute(
