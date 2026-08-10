@@ -1527,12 +1527,12 @@ test("deployed primary public journey remains readable without mutation", async 
   const robotsText = await robots.text();
   expect(robotsText).toContain("Allow: /");
   expect(robotsText).not.toContain("Disallow: /");
-  expect(robotsText).toContain(\`Sitemap: \${canonicalOrigin}/sitemap.xml\`);
+  expect(robotsText).toContain("Sitemap: " + canonicalOrigin + "/sitemap.xml");
   const sitemap = await request.get("/sitemap.xml", { failOnStatusCode: false });
   expect(sitemap.status()).toBe(200);
   const sitemapText = await sitemap.text();
-  expect(sitemapText).toContain(\`<loc>\${canonicalOrigin}/</loc>\`);
-  expect(sitemapText).toContain(\`<loc>\${canonicalOrigin}/status</loc>\`);
+  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
+  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/status</loc>");
 
   const primaryAction = page.getByRole("link", { name: "Review launch status" });
   await expect(primaryAction).toHaveAttribute("href", "/status");

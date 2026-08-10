@@ -1,25 +1,48 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const root = resolve(process.cwd());
 const temporaryDirectories: string[] = [];
-const closure = [
-  "core",
-  "audit",
-  "billing",
-  "config",
-  "events",
-  "command-bus",
-  "connections",
-  "entitlements",
-  "organizations",
-  "policy",
-  "telemetry",
-  "agent-runtime",
-] as const;
+
+/**
+ * The offline consumer must receive the complete workspace closure of the
+ * package under test. A hand-maintained list silently drifts the moment a
+ * dependency is added — `@venture-harness/loops` was missing here, which made
+ * the offline install fail with ERR_PNPM_NO_OFFLINE_META rather than with
+ * anything about credentials. Deriving the closure from the manifests keeps
+ * this test measuring the credential boundary instead of list hygiene.
+ */
+function workspaceClosure(entry: string): string[] {
+  const directoryByName = new Map<string, string>();
+  for (const directory of readdirSync(join(root, "packages"))) {
+    const manifestPath = join(root, "packages", directory, "package.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name: string };
+    directoryByName.set(manifest.name, directory);
+  }
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const visit = (directory: string): void => {
+    if (seen.has(directory)) return;
+    seen.add(directory);
+    const manifest = JSON.parse(
+      readFileSync(join(root, "packages", directory, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      const child = directoryByName.get(dependency);
+      if (child) visit(child);
+    }
+    // Dependencies are packed before their dependents.
+    ordered.push(directory);
+  };
+  visit(entry);
+  return ordered;
+}
+
+const closure = workspaceClosure("agent-runtime");
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {

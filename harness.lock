@@ -295,7 +295,7 @@ managed_files:
     sha256: 36cfb7449c7363f815e117496ae2cc678743351ae28d178d2b5a48f5d7239294
   - path: .github/workflows/security.yml
     ownership: harness
-    sha256: 5f8dff9112fa41249b463c1464c67689cf85ee9d98329e4444b70d5e4de794ef
+    sha256: 3c9a91a961cdd135a9ce14d47b258ce4d919403251a8f17e6c79738014c7dd99
   - path: .github/workflows/venture-verify.yml
     ownership: harness
     sha256: 785335e7bae67bf751c61fa84dc5cf4947b08cca1c3ea8d178028776b9f8f2b2
@@ -562,7 +562,7 @@ managed_files:
     sha256: a9af2c3737a348eee874883c96eed9e809ac3c9427f532d6d568858e2e67e717
   - path: lib/materialization/seeds.ts
     ownership: harness
-    sha256: b7e5bbc86dd42a170aa6eb7ab3879fe8493201605c5707dba2c2d8046652a640
+    sha256: 2b275e6f55b4d9d6e729a845b9107cd48a3f4f866fba6ac357f8a32a39c55291
   - path: lib/materialization/types.ts
     ownership: harness
     sha256: dd4e3b4ceefcb443d7a5a386bd6d5067f1586ac54fa59b4dc382346bcfd57ae6
@@ -1396,7 +1396,7 @@ managed_files:
     sha256: ca4455d0b5c5df3ef1beaf5412525064d415c3a1c54f4840daab10f52930ce1f
   - path: tests/recursive-packed-credential.test.ts
     ownership: harness
-    sha256: 2617515449b94bd1fcea0f93e466c15bd3d1a6393c33627f1fbc9567e1170ee9
+    sha256: 1691f4034b28b6279efa4dcf5f4250c71ce8f910081fc22ed2b22d0d9d5b3d41
   - path: tests/requirement-matrix-integrity.test.ts
     ownership: harness
     sha256: 8bc1dbd065a08f5a1bf222188c9aa520e8efe6a903346c6dbdb7027f13105b91
