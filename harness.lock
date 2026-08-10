@@ -949,7 +949,7 @@ managed_files:
     sha256: a05d00eabd8bb0b56d1597d7af14aa1a8429024912fa09621dac96b8a8ef4e71
   - path: scripts/run-quality-profile.ts
     ownership: harness
-    sha256: 8bd2647a79a0e25ad1e085b7e40be4dbe2fd3d2cc8101bc931d69d710a93a92e
+    sha256: 6ca50ac5ffd81e517b1f1a77837b536ab97470370cbbe2e0df58b6a42c29b7fe
   - path: scripts/run-synthetic-venture-launch.mts
     ownership: harness
     sha256: 3a6aee9765313bef5b523270ec63b211c3a4f191ca71d0fbfdf7a0cef374faa2

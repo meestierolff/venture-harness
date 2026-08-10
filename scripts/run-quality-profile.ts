@@ -537,7 +537,11 @@ async function runCheck(
       (file) => /\.(?:[cm]?[jt]sx?)$/.test(file) && existsSync(join(context.root, file)),
     );
     if (files.length === 0) return notApplicable(id, definition.phase, "No changed lintable file.");
-    command = ["pnpm", "exec", "eslint", "--max-warnings=0", ...files];
+    // Naming an eslint-ignored file explicitly emits a "File ignored" warning,
+    // which --max-warnings=0 turns into a failure. Generated artifacts such as
+    // bin/vh.mjs are ignored by config and change on every release build, so
+    // without this the fast profile fails whenever the CLI is rebuilt.
+    command = ["pnpm", "exec", "eslint", "--max-warnings=0", "--no-warn-ignored", ...files];
   }
   if (definition.kind === "changed_tests") {
     const files = changedTestFiles(context.changedFiles, context.root);
