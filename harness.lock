@@ -316,7 +316,7 @@ managed_files:
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
   - path: config/quality.yaml
     ownership: harness
-    sha256: a85440fd4ec415b9a324ffa3eb7a1a0703e65e6a88df351b9966e25124137f6d
+    sha256: 77d4efe71fe041cee90750962a3ec8afe48c32dc1b5571ca45333274fd10eec2
   - path: eslint.config.mjs
     ownership: harness
     sha256: 9c351c61b1b40c0aaee4363100826d7090b309d86ec1d5c28b9be7eb6811f8a4
@@ -1531,6 +1531,6 @@ managed_files:
     sha256: d8cf838419ad00e94cf202d83e9b183042185ed6b51ff1d23b2e852d2584c49d
   - path: vitest.config.ts
     ownership: harness
-    sha256: 29a59fec9c14f4130a868aa71475bff68669ad952c4bd775853ed45b1a1c563f
+    sha256: c676f8610f1c030f1c79b9319aa636c157f76563171c893155cff745c9097956
 applied_migrations: []
 extensions: {}
