@@ -21397,14 +21397,6 @@ function blockersFor(compiled, connection, roles, doctor, allowFixtureStack) {
       nextAction: "Add exactly one of `Monthly price:` or `Annual price:` to the founder idea and rerun dry-run."
     });
   }
-  const requiresPublicOrigin = !compiled.brief.native_digital_goods && compiled.brief.monetization_model !== "none" || compiled.brief.needs.transactional_email || compiled.brief.needs.analytics || compiled.brief.needs.search_discovery;
-  if (!compiled.brief.domain && requiresPublicOrigin) {
-    blockers.push({
-      code: "domain_missing",
-      message: "The selected commerce, email, analytics, or search capabilities require one exact public domain before provider planning.",
-      nextAction: "Add `Domain: <hostname>` to the founder idea and rerun the launch dry-run."
-    });
-  }
   for (const role of roles) {
     const definitionProvider = role === "source.repository" ? "github" : role === "hosting.web" ? "vercel" : role === "database.postgres" ? "neon" : role === "commerce.web" ? "stripe" : role === "commerce.native" ? "revenuecat" : role === "email.transactional" ? "brevo" : role === "growth.google" ? "google" : role === "search.bing" ? "bing" : "dns";
     const accountId = accountIdFor(connection, role);
@@ -21588,7 +21580,9 @@ function compileFounderLaunchPreparation(input) {
     domain: {
       requested: idea.brief.domain ?? null,
       mode: domainMode,
-      expectedRecords: idea.brief.domain ? ["Vercel attachment records", "Google site-verification TXT", "Brevo mail records"] : []
+      expectedRecords: idea.brief.domain ? ["Vercel attachment records", "Google site-verification TXT", "Brevo mail records"] : [],
+      canonicalOrigin: idea.brief.domain ? "custom_domain_after_readback" : "provider_production_url",
+      pendingAction: idea.brief.domain ? domainMode === "automatic_if_adapter_available" ? "Attach the domain through the installed DNS adapter, then read authoritative DNS back before treating it as canonical." : "Apply the consolidated DNS action for this domain, then read authoritative DNS back before treating it as canonical." : null
     },
     setup,
     estimatedExternalEffects: allowedExternalEffects,
@@ -37110,7 +37104,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "40ff094ecb48688e0dfdee64130282c8c77ca868" : void 0;
+  const workflowRefSha = true ? "a2b545c3b9897d635af70f8fc890d6c34c7810d7" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
