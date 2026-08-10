@@ -1,24 +1,48 @@
-# Venture Harness v0.2
+# Venture Harness
+
+**AI can build your app locally. Venture Harness gets it into the real world.**
 
 Venture Harness is an open-source, agent-native app launch factory. It turns one
-founder idea into an independent application and drives the authorized
-repository, infrastructure, deployment, measurement, and verification work in
-accounts the founder owns.
+sharpened founder idea into an independent, production-ready application in
+accounts **you** own — repository, hosting, database, commerce, email, analytics
+and search — and it verifies each of those against the provider rather than
+assuming them.
 
-> **Alpha status:** a prior 2026-08-09 source state completed the founder web
-> Golden Path fixture through the public root CLI; its compiler, Stack,
-> independent child, provider transports, primary journey, report, replay, and
-> Core upgrade all ran without an external effect. On the current final tree,
-> the product and runtime slices pass; the root slice reached the standalone
-> child server check, where this local sandbox denied loopback listening. The
-> full three-file refresh remains pending in socket-capable CI. This central
-> repository has not completed a real founder launch. No founder-launch GitHub
-> repository, Vercel deployment, Neon database, Stripe resource,
-> Brevo message, search property, DNS change, customer, sale, or market result
-> is claimed. Every real provider effect remains **external verification
-> required** until an authorized read-back exists.
+You stay the owner. Venture Harness never holds your accounts, never guarantees
+demand, and never spends money on advertising.
 
-## Who it is for
+Four routes into this document:
+
+1. [What it is](#what-it-is)
+2. [Five-minute local setup](#five-minute-conceptual-quickstart)
+3. [Turn an idea into an app](#turn-an-idea-into-an-app)
+4. [Current verification status](#evidence-and-release-status)
+
+## What it is
+
+```text
+connect stack once
+→ write or generate idea.md
+→ dry run
+→ one apply command
+→ independent live app
+```
+
+- **Open source and founder-operated.** You run it on your machine, against your
+  own provider accounts.
+- **Independent repositories.** Each venture is its own product with its own Git
+  history, materialized outside the Venture Harness checkout.
+- **One opinionated stack.** GitHub, Vercel, Neon Postgres, Stripe for web
+  commerce, Brevo, Google Analytics, Google Search Console, Bing Webmaster, and
+  a custom domain when you have one. The stable Vercel production URL is a valid
+  starting origin, so missing DNS never stops a first launch.
+- **One-time connection, one-prompt launch.** `vh stack connect founder-default`
+  once; `vh launch --idea idea.md …` per venture.
+- **Honest alpha.** A provider effect is only ever reported as done when the
+  provider has been read back. See
+  [current verification status](#evidence-and-release-status).
+
+### Who it is for
 
 - founders and indie hackers who can create software but need a dependable path
   into production;
@@ -36,6 +60,12 @@ Venture Harness is not a guarantee of demand, a no-code page generator, a
 hosted owner of your cloud accounts, an automatic ad-spend system, or a
 replacement for provider accounts and their legal/KYC requirements.
 
+### The build host
+
+The v0.2 alpha ships an authenticated Codex CLI build host. The build-host
+interface is extensible, but other agent hosts are not yet claimed as production
+launch implementations.
+
 ## Five-minute conceptual quickstart
 
 Five minutes is enough to understand and inspect the flow. Provider onboarding,
@@ -51,9 +81,35 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
+Choose where your ventures live. They are independent products, so they are
+never materialized inside the Venture Harness checkout:
+
+```bash
+vh config set ventures-root ~/Projects/ventures
+```
+
+Then connect the default Stack once. The wizard reads back the GitHub and Vercel
+CLI sessions you already have, collects the remaining provider credentials at a
+hidden prompt, stores them in your Keychain or 1Password, and keeps only
+`cred://` references in Venture Harness:
+
+```bash
+vh stack connect founder-default
+```
+
+It prints exactly what is still unresolved and the one command that fixes each
+item. Only GitHub, Vercel, Neon and Stripe block a launch; Brevo, Google, Bing
+and DNS can follow later without holding up your first live app.
+
 Write `idea.md` with the initial user, problem, outcome, primary journey,
-success signal, rail, required capabilities, domain, and—when using Stripe—one
-exact monthly or annual displayed price. Then connect the fixed Stack once:
+success signal, rail, required capabilities, and—when using Stripe—one exact
+monthly or annual displayed price. A domain is optional.
+
+<details>
+<summary>Explicit commands for automation and advanced users</summary>
+
+The wizard is the recommended path. These lower-level commands remain available
+and are what the wizard orchestrates:
 
 ```bash
 vh auth login github --ref cred://github/founder-default --scopes repo,workflow
@@ -67,6 +123,8 @@ vh auth login bing --ref cred://bing/founder-default --backend macos_keychain --
 vh stack create founder-default --file .venture/input/founder-default.json
 vh stack doctor founder-default
 ```
+
+</details>
 
 GitHub and Vercel prefer official CLI sessions. Key-backed commands register
 credential references; store values through the selected Keychain or 1Password
@@ -153,6 +211,89 @@ The automatic preparation reports `setup.analytics = google_analytics`.
 Vercel Web Analytics is an optional, separately reviewed/manual integration;
 it is deliberately outside the founder-default apply-once plan.
 
+## Turn an idea into an app
+
+Paste this into your agent, fill in the idea, and let it run.
+
+```text
+/goal
+
+Use Venture Harness to sharpen and launch the following idea as an independent,
+production-ready application.
+
+IDEA
+
+[Describe the rough idea in plain language.]
+
+OPTIONAL CONTEXT
+
+- Initial user:
+- Problem:
+- Desired outcome:
+- Market/language:
+- Web, iOS, hybrid or let Venture Harness decide:
+- Preferred domain:
+- Business-model thoughts:
+- Constraints:
+- Things the product must not become:
+
+Use my authenticated `founder-default` Stack.
+
+First sharpen the idea:
+
+1. identify the narrowest credible initial user;
+2. define the urgent problem and useful outcome;
+3. challenge weak assumptions;
+4. choose the smallest useful product scope;
+5. choose the launch mode;
+6. choose the business and payment model;
+7. choose Stripe, RevenueCat or no payments;
+8. define the primary user journey and success signal;
+9. record non-critical uncertainty as assumptions.
+
+Then execute the real Venture Harness path:
+
+1. produce the final credential-free `idea.md`;
+2. run the production dry run;
+3. inspect blockers and exact provider destinations;
+4. invoke the one-prompt apply command;
+5. create the independent repository;
+6. build a unique, accessible product and design;
+7. configure the database, commerce, email, analytics and search;
+8. push the source;
+9. deploy production;
+10. verify the primary journey;
+11. read provider state back;
+12. generate the final launch report.
+
+Only add a ServiceBlueprint, customer Connection Hub and venture-specific
+API/CLI/MCP/SDK when this business sells an orchestrated customer service.
+
+Do not create advertising spend.
+
+Do not stop at a plan, local build or preview.
+
+Use sensible reversible defaults, complete every independent step and report
+only genuine external actions.
+```
+
+### Shorter daily prompt
+
+```text
+/goal
+
+Launch this idea with Venture Harness on my `founder-default` Stack:
+
+[one or two sentences]
+
+Sharpen it into the narrowest credible initial user, one urgent problem, one
+success signal and the smallest useful scope. Record open questions as
+assumptions rather than blocking on them. Then run the production dry run, show
+me the blockers and provider destinations, and run the exact apply command.
+Verify the primary journey and read every provider back before reporting
+anything as done. No advertising spend.
+```
+
 ## What the one-prompt rail does
 
 ```text
@@ -182,6 +323,22 @@ review.
 See [Architecture](ARCHITECTURE.md) for the full trust and execution map.
 
 ## Evidence and release status
+
+**Venture Harness has not yet completed a real founder launch from this
+repository.** No founder-launch GitHub repository, Vercel deployment, Neon
+database, Stripe resource, Brevo message, search property, DNS change, customer,
+sale or market result is claimed. Every real provider effect stays
+**external verification required** until an authorized read-back exists.
+
+What is verified today, and how:
+
+- `pnpm verify:release` — the founder-alpha code and fixture gate. It contains
+  no live provider read-back and is expected to pass with nothing connected.
+- `pnpm verify:live` — real provider read-back only. It honestly reports
+  `INCOMPLETE` before a real launch, naming the missing prerequisite, the exact
+  command and the expected evidence for each gap.
+- `pnpm verify:stable` — both of the above. It stays incomplete until a real
+  launch has been read back.
 
 | Surface                                                                   | Status                                            | What remains                                                                        |
 | ------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |

@@ -1,6 +1,8 @@
 # NOTICE
 
-Venture Harness — a template for demand-validated venture building.
+Venture Harness — an open-source, agent-native app launch factory that turns one
+founder idea into an independent, production-ready application in accounts the
+founder owns.
 
 Copyright (c) 2026 Venture Harness contributors. Licensed under MIT (see
 [LICENSE](LICENSE)).

@@ -313,7 +313,7 @@ managed_files:
     sha256: 2b19555226cdda9bc87038f57d083dac7c773a799da2d590c7734ae71ca44edb
   - path: config/framework.yaml
     ownership: harness
-    sha256: 02c410a9257705e6ab945029ca4f9973813086d99c6b8de7681266974313432f
+    sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
   - path: config/quality.yaml
     ownership: harness
     sha256: a85440fd4ec415b9a324ffa3eb7a1a0703e65e6a88df351b9966e25124137f6d

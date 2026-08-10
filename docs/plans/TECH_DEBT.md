@@ -16,3 +16,18 @@ the date and commit.
 ## Cleared
 
 (none yet)
+
+## `framework.public_template` is misnamed (2026-08-10)
+
+The key reads as "this is a GitHub template repository", which is wrong: Core is
+never forked or used with GitHub's "Use this template". Ventures are
+materialized by the CLI from versioned seeds. The intended meaning is "publicly
+distributable open-source repository".
+
+Renaming it touches `frameworkSchema`, every child venture's copy of
+`config/framework.yaml`, and therefore needs an idempotent migration plus a
+managed-file update. That is more risk than a naming fix warrants during a
+release cut, so the meaning is documented at the definition instead.
+
+Recommendation: rename to `public_open_source` in the next migration-bearing
+change, with a migration that accepts either key for one Core version.
