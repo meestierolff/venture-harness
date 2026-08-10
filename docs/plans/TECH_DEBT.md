@@ -49,3 +49,25 @@ Recommendation: have `workspace-build.mjs` name the ordering explicitly when the
 only stale inputs are packaged documentation, and consider a `verify:fast` check
 that fails early with "rebuild provenance from HEAD" rather than letting the MVP
 profile fail wide.
+
+## Durable SQLite stores race on journal-mode switching (2026-08-10)
+
+`pnpm test` intermittently fails with `Error: database is locked` thrown from
+`packages/audit/src/index.ts:120`, which is the `PRAGMA journal_mode = WAL`
+statement in the durable audit sink's constructor. Switching journal mode needs
+an exclusive lock, so it fails whenever another connection already holds the
+same database — which happens as soon as two vitest workers touch one store.
+`busy_timeout` is already set beforehand and does not help here. The same
+constructor pattern appears in ten other durable stores under `lib/`.
+
+A second, related symptom is `ENOTEMPTY` when a test removes its temporary
+directory while another worker still holds a handle inside it.
+
+Both are visible only under parallel load and pass in isolation, which is why
+they have been read as flakes. Neither was introduced by the v0.2 release cut;
+`compatibility_verify` and `unit_integration` inherit them.
+
+Recommendation: set journal mode once at store creation and, on a busy failure,
+read `PRAGMA journal_mode` back and accept the run only when it already reports
+`wal`. Deliberately not changed during this release cut: it is a durability path
+and deserves its own change with concurrency tests, not a late edit.
