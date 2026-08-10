@@ -8,12 +8,12 @@ const root = resolve(process.cwd());
 const temporaryDirectories: string[] = [];
 
 /**
- * The offline consumer must receive the complete workspace closure of the
+ * The packed consumer must receive the complete workspace closure of the
  * package under test. A hand-maintained list silently drifts the moment a
  * dependency is added — `@venture-harness/loops` was missing here, which made
- * the offline install fail with ERR_PNPM_NO_OFFLINE_META rather than with
- * anything about credentials. Deriving the closure from the manifests keeps
- * this test measuring the credential boundary instead of list hygiene.
+ * the install fail on resolution rather than on anything about credentials.
+ * Deriving the closure from the manifests keeps this test measuring the
+ * credential boundary instead of list hygiene.
  */
 function workspaceClosure(entry: string): string[] {
   const directoryByName = new Map<string, string>();
@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 describe("packed recursive credential boundary", () => {
-  it("rejects inbound secondary credentials through ESM and CJS in a clean offline consumer", () => {
+  it("rejects inbound secondary credentials through ESM and CJS in a clean packed consumer", () => {
     const packDirectory = mkdtempSync(join(tmpdir(), "vh-recursive-pack-"));
     const consumer = mkdtempSync(join(tmpdir(), "vh-recursive-consumer-"));
     temporaryDirectories.push(packDirectory, consumer);
@@ -73,10 +73,10 @@ describe("packed recursive credential boundary", () => {
       if (!artifact) throw new Error(`packed artifact missing for ${manifest.name}`);
       dependencies[manifest.name] = `file:${join(packDirectory, artifact)}`;
     }
-    // The consumer installs with --offline, which can read the store but cannot
-    // resolve a semver range against registry metadata. Every third-party
-    // dependency of the packed closure therefore needs an exact version, taken
-    // from what this repository actually has installed.
+    // Pin every third-party dependency of the packed closure to the version
+    // this repository actually has installed, so the consumer resolves from the
+    // local store rather than picking up a different version of a transitive
+    // dependency than the one the boundary was verified against.
     const externalOverrides: Record<string, string> = {};
     for (const shortName of closure) {
       const manifest = JSON.parse(
@@ -109,10 +109,15 @@ describe("packed recursive credential boundary", () => {
       cwd: root,
       encoding: "utf8",
     }).trim();
+    // --prefer-offline rather than --offline: a `--frozen-lockfile` install
+    // resolves from the lockfile and never populates the registry metadata
+    // cache, so a strict offline install fails on metadata rather than on
+    // anything this test is about. Package content still comes from the packed
+    // tarballs and the local store; only metadata may be fetched.
     const install = spawnSync(
       "pnpm",
-      ["install", "--offline", "--ignore-scripts", "--store-dir", storeDirectory],
-      { cwd: consumer, encoding: "utf8", timeout: 30_000 },
+      ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
+      { cwd: consumer, encoding: "utf8", timeout: 120_000 },
     );
     expect(install.status, `${install.stdout}\n${install.stderr}`).toBe(0);
     writeFileSync(

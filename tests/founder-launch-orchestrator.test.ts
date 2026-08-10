@@ -236,8 +236,8 @@ describe("one-prompt founder launch preparation", () => {
     expect(result.launchGrant).not.toHaveProperty("externalResourceBudget");
   });
 
-  it("withholds the Launch Grant when selected provider capabilities have no public domain", () => {
-    const blocked = prepare({
+  it("ships a domainless venture on the provider production URL instead of blocking it", () => {
+    const domainless = prepare({
       ideaSource: [
         "# Domainless SaaS",
         "Audience: small teams",
@@ -253,14 +253,18 @@ describe("one-prompt founder launch preparation", () => {
       executionMode: "apply",
     });
 
-    expect(blocked.status).toBe("blocked");
-    expect(blocked.grantDisposition).toBe("withheld_blocked");
-    expect(blocked.blockers).toContainEqual(
-      expect.objectContaining({
-        code: "domain_missing",
-        nextAction: expect.stringContaining("Domain:"),
-      }),
-    );
+    // Commerce, email, analytics and search can all be configured against the
+    // stable provider production URL, so a missing custom domain is a deferred
+    // action rather than something that stops a first app from going live.
+    expect(domainless.status).toBe("ready");
+    expect(domainless.grantDisposition).not.toBe("withheld_blocked");
+    expect(domainless.blockers.map((blocker) => blocker.code)).not.toContain("domain_missing");
+    expect(domainless.domain).toMatchObject({
+      requested: null,
+      mode: "none",
+      canonicalOrigin: "provider_production_url",
+      pendingAction: null,
+    });
   });
 
   it("withholds the Launch Grant until a domain has one exact manual DNS binding", async () => {
@@ -323,7 +327,13 @@ describe("one-prompt founder launch preparation", () => {
     });
 
     expect(result.status).toBe("ready");
-    expect(result.domain).toEqual({ requested: null, mode: "none", expectedRecords: [] });
+    expect(result.domain).toEqual({
+      requested: null,
+      mode: "none",
+      expectedRecords: [],
+      canonicalOrigin: "provider_production_url",
+      pendingAction: null,
+    });
     expect(result.selectedProviders.map(({ role }) => role)).not.toContain("dns.records");
     expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
       "dns",

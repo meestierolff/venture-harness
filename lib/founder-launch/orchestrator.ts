@@ -79,7 +79,6 @@ export interface FounderLaunchBlocker {
     | "stack_role_not_ready"
     | "repository_owner_missing"
     | "exact_price_missing"
-    | "domain_missing"
     | "provider_account_missing";
   readonly role?: FounderStackRole;
   readonly provider?: string;
@@ -127,6 +126,13 @@ export interface FounderLaunchPreparation {
     readonly requested: string | null;
     readonly mode: "automatic_if_adapter_available" | "manual_consolidated_action" | "none";
     readonly expectedRecords: readonly string[];
+    /**
+     * What the venture treats as its public origin until DNS is authoritative.
+     * The provider production URL is a truthful initial origin; a custom domain
+     * is only claimed after read-back.
+     */
+    readonly canonicalOrigin: "provider_production_url" | "custom_domain_after_readback";
+    readonly pendingAction: string | null;
   };
   readonly setup: {
     readonly analytics: "google_analytics" | "not_requested";
@@ -353,19 +359,11 @@ function blockersFor(
         "Add exactly one of `Monthly price:` or `Annual price:` to the founder idea and rerun dry-run.",
     });
   }
-  const requiresPublicOrigin =
-    (!compiled.brief.native_digital_goods && compiled.brief.monetization_model !== "none") ||
-    compiled.brief.needs.transactional_email ||
-    compiled.brief.needs.analytics ||
-    compiled.brief.needs.search_discovery;
-  if (!compiled.brief.domain && requiresPublicOrigin) {
-    blockers.push({
-      code: "domain_missing",
-      message:
-        "The selected commerce, email, analytics, or search capabilities require one exact public domain before provider planning.",
-      nextAction: "Add `Domain: <hostname>` to the founder idea and rerun the launch dry-run.",
-    });
-  }
+  // A custom domain is not a precondition for being live. Vercel issues a
+  // stable production URL that commerce, email, analytics and search can all
+  // be configured against, so a missing domain is a deferred action rather than
+  // a blocker. Treating it as a blocker meant a founder could not ship a first
+  // app at all until DNS existed.
   for (const role of roles) {
     const definitionProvider =
       role === "source.repository"
@@ -618,6 +616,14 @@ export function compileFounderLaunchPreparation(
       expectedRecords: idea.brief.domain
         ? ["Vercel attachment records", "Google site-verification TXT", "Brevo mail records"]
         : [],
+      canonicalOrigin: (idea.brief.domain
+        ? "custom_domain_after_readback"
+        : "provider_production_url") as FounderLaunchPreparation["domain"]["canonicalOrigin"],
+      pendingAction: idea.brief.domain
+        ? domainMode === "automatic_if_adapter_available"
+          ? "Attach the domain through the installed DNS adapter, then read authoritative DNS back before treating it as canonical."
+          : "Apply the consolidated DNS action for this domain, then read authoritative DNS back before treating it as canonical."
+        : null,
     },
     setup,
     estimatedExternalEffects: allowedExternalEffects,

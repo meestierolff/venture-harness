@@ -505,7 +505,7 @@ managed_files:
     sha256: 8d42599c2e8d075fe105e80a6a749e347cbc1936e674864a098b3abbdfb7f74b
   - path: lib/founder-launch/orchestrator.ts
     ownership: harness
-    sha256: ed26aa7802116295aab59144601f8031a5631424a76123152a31c014903e2157
+    sha256: db47a1f7b5e8ca8cc7c956a9fc8fe788f1730aa2002aa3f0e9600f7e7a54daf7
   - path: lib/founder-launch/stack-connect-shell.ts
     ownership: harness
     sha256: 13fe4c9a1ee66e10146870e035d42de3e84205788bdb1a268c8d36f595a74dfb
@@ -1321,7 +1321,7 @@ managed_files:
     sha256: 730312d9d015f66a6b57dee90ab014a8f858a37047aa84faebeb1c4f608f7e2e
   - path: tests/founder-launch-orchestrator.test.ts
     ownership: harness
-    sha256: 37ab004746ef46245c4d1e8d32d1a34ced252c61db1ecb1dc6384b7f83371ed7
+    sha256: 4d7d036d31aeb2efdf5df10cdc900cca97e6b2c5037c60581452735998e20408
   - path: tests/founder-launch-safety.test.ts
     ownership: harness
     sha256: 9ff3e8f03274f1af81b2bcb7c15521bd5e3301c0a6c129dc3731a1aac4628bf7
@@ -1411,7 +1411,7 @@ managed_files:
     sha256: ca4455d0b5c5df3ef1beaf5412525064d415c3a1c54f4840daab10f52930ce1f
   - path: tests/recursive-packed-credential.test.ts
     ownership: harness
-    sha256: b742b5cb41bcffbeced843b8ebcd70de259342467c8b00df3535ddfe103cfaac
+    sha256: 1339729e63657e098d95390c6248d03db4e818e8e0eb7f338e1fa26a80571afa
   - path: tests/requirement-matrix-integrity.test.ts
     ownership: harness
     sha256: 8bc1dbd065a08f5a1bf222188c9aa520e8efe6a903346c6dbdb7027f13105b91
