@@ -31,3 +31,21 @@ release cut, so the meaning is documented at the definition instead.
 
 Recommendation: rename to `public_open_source` in the next migration-bearing
 change, with a migration that accepts either key for one Core version.
+
+## Provenance ordering is easy to violate (2026-08-10)
+
+`assertReviewedCoreSourceState` counts README.md, NOTICE.md and
+`config/framework.yaml` among the CLI's executable inputs, because they ship in
+the npm package. A documentation-only commit therefore invalidates the recorded
+provenance, and `pnpm workspace:build` refuses until the CLI is rebuilt. The
+refusal is correct, but the failure surfaces far from its cause: without a build
+there is no `dist/`, so the MVP profile reports a dozen unrelated
+module-not-found, typecheck and production-build failures instead of one
+ordering problem.
+
+This happened twice in this release cut.
+
+Recommendation: have `workspace-build.mjs` name the ordering explicitly when the
+only stale inputs are packaged documentation, and consider a `verify:fast` check
+that fails early with "rebuild provenance from HEAD" rather than letting the MVP
+profile fail wide.

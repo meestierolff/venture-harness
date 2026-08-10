@@ -202,14 +202,31 @@ Recorded as they are observed. A provider request acceptance is never read-back.
 
 ## Remaining work in this plan
 
-Completed in this branch: sections 3.1, 3.3, 3.5, 3.6 (code, config, schema,
-tests, quality workflow), 3.2, and 4.
+Completed in this branch:
 
-Not yet started: 3.4 repository security settings, 3.7 CLI build provenance,
-5.1 stack connect wizard, 5.2 ventures root, 5.3 local child Git repository,
-5.4 domain fallback, 5.5 build-host positioning, 6 README and positioning,
-7 focused seed, 8 token usage evidence, 9 dogfood venture, 10 upgrade proof,
-11 full regression suite, 12 public evidence.
+| Section                     | Outcome                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| 3.1 pnpm source of truth    | Eleven conflicting pins removed; CI executes checks again                     |
+| 3.2 harness.lock            | Accurate and idempotent across repeated refreshes                             |
+| 3.3 Gitleaks                | Tree and history clean; three detectors aligned; scanner proven to still bite |
+| 3.4 Repository security     | Enabled and read back; dependency-review green                                |
+| 3.5 Final-evidence contract | Dead `--name`/`--slug` removed; command verified locally                      |
+| 3.6 Verification model      | `release` / `live` / `stable` split, schema-enforced, tested                  |
+| 3.7 CLI provenance          | Built from reviewed SHA with byte-for-byte rebuild parity                     |
+| 4 Node requirements         | `>=22.5.0` everywhere the runtime actually needs it                           |
+| 5.1 Stack connect           | `vh stack connect founder-default` with argv and reference guards             |
+| 5.2 Ventures root           | `vh config set ventures-root`; ventures leave the Core checkout               |
+| 5.4 Domain fallback         | Provider production URL is a valid first canonical origin                     |
+| 5.5 Build host              | Codex CLI stated as the only claimed production build host                    |
+| 6 README and NOTICE         | Promise-first opening, four routes, idea-to-app prompt                        |
+
+Additionally repaired, all pre-existing on `0716a1a`: the `String.raw` seed bug
+that made every materialized venture fail its own typecheck, the drifted packed
+workspace closure, and two tests whose assertions named a guard that had moved.
+
+Not yet started: 5.3 local child Git working repository, 7 focused seed,
+8 token usage evidence, 9 dogfood venture, 10 upgrade proof, 11 full regression
+suite against a real launch, 12 public dogfood evidence.
 
 ## Commit plan
 
