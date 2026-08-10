@@ -73,6 +73,23 @@ describe("packed recursive credential boundary", () => {
       if (!artifact) throw new Error(`packed artifact missing for ${manifest.name}`);
       dependencies[manifest.name] = `file:${join(packDirectory, artifact)}`;
     }
+    // The consumer installs with --offline, which can read the store but cannot
+    // resolve a semver range against registry metadata. Every third-party
+    // dependency of the packed closure therefore needs an exact version, taken
+    // from what this repository actually has installed.
+    const externalOverrides: Record<string, string> = {};
+    for (const shortName of closure) {
+      const manifest = JSON.parse(
+        readFileSync(join(root, "packages", shortName, "package.json"), "utf8"),
+      ) as { dependencies?: Record<string, string> };
+      for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+        if (dependency.startsWith("@venture-harness/")) continue;
+        const installed = join(root, "node_modules", dependency, "package.json");
+        if (!existsSync(installed)) continue;
+        const { version } = JSON.parse(readFileSync(installed, "utf8")) as { version: string };
+        externalOverrides[dependency] = version;
+      }
+    }
     writeFileSync(
       join(consumer, "package.json"),
       `${JSON.stringify(
@@ -82,7 +99,7 @@ describe("packed recursive credential boundary", () => {
           private: true,
           type: "module",
           dependencies,
-          pnpm: { overrides: dependencies },
+          pnpm: { overrides: { ...externalOverrides, ...dependencies } },
         },
         null,
         2,

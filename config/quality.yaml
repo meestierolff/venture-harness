@@ -30,6 +30,7 @@ profiles:
   fast:
     description: Changed-surface feedback plus invariant config, secret, PII, and graph checks.
     checks:
+      - workspace_packages_build
       - changed_format
       - changed_lint
       - changed_tests
@@ -118,9 +119,17 @@ checks:
   changed_lint:
     kind: changed_lint
     phase: 1
+  # Workspace packages publish only from dist/, which is not committed. Any test
+  # importing @venture-harness/* therefore needs a build first, so the
+  # changed-surface gate builds packages before it runs tests. --skip-cli keeps
+  # the reviewed-source provenance assertion out of the inner loop.
+  workspace_packages_build:
+    kind: command
+    phase: 1
+    command: [pnpm, workspace:build, --skip-cli]
   changed_tests:
     kind: changed_tests
-    phase: 1
+    phase: 2
   config_schemas:
     kind: command
     phase: 1

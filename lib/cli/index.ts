@@ -1,6 +1,13 @@
 import { FileWorkflowStore, WorkflowExecutor, type WorkflowStore } from "../workflow";
 import { sideEffectClassSchema } from "../config/policy-schema";
 import { createDefaultCliServices } from "./default-services";
+import {
+  FOUNDER_CONFIG_KEYS,
+  defaultFounderConfigPath,
+  loadFounderConfig,
+  resolveVenturesRoot,
+  saveFounderConfig,
+} from "../founder-launch/founder-config";
 import type { CliIo, CliLaunchRequest, CliResult, CliServices } from "./types";
 
 export * from "./types";
@@ -24,6 +31,9 @@ Usage:
   vh stack create founder-default --file <connection.json>
                                   Persist one credential-free founder Stack connection
   vh stack doctor founder-default Inspect every founder Stack role without provider effects
+  vh config show                  Show persistent founder settings
+  vh config set ventures-root <absolute-path>
+                                  Choose where independent ventures are materialized
   vh doctor                       Inspect local launch prerequisites
   vh create --brief <file>        Validate and persist one progressive-commitment brief
   vh plan [--brief <file>]        Compile a launch plan without side effects
@@ -224,6 +234,49 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
       }
       emit(io, await services.stack({ action, profileId, ...(file ? { file } : {}) }), json);
       return { exitCode: 0 };
+    }
+
+    if (command === "config") {
+      const values = positional(rest);
+      const action = values[0];
+      const usage = "Usage: vh config show | vh config set ventures-root <absolute-path>";
+      if (action === "show" && values.length === 1) {
+        const config = loadFounderConfig();
+        emit(
+          io,
+          {
+            command: "config.show",
+            path: defaultFounderConfigPath(),
+            venturesRoot: config.venturesRoot ?? null,
+            ...(config.venturesRoot
+              ? {}
+              : { nextAction: "vh config set ventures-root <absolute-path>" }),
+          },
+          json,
+        );
+        return { exitCode: 0 };
+      }
+      if (action !== "set" || values.length !== 3) {
+        io.stderr(usage);
+        return { exitCode: 2 };
+      }
+      const [, key, value] = values as [string, string, string];
+      if (!(FOUNDER_CONFIG_KEYS as readonly string[]).includes(key)) {
+        io.stderr(
+          `Unknown founder setting ${key}. Known settings: ${FOUNDER_CONFIG_KEYS.join(", ")}.`,
+        );
+        return { exitCode: 2 };
+      }
+      try {
+        const venturesRoot = resolveVenturesRoot(value, { coreRoot: process.cwd() });
+        const existing = loadFounderConfig();
+        saveFounderConfig({ ...existing, venturesRoot });
+        emit(io, { command: "config.set", key, venturesRoot }, json);
+        return { exitCode: 0 };
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 1 };
+      }
     }
 
     if (command === "plan") {

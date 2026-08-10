@@ -316,7 +316,7 @@ managed_files:
     sha256: 02c410a9257705e6ab945029ca4f9973813086d99c6b8de7681266974313432f
   - path: config/quality.yaml
     ownership: harness
-    sha256: 254a80c2a355011cd4cb3a866da3165437485981ab129759603d74c48871a661
+    sha256: a85440fd4ec415b9a324ffa3eb7a1a0703e65e6a88df351b9966e25124137f6d
   - path: eslint.config.mjs
     ownership: harness
     sha256: 9c351c61b1b40c0aaee4363100826d7090b309d86ec1d5c28b9be7eb6811f8a4
@@ -376,10 +376,10 @@ managed_files:
     sha256: 9694fd678789a5524079d15ef17f469c7d7872bf6e744e5159de6b2a2f1235d9
   - path: lib/cli/default-services.ts
     ownership: harness
-    sha256: 391167f7623629af69060094fbe7b25a7ded4ad7193d510ffc9a51bc4906b38b
+    sha256: a810993cfa15106af2394fcaaa226a2d808bc77a59f83764a9124a5d7e224710
   - path: lib/cli/index.ts
     ownership: harness
-    sha256: 96503f53bac1d61325874bb5bfc25841894afe17ac53e09e9f090173e2f13d5c
+    sha256: d2cfea9db3251314f891edbd4c511e4336ef5c6ac95c29e8791a0248ceb131cc
   - path: lib/cli/platform-command-runtime.ts
     ownership: harness
     sha256: 0f8e5f27c705f47a20f7616dcedc16104c9904ccdc911e6baa31e180974d9fa4
@@ -494,6 +494,9 @@ managed_files:
   - path: lib/fleet/types.ts
     ownership: harness
     sha256: f0d73b1ba4b785968852c54d82e26025dc328700ed1af4301cafee1261bc6aa5
+  - path: lib/founder-launch/founder-config.ts
+    ownership: harness
+    sha256: 8aab4bf590ca8c10629fdf35f0acc8e8bbd47ea9b3388b6957e884d59f9836c3
   - path: lib/founder-launch/idea.ts
     ownership: harness
     sha256: fd8dd4a168c9ee0fc68466de66af4bc9052580ad30501778595fac3c32f57f8b
@@ -1003,7 +1006,7 @@ managed_files:
     sha256: fe37282bd6b11feae0edea29c53c65f86527cf3bb2031856ef69f248bde86d5a
   - path: scripts/workspace-build.mjs
     ownership: harness
-    sha256: a43d61447be346b5845973669ffa7f023c8ad299dcd5e6300d057061ee3b5f85
+    sha256: a4cb3ba1586e8c89c9a503203a373b57cc1956d79bc545365261aadfecc38e0f
   - path: scripts/workspace-check.mjs
     ownership: harness
     sha256: 16ec0005bc3ba94d92669c15522ba217b5670fd0265ba7adfbba0b8fab1bf7f4
@@ -1295,6 +1298,9 @@ managed_files:
   - path: tests/fleet-controller.test.ts
     ownership: harness
     sha256: bddcbc7ea080c9b99761231e27ea72e5e6296a131556192283178706d7f2f62e
+  - path: tests/founder-config.test.ts
+    ownership: harness
+    sha256: cf0b832a78f80d40c4754d1387bf411bd1fd3727740236864e77566c6d076e2d
   - path: tests/founder-golden-path-product.test.ts
     ownership: harness
     sha256: 340b99586fc5a56d37c52b15f8231b113f181eea41b46e4ca013b9b4ce8c1ae1
@@ -1399,7 +1405,7 @@ managed_files:
     sha256: ca4455d0b5c5df3ef1beaf5412525064d415c3a1c54f4840daab10f52930ce1f
   - path: tests/recursive-packed-credential.test.ts
     ownership: harness
-    sha256: 1691f4034b28b6279efa4dcf5f4250c71ce8f910081fc22ed2b22d0d9d5b3d41
+    sha256: b742b5cb41bcffbeced843b8ebcd70de259342467c8b00df3535ddfe103cfaac
   - path: tests/requirement-matrix-integrity.test.ts
     ownership: harness
     sha256: 8bc1dbd065a08f5a1bf222188c9aa520e8efe6a903346c6dbdb7027f13105b91

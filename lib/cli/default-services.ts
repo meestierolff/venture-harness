@@ -66,6 +66,10 @@ import {
   type FounderStackConnection,
 } from "../founder-launch";
 import {
+  VENTURES_ROOT_UNSET_MESSAGE,
+  configuredVenturesRoot,
+} from "../founder-launch/founder-config";
+import {
   compileLaunchDryRun,
   compileLaunchGraph,
   createLaunchManualBindings,
@@ -1960,12 +1964,19 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       });
       const ideaSource = loadFounderIdeaFile(request.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
+      // A venture is an independent product with its own Git history, so it is
+      // never materialized inside the Core checkout by default. An explicit
+      // founderOutputRoot (tests and fixtures) wins; otherwise the founder's
+      // configured ventures root decides, and an unset root is fatal rather
+      // than a silent write into Core.
+      const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
+      if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
       const preparation = compileFounderLaunchPreparation({
         ideaSource,
         ideaPath: request.idea,
         stack: connection,
         stackDoctor,
-        baseDir: resolve(options.founderOutputRoot ?? root),
+        baseDir: resolve(venturesRoot),
         output: request.output,
         workflowRefSha,
         executionMode: request.mode,

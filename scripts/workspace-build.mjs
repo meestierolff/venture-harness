@@ -27,9 +27,18 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 function parseArguments(args) {
   let target;
   let sourceCommit;
+  let skipCli = false;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--") continue;
+    // Build every workspace package without touching the root CLI. The CLI
+    // build asserts that the working tree matches a reviewed source commit,
+    // which is correct for a release but wrong for a changed-surface gate that
+    // must run against uncommitted work.
+    if (argument === "--skip-cli") {
+      skipCli = true;
+      continue;
+    }
     if (argument === "--source-commit") {
       if (sourceCommit !== undefined || !args[index + 1] || args[index + 1] === "--") {
         throw new Error("--source-commit requires exactly one full reviewed Git commit SHA");
@@ -42,7 +51,7 @@ function parseArguments(args) {
     if (target !== undefined) throw new Error("workspace build accepts at most one package target");
     target = argument;
   }
-  return { target, sourceCommit };
+  return { target, sourceCommit, skipCli };
 }
 
 function workspaceEntries() {
@@ -159,7 +168,11 @@ function visit(entry) {
 }
 for (const entry of entries) visit(entry);
 
-const { target, sourceCommit: requestedSourceCommit } = parseArguments(process.argv.slice(2));
+const {
+  target,
+  sourceCommit: requestedSourceCommit,
+  skipCli,
+} = parseArguments(process.argv.slice(2));
 let selected = ordered;
 if (target) {
   const requested = entries.find(
@@ -183,7 +196,11 @@ if (target) {
 }
 
 const buildsRootCli =
-  !target || selected.some(({ manifest }) => manifest.name === "@venture-harness/cli-generator");
+  !skipCli &&
+  (!target || selected.some(({ manifest }) => manifest.name === "@venture-harness/cli-generator"));
+if (skipCli && requestedSourceCommit) {
+  throw new Error("--skip-cli and --source-commit are mutually exclusive");
+}
 if (requestedSourceCommit && !buildsRootCli) {
   throw new Error("--source-commit is valid only when the selected build includes the root CLI");
 }
