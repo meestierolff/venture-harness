@@ -305,9 +305,12 @@ managed_files:
   - path: .gitignore
     ownership: harness
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
+  - path: bin/vh-build-provenance.json
+    ownership: harness
+    sha256: e9d5a9b692e8b3ff75ee35d548d52b7bc8cedd67da0bbd617f00a94a40b556ce
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 7f6a1053a99a5696b03b58f5f23562668e3c1cba1a92ae71e2223e3790c8e141
+    sha256: 53ea20c22ae73969acec94cd5f411956d1ebda4ee4d4ec0c0de2bafcc025a05d
   - path: config/framework.yaml
     ownership: harness
     sha256: 02c410a9257705e6ab945029ca4f9973813086d99c6b8de7681266974313432f
