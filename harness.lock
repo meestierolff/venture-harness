@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: e9d5a9b692e8b3ff75ee35d548d52b7bc8cedd67da0bbd617f00a94a40b556ce
+    sha256: 74147311e9c986a5e212e06951ade99c0400e4ff661f9456d4220409deb2810d
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 53ea20c22ae73969acec94cd5f411956d1ebda4ee4d4ec0c0de2bafcc025a05d
+    sha256: 4a15938086e58ad43148b309ca9b4793659ccb9b2993008525df29384bd9055f
   - path: config/framework.yaml
     ownership: harness
     sha256: 02c410a9257705e6ab945029ca4f9973813086d99c6b8de7681266974313432f
@@ -1444,7 +1444,7 @@ managed_files:
     sha256: 61c5a1522a6ab7c62f5111ae8cd0fe006ae814683e96ad640e6fc44c8d0b9ae0
   - path: tests/stack-connect.test.ts
     ownership: harness
-    sha256: 8cb8f9710d6229af3dbd7bc6c87edf156ad8c189e3db999615993199d508c05b
+    sha256: 9821063467409b62ec786172812ab9b0cad328e50a9d6984df8e750c4233cefc
   - path: tests/stack-profile-command-runtime.test.ts
     ownership: harness
     sha256: 4e79b1803e2047c86706ce92bcc7a48fae1a5cc8f5c2bfb247d0a64b89c021ec

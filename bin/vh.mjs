@@ -6,8 +6,8 @@ var __export = (target, all) => {
 };
 
 // scripts/vh-bundle.ts
-import { realpathSync as realpathSync10 } from "node:fs";
-import { resolve as resolve25 } from "node:path";
+import { realpathSync as realpathSync11 } from "node:fs";
+import { resolve as resolve26 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // lib/workflow/errors.ts
@@ -4899,7 +4899,7 @@ var WorkflowExecutor = class {
       secrets: options.bindings?.secrets ?? []
     };
     this.now = options.now ?? (() => /* @__PURE__ */ new Date());
-    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve26) => setTimeout(resolve26, milliseconds)));
+    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve27) => setTimeout(resolve27, milliseconds)));
   }
   create(definition2, options = {}) {
     validateWorkflow(definition2);
@@ -7084,8 +7084,8 @@ var FileWorkflowStore = class {
 
 // lib/cli/default-services.ts
 import { createHash as createHash17 } from "node:crypto";
-import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync13, renameSync as renameSync6, writeFileSync as writeFileSync7 } from "node:fs";
-import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative12, resolve as resolve20, sep as sep12 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync14, renameSync as renameSync6, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname11, isAbsolute as isAbsolute6, relative as relative13, resolve as resolve21, sep as sep13 } from "node:path";
 import { isDeepStrictEqual as isDeepStrictEqual2 } from "node:util";
 import { parse as parse7, stringify as stringify6 } from "yaml";
 
@@ -9777,11 +9777,11 @@ function supportsInteractiveCliAuth(provider) {
 function runInteractiveCliLogin(provider) {
   const spec = CLI_AUTH_COMMANDS[provider]?.login;
   if (!spec) throw new Error(`No official interactive CLI login is registered for ${provider}.`);
-  return new Promise((resolve26, reject) => {
+  return new Promise((resolve27, reject) => {
     const child = spawn(spec.command, spec.args, { shell: false, stdio: "inherit" });
     child.once("error", reject);
     child.once("close", (code) => {
-      if (code === 0) resolve26();
+      if (code === 0) resolve27();
       else reject(new Error(`${provider} login exited with ${code ?? "unknown"}`));
     });
   });
@@ -9875,7 +9875,7 @@ var NodeCommandRunner = class {
         (entry) => entry[1] !== void 0
       )
     );
-    return new Promise((resolve26, reject) => {
+    return new Promise((resolve27, reject) => {
       const child = spawn2(invocation2.command, [...invocation2.args], {
         cwd: invocation2.cwd,
         env: environment,
@@ -9907,7 +9907,7 @@ var NodeCommandRunner = class {
           reject(new Error(`Command output exceeded ${this.maxOutputBytes} bytes`));
           return;
         }
-        resolve26({
+        resolve27({
           exitCode: code ?? (signal ? 1 : 0),
           stdout,
           stderr
@@ -17512,7 +17512,7 @@ var FileProviderIdempotencyLedger = class {
         break;
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
-        await new Promise((resolve26) => setTimeout(resolve26, 10));
+        await new Promise((resolve27) => setTimeout(resolve27, 10));
       }
     }
     if (!handle) {
@@ -21614,6 +21614,92 @@ async function materializeFounderVenture(preparation, targetDirectory = preparat
   );
 }
 
+// lib/founder-launch/founder-config.ts
+import {
+  existsSync as existsSync6,
+  lstatSync as lstatSync4,
+  mkdirSync as mkdirSync4,
+  readFileSync as readFileSync8,
+  realpathSync as realpathSync4,
+  writeFileSync as writeFileSync4
+} from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { dirname as dirname5, isAbsolute as isAbsolute3, join as join4, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
+var FOUNDER_CONFIG_KEYS = ["ventures-root"];
+function defaultFounderConfigPath(options = {}) {
+  const configRoot = options.xdgConfigHome ? resolve9(options.xdgConfigHome) : join4(resolve9(options.homeDirectory ?? homedir2()), ".config");
+  return join4(configRoot, "venture-harness", "founder.json");
+}
+function loadFounderConfig(path = defaultFounderConfigPath()) {
+  const absolute = resolve9(path);
+  if (!existsSync6(absolute)) return { schemaVersion: 1 };
+  const value = JSON.parse(readFileSync8(absolute, "utf8"));
+  if (value.schemaVersion !== 1) {
+    throw new Error("unsupported founder config; expected schemaVersion 1");
+  }
+  if (value.venturesRoot !== void 0 && typeof value.venturesRoot !== "string") {
+    throw new Error("founder config venturesRoot must be a string");
+  }
+  return {
+    schemaVersion: 1,
+    ...typeof value.venturesRoot === "string" ? { venturesRoot: value.venturesRoot } : {}
+  };
+}
+function saveFounderConfig(config, path = defaultFounderConfigPath()) {
+  const absolute = resolve9(path);
+  mkdirSync4(dirname5(absolute), { recursive: true, mode: 448 });
+  writeFileSync4(absolute, `${JSON.stringify(config, null, 2)}
+`, { mode: 384 });
+}
+function contains(parent, child) {
+  const relation = relative6(parent, child);
+  return relation === "" || !relation.startsWith("..") && !isAbsolute3(relation);
+}
+function resolveVenturesRoot(candidate, options) {
+  if (!candidate.trim()) {
+    throw new Error("ventures-root must be a non-empty absolute path");
+  }
+  const expanded = candidate.startsWith("~/") ? join4(homedir2(), candidate.slice(2)) : candidate;
+  if (!isAbsolute3(expanded)) {
+    throw new Error(
+      `ventures-root must be an absolute path; received ${candidate}. Next: pass an absolute directory such as ~/Projects/ventures.`
+    );
+  }
+  const target = resolve9(expanded);
+  if (existsSync6(target)) {
+    const metadata = lstatSync4(target);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(
+        `ventures-root must not be a symbolic link; received ${target}. Next: point ventures-root at the real directory.`
+      );
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(`ventures-root must be a directory; received ${target}`);
+    }
+  } else {
+    mkdirSync4(target, { recursive: true, mode: 448 });
+  }
+  const canonicalTarget = realpathSync4(target);
+  const canonicalCore = realpathSync4(resolve9(options.coreRoot));
+  if (contains(canonicalCore, canonicalTarget)) {
+    throw new Error(
+      `ventures-root must not be inside the Venture Harness repository (${canonicalCore}). Ventures are independent products with their own Git history. Next: choose a sibling directory such as ~/Projects/ventures.`
+    );
+  }
+  if (contains(canonicalTarget, canonicalCore)) {
+    throw new Error(
+      `ventures-root must not contain the Venture Harness repository (${canonicalCore}). Next: choose a directory that holds only ventures, such as ~/Projects/ventures.`
+    );
+  }
+  return canonicalTarget;
+}
+var VENTURES_ROOT_UNSET_MESSAGE = "No ventures root is configured, so there is no safe directory to materialize an independent venture into.\nNext: run vh config set ventures-root <absolute-path> (for example ~/Projects/ventures), or run vh stack connect founder-default.";
+function configuredVenturesRoot(options) {
+  const config = loadFounderConfig(options.configPath ?? defaultFounderConfigPath());
+  if (!config.venturesRoot) return void 0;
+  return resolveVenturesRoot(config.venturesRoot, { coreRoot: options.coreRoot });
+}
+
 // lib/learning/engine.ts
 var FORBIDDEN_AUTOFIX_EFFECTS = /* @__PURE__ */ new Set([
   "price_change",
@@ -21992,23 +22078,23 @@ function createDefaultDataLearningRuntime(options) {
 }
 
 // lib/learning/report.ts
-import { mkdirSync as mkdirSync4, renameSync as renameSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname5, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
+import { mkdirSync as mkdirSync5, renameSync as renameSync4, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname6, relative as relative7, resolve as resolve10, sep as sep7 } from "node:path";
 function inside3(root, candidate) {
-  const absolute = resolve9(root, candidate);
-  const rel = relative6(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep6}`) && rel !== ".." && !rel.startsWith(sep6)) {
+  const absolute = resolve10(root, candidate);
+  const rel = relative7(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep7}`) && rel !== ".." && !rel.startsWith(sep7)) {
     return absolute;
   }
   throw new Error(`Learning report destination escapes the venture root: ${candidate}`);
 }
 function repositoryPath(root, absolute) {
-  return relative6(root, absolute).split(sep6).join("/");
+  return relative7(root, absolute).split(sep7).join("/");
 }
 function writeAtomic(path, content) {
-  mkdirSync4(dirname5(path), { recursive: true, mode: 448 });
+  mkdirSync5(dirname6(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync4(temporary, content, { encoding: "utf8", mode: 384 });
+  writeFileSync5(temporary, content, { encoding: "utf8", mode: 384 });
   renameSync4(temporary, path);
 }
 function singleLine(value) {
@@ -22049,7 +22135,7 @@ function renderLearningReportMarkdown(report) {
   ].join("\n");
 }
 function persistLearningReport(args) {
-  const root = resolve9(args.rootDir);
+  const root = resolve10(args.rootDir);
   const destination = inside3(root, args.definition.outputDestination);
   const stamp = args.report.generatedAt.replace(/[:.]/g, "-");
   const base = `${stamp}-${args.report.loopId.replace(/[^a-z0-9_-]+/gi, "-")}`;
@@ -22099,7 +22185,7 @@ function renderOperatingCadenceMarkdown(cadence) {
   ].join("\n");
 }
 function persistOperatingCadence(args) {
-  const root = resolve9(args.rootDir);
+  const root = resolve10(args.rootDir);
   const jsonPath = inside3(root, "reports/learning/operating-cadence.json");
   const markdownPath = inside3(root, "reports/learning/operating-cadence.md");
   writeAtomic(jsonPath, `${JSON.stringify(args.cadence, null, 2)}
@@ -22168,11 +22254,11 @@ function nextCronOccurrence(expression, after) {
 
 // lib/migrations/file-system.ts
 import { mkdir as mkdir3, readFile as readFile2, rename as rename2, rm, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname6, relative as relative7, resolve as resolve10, sep as sep7 } from "node:path";
+import { dirname as dirname7, relative as relative8, resolve as resolve11, sep as sep8 } from "node:path";
 function insideRoot(root, path) {
-  const absolute = resolve10(root, path);
-  const rel = relative7(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep7}`) && rel !== ".." && !rel.startsWith(sep7)) {
+  const absolute = resolve11(root, path);
+  const rel = relative8(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep8}`) && rel !== ".." && !rel.startsWith(sep8)) {
     return absolute;
   }
   throw new Error(`migration path escapes repository root: ${path}`);
@@ -22190,7 +22276,7 @@ function createNodeMigrationFileSystem(root = process.cwd()) {
     },
     async writeAtomic(path, content) {
       const destination = insideRoot(root, path);
-      await mkdir3(dirname6(destination), { recursive: true });
+      await mkdir3(dirname7(destination), { recursive: true });
       const temporary = `${destination}.vh-next-${process.pid}-${sequence++}`;
       try {
         await writeFile2(temporary, content, { encoding: "utf8", flag: "wx" });
@@ -22876,9 +22962,12 @@ var defaultMigrationRegistry = new MigrationRegistry([V01_TO_V02_MIGRATION]);
 var CREDENTIAL_VALUE_PATTERNS2 = [
   /\bwhsec_[a-z0-9_-]{8,}/iu,
   /\b(?:sk|rk|pk|atk)_(?:live|test)?_?[a-z0-9_-]{8,}/iu,
+  /\bsk-[a-z0-9_-]{16,}/iu,
+  /\bxkeysib-[a-z0-9_-]{12,}/iu,
+  /\bAIza[a-z0-9_-]{30,}/iu,
   /\b(?:gh[pousr]_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,})\b/iu,
   /\bxox[baprs]-[a-z0-9-]{10,}/iu,
-  /\bAKIA[A-Z0-9]{16}\b/u,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/u,
   /\bbearer\s+[a-z0-9._~+/=-]{8,}/iu,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
   /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/iu,
@@ -23008,7 +23097,7 @@ var BuildAgentHostError = class extends Error {
 };
 
 // lib/runtime/codex-cli-build-agent.ts
-import { resolve as resolve11 } from "node:path";
+import { resolve as resolve12 } from "node:path";
 var buildAgentCheckSchema = external_exports.object({
   command: external_exports.string().min(1).max(500),
   status: external_exports.enum(["passed", "failed", "skipped"]),
@@ -23135,7 +23224,7 @@ function codexBuildAgentEnvironment(source) {
   };
 }
 function productCommandEnvironment(source, isolatedHome) {
-  const home = resolve11(isolatedHome);
+  const home = resolve12(isolatedHome);
   return {
     NODE_ENV: source.NODE_ENV ?? "production",
     ...Object.fromEntries(
@@ -23145,9 +23234,9 @@ function productCommandEnvironment(source, isolatedHome) {
     ),
     HOME: home,
     USERPROFILE: home,
-    XDG_CONFIG_HOME: resolve11(home, ".config"),
-    npm_config_userconfig: resolve11(home, ".npmrc"),
-    NPM_CONFIG_USERCONFIG: resolve11(home, ".npmrc")
+    XDG_CONFIG_HOME: resolve12(home, ".config"),
+    npm_config_userconfig: resolve12(home, ".npmrc"),
+    NPM_CONFIG_USERCONFIG: resolve12(home, ".npmrc")
   };
 }
 function assertCredentialFree2(value, path = "context") {
@@ -23267,7 +23356,7 @@ var CodexCliBuildAgentHost = class {
   binary;
   inspection;
   constructor(options) {
-    this.rootDir = resolve11(options.rootDir);
+    this.rootDir = resolve12(options.rootDir);
     this.runner = options.runner;
     this.redactor = options.redactor ?? new Redactor();
     this.binary = options.binary ?? "codex";
@@ -23384,18 +23473,18 @@ ${login.stderr}`);
 };
 
 // lib/runtime/checkpoint-evidence.ts
-import { existsSync as existsSync6, lstatSync as lstatSync4, readFileSync as readFileSync8, realpathSync as realpathSync4 } from "node:fs";
-import { relative as relative8, resolve as resolve12, sep as sep8 } from "node:path";
+import { existsSync as existsSync7, lstatSync as lstatSync5, readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
+import { relative as relative9, resolve as resolve13, sep as sep9 } from "node:path";
 function inside4(rootDir, artifact) {
-  const root = realpathSync4(rootDir);
-  const target = resolve12(root, artifact);
-  const lexicalRelative = relative8(root, target);
-  if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep8}`) || lexicalRelative.startsWith(sep8)) {
+  const root = realpathSync5(rootDir);
+  const target = resolve13(root, artifact);
+  const lexicalRelative = relative9(root, target);
+  if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep9}`) || lexicalRelative.startsWith(sep9)) {
     throw new Error(`Checkpoint evidence escapes the venture root: ${artifact}`);
   }
-  const realTarget = realpathSync4(target);
-  const realRelative = relative8(root, realTarget);
-  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep8}`) || realRelative.startsWith(sep8)) {
+  const realTarget = realpathSync5(target);
+  const realRelative = relative9(root, realTarget);
+  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep9}`) || realRelative.startsWith(sep9)) {
     throw new Error(`Checkpoint evidence resolves outside the venture root: ${artifact}`);
   }
   return target;
@@ -23406,12 +23495,12 @@ function loadRepositoryCheckpointEvidence(options) {
   if (!reference.startsWith(prefix) || !reference.endsWith(".json")) {
     throw new Error(`Checkpoint evidence must be a JSON file under ${prefix}.`);
   }
-  const lexicalTarget = resolve12(options.rootDir, reference);
-  if (!existsSync6(lexicalTarget)) {
+  const lexicalTarget = resolve13(options.rootDir, reference);
+  if (!existsSync7(lexicalTarget)) {
     throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
   }
   const target = inside4(options.rootDir, reference);
-  const stat2 = lstatSync4(target);
+  const stat2 = lstatSync5(target);
   const maxBytes = options.maxBytes ?? 1e6;
   if (stat2.isSymbolicLink() || !stat2.isFile()) {
     throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
@@ -23421,7 +23510,7 @@ function loadRepositoryCheckpointEvidence(options) {
       `Checkpoint evidence size must be between 1 and ${maxBytes} bytes: ${reference}.`
     );
   }
-  const raw = readFileSync8(target, "utf8");
+  const raw = readFileSync9(target, "utf8");
   const redactor = options.redactor ?? new Redactor();
   if (redactor.redactText(raw) !== raw) {
     throw new Error("Checkpoint evidence contains registered credential material.");
@@ -23461,7 +23550,7 @@ function createRepositoryCheckpointEvidenceVerifier(options) {
 // lib/runtime/launch-report.ts
 import { randomBytes as randomBytes3 } from "node:crypto";
 import { mkdir as mkdir4, open as open2, readFile as readFile3, rename as rename3 } from "node:fs/promises";
-import { join as join4, resolve as resolve13 } from "node:path";
+import { join as join5, resolve as resolve14 } from "node:path";
 var EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 var PHONE = /(?<![\w])\+\d(?:[\d .()-]{7,}\d)/g;
 var PRIVATE_KEY = /-----BEGIN [^-\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\n]*PRIVATE KEY-----/g;
@@ -23863,10 +23952,10 @@ async function atomicWrite(path, contents) {
   await rename3(temporary, path);
 }
 async function persistLaunchReport(report, outputDirectory = "reports/launch") {
-  const directory = resolve13(outputDirectory);
+  const directory = resolve14(outputDirectory);
   await mkdir4(directory, { recursive: true, mode: 448 });
-  const jsonPath = join4(directory, "final.json");
-  const markdownPath = join4(directory, "final.md");
+  const jsonPath = join5(directory, "final.json");
+  const markdownPath = join5(directory, "final.md");
   await atomicWrite(jsonPath, report.json);
   await atomicWrite(markdownPath, report.markdown);
   const [storedJson, storedMarkdown] = await Promise.all([
@@ -23906,31 +23995,31 @@ function createLaunchReportWorkflowBinding(options) {
 // lib/runtime/launch-product-bindings.ts
 import { createHash as createHash12 } from "node:crypto";
 import {
-  existsSync as existsSync8,
-  lstatSync as lstatSync6,
-  mkdirSync as mkdirSync6,
+  existsSync as existsSync9,
+  lstatSync as lstatSync7,
+  mkdirSync as mkdirSync7,
   readdirSync as readdirSync3,
-  readFileSync as readFileSync10,
+  readFileSync as readFileSync11,
   renameSync as renameSync5,
-  writeFileSync as writeFileSync6
+  writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname8, isAbsolute as isAbsolute3, relative as relative10, resolve as resolve15, sep as sep10 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute4, relative as relative11, resolve as resolve16, sep as sep11 } from "node:path";
 import { parse as parse3 } from "yaml";
 
 // lib/mobile/scaffold.ts
 import { createHash as createHash11 } from "node:crypto";
 import {
   closeSync as closeSync3,
-  existsSync as existsSync7,
-  lstatSync as lstatSync5,
-  mkdirSync as mkdirSync5,
+  existsSync as existsSync8,
+  lstatSync as lstatSync6,
+  mkdirSync as mkdirSync6,
   openSync as openSync3,
-  readFileSync as readFileSync9,
+  readFileSync as readFileSync10,
   readdirSync as readdirSync2,
-  realpathSync as realpathSync5,
-  writeFileSync as writeFileSync5
+  realpathSync as realpathSync6,
+  writeFileSync as writeFileSync6
 } from "node:fs";
-import { dirname as dirname7, join as join5, relative as relative9, resolve as resolve14, sep as sep9 } from "node:path";
+import { dirname as dirname8, join as join6, relative as relative10, resolve as resolve15, sep as sep10 } from "node:path";
 
 // lib/mobile/templates.ts
 import { createHash as createHash10 } from "node:crypto";
@@ -24355,23 +24444,23 @@ function placeholderBundleIdentifier(ventureId2) {
   return `com.example.${ventureId2}`;
 }
 function relativeReference(root, absolute) {
-  return relative9(root, absolute).split(sep9).join("/");
+  return relative10(root, absolute).split(sep10).join("/");
 }
 function pathInside(root, reference) {
-  const absolute = resolve14(root, reference);
-  const rel = relative9(root, absolute);
-  if (rel !== "" && !rel.startsWith(`..${sep9}`) && rel !== ".." && !rel.startsWith(sep9)) {
+  const absolute = resolve15(root, reference);
+  const rel = relative10(root, absolute);
+  if (rel !== "" && !rel.startsWith(`..${sep10}`) && rel !== ".." && !rel.startsWith(sep10)) {
     return absolute;
   }
   throw new MobileScaffoldError("unsafe_path", `Path escapes repository root: ${reference}`);
 }
 function assertNoSymlinkBetween(root, absolute) {
-  const rel = relative9(root, absolute);
+  const rel = relative10(root, absolute);
   let current = root;
-  for (const segment of rel.split(sep9).filter(Boolean)) {
-    current = join5(current, segment);
-    if (!existsSync7(current)) continue;
-    const status = lstatSync5(current);
+  for (const segment of rel.split(sep10).filter(Boolean)) {
+    current = join6(current, segment);
+    if (!existsSync8(current)) continue;
+    const status = lstatSync6(current);
     if (status.isSymbolicLink()) {
       throw new MobileScaffoldError(
         "unsafe_path",
@@ -24381,12 +24470,12 @@ function assertNoSymlinkBetween(root, absolute) {
   }
 }
 function ensureDirectory(root, absolute) {
-  const rel = relative9(root, absolute);
+  const rel = relative10(root, absolute);
   let current = root;
-  for (const segment of rel.split(sep9).filter(Boolean)) {
-    current = join5(current, segment);
-    if (existsSync7(current)) {
-      const status = lstatSync5(current);
+  for (const segment of rel.split(sep10).filter(Boolean)) {
+    current = join6(current, segment);
+    if (existsSync8(current)) {
+      const status = lstatSync6(current);
       if (status.isSymbolicLink() || !status.isDirectory()) {
         throw new MobileScaffoldError(
           "unsafe_path",
@@ -24395,19 +24484,19 @@ function ensureDirectory(root, absolute) {
       }
       continue;
     }
-    mkdirSync5(current, { mode: 493 });
+    mkdirSync6(current, { mode: 493 });
   }
 }
 function readExactFile(root, path, expected) {
-  if (!existsSync7(path)) return false;
-  const status = lstatSync5(path);
+  if (!existsSync8(path)) return false;
+  const status = lstatSync6(path);
   if (status.isSymbolicLink() || !status.isFile()) {
     throw new MobileScaffoldError(
       "output_conflict",
       `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`
     );
   }
-  if (readFileSync9(path, "utf8") !== expected) {
+  if (readFileSync10(path, "utf8") !== expected) {
     throw new MobileScaffoldError(
       "output_conflict",
       `Refusing to overwrite existing content at ${relativeReference(root, path)}.`
@@ -24417,12 +24506,12 @@ function readExactFile(root, path, expected) {
 }
 function writeCreateOnly(root, path, content) {
   assertNoSymlinkBetween(root, path);
-  ensureDirectory(root, dirname7(path));
+  ensureDirectory(root, dirname8(path));
   if (readExactFile(root, path, content)) return "unchanged";
   let descriptor2;
   try {
     descriptor2 = openSync3(path, "wx", 420);
-    writeFileSync5(descriptor2, content, { encoding: "utf8" });
+    writeFileSync6(descriptor2, content, { encoding: "utf8" });
     closeSync3(descriptor2);
     descriptor2 = void 0;
     return "created";
@@ -24443,8 +24532,8 @@ function writeCreateOnly(root, path, content) {
 }
 function generateMobileScaffold(rootDirectory, requestInput) {
   const request2 = mobileScaffoldRequestSchema.parse(requestInput);
-  const root = realpathSync5(resolve14(rootDirectory));
-  if (!lstatSync5(root).isDirectory()) {
+  const root = realpathSync6(resolve15(rootDirectory));
+  if (!lstatSync6(root).isDirectory()) {
     throw new MobileScaffoldError("unsafe_path", `Repository root is not a directory: ${root}`);
   }
   const outputDirectory = request2.outputDirectory ?? defaultMobileScaffoldDirectory(request2.stack);
@@ -24492,8 +24581,8 @@ function generateMobileScaffold(rootDirectory, requestInput) {
 `;
   const manifestPath = `${outputDirectory}/${MANIFEST_NAME}`;
   const absoluteManifestPath = pathInside(root, manifestPath);
-  if (existsSync7(output)) {
-    const outputStatus = lstatSync5(output);
+  if (existsSync8(output)) {
+    const outputStatus = lstatSync6(output);
     if (outputStatus.isSymbolicLink() || !outputStatus.isDirectory()) {
       throw new MobileScaffoldError(
         "output_conflict",
@@ -24501,19 +24590,19 @@ function generateMobileScaffold(rootDirectory, requestInput) {
       );
     }
     const entries = readdirSync2(output);
-    if (entries.length > 0 && !existsSync7(absoluteManifestPath)) {
+    if (entries.length > 0 && !existsSync8(absoluteManifestPath)) {
       throw new MobileScaffoldError(
         "output_conflict",
         `Refusing to add a scaffold inside existing unowned directory ${outputDirectory}.`
       );
     }
   }
-  if (existsSync7(absoluteManifestPath)) {
+  if (existsSync8(absoluteManifestPath)) {
     readExactFile(root, absoluteManifestPath, manifestContent);
   }
   for (const file2 of templateFiles) {
     const absolute = pathInside(root, `${outputDirectory}/${file2.relativePath}`);
-    if (existsSync7(absolute)) readExactFile(root, absolute, file2.content);
+    if (existsSync8(absolute)) readExactFile(root, absolute, file2.content);
   }
   const createdFiles = [];
   const unchangedFiles = [];
@@ -24528,7 +24617,7 @@ function generateMobileScaffold(rootDirectory, requestInput) {
   for (const file2 of templateFiles) {
     const absolute = pathInside(root, `${outputDirectory}/${file2.relativePath}`);
     readExactFile(root, absolute, file2.content);
-    if (sha2563(readFileSync9(absolute, "utf8")) !== sha2563(file2.content)) {
+    if (sha2563(readFileSync10(absolute, "utf8")) !== sha2563(file2.content)) {
       throw new MobileScaffoldError(
         "io_failure",
         `Hash read-back failed for ${relativeReference(root, absolute)}.`
@@ -24599,22 +24688,22 @@ var SNAPSHOT_IGNORED_DIRECTORIES = /* @__PURE__ */ new Set([
   "reports"
 ]);
 function inside5(root, path) {
-  const absolute = resolve15(root, path);
-  const rel = relative10(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep10}`) && rel !== ".." && !rel.startsWith(sep10)) {
+  const absolute = resolve16(root, path);
+  const rel = relative11(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep11}`) && rel !== ".." && !rel.startsWith(sep11)) {
     return absolute;
   }
   throw new WorkflowExecutionError("UNSAFE_ARTIFACT_PATH", `Path escapes venture root: ${path}`);
 }
 function repositoryReference(root, path) {
-  if (isAbsolute3(path) || path.includes("\\") || path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
+  if (isAbsolute4(path) || path.includes("\\") || path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
       `Build-agent path must be a canonical repository-relative reference: ${path}`
     );
   }
   const absolute = inside5(root, path);
-  const reference = relative10(root, absolute).split(sep10).join("/");
+  const reference = relative11(root, absolute).split(sep11).join("/");
   if (reference !== path) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -24624,7 +24713,7 @@ function repositoryReference(root, path) {
   return { absolute, reference };
 }
 function sha2564(path) {
-  return createHash12("sha256").update(readFileSync10(path)).digest("hex");
+  return createHash12("sha256").update(readFileSync11(path)).digest("hex");
 }
 function dependencyInstallCheckpoint(value) {
   if (!value || Array.isArray(value) || typeof value !== "object") return null;
@@ -24643,7 +24732,7 @@ function dependencyInstallCheckpoint(value) {
 function readDependencyInstallState(root, expected) {
   const packagePath = inside5(root, expected.packageManifest);
   const lockPath = inside5(root, expected.lockfile);
-  if (!existsSync8(packagePath) || !lstatSync6(packagePath).isFile() || !existsSync8(lockPath) || !lstatSync6(lockPath).isFile()) {
+  if (!existsSync9(packagePath) || !lstatSync7(packagePath).isFile() || !existsSync9(lockPath) || !lstatSync7(lockPath).isFile()) {
     return {
       ...expected,
       state: "input_mismatch",
@@ -24666,12 +24755,12 @@ function readDependencyInstallState(root, expected) {
     };
   }
   const modulesPath = inside5(root, "node_modules");
-  const installedModulesReadBack = existsSync8(modulesPath) && lstatSync6(modulesPath).isDirectory();
+  const installedModulesReadBack = existsSync9(modulesPath) && lstatSync7(modulesPath).isDirectory();
   const installedLockPath = inside5(root, "node_modules/.pnpm/lock.yaml");
-  const installedLockfileReadBack = installedModulesReadBack && existsSync8(installedLockPath) && lstatSync6(installedLockPath).isFile() && sha2564(installedLockPath) === expected.lockfileSha256;
+  const installedLockfileReadBack = installedModulesReadBack && existsSync9(installedLockPath) && lstatSync7(installedLockPath).isFile() && sha2564(installedLockPath) === expected.lockfileSha256;
   const binaryDirectory = inside5(root, "node_modules/.bin");
   const commandInstalled = (name) => [name, `${name}.cmd`, `${name}.ps1`].some(
-    (candidate) => existsSync8(resolve15(binaryDirectory, candidate))
+    (candidate) => existsSync9(resolve16(binaryDirectory, candidate))
   );
   const requiredToolingReadBack = installedModulesReadBack && commandInstalled("tsc") && commandInstalled("playwright");
   return {
@@ -24690,13 +24779,13 @@ function repositorySnapshot(root) {
       (left, right) => left.name.localeCompare(right.name)
     )) {
       if (entry.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
-      const absolute = resolve15(directory, entry.name);
+      const absolute = resolve16(directory, entry.name);
       if (entry.isDirectory()) {
         visit(absolute);
         continue;
       }
       if (!entry.isFile()) continue;
-      const reference = relative10(root, absolute).split(sep10).join("/");
+      const reference = relative11(root, absolute).split(sep11).join("/");
       snapshot.set(reference, sha2564(absolute));
     }
   };
@@ -24765,9 +24854,9 @@ function safeSegment(value, label) {
   return value;
 }
 function writeJsonAtomic(path, value) {
-  mkdirSync6(dirname8(path), { recursive: true, mode: 448 });
+  mkdirSync7(dirname9(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync6(temporary, `${JSON.stringify(value, null, 2)}
+  writeFileSync7(temporary, `${JSON.stringify(value, null, 2)}
 `, {
     encoding: "utf8",
     mode: 384
@@ -24794,10 +24883,10 @@ function dependencyReconciliationEvidencePaths(root, runIdInput, nodeIdInput) {
 }
 function checkpointFromInstallEvidence(root, runId2, nodeId) {
   const paths = dependencyInstallEvidencePaths(root, runId2, nodeId);
-  if (!existsSync8(paths.absolute) || !lstatSync6(paths.absolute).isFile()) return null;
+  if (!existsSync9(paths.absolute) || !lstatSync7(paths.absolute).isFile()) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync10(paths.absolute, "utf8"));
+    parsed = JSON.parse(readFileSync11(paths.absolute, "utf8"));
   } catch {
     return null;
   }
@@ -24823,7 +24912,7 @@ function verifiedChangedFiles(root, changedFiles) {
       );
     }
     seen.add(reference);
-    if (!existsSync8(absolute) || !lstatSync6(absolute).isFile()) {
+    if (!existsSync9(absolute) || !lstatSync7(absolute).isFile()) {
       throw new WorkflowExecutionError(
         "BUILD_AGENT_EVIDENCE_INVALID",
         `Build agent reported changed file ${path}, but it does not exist after the task.`
@@ -24877,7 +24966,7 @@ function validateAgentCompletion(root, handler, result2, before, after) {
   }
   const artifacts = result2.completion.artifacts.map(({ path, role }) => {
     const { absolute, reference } = repositoryReference(root, path);
-    if (!existsSync8(absolute) || !lstatSync6(absolute).isFile()) {
+    if (!existsSync9(absolute) || !lstatSync7(absolute).isFile()) {
       throw new WorkflowExecutionError(
         "BUILD_AGENT_EVIDENCE_INVALID",
         `Build agent completion artifact ${path} does not exist as a regular file.`
@@ -24932,7 +25021,7 @@ function validateAgentCompletion(root, handler, result2, before, after) {
 function persistEvidence(root, context2, evidence, redactor) {
   const paths = artifactPaths(root, context2);
   writeJsonAtomic(paths.absolute, redactor.redact(evidence));
-  const readBack = JSON.parse(readFileSync10(paths.absolute, "utf8"));
+  const readBack = JSON.parse(readFileSync11(paths.absolute, "utf8"));
   if (readBack.runId !== context2.runId || readBack.nodeId !== context2.node.id) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -24955,7 +25044,7 @@ function hostOutput(result2) {
 }
 function configuredMobileScaffold(root, brief, explicit) {
   const configPath = inside5(root, "config/mobile.yaml");
-  const configured = existsSync8(configPath) ? mobileSchema.parse(parse3(readFileSync10(configPath, "utf8"))).mobile : void 0;
+  const configured = existsSync9(configPath) ? mobileSchema.parse(parse3(readFileSync11(configPath, "utf8"))).mobile : void 0;
   return {
     bundleIdentifier: explicit?.bundleIdentifier ?? configured?.bundle_identifier ?? brief.bundle_identifier ?? void 0,
     appScheme: explicit?.appScheme ?? configured?.app_scheme ?? brief.app_scheme ?? brief.id,
@@ -25272,10 +25361,10 @@ async function runDependencyInstall(options, context2) {
   let requiredToolingReadBack = false;
   let checkpoint = null;
   try {
-    if (!existsSync8(packagePath) || !lstatSync6(packagePath).isFile()) {
+    if (!existsSync9(packagePath) || !lstatSync7(packagePath).isFile()) {
       throw new Error("package.json is missing or is not a regular file");
     }
-    if (!existsSync8(lockPath) || !lstatSync6(lockPath).isFile()) {
+    if (!existsSync9(lockPath) || !lstatSync7(lockPath).isFile()) {
       throw new Error("pnpm-lock.yaml is missing or is not a regular file");
     }
     packageManifestSha256 = sha2564(packagePath);
@@ -25395,7 +25484,7 @@ function persistDependencyReconciliationEvidence(root, context2, readBack, redac
       ...readBack
     })
   );
-  const persisted = JSON.parse(readFileSync10(paths.absolute, "utf8"));
+  const persisted = JSON.parse(readFileSync11(paths.absolute, "utf8"));
   if (persisted.runId !== context2.runId || persisted.nodeId !== context2.node.id || persisted.state !== readBack.state) {
     throw new WorkflowExecutionError(
       "DEPENDENCY_RECONCILIATION_EVIDENCE_INVALID",
@@ -25468,7 +25557,7 @@ function dependencyCheckpointForHandler(root, context2) {
   }
   for (const nodeId of ["finalize-dependencies", "install-dependencies"]) {
     const paths = dependencyInstallEvidencePaths(root, context2.runId, nodeId);
-    if (existsSync8(paths.absolute)) {
+    if (existsSync9(paths.absolute)) {
       return {
         checkpoint: checkpointFromInstallEvidence(root, context2.runId, nodeId),
         expected: true,
@@ -25630,7 +25719,7 @@ async function assertBuildAgentHostAvailable(host) {
   }
 }
 function createLaunchProductBindings(options) {
-  const rootDir = resolve15(options.rootDir);
+  const rootDir = resolve16(options.rootDir);
   const redactor = options.redactor ?? new Redactor();
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const handlers = {};
@@ -25939,7 +26028,7 @@ var NativeHttpFetcher = class {
       return { status: response.status, headers: response.headers, bytes };
     }
     const pinned = validated.addresses[0];
-    return new Promise((resolve26, reject) => {
+    return new Promise((resolve27, reject) => {
       const nativeRequest = httpsRequest(
         validated.url,
         {
@@ -25971,7 +26060,7 @@ var NativeHttpFetcher = class {
                 value.forEach((entry) => responseHeaderBag.append(name, entry));
               else if (value !== void 0) responseHeaderBag.set(name, String(value));
             }
-            resolve26({
+            resolve27({
               status: response.statusCode ?? 0,
               headers: responseHeaderBag,
               bytes: Uint8Array.from(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
@@ -26938,7 +27027,7 @@ function createProviderWorkflowBindings(options) {
 // lib/runtime/provider-lifecycle-store.ts
 import { randomBytes as randomBytes4 } from "node:crypto";
 import { mkdir as mkdir5, open as open3, readFile as readFile4, rename as rename4 } from "node:fs/promises";
-import { dirname as dirname9, resolve as resolve16 } from "node:path";
+import { dirname as dirname10, resolve as resolve17 } from "node:path";
 var providerResourceTypes = [
   "account_id",
   "app_id",
@@ -27056,7 +27145,7 @@ var FileProviderLifecycleStore = class {
   queue = Promise.resolve();
   path;
   constructor(path) {
-    this.path = resolve16(path);
+    this.path = resolve17(path);
   }
   async list() {
     await this.queue;
@@ -27105,7 +27194,7 @@ var FileProviderLifecycleStore = class {
     return parseProviderLifecycleDocument(value);
   }
   async write(records) {
-    const directory = dirname9(this.path);
+    const directory = dirname10(this.path);
     await mkdir5(directory, { recursive: true, mode: 448 });
     const temporary = `${this.path}.${process.pid}.${randomBytes4(6).toString("hex")}.tmp`;
     const handle = await open3(temporary, "wx", 384);
@@ -27280,13 +27369,13 @@ async function planUpgrade(options) {
 // lib/upgrade/local-release.ts
 import { createHash as createHash15 } from "node:crypto";
 import { lstat as lstat2, readFile as readFile5, realpath, stat } from "node:fs/promises";
-import { isAbsolute as isAbsolute4, relative as relative11, resolve as resolve17, sep as sep11 } from "node:path";
+import { isAbsolute as isAbsolute5, relative as relative12, resolve as resolve18, sep as sep12 } from "node:path";
 function sha2566(content) {
   return createHash15("sha256").update(content).digest("hex");
 }
 function isInside(root, candidate) {
-  const rel = relative11(root, candidate);
-  return rel === "" || !rel.startsWith(`..${sep11}`) && rel !== ".." && !isAbsolute4(rel);
+  const rel = relative12(root, candidate);
+  return rel === "" || !rel.startsWith(`..${sep12}`) && rel !== ".." && !isAbsolute5(rel);
 }
 function rejectRemoteLocator(locator) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
@@ -27297,13 +27386,13 @@ function rejectRemoteLocator(locator) {
 }
 async function locateLocalHarnessRelease(options) {
   rejectRemoteLocator(options.locator);
-  const requestedRoot = resolve17(options.baseDir ?? process.cwd(), options.locator);
+  const requestedRoot = resolve18(options.baseDir ?? process.cwd(), options.locator);
   const requestedStat = await stat(requestedRoot).catch(() => null);
   if (!requestedStat?.isDirectory()) {
     throw new Error(`Local release directory does not exist: ${options.locator}`);
   }
   const releaseRoot = await realpath(requestedRoot);
-  const lockPath = resolve17(releaseRoot, "harness.lock");
+  const lockPath = resolve18(releaseRoot, "harness.lock");
   const lockRealPath = await realpath(lockPath).catch(() => null);
   if (lockRealPath === null || !isInside(releaseRoot, lockRealPath)) {
     throw new Error("Local release must contain a non-escaping harness.lock");
@@ -27326,7 +27415,7 @@ async function locateLocalHarnessRelease(options) {
       files.push({ path: entry.path, ownership: entry.ownership, content: "" });
       continue;
     }
-    const candidate = resolve17(releaseRoot, entry.path);
+    const candidate = resolve18(releaseRoot, entry.path);
     const fileStat = await lstat2(candidate).catch(() => null);
     if (fileStat === null || !fileStat.isFile() || fileStat.isSymbolicLink()) {
       throw new Error(`Local release managed file is missing or not a regular file: ${entry.path}`);
@@ -27943,8 +28032,8 @@ function createDefaultFounderCredentialTesters(options) {
 }
 
 // lib/cli/default-provider-runtime.ts
-import { existsSync as existsSync9, readFileSync as readFileSync11 } from "node:fs";
-import { resolve as resolve18 } from "node:path";
+import { existsSync as existsSync10, readFileSync as readFileSync12 } from "node:fs";
+import { resolve as resolve19 } from "node:path";
 import { parse as parse5 } from "yaml";
 var ProviderFactoryPrerequisiteError = class extends ProviderPlanFactoryPrerequisiteError {
   constructor(handler, message) {
@@ -28027,13 +28116,13 @@ var CLI_IDS_BY_PROVIDER = {
   eas: ["eas"]
 };
 function readYaml(path) {
-  return parse5(readFileSync11(path, "utf8"));
+  return parse5(readFileSync12(path, "utf8"));
 }
 function loadDefaultProviderConfig(rootDir) {
-  const root = resolve18(rootDir);
+  const root = resolve19(rootDir);
   const load = (relativePath, parseConfig) => {
-    const path = resolve18(root, relativePath);
-    if (!existsSync9(path)) {
+    const path = resolve19(root, relativePath);
+    if (!existsSync10(path)) {
       throw new ProviderPlanFactoryPrerequisiteError(
         `Missing ${relativePath}. Next: restore the v0.2 typed config or run vh upgrade before planning provider effects`
       );
@@ -28206,7 +28295,7 @@ function githubRequest(handler, snapshot, lifecycleRecords, rootDir) {
   if (intent === "create_from_source" || intent === "create_from_template") {
     return request(target, credentialRef2, ["repository"], {
       repository,
-      sourceDirectory: resolve18(rootDir),
+      sourceDirectory: resolve19(rootDir),
       visibility: snapshot.venture.venture.repository_visibility
     });
   }
@@ -28403,7 +28492,7 @@ function neonRequest(handler, snapshot, lifecycleRecords, rootDir) {
         projectName,
         regionId,
         databaseCredentialRef: databaseCredentialRef2,
-        workingDirectory: resolve18(rootDir)
+        workingDirectory: resolve19(rootDir)
       }
     );
   }
@@ -28455,7 +28544,7 @@ function neonRequest(handler, snapshot, lifecycleRecords, rootDir) {
     branchId,
     databaseName,
     databaseCredentialRef,
-    workingDirectory: resolve18(rootDir)
+    workingDirectory: resolve19(rootDir)
   });
 }
 function exactMinorUnits(handler, amount, path) {
@@ -28774,7 +28863,7 @@ function easRequest(handler, snapshot, workflow, rootDir) {
     handler,
     "config/mobile.yaml mobile.eas.build_profiles does not contain production. Next: add a reviewed production build profile"
   );
-  const projectDirectory = resolve18(rootDir, "mobile/expo");
+  const projectDirectory = resolve19(rootDir, "mobile/expo");
   if (handler === "provider.eas-build") {
     return request(target, credentialRef2, ["ios_build"], {
       projectId,
@@ -29211,8 +29300,8 @@ async function inspectDefaultProviderDoctor(options) {
 }
 
 // lib/cli/default-learning-runtime.ts
-import { existsSync as existsSync10, readFileSync as readFileSync12 } from "node:fs";
-import { resolve as resolve19 } from "node:path";
+import { existsSync as existsSync11, readFileSync as readFileSync13 } from "node:fs";
+import { resolve as resolve20 } from "node:path";
 import { parse as parse6 } from "yaml";
 var normalizedScalarSchema2 = external_exports.union([external_exports.string(), external_exports.number().finite(), external_exports.boolean(), external_exports.null()]);
 var dataSourceSchema = external_exports.enum(DATA_SOURCE_IDS);
@@ -29296,22 +29385,22 @@ var persistedDataSyncSchema = external_exports.object({
   });
 });
 function readYaml2(path) {
-  return parse6(readFileSync12(path, "utf8"));
+  return parse6(readFileSync13(path, "utf8"));
 }
 function loadLoops(rootDir) {
-  const path = resolve19(rootDir, "config/loops.yaml");
-  return existsSync10(path) ? loopsSchema.parse(readYaml2(path)) : createDefaultLoopsConfig();
+  const path = resolve20(rootDir, "config/loops.yaml");
+  return existsSync11(path) ? loopsSchema.parse(readYaml2(path)) : createDefaultLoopsConfig();
 }
 function loadProviders(rootDir) {
-  const path = resolve19(rootDir, "config/providers.yaml");
-  return existsSync10(path) ? providersSchema.parse(readYaml2(path)) : null;
+  const path = resolve20(rootDir, "config/providers.yaml");
+  return existsSync11(path) ? providersSchema.parse(readYaml2(path)) : null;
 }
 function loadProviderLifecycle(rootDir) {
-  const path = resolve19(rootDir, ".venture/provider-lifecycle.json");
-  if (!existsSync10(path)) return [];
+  const path = resolve20(rootDir, ".venture/provider-lifecycle.json");
+  if (!existsSync11(path)) return [];
   let value;
   try {
-    value = JSON.parse(readFileSync12(path, "utf8"));
+    value = JSON.parse(readFileSync13(path, "utf8"));
   } catch {
     throw new Error(
       "Provider lifecycle state is corrupt JSON; restore verified evidence before data sync."
@@ -29320,8 +29409,8 @@ function loadProviderLifecycle(rootDir) {
   return parseProviderLifecycleDocument(value);
 }
 function activeExperimentState(rootDir) {
-  const path = resolve19(rootDir, "config/experiments.yaml");
-  if (!existsSync10(path)) return { hypotheses: [], experiments: [] };
+  const path = resolve20(rootDir, "config/experiments.yaml");
+  if (!existsSync11(path)) return { hypotheses: [], experiments: [] };
   const config = experimentsSchema.parse(readYaml2(path));
   const active = config.experiments.filter(
     (experiment) => ["approved", "running"].includes(experiment.status)
@@ -29332,8 +29421,8 @@ function activeExperimentState(rootDir) {
   };
 }
 function loadTimezone(rootDir) {
-  const path = resolve19(rootDir, "config/venture.yaml");
-  if (!existsSync10(path)) return "UTC";
+  const path = resolve20(rootDir, "config/venture.yaml");
+  if (!existsSync11(path)) return "UTC";
   return ventureSchema.parse(readYaml2(path)).venture.timezone;
 }
 function mergeRequirements(loops, injected) {
@@ -29853,17 +29942,17 @@ function productHandlerNames(definition2) {
   return definition2.nodes.filter((node) => node.handler && node.kind !== "provider" && node.handler !== "launch.report").map((node) => node.handler).sort();
 }
 function inside6(root, path) {
-  const absolute = resolve20(root, path);
-  const rel = relative12(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep12}`) && rel !== ".." && !rel.startsWith(sep12)) {
+  const absolute = resolve21(root, path);
+  const rel = relative13(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep13}`) && rel !== ".." && !rel.startsWith(sep13)) {
     return absolute;
   }
   throw new Error(`Path escapes the venture root: ${path}`);
 }
 function writeJsonAtomic2(path, value) {
-  mkdirSync7(dirname10(path), { recursive: true, mode: 448 });
+  mkdirSync8(dirname11(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync7(temporary, `${JSON.stringify(value, null, 2)}
+  writeFileSync8(temporary, `${JSON.stringify(value, null, 2)}
 `, {
     encoding: "utf8",
     mode: 384
@@ -29871,9 +29960,9 @@ function writeJsonAtomic2(path, value) {
   renameSync6(temporary, path);
 }
 function writeTextAtomic(path, content) {
-  mkdirSync7(dirname10(path), { recursive: true, mode: 448 });
+  mkdirSync8(dirname11(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync7(temporary, content, {
+  writeFileSync8(temporary, content, {
     encoding: "utf8",
     mode: 384
   });
@@ -29883,7 +29972,7 @@ function writeYamlAtomic(path, value) {
   writeTextAtomic(path, stringify6(value, { lineWidth: 100 }));
 }
 function readStructured(path) {
-  const text2 = readFileSync13(path, "utf8");
+  const text2 = readFileSync14(path, "utf8");
   return path.endsWith(".json") ? JSON.parse(text2) : parse7(text2);
 }
 function stableJson2(value) {
@@ -29931,7 +30020,7 @@ function parseFounderLaunchTransaction(value) {
 }
 function loadFounderLaunchTransaction(root) {
   const path = founderLaunchTransactionPath(root);
-  if (!existsSync11(path)) {
+  if (!existsSync12(path)) {
     throw new Error(
       "Existing founder venture has no durable launch transaction; choose a new --output or inspect it manually before any retry."
     );
@@ -29945,7 +30034,7 @@ function validateFounderLaunchContinuation(input) {
   const transaction = loadFounderLaunchTransaction(input.childRoot);
   const grantPath = inside6(input.childRoot, ".venture/launch-grant.json");
   const founderInputPath = inside6(input.childRoot, ".venture/founder-input.json");
-  if (!existsSync11(grantPath) || !existsSync11(founderInputPath)) {
+  if (!existsSync12(grantPath) || !existsSync12(founderInputPath)) {
     throw new Error(
       "Existing founder venture is missing its immutable input or Launch Grant; no continuation was attempted."
     );
@@ -30019,7 +30108,7 @@ function learningSourcesFor(decision, activeEventPacks) {
 function synchronizeBriefContracts(root, brief, decision, activeEventPacks, synchronizedAt) {
   const pendingWrites = [];
   const venturePath = inside6(root, "config/venture.yaml");
-  if (existsSync11(venturePath)) {
+  if (existsSync12(venturePath)) {
     const current = ventureSchema.parse(readStructured(venturePath));
     const next = ventureSchema.parse({
       ...current,
@@ -30062,7 +30151,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: venturePath, reference: "config/venture.yaml", value: next });
   }
   const launchConfigPath = inside6(root, "config/launch.yaml");
-  if (existsSync11(launchConfigPath)) {
+  if (existsSync12(launchConfigPath)) {
     const current = launchSchema.parse(readStructured(launchConfigPath));
     const factorRationale = (factor, level) => `${factor.replaceAll("_", " ")} was supplied as ${level} in the selected founder brief.`;
     const next = launchSchema.parse({
@@ -30106,7 +30195,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     });
   }
   const mobilePath = inside6(root, "config/mobile.yaml");
-  if (existsSync11(mobilePath)) {
+  if (existsSync12(mobilePath)) {
     const current = mobileSchema.parse(readStructured(mobilePath));
     const mobile = decision.rail.mobileStack !== "none";
     if (mobile && current.mobile.app_store_connect.first_app_record.state === "complete" && brief.bundle_identifier && current.mobile.bundle_identifier && current.mobile.bundle_identifier !== brief.bundle_identifier) {
@@ -30135,7 +30224,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: mobilePath, reference: "config/mobile.yaml", value: next });
   }
   const analyticsPath = inside6(root, "config/analytics.yaml");
-  if (existsSync11(analyticsPath)) {
+  if (existsSync12(analyticsPath)) {
     const current = analyticsSchema.parse(readStructured(analyticsPath));
     const activeJourneys = new Set(resolveActiveCoreJourneys(activeEventPacks));
     const coreJourneys = Object.fromEntries(
@@ -30165,7 +30254,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     });
   }
   const loopsPath = inside6(root, "config/loops.yaml");
-  if (existsSync11(loopsPath)) {
+  if (existsSync12(loopsPath)) {
     const current = loopsSchema.parse(readStructured(loopsPath));
     const sources = learningSourcesFor(decision, activeEventPacks);
     const freshnessHours = { daily: 36, weekly: 192, biweekly: 384, monthly: 800 };
@@ -30191,7 +30280,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: loopsPath, reference: "config/loops.yaml", value: next });
   }
   const originals = new Map(
-    pendingWrites.map(({ path }) => [path, readFileSync13(path, "utf8")])
+    pendingWrites.map(({ path }) => [path, readFileSync14(path, "utf8")])
   );
   const written = [];
   try {
@@ -30244,10 +30333,10 @@ function launchPath(root, runId2) {
 }
 function loadProject(root) {
   const path = projectPath(root);
-  if (!existsSync11(path)) {
+  if (!existsSync12(path)) {
     throw new Error("No founder brief is selected. Next: run vh create --brief <file>.");
   }
-  const value = JSON.parse(readFileSync13(path, "utf8"));
+  const value = JSON.parse(readFileSync14(path, "utf8"));
   if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error("Unsupported .venture/project.json version.");
   }
@@ -30278,12 +30367,12 @@ function loadProject(root) {
 }
 function loadLaunch(root, runId2) {
   const path = launchPath(root, runId2);
-  if (!existsSync11(path)) {
+  if (!existsSync12(path)) {
     throw new Error(
       `Launch definition for ${runId2} is missing; restore .venture/launches metadata.`
     );
   }
-  const value = JSON.parse(readFileSync13(path, "utf8"));
+  const value = JSON.parse(readFileSync14(path, "utf8"));
   if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error(`Unsupported launch metadata for ${runId2}.`);
   }
@@ -30586,7 +30675,7 @@ function bindFounderProviderFactories(input) {
             `${input.grant.repository.owner}/${input.grant.repository.name}`
           );
           assertExactPlanInput(target, "visibility", input.grant.repository.visibility);
-          assertExactPlanInput(target, "sourceDirectory", resolve20(input.root));
+          assertExactPlanInput(target, "sourceDirectory", resolve21(input.root));
         }
         if (target.provider === "vercel") {
           const scope = configured.team_id ?? configured.account_id;
@@ -30834,7 +30923,7 @@ function credentialKind(value, backend) {
   return selected;
 }
 function createDefaultCliServices(options = {}) {
-  const root = resolve20(options.rootDir ?? process.cwd());
+  const root = resolve21(options.rootDir ?? process.cwd());
   const store = options.store ?? new FileWorkflowStore({ rootDir: inside6(root, ".venture/runs") });
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const providerLifecycleStore = new FileProviderLifecycleStore(
@@ -30844,7 +30933,7 @@ function createDefaultCliServices(options = {}) {
     options.founderStackRoot ?? (options.rootDir ? inside6(root, ".venture/founder-stacks") : defaultFounderStackStateRoot())
   );
   const requirements = options.dataRequirements ?? [];
-  const catalogPath = resolve20(
+  const catalogPath = resolve21(
     options.credentialCatalogPath ?? (options.rootDir ? inside6(root, ".venture/credentials.json") : defaultCredentialCatalogPath())
   );
   let credentialCatalog = loadCredentialCatalog(catalogPath);
@@ -30905,7 +30994,7 @@ function createDefaultCliServices(options = {}) {
     now
   });
   const productRuntimeHome = inside6(root, ".venture/product-command-home");
-  mkdirSync7(productRuntimeHome, { recursive: true, mode: 448 });
+  mkdirSync8(productRuntimeHome, { recursive: true, mode: 448 });
   const productCommandRunner = options.productCommandRunner ?? new NodeCommandRunner({ env: productCommandEnvironment(process.env, productRuntimeHome) });
   const buildAgentHost = options.buildAgentHost ?? new CodexCliBuildAgentHost({
     rootDir: root,
@@ -30948,9 +31037,9 @@ function createDefaultCliServices(options = {}) {
     const limitations = [];
     for (const profile2 of ["fast", "mvp", "release"]) {
       const path = inside6(root, `.venture/reports/quality/${profile2}-latest.json`);
-      if (!existsSync11(path)) continue;
+      if (!existsSync12(path)) continue;
       try {
-        const report = JSON.parse(readFileSync13(path, "utf8"));
+        const report = JSON.parse(readFileSync14(path, "utf8"));
         for (const result2 of report.results ?? []) {
           if (typeof result2.id !== "string" || !["PASS", "FAIL", "SKIP", "NOT_APPLICABLE"].includes(String(result2.status))) {
             throw new Error("result has an invalid id or status");
@@ -30971,7 +31060,7 @@ function createDefaultCliServices(options = {}) {
   const reportInputFor = (launch, state) => {
     const decision = launch.decision;
     const loopsPath = inside6(root, "config/loops.yaml");
-    const loops = existsSync11(loopsPath) ? loopsSchema.parse(readStructured(loopsPath)) : createDefaultLoopsConfig();
+    const loops = existsSync12(loopsPath) ? loopsSchema.parse(readStructured(loopsPath)) : createDefaultLoopsConfig();
     const configuredLoops = Object.entries(loops.loops).map(([id, loop2]) => {
       const sources = loop2.inputs.length > 0 ? loop2.inputs.map(
         (input) => `${input.source}:${input.freshness_hours}h:${input.required ? "required" : "optional"}`
@@ -30980,7 +31069,7 @@ function createDefaultCliServices(options = {}) {
     });
     const nextReviews = Object.entries(loops.loops).filter(([, loop2]) => ["daily", "weekly", "biweekly", "monthly"].includes(loop2.cadence)).map(([id, loop2]) => `${id}: ${loop2.next_run_at ?? "not scheduled"}`);
     const providerConfigPath = inside6(root, "config/providers.yaml");
-    const providerMetadata = existsSync11(providerConfigPath) ? Object.fromEntries(
+    const providerMetadata = existsSync12(providerConfigPath) ? Object.fromEntries(
       Object.entries(providersSchema.parse(readStructured(providerConfigPath)).providers).map(
         ([provider, configured]) => [
           provider,
@@ -30993,8 +31082,8 @@ function createDefaultCliServices(options = {}) {
       )
     ) : {};
     const cadencePath = inside6(root, "reports/learning/operating-cadence.json");
-    if (existsSync11(cadencePath)) {
-      const cadence = JSON.parse(readFileSync13(cadencePath, "utf8"));
+    if (existsSync12(cadencePath)) {
+      const cadence = JSON.parse(readFileSync14(cadencePath, "utf8"));
       for (const hypothesis of cadence.activeHypotheses ?? []) {
         nextReviews.push(`active hypothesis: ${hypothesis}`);
       }
@@ -31184,12 +31273,14 @@ function createDefaultCliServices(options = {}) {
       });
       const ideaSource = loadFounderIdeaFile(request2.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
+      const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
+      if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
       const preparation = compileFounderLaunchPreparation({
         ideaSource,
         ideaPath: request2.idea,
         stack: connection,
         stackDoctor,
-        baseDir: resolve20(options.founderOutputRoot ?? root),
+        baseDir: resolve21(venturesRoot),
         output: request2.output,
         workflowRefSha,
         executionMode: request2.mode,
@@ -31238,7 +31329,7 @@ function createDefaultCliServices(options = {}) {
       let writableTargetsRegistered = false;
       let pendingFounderGrantRenewal = false;
       const childStore = new FileWorkflowStore({ rootDir: inside6(childRoot, ".venture/runs") });
-      if (existsSync11(childRoot)) {
+      if (existsSync12(childRoot)) {
         const continuation = validateFounderLaunchContinuation({
           childRoot,
           preparation,
@@ -31266,7 +31357,7 @@ function createDefaultCliServices(options = {}) {
           pendingFounderGrantRenewal = true;
         }
       } else {
-        if (existsSync11(stagingRoot)) {
+        if (existsSync12(stagingRoot)) {
           throw new Error(
             `Founder launch staging directory already exists: ${stagingRoot}. Inspect that interrupted local materialization before retrying; no provider effect was started by this invocation.`
           );
@@ -31321,7 +31412,7 @@ function createDefaultCliServices(options = {}) {
         await stagingServices.create({ brief: briefArtifact, json: true });
         configureFounderProviderTargets(stagingRoot, connection, preparation);
         configureFounderOffer(stagingRoot, preparation);
-        mkdirSync7(dirname10(childRoot), { recursive: true, mode: 448 });
+        mkdirSync8(dirname11(childRoot), { recursive: true, mode: 448 });
         renameSync6(stagingRoot, childRoot);
       }
       if (!workflow) {
@@ -31411,11 +31502,11 @@ function createDefaultCliServices(options = {}) {
       });
     },
     create(request2) {
-      const source = isAbsolute5(request2.brief) ? request2.brief : resolve20(root, request2.brief);
+      const source = isAbsolute6(request2.brief) ? request2.brief : resolve21(root, request2.brief);
       const brief = founderBriefSchema.parse(readStructured(source));
       const decision = routeLaunch(brief);
       const activeEventPacks = eventPacksFor(brief, decision);
-      const existing = existsSync11(projectPath(root)) ? loadProject(root) : null;
+      const existing = existsSync12(projectPath(root)) ? loadProject(root) : null;
       if (existing && existing.brief.id !== brief.id) {
         throw new Error(
           `This working directory already contains venture ${existing.brief.id}; refusing to retain its run, provider, mobile, and learning state for different brief ${brief.id}. Next: create the new venture in a fresh child directory, or archive and remove .venture only after reviewing its external-resource evidence.`
@@ -31455,7 +31546,7 @@ function createDefaultCliServices(options = {}) {
     plan(request2) {
       const brief = request2.brief ? founderBriefSchema.parse(
         readStructured(
-          isAbsolute5(request2.brief) ? request2.brief : resolve20(root, request2.brief)
+          isAbsolute6(request2.brief) ? request2.brief : resolve21(root, request2.brief)
         )
       ) : loadProject(root).brief;
       return compileLaunchDryRun(brief);
@@ -31646,7 +31737,7 @@ function createDefaultCliServices(options = {}) {
           let output;
           if (request2.outputFile) {
             output = readStructured(
-              isAbsolute5(request2.outputFile) ? request2.outputFile : resolve20(root, request2.outputFile)
+              isAbsolute6(request2.outputFile) ? request2.outputFile : resolve21(root, request2.outputFile)
             );
           } else if (request2.resolutionKind === "manual") {
             const evidence = readStructured(inside6(root, evidenceArtifact));
@@ -31718,7 +31809,7 @@ function createDefaultCliServices(options = {}) {
       });
     },
     doctor: async () => {
-      const project = existsSync11(projectPath(root)) ? loadProject(root) : null;
+      const project = existsSync12(projectPath(root)) ? loadProject(root) : null;
       const definition2 = project ? compileLaunchGraph(project.brief) : null;
       const providerInspection = await inspectDefaultProviderDoctor({
         rootDir: root,
@@ -31869,7 +31960,7 @@ function createDefaultCliServices(options = {}) {
     },
     learn(cadence) {
       const latestPath = inside6(root, ".venture/data/latest.json");
-      const sync = existsSync11(latestPath) ? JSON.parse(readFileSync13(latestPath, "utf8")) : learningRuntime.missingArtifact(cadence);
+      const sync = existsSync12(latestPath) ? JSON.parse(readFileSync14(latestPath, "utf8")) : learningRuntime.missingArtifact(cadence);
       const { definition: definition2, report } = learningRuntime.learn(cadence, sync);
       const artifacts = persistLearningReport({ rootDir: root, definition: definition2, report });
       const operatingCadence = learningRuntime.operatingCadence(sync);
@@ -31887,7 +31978,7 @@ function createDefaultCliServices(options = {}) {
     async upgrade({ dryRun, releasePath }) {
       const fileSystem = createNodeMigrationFileSystem(root);
       const lockPath = inside6(root, "harness.lock");
-      const lock = existsSync11(lockPath) ? loadHarnessLock(lockPath) : void 0;
+      const lock = existsSync12(lockPath) ? loadHarnessLock(lockPath) : void 0;
       const release = releasePath ? await locateLocalHarnessRelease({ locator: releasePath, baseDir: root }) : options.release;
       if (!release && !lock) return migrateV01ToV02({ fileSystem, dryRun, clock: now });
       if (!release) {
@@ -31909,6 +32000,211 @@ function createDefaultCliServices(options = {}) {
       });
     }
   };
+}
+
+// lib/founder-launch/stack-connect.ts
+var FOUNDER_STACK_PLAN = [
+  {
+    role: "source.repository",
+    provider: "github",
+    authStyle: "cli_session",
+    required: true,
+    identifiers: ["accountId", "organizationId"],
+    scopes: ["repo", "workflow"]
+  },
+  {
+    role: "hosting.web",
+    provider: "vercel",
+    authStyle: "cli_session",
+    required: true,
+    identifiers: ["accountId", "teamId"],
+    scopes: []
+  },
+  {
+    role: "database.postgres",
+    provider: "neon",
+    authStyle: "api_key",
+    required: true,
+    identifiers: ["accountId", "organizationId"],
+    scopes: []
+  },
+  {
+    role: "commerce.web",
+    provider: "stripe",
+    authStyle: "api_key",
+    required: true,
+    identifiers: ["accountId"],
+    scopes: []
+  },
+  {
+    role: "email.transactional",
+    provider: "brevo",
+    authStyle: "api_key",
+    required: false,
+    identifiers: ["accountId"],
+    scopes: []
+  },
+  {
+    role: "growth.google",
+    provider: "google",
+    authStyle: "api_key",
+    required: false,
+    identifiers: ["accountId", "organizationId"],
+    scopes: []
+  },
+  {
+    role: "search.bing",
+    provider: "bing",
+    authStyle: "api_key",
+    required: false,
+    identifiers: ["accountId"],
+    scopes: []
+  },
+  {
+    role: "commerce.native",
+    provider: "revenuecat",
+    authStyle: "api_key",
+    required: false,
+    identifiers: ["accountId", "organizationId"],
+    scopes: []
+  },
+  {
+    role: "dns.records",
+    provider: "dns",
+    authStyle: "api_key",
+    required: false,
+    identifiers: [],
+    scopes: []
+  }
+];
+function credentialRefFor(provider, profileId) {
+  return `cred://${provider}/${profileId}`;
+}
+function assertReferenceOnly(value, label) {
+  if (!value.startsWith("cred://")) {
+    throw new Error(
+      `${label} must be a cred:// reference, never a credential value. Next: store the value in your credential backend and pass its reference.`
+    );
+  }
+}
+function assertNoSecretsInArgv(argv) {
+  for (const argument of argv) {
+    if (argument.startsWith("cred://")) continue;
+    if (/^(?:sk|rk|pk)_(?:live|test)_/.test(argument) || /^xkeysib-/.test(argument) || /^gh[pousr]_/.test(argument) || /^napi_/.test(argument) || /^--(?:token|secret|api-key|password)=/.test(argument)) {
+      throw new Error(
+        "vh stack connect never accepts a credential value as an argument, because arguments are visible to other processes and land in shell history. Next: rerun vh stack connect founder-default and paste the value at the hidden prompt."
+      );
+    }
+  }
+}
+var CLI_LOGIN_COMMAND = {
+  github: "gh auth login",
+  vercel: "vercel login"
+};
+var API_KEY_HINT = {
+  neon: "Create a Neon API key at https://console.neon.tech/app/settings/api-keys",
+  stripe: "Copy the Stripe test-mode secret key from https://dashboard.stripe.com/test/apikeys",
+  brevo: "Create a Brevo API key at https://app.brevo.com/settings/keys/api",
+  google: "Create a Google service credential with Analytics and Search Console access",
+  bing: "Create a Bing Webmaster API key at https://www.bing.com/webmasters/apikeys",
+  revenuecat: "Create a RevenueCat secret API key in project settings",
+  dns: "Provide DNS adapter credentials, or leave DNS manual"
+};
+function planFounderStackConnection(input) {
+  const sessionByProvider = new Map(input.sessions.map((session) => [session.provider, session]));
+  const collectedByRole = new Map(input.collected.map((entry) => [entry.role, entry]));
+  const resolved = [];
+  const unresolved = [];
+  for (const plan of FOUNDER_STACK_PLAN) {
+    const collected = collectedByRole.get(plan.role);
+    const session = sessionByProvider.get(plan.provider);
+    if (plan.authStyle === "cli_session" && !session?.authenticated) {
+      unresolved.push({
+        role: plan.role,
+        provider: plan.provider,
+        why: `No authenticated ${plan.provider} CLI session was found.`,
+        command: CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login`,
+        blocksLaunch: plan.required
+      });
+      continue;
+    }
+    if (!collected) {
+      unresolved.push({
+        role: plan.role,
+        provider: plan.provider,
+        why: `No credential reference is recorded for ${plan.role}.`,
+        command: plan.authStyle === "cli_session" ? CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login` : `vh stack connect founder-default  (${API_KEY_HINT[plan.provider] ?? "provide the provider credential"})`,
+        blocksLaunch: plan.required
+      });
+      continue;
+    }
+    assertReferenceOnly(collected.credentialRef, `${plan.role} credentialRef`);
+    const missing = plan.identifiers.filter((name) => !collected.identifiers[name]?.trim());
+    if (missing.length > 0) {
+      unresolved.push({
+        role: plan.role,
+        provider: plan.provider,
+        why: `${plan.role} is missing ${missing.join(" and ")}.`,
+        command: `vh stack connect founder-default  (supply the exact ${plan.provider} ${missing.join(" and ")})`,
+        blocksLaunch: plan.required
+      });
+      continue;
+    }
+    resolved.push(plan.role);
+  }
+  return {
+    resolved,
+    unresolved,
+    launchReady: unresolved.every((action) => !action.blocksLaunch)
+  };
+}
+function blockingActions(plan) {
+  return plan.unresolved.filter((action) => action.blocksLaunch);
+}
+
+// lib/founder-launch/stack-connect-shell.ts
+import { execFileSync as execFileSync2 } from "node:child_process";
+function tryCommand(command, args) {
+  try {
+    return execFileSync2(command, [...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2e4
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+function detectGitHubSession() {
+  const login = tryCommand("gh", ["api", "user", "--jq", ".login"]);
+  if (!login) {
+    return {
+      provider: "github",
+      authenticated: false,
+      detail: "No usable GitHub CLI session."
+    };
+  }
+  return { provider: "github", authenticated: true, account: login };
+}
+function detectVercelSession() {
+  const who = tryCommand("vercel", ["whoami"]);
+  if (!who) {
+    return {
+      provider: "vercel",
+      authenticated: false,
+      detail: "No usable Vercel CLI session."
+    };
+  }
+  return { provider: "vercel", authenticated: true, account: who.split("\n").at(-1)?.trim() };
+}
+function detectSessions() {
+  return [detectGitHubSession(), detectVercelSession()];
+}
+function discoverGitHubOwner() {
+  return tryCommand("gh", ["api", "user", "--jq", ".login"]) ?? void 0;
+}
+function discoverVercelScope() {
+  return tryCommand("vercel", ["whoami"])?.split("\n").at(-1)?.trim();
 }
 
 // lib/fleet/controller.ts
@@ -31987,7 +32283,12 @@ Usage:
     --kind <credential-kind> --scopes <comma-separated>
   vh stack create founder-default --file <connection.json>
                                   Persist one credential-free founder Stack connection
+  vh stack connect founder-default
+                                  Guided one-time connection of the default founder Stack
   vh stack doctor founder-default Inspect every founder Stack role without provider effects
+  vh config show                  Show persistent founder settings
+  vh config set ventures-root <absolute-path>
+                                  Choose where independent ventures are materialized
   vh doctor                       Inspect local launch prerequisites
   vh create --brief <file>        Validate and persist one progressive-commitment brief
   vh plan [--brief <file>]        Compile a launch plan without side effects
@@ -32121,6 +32422,80 @@ async function runCli(args, options = {}) {
       }
       return { exitCode: 0 };
     }
+    if (command === "stack" && positional(rest)[0] === "connect") {
+      try {
+        assertNoSecretsInArgv(rest);
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 2 };
+      }
+      const values = positional(rest);
+      if (values.length !== 2 || values[1] !== "founder-default") {
+        io.stderr("Usage: vh stack connect founder-default");
+        return { exitCode: 2 };
+      }
+      const sessions = detectSessions();
+      const collected = [];
+      const githubOwner = discoverGitHubOwner();
+      const vercelScope = discoverVercelScope();
+      if (githubOwner) {
+        collected.push({
+          role: "source.repository",
+          credentialRef: credentialRefFor("github", "founder-default"),
+          identifiers: { accountId: githubOwner, organizationId: githubOwner }
+        });
+      }
+      if (vercelScope) {
+        collected.push({
+          role: "hosting.web",
+          credentialRef: credentialRefFor("vercel", "founder-default"),
+          identifiers: { accountId: vercelScope, teamId: vercelScope }
+        });
+      }
+      const plan = planFounderStackConnection({
+        profileId: "founder-default",
+        ownerOrganizationId: githubOwner ?? "founder",
+        sessions,
+        collected
+      });
+      const venturesRoot = loadFounderConfig().venturesRoot ?? null;
+      const blocking = blockingActions(plan);
+      emit(
+        io,
+        {
+          command: "stack.connect",
+          profileId: "founder-default",
+          sessions: sessions.map(({ provider, authenticated: authenticated2, account }) => ({
+            provider,
+            authenticated: authenticated2,
+            ...account ? { account } : {}
+          })),
+          resolved: plan.resolved,
+          venturesRoot,
+          launchReady: plan.launchReady && venturesRoot !== null,
+          unresolvedActions: [
+            ...plan.unresolved.map((action) => ({
+              role: action.role,
+              provider: action.provider,
+              why: action.why,
+              command: action.command,
+              blocksLaunch: action.blocksLaunch
+            })),
+            ...venturesRoot ? [] : [
+              {
+                role: "workspace",
+                provider: "local",
+                why: "No ventures root is configured, so a launch has nowhere safe to materialize a venture.",
+                command: "vh config set ventures-root <absolute-path>",
+                blocksLaunch: true
+              }
+            ]
+          ]
+        },
+        json2
+      );
+      return { exitCode: blocking.length === 0 && venturesRoot ? 0 : 1 };
+    }
     if (command === "stack") {
       const unknownFlag = rest.find(
         (value) => value.startsWith("-") && value !== "--file" && value !== "--json"
@@ -32159,6 +32534,46 @@ async function runCli(args, options = {}) {
       }
       emit(io, await services.stack({ action, profileId, ...file2 ? { file: file2 } : {} }), json2);
       return { exitCode: 0 };
+    }
+    if (command === "config") {
+      const values = positional(rest);
+      const action = values[0];
+      const usage = "Usage: vh config show | vh config set ventures-root <absolute-path>";
+      if (action === "show" && values.length === 1) {
+        const config = loadFounderConfig();
+        emit(
+          io,
+          {
+            command: "config.show",
+            path: defaultFounderConfigPath(),
+            venturesRoot: config.venturesRoot ?? null,
+            ...config.venturesRoot ? {} : { nextAction: "vh config set ventures-root <absolute-path>" }
+          },
+          json2
+        );
+        return { exitCode: 0 };
+      }
+      if (action !== "set" || values.length !== 3) {
+        io.stderr(usage);
+        return { exitCode: 2 };
+      }
+      const [, key, value] = values;
+      if (!FOUNDER_CONFIG_KEYS.includes(key)) {
+        io.stderr(
+          `Unknown founder setting ${key}. Known settings: ${FOUNDER_CONFIG_KEYS.join(", ")}.`
+        );
+        return { exitCode: 2 };
+      }
+      try {
+        const venturesRoot = resolveVenturesRoot(value, { coreRoot: process.cwd() });
+        const existing = loadFounderConfig();
+        saveFounderConfig({ ...existing, venturesRoot });
+        emit(io, { command: "config.set", key, venturesRoot }, json2);
+        return { exitCode: 0 };
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 1 };
+      }
     }
     if (command === "plan") {
       if (!services.plan)
@@ -32439,8 +32854,8 @@ async function runCli(args, options = {}) {
 }
 
 // packages/cli-generator/src/bin.ts
-import { realpathSync as realpathSync9 } from "node:fs";
-import { resolve as resolve24 } from "node:path";
+import { realpathSync as realpathSync10 } from "node:fs";
+import { resolve as resolve25 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // packages/audit/dist/index.js
@@ -33311,8 +33726,8 @@ var launchExecuteCommand = defineCommandContract({
 
 // packages/agent-runtime/dist/operational.js
 import { createHash as createHash21, randomUUID as randomUUID2 } from "node:crypto";
-import { closeSync as closeSync4, constants as constants2, existsSync as existsSync12, fstatSync as fstatSync2, fsyncSync as fsyncSync3, lstatSync as lstatSync7, mkdirSync as mkdirSync8, openSync as openSync4, readFileSync as readFileSync14, realpathSync as realpathSync6, renameSync as renameSync7, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname11, isAbsolute as isAbsolute6, join as join6, relative as relative13, resolve as resolve21, sep as sep13 } from "node:path";
+import { closeSync as closeSync4, constants as constants2, existsSync as existsSync13, fstatSync as fstatSync2, fsyncSync as fsyncSync3, lstatSync as lstatSync8, mkdirSync as mkdirSync9, openSync as openSync4, readFileSync as readFileSync15, realpathSync as realpathSync7, renameSync as renameSync7, writeFileSync as writeFileSync9 } from "node:fs";
+import { dirname as dirname12, isAbsolute as isAbsolute7, join as join7, relative as relative14, resolve as resolve22, sep as sep14 } from "node:path";
 import { parse as parseYaml2 } from "yaml";
 
 // packages/agent-runtime/dist/quality.js
@@ -33821,7 +34236,6 @@ var LEARNING_CADENCE_LOOP_IDS = Object.freeze({
 });
 function runId(input, handler) {
   const binding = stableJson({
-    actorId: handler.context.identity.actorId,
     cadence: input.cadence,
     commandId: handler.commandId,
     idempotencyKey: handler.idempotencyKey,
@@ -33930,25 +34344,25 @@ var InMemoryOperationalStateStore = class {
 var FileOperationalStateStore = class {
   rootDir;
   path;
-  constructor(rootDir = resolve21(process.cwd(), ".venture-harness")) {
-    this.rootDir = resolve21(rootDir);
-    this.path = join6(this.rootDir, "operational-state.json");
+  constructor(rootDir = resolve22(process.cwd(), ".venture-harness")) {
+    this.rootDir = resolve22(rootDir);
+    this.path = join7(this.rootDir, "operational-state.json");
   }
   get description() {
     return this.path;
   }
   read() {
-    if (!existsSync12(this.path))
+    if (!existsSync13(this.path))
       return emptyState();
-    return parseState(JSON.parse(readFileSync14(this.path, "utf8")));
+    return parseState(JSON.parse(readFileSync15(this.path, "utf8")));
   }
   write(state) {
     assertNoSecrets(state);
-    mkdirSync8(dirname11(this.path), { recursive: true });
-    const temporary = join6(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
+    mkdirSync9(dirname12(this.path), { recursive: true });
+    const temporary = join7(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
     const handle = openSync4(temporary, "wx", 384);
     try {
-      writeFileSync8(handle, `${JSON.stringify(state, null, 2)}
+      writeFileSync9(handle, `${JSON.stringify(state, null, 2)}
 `, "utf8");
       fsyncSync3(handle);
     } finally {
@@ -34188,8 +34602,8 @@ var dataSyncCommand = operationalCommand({
 });
 var learningRunCommand = operationalCommand({
   id: "learn.run",
-  title: "Inspect Learning Cadence",
-  description: "Evaluate cadence readiness without inventing evidence or applying an action.",
+  title: "Run Bounded Learning Cadence",
+  description: "Fetch connected provider evidence and execute one bounded no-effect report or proposal cadence; return insufficient evidence when unconfigured.",
   input: learningRunInput
 });
 var growthInspectCommand = operationalCommand({
@@ -34292,31 +34706,31 @@ function growthContractVersion(value) {
   return typeof version === "number" && Number.isInteger(version) ? version : null;
 }
 function pathEscapesRoot(root, candidate) {
-  const pathFromRoot = relative13(root, candidate);
-  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep13}`) || isAbsolute6(pathFromRoot);
+  const pathFromRoot = relative14(root, candidate);
+  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep14}`) || isAbsolute7(pathFromRoot);
 }
 function assertGrowthPath(root, inputPath) {
-  const candidate = resolve21(root.declaredPath, inputPath);
+  const candidate = resolve22(root.declaredPath, inputPath);
   if (pathEscapesRoot(root.declaredPath, candidate)) {
     throw new Error("growth contract path must stay within the configured root");
   }
-  const pathFromRoot = relative13(root.declaredPath, candidate);
+  const pathFromRoot = relative14(root.declaredPath, candidate);
   let current = root.declaredPath;
   try {
-    for (const component of pathFromRoot.split(sep13).filter(Boolean)) {
-      current = join6(current, component);
-      if (lstatSync7(current).isSymbolicLink()) {
+    for (const component of pathFromRoot.split(sep14).filter(Boolean)) {
+      current = join7(current, component);
+      if (lstatSync8(current).isSymbolicLink()) {
         throw new Error("growth contract path must not contain symbolic links");
       }
     }
-    const details = lstatSync7(candidate);
+    const details = lstatSync8(candidate);
     if (!details.isFile())
       throw new Error("growth contract path must reference a regular file");
-    const canonical = realpathSync6(candidate);
+    const canonical = realpathSync7(candidate);
     if (pathEscapesRoot(root.canonicalPath, canonical)) {
       throw new Error("growth contract path must stay within the configured root");
     }
-    return { path: canonical, displayPath: relative13(root.canonicalPath, canonical) };
+    return { path: canonical, displayPath: relative14(root.canonicalPath, canonical) };
   } catch (error) {
     if (error instanceof Error && (error.message.includes("symbolic links") || error.message.includes("regular file"))) {
       throw error;
@@ -34336,7 +34750,7 @@ function inspectGrowthContract(input, growthContractRoot) {
     if (details.size > MAX_GROWTH_CONTRACT_BYTES) {
       throw new Error("growth contract exceeds the 1 MiB inspection limit");
     }
-    text2 = readFileSync14(handle, "utf8");
+    text2 = readFileSync15(handle, "utf8");
   } catch (error) {
     if (error instanceof Error && (error.message.includes("1 MiB inspection limit") || error.message.includes("regular file"))) {
       throw error;
@@ -34446,14 +34860,14 @@ function mutate(store, update) {
 function registerOperationalCommands(bus, options = {}) {
   const store = options.store ?? new InMemoryOperationalStateStore();
   const timestamp2 = () => (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
-  const declaredGrowthContractRoot = resolve21(options.growthContractRoot ?? process.cwd());
-  const rootDetails = lstatSync7(declaredGrowthContractRoot);
+  const declaredGrowthContractRoot = resolve22(options.growthContractRoot ?? process.cwd());
+  const rootDetails = lstatSync8(declaredGrowthContractRoot);
   if (rootDetails.isSymbolicLink() || !rootDetails.isDirectory()) {
     throw new Error("growth contract root must be a regular directory, not a symbolic link");
   }
   const growthContractRoot = {
     declaredPath: declaredGrowthContractRoot,
-    canonicalPath: realpathSync6(declaredGrowthContractRoot)
+    canonicalPath: realpathSync7(declaredGrowthContractRoot)
   };
   bus.register(systemDoctorCommand, (_input, handler) => {
     const state = store.read();
@@ -35861,7 +36275,7 @@ function createVentureRuntime(options) {
 
 // packages/cli-generator/src/operational.ts
 import { createHash as createHash22 } from "node:crypto";
-import { readFileSync as readFileSync15 } from "node:fs";
+import { readFileSync as readFileSync16 } from "node:fs";
 var EMPTY_INPUT_COMMANDS = /* @__PURE__ */ new Set([
   "system.doctor",
   "org.list",
@@ -35995,7 +36409,7 @@ function inputFor(commandId, args) {
   const values = positionals(args);
   if (commandId === "idea.compile") {
     const brief = flag(args, "--brief");
-    const idea = flag(args, "--idea") ?? (brief ? readFileSync15(brief, "utf8") : values[2]);
+    const idea = flag(args, "--idea") ?? (brief ? readFileSync16(brief, "utf8") : values[2]);
     if (!idea) throw new Error("idea compile requires --idea <text> or --brief <file>");
     const name = flag(args, "--name") ?? "Local Venture";
     return { idea, ventureId: flag(args, "--venture-id") ?? slug3(name), name };
@@ -36176,8 +36590,8 @@ async function invokeOperationalCli(bus, args, options) {
 // packages/cli-generator/src/quality-runner.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync13, lstatSync as lstatSync8, mkdirSync as mkdirSync9, readFileSync as readFileSync16, realpathSync as realpathSync7 } from "node:fs";
-import { basename, join as join7, relative as relative14, resolve as resolve22, sep as sep14 } from "node:path";
+import { existsSync as existsSync14, lstatSync as lstatSync9, mkdirSync as mkdirSync10, readFileSync as readFileSync17, realpathSync as realpathSync8 } from "node:fs";
+import { basename, join as join8, relative as relative15, resolve as resolve23, sep as sep15 } from "node:path";
 var SECRET_PATTERNS3 = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END|$)/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -36196,36 +36610,36 @@ function redact2(value) {
   return redacted;
 }
 function canonicalRoot(root) {
-  const declared = resolve22(root);
-  const details = lstatSync8(declared);
+  const declared = resolve23(root);
+  const details = lstatSync9(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("quality runner root must be a regular directory, not a symbolic link");
   }
-  return realpathSync7(declared);
+  return realpathSync8(declared);
 }
 function inside7(root, target) {
-  const child = relative14(root, target);
-  return child === "" || child !== ".." && !child.startsWith(`..${sep14}`);
+  const child = relative15(root, target);
+  return child === "" || child !== ".." && !child.startsWith(`..${sep15}`);
 }
 function assertNoSymlinkPath(root, target) {
   if (!inside7(root, target)) throw new Error("quality report path escapes the configured root");
-  const child = relative14(root, target);
+  const child = relative15(root, target);
   let cursor = root;
-  for (const segment of child.split(sep14).filter(Boolean)) {
-    cursor = join7(cursor, segment);
-    if (!existsSync13(cursor)) break;
-    if (lstatSync8(cursor).isSymbolicLink()) {
+  for (const segment of child.split(sep15).filter(Boolean)) {
+    cursor = join8(cursor, segment);
+    if (!existsSync14(cursor)) break;
+    if (lstatSync9(cursor).isSymbolicLink()) {
       throw new Error("quality report path must not contain symbolic links");
     }
   }
 }
 function reportPath(root, profile2) {
-  const directory = join7(root, ".venture", "reports", "quality");
+  const directory = join8(root, ".venture", "reports", "quality");
   assertNoSymlinkPath(root, directory);
-  mkdirSync9(directory, { recursive: true, mode: 448 });
-  const canonicalDirectory = realpathSync7(directory);
+  mkdirSync10(directory, { recursive: true, mode: 448 });
+  const canonicalDirectory = realpathSync8(directory);
   if (!inside7(root, canonicalDirectory)) throw new Error("quality report directory escapes root");
-  return join7(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
+  return join8(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
 }
 function assertCommand(command) {
   if (command.length === 0 || command.some((value) => typeof value !== "string" || !value)) {
@@ -36270,8 +36684,8 @@ function count(summary, field) {
   return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0;
 }
 function readReport(path, profile2) {
-  if (!existsSync13(path)) return null;
-  const raw = JSON.parse(readFileSync16(path, "utf8"));
+  if (!existsSync14(path)) return null;
+  const raw = JSON.parse(readFileSync17(path, "utf8"));
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("quality runner report must be a JSON object");
   }
@@ -36357,15 +36771,15 @@ function createProcessQualityProfileRunner(options) {
         command: command.map((value) => redact2(value)),
         stdout: stdout.value(),
         stderr: `${stderr.value()}${timedOut ? "\nquality profile timed out" : ""}`.trim(),
-        reportPath: relative14(root, targetReport)
+        reportPath: relative15(root, targetReport)
       };
     }
   });
 }
 function createRepositoryQualityProfileRunner(root) {
   const canonical = canonicalRoot(root);
-  const runnerPath = join7(canonical, "scripts", "run-quality-profile.ts");
-  const configured = existsSync13(runnerPath) && !lstatSync8(runnerPath).isSymbolicLink() && lstatSync8(runnerPath).isFile() && inside7(canonical, realpathSync7(runnerPath));
+  const runnerPath = join8(canonical, "scripts", "run-quality-profile.ts");
+  const configured = existsSync14(runnerPath) && !lstatSync9(runnerPath).isSymbolicLink() && lstatSync9(runnerPath).isFile() && inside7(canonical, realpathSync8(runnerPath));
   if (!configured) {
     return Object.freeze({
       async run(profile2) {
@@ -36398,58 +36812,58 @@ function createRepositoryQualityProfileRunner(root) {
 }
 
 // packages/cli-generator/src/runtime-module.ts
-import { existsSync as existsSync14, lstatSync as lstatSync9, realpathSync as realpathSync8 } from "node:fs";
-import { extname, join as join8, relative as relative15, resolve as resolve23, sep as sep15 } from "node:path";
+import { existsSync as existsSync15, lstatSync as lstatSync10, realpathSync as realpathSync9 } from "node:fs";
+import { extname, join as join9, relative as relative16, resolve as resolve24, sep as sep16 } from "node:path";
 import { pathToFileURL } from "node:url";
 function canonicalRoot2(root) {
-  const declared = resolve23(root);
-  const details = lstatSync9(declared);
+  const declared = resolve24(root);
+  const details = lstatSync10(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("runtime project root must be a regular directory, not a symbolic link");
   }
-  return realpathSync8(declared);
+  return realpathSync9(declared);
 }
 function inside8(root, target) {
-  const child = relative15(root, target);
-  return child === "" || child !== ".." && !child.startsWith(`..${sep15}`);
+  const child = relative16(root, target);
+  return child === "" || child !== ".." && !child.startsWith(`..${sep16}`);
 }
 function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
   if (!inside8(root, target)) throw new Error("runtime path must stay within the project root");
-  const child = relative15(root, target);
+  const child = relative16(root, target);
   let cursor = root;
-  for (const [index, segment] of child.split(sep15).filter(Boolean).entries()) {
-    cursor = join8(cursor, segment);
-    if (!existsSync14(cursor)) {
+  for (const [index, segment] of child.split(sep16).filter(Boolean).entries()) {
+    cursor = join9(cursor, segment);
+    if (!existsSync15(cursor)) {
       if (allowMissingLeaf) return;
       throw new Error("runtime module does not exist");
     }
-    if (lstatSync9(cursor).isSymbolicLink()) {
+    if (lstatSync10(cursor).isSymbolicLink()) {
       throw new Error("runtime path must not contain symbolic links");
     }
-    if (index < child.split(sep15).filter(Boolean).length - 1 && !lstatSync9(cursor).isDirectory()) {
+    if (index < child.split(sep16).filter(Boolean).length - 1 && !lstatSync10(cursor).isDirectory()) {
       throw new Error("runtime path parent must be a directory");
     }
   }
 }
 function projectOwnedFile(root, path) {
-  const target = resolve23(root, path);
+  const target = resolve24(root, path);
   assertNoSymlinkComponents(root, target, false);
-  const child = relative15(root, target);
-  const first = child.split(sep15)[0];
+  const child = relative16(root, target);
+  const first = child.split(sep16)[0];
   if (["node_modules", ".git", ".pnpm"].includes(first ?? "")) {
     throw new Error("runtime module must be a project-owned file outside dependency metadata");
   }
   if (![".js", ".mjs", ".cjs"].includes(extname(target))) {
     throw new Error("runtime module must be compiled JavaScript (.js, .mjs, or .cjs)");
   }
-  const details = lstatSync9(target);
+  const details = lstatSync10(target);
   if (!details.isFile()) throw new Error("runtime module must be a regular file");
-  const canonical = realpathSync8(target);
+  const canonical = realpathSync9(target);
   if (!inside8(root, canonical)) throw new Error("runtime module resolves outside the project root");
   return canonical;
 }
 function projectOwnedStateDirectory(root, path) {
-  const target = resolve23(root, path);
+  const target = resolve24(root, path);
   assertNoSymlinkComponents(root, target, true);
   return target;
 }
@@ -36601,13 +37015,13 @@ ${createCliSurface(localRuntime.bus).help}`
       return 0;
     }
     const runtimeModule = flag3(args, "--runtime-module");
-    const projectRoot = resolve24(options.cwd ?? process.cwd(), flag3(args, "--project-root") ?? ".");
+    const projectRoot = resolve25(options.cwd ?? process.cwd(), flag3(args, "--project-root") ?? ".");
     const stateDirectoryFlag = flag3(args, "--state-dir") ?? ".venture-harness";
     const invocationContext = context(args, Boolean(runtimeModule));
     if (runtimeModule && !flag3(args, "--idempotency-key")) {
       throw new Error("--idempotency-key is required with an explicit production runtime module");
     }
-    const stateDirectory = resolve24(projectRoot, stateDirectoryFlag);
+    const stateDirectory = resolve25(projectRoot, stateDirectoryFlag);
     const runtime = runtimeModule ? await loadProductionRuntimeModule({
       projectRoot,
       runtimeModule,
@@ -36679,12 +37093,12 @@ ${createCliSurface(localRuntime.bus).help}`
 }
 function isDirectGeneratedCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync9(fileURLToPath(import.meta.url));
+  const modulePath = realpathSync10(fileURLToPath(import.meta.url));
   if (!modulePath.replaceAll("\\", "/").includes("/cli-generator/")) return false;
   try {
-    return realpathSync9(resolve24(process.argv[1])) === modulePath;
+    return realpathSync10(resolve25(process.argv[1])) === modulePath;
   } catch {
-    return resolve24(process.argv[1]) === modulePath;
+    return resolve25(process.argv[1]) === modulePath;
   }
 }
 if (isDirectGeneratedCliEntry()) {
@@ -36696,7 +37110,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "66085269a4dc32184bd38770a2878582e13ee329" : void 0;
+  const workflowRefSha = true ? "40ff094ecb48688e0dfdee64130282c8c77ca868" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
@@ -36754,11 +37168,11 @@ async function runVhShell(inputArgs, options = {}) {
 }
 function isDirectRootCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync10(fileURLToPath2(import.meta.url));
+  const modulePath = realpathSync11(fileURLToPath2(import.meta.url));
   try {
-    return realpathSync10(resolve25(process.argv[1])) === modulePath;
+    return realpathSync11(resolve26(process.argv[1])) === modulePath;
   } catch {
-    return resolve25(process.argv[1]) === modulePath;
+    return resolve26(process.argv[1]) === modulePath;
   }
 }
 if (isDirectRootCliEntry()) {
