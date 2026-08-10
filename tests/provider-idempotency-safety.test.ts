@@ -176,7 +176,7 @@ describe("provider write idempotency safety", () => {
   it("rejects a reused key whose complete provider request differs", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-provider-conflict-"));
     const ledgerPath = join(directory, "ledger.json");
-    const privateResult = "sk_test_ConflictCanary123456789";
+    const privateResult = "sk_test_SYNTHETICNOTAREALconflictcanary1";
     const transport = new MockProviderTransport("http", async () => ({
       status: "succeeded",
       message: "created private first result",

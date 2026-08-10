@@ -200,7 +200,7 @@ describe("verified provider lifecycle persistence", () => {
           state: "verified",
           planId: "plan.stripe.unsafe",
           verifiedAt: "2026-08-04T12:00:00.000Z",
-          resourceRefs: [{ type: "product_id", value: "sk_live_abcdefghijklmnop" }],
+          resourceRefs: [{ type: "product_id", value: "sk_live_SYNTHETICNOTAREALb" }],
         },
       ]),
     ).rejects.toBeInstanceOf(ProviderLifecycleStoreError);

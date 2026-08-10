@@ -56,10 +56,15 @@ describe("founder alpha final-evidence workflow", () => {
     }
   });
 
-  it("accepts only the reviewed release INCOMPLETE exit and uploads portable evidence", () => {
-    const release = steps.find((step) => step.name === "Truthful incomplete release profile");
-    expect(release?.run).toContain('if [ "$status" -ne 1 ]');
+  it("asserts a passing release gate and portable evidence", () => {
+    // The founder-alpha release gate proves code and fixtures. It must be a
+    // plain passing step: a release profile that is required to exit non-zero
+    // can never confirm that the alpha is code-complete.
+    const release = steps.find((step) => step.name === "Release verification profile");
+    expect(release).toBeDefined();
+    expect(release?.run).toContain("--id final-verify-release");
     expect(release?.run).not.toContain("continue-on-error");
+    expect(release?.run).not.toContain("-ne 1");
 
     const upload = steps.find((step) => step.name === "Upload portable final evidence");
     expect(upload?.if).toBe("always()");

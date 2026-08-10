@@ -1,6 +1,6 @@
 ---
 name: quality-gate
-description: Select and run the capability-aware fast, MVP, or release verification profile before completion, covering changed code, critical journeys, provider dry runs/read-backs, migrations, security, privacy, truth, accessibility, web crawling, mobile readiness, fixtures, and generated parity. Use before reporting any repository change done or preparing a PR/release; never call a skipped check a pass.
+description: Select and run the capability-aware fast, MVP, release, live, or stable verification profile before completion, covering changed code, critical journeys, provider dry runs/read-backs, migrations, security, privacy, truth, accessibility, web crawling, mobile readiness, fixtures, and generated parity. Use before reporting any repository change done or preparing a PR/release; never call a skipped check a pass.
 ---
 
 # quality-gate
@@ -42,7 +42,8 @@ to make checks pass.
 
 ## Execution steps
 
-1. Select `fast`, `mvp`, or `release` and resolve the capability-to-check map.
+1. Select `fast`, `mvp`, `release`, `live`, or `stable` and resolve the
+   capability-to-check map.
 2. Always run applicable config/graph, secret, PII, price, product-truth,
    migration, critical-journey, and generated-parity checks.
 3. Fast: changed formatting/lint/type/tests plus affected contracts and obvious
@@ -50,13 +51,18 @@ to make checks pass.
 4. MVP: full typecheck/build, critical unit/integration/journeys, database and
    active payment/email/analytics checks, core accessibility/responsiveness,
    public HTML/metadata/sitemap, and provider dry-run.
-5. Release: every applicable check, full e2e, desktop/mobile screenshots,
-   accessibility/crawler passes, checkout/webhook/email, upgrade/rollback,
-   graph resume/idempotency, sandbox/live read-back when authorized, mobile
-   build/TestFlight readiness, ASO, and release report.
-6. Run independent checks in parallel when isolation is safe; cache only by
+5. Release: every applicable deterministic check, full e2e, desktop/mobile
+   screenshots, accessibility/crawler passes, checkout/webhook/email contract
+   tests, upgrade/rollback, graph resume/idempotency, mobile build/TestFlight
+   readiness, ASO, and release report. This profile contains no live provider
+   read-back and must be able to reach PASS with nothing connected.
+6. Live: only real provider read-back. `INCOMPLETE` is an honest result before
+   a real launch and names the provider, missing prerequisite, exact command,
+   and expected read-back. It passes only for the scope actually observed.
+7. Stable: every release check plus the required live read-back evidence.
+8. Run independent checks in parallel when isolation is safe; cache only by
    declared deterministic inputs.
-7. Record exact commands, pass/fail/skipped status, artifacts, and limitations.
+9. Record exact commands, pass/fail/skipped status, artifacts, and limitations.
 
 ## Hard rules
 

@@ -22,7 +22,7 @@ package_manager: pnpm
 stack:
   web: next.js
   language: typescript
-  runtime_min_node: "20.9.0"
+  runtime_min_node: "22.5.0"
   aggregate_analytics: vercel-web-analytics
   behavioural_analytics: ga4
   evidence_store: neon-postgres

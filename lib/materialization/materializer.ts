@@ -213,7 +213,7 @@ export function compileVentureMaterialization(
           private: true,
           type: "module",
           packageManager: "pnpm@9.15.9",
-          engines: { node: ">=20.9.0" },
+          engines: { node: ">=22.5.0" },
           scripts: seed.packageScripts,
           dependencies: seed.runtimePackages,
           ...(Object.keys(seed.developmentPackages).length > 0

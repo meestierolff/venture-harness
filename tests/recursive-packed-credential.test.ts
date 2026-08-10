@@ -93,7 +93,7 @@ const input = {
   correlationId: "correlation-packed",
   causationId: "causation-packed",
   usageUnits: 1,
-  payload: { requestId: "safe", receiptHint: "whsec_secondary_fixture_8Hk2Lm9Q" }
+  payload: { requestId: "safe", receiptHint: "whsec_SYNTHETICNOTAREALsecondaryrotation" }
 };
 for (const contract of [esm, cjs]) {
   for (const unsafe of [
@@ -118,7 +118,7 @@ process.stdout.write("packed-recursive-credential-rejected\\n");
     expect(verification.status, verification.stderr).toBe(0);
     expect(verification.stdout).toBe("packed-recursive-credential-rejected\n");
     expect(verification.stdout + verification.stderr).not.toContain(
-      "whsec_secondary_fixture_8Hk2Lm9Q",
+      "whsec_SYNTHETICNOTAREALsecondaryrotation",
     );
   }, 60_000);
 });

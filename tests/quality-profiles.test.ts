@@ -12,14 +12,15 @@ import {
   type QualityProfileId,
 } from "@/scripts/run-quality-profile";
 import { hasServerRenderedCoreContent } from "@/scripts/verify-raw-html";
+import { qualitySchema } from "@/lib/config/schemas";
 
 const contract = parse(readFileSync("config/quality.yaml", "utf8")) as QualityContract & {
   required_commands: { always: string[] };
 };
 
 describe("capability-aware quality profiles", () => {
-  it("defines fast, MVP, and release without removing the compatibility gate", () => {
-    expect(Object.keys(contract.profiles)).toEqual(["fast", "mvp", "release"]);
+  it("defines fast, MVP, release, live, and stable without removing the compatibility gate", () => {
+    expect(Object.keys(contract.profiles)).toEqual(["fast", "mvp", "release", "live", "stable"]);
     expect(contract.required_commands.always).toContain("pnpm test");
     expect(contract.profiles.mvp.checks).toContain("compatibility_verify");
     expect(contract.profiles.mvp.checks).toEqual(
@@ -47,18 +48,56 @@ describe("capability-aware quality profiles", () => {
     expect(checks).not.toContain("live_stripe_readback");
   });
 
-  it("selects only relevant release read-backs and deduplicates shared checks", () => {
-    const checks = resolveProfileChecks(contract, "release", [
-      "public_website",
-      "stripe",
-      "ga4",
-      "gsc",
-      "web_seo_aeo_geo",
-    ]);
+  const webCommerceCapabilities = ["public_website", "stripe", "ga4", "gsc", "web_seo_aeo_geo"];
+
+  it("keeps the release gate free of live provider read-backs and deduplicates shared checks", () => {
+    const checks = resolveProfileChecks(contract, "release", webCommerceCapabilities);
+    const readbacks = Object.entries(contract.checks)
+      .filter(([, check]) => check.kind === "provider_readback")
+      .map(([id]) => id);
+    // A founder-alpha release gate must stay reachable with nothing connected.
+    expect(checks.filter((check) => readbacks.includes(check))).toEqual([]);
+    expect(checks).toContain("pricing_integrity");
+    expect(checks).toContain("provider_contract_tests");
+    expect(checks.filter((check) => check === "raw_html")).toHaveLength(1);
+  });
+
+  it("selects only relevant live read-backs and never a deterministic build check", () => {
+    const checks = resolveProfileChecks(contract, "live", webCommerceCapabilities);
+    expect(checks).toContain("live_stack_readback");
     expect(checks).toContain("live_stripe_readback");
     expect(checks).toContain("live_analytics_readback");
     expect(checks).not.toContain("live_revenuecat_readback");
-    expect(checks.filter((check) => check === "raw_html")).toHaveLength(1);
+    expect(checks).not.toContain("production_build");
+    expect(checks.filter((check) => check === "live_analytics_readback")).toHaveLength(1);
+  });
+
+  it("requires both release evidence and live read-back in the stable profile", () => {
+    const checks = resolveProfileChecks(contract, "stable", webCommerceCapabilities);
+    const release = resolveProfileChecks(contract, "release", webCommerceCapabilities);
+    const live = resolveProfileChecks(contract, "live", webCommerceCapabilities);
+    for (const check of [...release, ...live]) expect(checks).toContain(check);
+  });
+
+  it("rejects a contract that puts a live provider read-back back into the release gate", () => {
+    const base = parse(readFileSync("config/quality.yaml", "utf8")) as Record<string, unknown>;
+    expect(qualitySchema.safeParse(base).success).toBe(true);
+
+    const viaProfile = structuredClone(base) as typeof base & {
+      profiles: { release: { checks: string[] } };
+    };
+    viaProfile.profiles.release.checks.push("live_stripe_readback");
+    const profileResult = qualitySchema.safeParse(viaProfile);
+    expect(profileResult.success).toBe(false);
+    expect(JSON.stringify(profileResult.error?.issues)).toContain("live and stable profiles");
+
+    const viaCapability = structuredClone(base) as typeof base & {
+      capability_checks: { stripe: { release?: string[] } };
+    };
+    viaCapability.capability_checks.stripe.release = ["live_stripe_readback"];
+    const capabilityResult = qualitySchema.safeParse(viaCapability);
+    expect(capabilityResult.success).toBe(false);
+    expect(JSON.stringify(capabilityResult.error?.issues)).toContain("live and stable profiles");
   });
 
   it("gives every skippable check four actionable fields", () => {
@@ -76,11 +115,11 @@ describe("capability-aware quality profiles", () => {
     process.env.VH_QUALITY_TEST_SECRET = "quality-private-fixture-value";
     try {
       const output = redactQualityOutput(
-        "Bearer abcdefghijklmnop quality-private-fixture-value sk_test_syntheticplaceholder",
+        "Bearer abcdefghijklmnop quality-private-fixture-value sk_test_SYNTHETICNOTAREALredactionprobe1",
       );
       expect(output).not.toContain("abcdefghijklmnop");
       expect(output).not.toContain("quality-private-fixture-value");
-      expect(output).not.toContain("sk_test_syntheticplaceholder");
+      expect(output).not.toContain("sk_test_SYNTHETICNOTAREALredactionprobe1");
       expect(output).toContain("[REDACTED]");
     } finally {
       delete process.env.VH_QUALITY_TEST_SECRET;

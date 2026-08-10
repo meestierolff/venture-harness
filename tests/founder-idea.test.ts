@@ -70,9 +70,12 @@ describe("founder idea compilation", () => {
         "# Unsafe idea\nToken: whsec_secondary_founderidea1234567890\nOutcome: never persist this",
       ),
     ).toThrow(/forbidden credential-like material/);
+    // This value must stay unclassifiable so that it isolates the
+    // credential-labeled-field guard. A value the classifier recognises would
+    // be caught one branch earlier and prove nothing about this guard.
     expect(() =>
       compileFounderIdea(
-        "# Unsafe idea\nAudience: support teams\nBrevo API key: xkeysib-arbitrary-unclassified-value\nOutcome: ship safely",
+        "# Unsafe idea\nAudience: support teams\nBrevo API key: arbitrary unclassified placeholder\nOutcome: ship safely",
       ),
     ).toThrow(/credential-labeled field/);
   });

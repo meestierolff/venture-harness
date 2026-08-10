@@ -28,7 +28,7 @@
     }
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.5.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -71,6 +71,8 @@
     "verify:fast": "tsx scripts/run-quality-profile.ts fast",
     "verify:mvp": "tsx scripts/run-quality-profile.ts mvp",
     "verify:release": "tsx scripts/run-quality-profile.ts release",
+    "verify:live": "tsx scripts/run-quality-profile.ts live",
+    "verify:stable": "tsx scripts/run-quality-profile.ts stable",
     "health": "tsx scripts/framework-health.ts",
     "weekly": "tsx scripts/run-weekly-demand-analysis.ts",
     "outcome:add": "tsx scripts/append-outcome.ts",

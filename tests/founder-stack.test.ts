@@ -174,6 +174,9 @@ describe("Founder Stack connection", () => {
         },
       }),
     ).toThrow(/forbidden material/);
+    // A credential embedded inside a cred:// reference is refused by the
+    // reference schema itself, which is stricter and more specific than the
+    // whole-document sweep the other cases exercise.
     expect(() =>
       parseFounderStackConnection({
         ...base,
@@ -185,7 +188,7 @@ describe("Founder Stack connection", () => {
           },
         },
       }),
-    ).toThrow(/forbidden material/);
+    ).toThrow(/credential_ref contains credential material/);
   });
 
   it("persists atomically, reloads after restart, and rejects tamper, symlinks, and cross-org overwrite", () => {

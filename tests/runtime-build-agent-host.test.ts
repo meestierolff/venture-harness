@@ -252,7 +252,7 @@ describe("Codex CLI build-agent host", () => {
         nodeId: "build-core-journey",
         purpose: "Build",
         instructions: "Build",
-        context: { value: "sk_live_1234567890abcdef" },
+        context: { value: "sk_live_SYNTHETICNOTAREALa" },
       }),
     ).rejects.toMatchObject({ code: "credential_material" });
     expect(credentialRunner.calls).toHaveLength(2);

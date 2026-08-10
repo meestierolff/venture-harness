@@ -381,7 +381,7 @@ describe("Fixture D production-boundary runtime", () => {
       environment: "fixture",
       input: {
         operation_id: "credential-shaped-render",
-        payload: { creative_id: "whsec_secondary_fixture_8Hk2Lm9Q" },
+        payload: { creative_id: "whsec_SYNTHETICNOTAREALsecondaryrotation" },
       },
       idempotencyKey: "credential-shaped-render",
     };
@@ -390,9 +390,9 @@ describe("Fixture D production-boundary runtime", () => {
       code: "unsafe_fixture_payload",
     });
     expect(runtime.providerStore.size()).toBe(0);
-    expect(readFileSync(storePath).includes(Buffer.from("whsec_secondary_fixture_8Hk2Lm9Q"))).toBe(
-      false,
-    );
+    expect(
+      readFileSync(storePath).includes(Buffer.from("whsec_SYNTHETICNOTAREALsecondaryrotation")),
+    ).toBe(false);
   });
 
   it("serializes provider, command, and asset writes across synchronized processes", async () => {
@@ -672,7 +672,7 @@ describe("Fixture D production-boundary runtime", () => {
         store.complete("unsafe-command", {
           requestHash: "sha256:unsafe-command",
           ownerToken: "unsafe-owner",
-          output: { receiptHint: "whsec_secondary_fixture_8Hk2Lm9Q" },
+          output: { receiptHint: "whsec_SYNTHETICNOTAREALsecondaryrotation" },
           occurredAt: "2026-08-09T12:00:00.000Z",
           completedAt: "2026-08-09T12:00:01.000Z",
           actorId: "fixture-operator",
@@ -683,7 +683,7 @@ describe("Fixture D production-boundary runtime", () => {
       store.close();
     }
     expect(
-      readFileSync(commandPath).includes(Buffer.from("whsec_secondary_fixture_8Hk2Lm9Q")),
+      readFileSync(commandPath).includes(Buffer.from("whsec_SYNTHETICNOTAREALsecondaryrotation")),
     ).toBe(false);
     const database = new DatabaseSync(commandPath);
     try {

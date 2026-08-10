@@ -321,50 +321,60 @@ describe("completion-matrix proof integrity", () => {
     ).toThrow(/artifact hash or length changed after execution/u);
   });
 
-  it("accepts only the canonical release exit 1 with the exact named external SKIPs", () => {
+  it("accepts only the canonical live exit 1 with the exact named external SKIPs", () => {
     const root = fixtureRoot();
-    const reportPath = "reports/audit/quality-release.json";
+    const reportPath = "reports/audit/quality-live.json";
     const releaseBaseline: RequirementBaseline = {
-      id: "QUAL-013",
+      id: "QUAL-020",
       group: "H. Quality",
       priority: "P2",
-      requirement: "vh verify release",
+      requirement: "vh verify live",
       status: "MISSING",
       evidence: [],
-      gap: "Release proof is absent.",
+      gap: "Live provider proof is absent.",
     };
     const releaseCatalog: RequirementProofCatalog = {
       schemaVersion: 2,
       branch: "fixture",
       evidenceCeiling: "LOCAL_RUNTIME_AND_SYNTHETIC_FIXTURES",
       commandContracts: {
-        "final-verify-release": {
-          command: "pnpm verify:release -- --report reports/audit/quality-release.json",
+        "final-verify-live": {
+          command: "pnpm verify:live -- --report reports/audit/quality-live.json",
           cwd: ".",
           artifacts: [reportPath],
         },
+        "final-unit-tests": { command: "pnpm test", cwd: ".", artifacts: [] },
       },
       proofs: [
         {
-          id: "QUAL-013",
+          id: "QUAL-020",
           priority: "P2",
-          requirement: "vh verify release",
-          status: "EXTERNAL_BLOCKER",
-          evidenceCeiling: "EXTERNAL_BLOCKER",
-          evidence: [reportPath],
-          result: "All deterministic checks pass; two named external evidence checks skip.",
+          requirement: "vh verify live",
+          status: "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+          evidenceCeiling: "IMPLEMENTATION_ONLY",
+          evidence: [reportPath, "tests/control.test.ts"],
+          result: "Both named live provider read-backs skip with an exact next action.",
           verification: [
+            { kind: "test", path: "tests/control.test.ts", commandId: "final-unit-tests" },
             {
               kind: "expected_incomplete_quality_profile",
               path: reportPath,
-              commandId: "final-verify-release",
-              profile: "release",
+              commandId: "final-verify-live",
+              profile: "live",
               expectedStatus: "INCOMPLETE",
-              allowedSkipIds: ["analytics_readiness", "live_analytics_readback"],
+              allowedSkipIds: ["live_analytics_readback", "live_stack_readback"],
             },
           ],
-          reviewedAt: "2026-08-09",
-          reviewedBy: "codex-independent-audit",
+          liveVerification: {
+            attempted: false,
+            reason: "No founder Stack was connected in this fixture run.",
+            command:
+              "pnpm vh stack connect founder-default && pnpm vh launch --stack founder-default --production --apply && pnpm verify:live",
+            evidenceRequired:
+              "A live report naming the repository identifier and deployment state, founder account ownership, and the provider read-back that produced them.",
+          },
+          reviewedAt: "2026-08-10",
+          reviewedBy: "opus-v0.2-launch-cut",
         },
       ],
     };
@@ -389,7 +399,7 @@ describe("completion-matrix proof integrity", () => {
       writeFileSync(
         join(root, reportPath),
         `${JSON.stringify({
-          profile: "release",
+          profile: "live",
           generated_at: releaseGeneratedAt,
           results,
           summary,
@@ -401,14 +411,15 @@ describe("completion-matrix proof integrity", () => {
       );
     };
     const expectedResults = [
-      { id: "unit_integration", status: "PASS" as const, gap: null },
-      { id: "analytics_readiness", status: "SKIP" as const, gap: completeGap },
+      { id: "live_stack_readback", status: "SKIP" as const, gap: completeGap },
       { id: "live_analytics_readback", status: "SKIP" as const, gap: completeGap },
     ];
+    const unitCommand = (): CommandEvidenceRecord =>
+      command("PASSED", 0, 1, { id: "final-unit-tests", command: "pnpm test", artifacts: [] });
     const releaseCommand = (): CommandEvidenceRecord =>
       command("FAILED", 1, 1, {
-        id: "final-verify-release",
-        command: "pnpm verify:release -- --report reports/audit/quality-release.json",
+        id: "final-verify-live",
+        command: "pnpm verify:live -- --report reports/audit/quality-live.json",
         artifacts: [artifactEvidence(root, reportPath)],
         startedAt: releaseStartedAt,
         endedAt: releaseEndedAt,
@@ -420,16 +431,16 @@ describe("completion-matrix proof integrity", () => {
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       })[0]?.status,
-    ).toBe("EXTERNAL_BLOCKER");
+    ).toBe("IMPLEMENTED_LIVE_VERIFICATION_PENDING");
 
     expect(() =>
       validateAndApplyRequirementProofs({
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [{ ...releaseCommand(), exitCode: 2 }],
+        commands: [{ ...releaseCommand(), exitCode: 2 }, unitCommand()],
       }),
     ).toThrow(/requires FAILED exit 1/u);
 
@@ -442,12 +453,14 @@ describe("completion-matrix proof integrity", () => {
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       }),
     ).toThrow(/SKIPs do not exactly match/u);
 
     const widenedCatalog = structuredClone(releaseCatalog);
-    const widenedVerification = widenedCatalog.proofs[0]!.verification[0]!;
+    const widenedVerification = widenedCatalog.proofs[0]!.verification.find(
+      (entry) => entry.kind === "expected_incomplete_quality_profile",
+    )!;
     if (widenedVerification.kind !== "expected_incomplete_quality_profile") {
       throw new Error("fixture expected an incomplete quality-profile verification");
     }
@@ -457,21 +470,20 @@ describe("completion-matrix proof integrity", () => {
         root,
         baselines: [releaseBaseline],
         catalog: widenedCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       }),
     ).toThrow(/allowlist differs from the reviewed external gaps/u);
 
     writeReport([
       expectedResults[0]!,
-      { id: "analytics_readiness", status: "SKIP", gap: null },
-      expectedResults[2]!,
+      { id: "live_analytics_readback", status: "SKIP", gap: null },
     ]);
     expect(() =>
       validateAndApplyRequirementProofs({
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       }),
     ).toThrow(/lacks the four required gap fields/u);
   });
@@ -1020,18 +1032,25 @@ describe("completion-matrix proof integrity", () => {
       }
     }
 
+    // The founder-alpha release gate is proved by an ordinary passing report.
+    // It must never rest on an expected-INCOMPLETE profile: that would make a
+    // code-complete alpha permanently unable to show a green release gate.
     const releaseProof = reviewed.proofs.find(({ id }) => id === "QUAL-013");
+    expect(
+      releaseProof?.verification.some(
+        (entry) => entry.kind === "expected_incomplete_quality_profile",
+      ),
+    ).toBe(false);
     expect(releaseProof).toMatchObject({
-      status: "EXTERNAL_BLOCKER",
-      evidenceCeiling: "EXTERNAL_BLOCKER",
+      status: "VERIFIED_INTEGRATION",
+      evidenceCeiling: "LOCAL_INTEGRATION",
       verification: expect.arrayContaining([
         {
-          kind: "expected_incomplete_quality_profile",
+          kind: "artifact",
           path: "reports/audit/quality-release.json",
+          jsonPath: "status",
+          expected: "PASS",
           commandId: "final-verify-release",
-          profile: "release",
-          expectedStatus: "INCOMPLETE",
-          allowedSkipIds: ["analytics_readiness", "live_analytics_readback"],
         },
       ]),
     });

@@ -213,6 +213,8 @@ const qualityCapabilityProfileSchema = z
     fast: z.array(z.string().min(1)).optional(),
     mvp: z.array(z.string().min(1)).optional(),
     release: z.array(z.string().min(1)).optional(),
+    live: z.array(z.string().min(1)).optional(),
+    stable: z.array(z.string().min(1)).optional(),
   })
   .strict();
 
@@ -228,7 +230,11 @@ export const qualitySchema = z
       .object({
         fast: qualityProfileSchema,
         mvp: qualityProfileSchema,
+        // `release` proves code and fixtures without a connected provider,
+        // `live` proves only provider read-back, `stable` requires both.
         release: qualityProfileSchema,
+        live: qualityProfileSchema,
+        stable: qualityProfileSchema,
       })
       .strict(),
     checks: z.record(z.string().min(1), qualityCheckSchema),
@@ -293,6 +299,34 @@ export const qualitySchema = z
               message: `references unknown check ${check}`,
             });
           }
+        }
+      }
+    }
+    // A founder-alpha release gate that cannot pass without a connected
+    // provider is not a release gate. Live read-back belongs to `live` and
+    // `stable`, which are allowed to report INCOMPLETE.
+    const readbacks = new Set(
+      Object.entries(value.checks)
+        .filter(([, check]) => check.kind === "provider_readback")
+        .map(([id]) => id),
+    );
+    for (const check of value.profiles.release.checks) {
+      if (readbacks.has(check)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profiles", "release", "checks"],
+          message: `${check} is a live provider read-back and must move to the live and stable profiles`,
+        });
+      }
+    }
+    for (const [capability, profiles] of Object.entries(value.capability_checks)) {
+      for (const check of profiles.release ?? []) {
+        if (readbacks.has(check)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["capability_checks", capability, "release"],
+            message: `${check} is a live provider read-back and must move to the live and stable profiles`,
+          });
         }
       }
     }

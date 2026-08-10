@@ -29,7 +29,13 @@ import {
   type VerifiedProviderLifecycleRecord,
 } from "../lib/runtime/provider-lifecycle-store";
 
-export type QualityProfileId = "fast" | "mvp" | "release";
+/**
+ * `release` proves founder-alpha code and fixtures and must stay reachable
+ * with no provider connected. `live` proves only real provider read-back and
+ * may honestly report INCOMPLETE. `stable` requires both.
+ */
+export const QUALITY_PROFILE_IDS = ["fast", "mvp", "release", "live", "stable"] as const;
+export type QualityProfileId = (typeof QUALITY_PROFILE_IDS)[number];
 export type CheckStatus = "PASS" | "FAIL" | "SKIP" | "NOT_APPLICABLE";
 
 export interface GapDefinition {
@@ -684,7 +690,7 @@ export function mergeVerifiedProviderLifecycleStates(
 }
 
 function assertContract(contract: QualityContract): void {
-  for (const profile of ["fast", "mvp", "release"] as const) {
+  for (const profile of QUALITY_PROFILE_IDS) {
     if (!contract.profiles[profile]) throw new Error(`Missing quality profile ${profile}`);
   }
   for (const [id, check] of Object.entries(contract.checks)) {
@@ -693,6 +699,26 @@ function assertContract(contract: QualityContract): void {
     if (["manual", "provider_readback"].includes(check.kind) && !check.gap) {
       throw new Error(`${id} can skip but has no actionable gap definition`);
     }
+  }
+  // The founder-alpha release gate must never depend on a connected provider.
+  // Without this assertion a future capability edit can silently make a
+  // code-complete alpha unable to reach PASS, which is exactly the defect the
+  // release/live/stable split exists to prevent.
+  const readbackIds = new Set(
+    Object.entries(contract.checks)
+      .filter(([, check]) => check.kind === "provider_readback")
+      .map(([id]) => id),
+  );
+  const releaseSelected = [
+    ...contract.profiles.release.checks,
+    ...Object.values(contract.capability_checks).flatMap((entry) => entry.release ?? []),
+  ];
+  const leaked = releaseSelected.filter((id) => readbackIds.has(id));
+  if (leaked.length > 0) {
+    throw new Error(
+      `The release profile must not contain live provider read-backs: ${[...new Set(leaked)].join(", ")}. ` +
+        "Move them to the live and stable profiles.",
+    );
   }
 }
 
@@ -797,9 +823,9 @@ export async function runQualityProfile(options: {
 
 async function main(): Promise<void> {
   const profile = process.argv[2] as QualityProfileId | undefined;
-  if (!profile || !["fast", "mvp", "release"].includes(profile)) {
+  if (!profile || !(QUALITY_PROFILE_IDS as readonly string[]).includes(profile)) {
     console.error(
-      "usage: tsx scripts/run-quality-profile.ts <fast|mvp|release> [--base <git-ref>] [--url <base-url>] [--all]",
+      `usage: tsx scripts/run-quality-profile.ts <${QUALITY_PROFILE_IDS.join("|")}> [--base <git-ref>] [--url <base-url>] [--all]`,
     );
     process.exit(2);
   }

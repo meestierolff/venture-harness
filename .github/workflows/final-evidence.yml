@@ -19,8 +19,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 9.15.9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -62,20 +60,21 @@ jobs:
           node scripts/run-audit-command.mjs --id final-verify-mvp --
           pnpm verify:mvp
 
-      - name: Truthful incomplete release profile
-        shell: bash
-        run: |
-          set +e
-          node scripts/run-audit-command.mjs \
-            --id final-verify-release \
-            --artifact reports/audit/quality-release.json \
-            -- pnpm verify:release -- --report reports/audit/quality-release.json
-          status=$?
-          set -e
-          if [ "$status" -ne 1 ]; then
-            echo "Expected the release profile to remain INCOMPLETE with exit 1; received ${status}."
-            exit 1
-          fi
+      # The founder-alpha release gate proves code, package, security, and
+      # deterministic Golden Paths. It must reach PASS with no live provider
+      # connected, so it is asserted as a normal passing check.
+      - name: Release verification profile
+        run: >-
+          node scripts/run-audit-command.mjs
+          --id final-verify-release
+          --artifact reports/audit/quality-release.json
+          -- pnpm verify:release -- --report reports/audit/quality-release.json
+
+      # Live provider read-back runs in the quality workflow's release job. It
+      # is deliberately not recorded here yet: adding an audit command to this
+      # workflow also requires a reviewed proof row, and a proof row can only be
+      # rendered by a completed run of this workflow. See
+      # docs/plans/active/004-vh-v02-launch-dogfood.md for the exact ordering.
 
       - name: Framework verification
         run: >-
@@ -111,8 +110,7 @@ jobs:
         run: >-
           node scripts/run-audit-command.mjs --id final-synthetic-launch --
           pnpm fixture:venture-launch -- --idea fixtures/ideas/synthetic-payout-rank.md
-          --output /tmp/vh-synthetic-launch-final-proof-v2 --name "Payout Rank"
-          --slug payout-rank --json
+          --output /tmp/vh-synthetic-launch-final-proof-v2 --json
 
       - name: Packed clean-consumer verification
         run: >-

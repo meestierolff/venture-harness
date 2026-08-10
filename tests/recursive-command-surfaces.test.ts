@@ -42,7 +42,7 @@ const reconciliation = defineRecursiveServiceReconcileCommand({
 });
 const directories: string[] = [];
 const stores: VentureRuntimeStore[] = [];
-const SECONDARY_WEBHOOK_SECRET = "whsec_secondary_fixture_8Hk2Lm9Q";
+const SECONDARY_WEBHOOK_SECRET = "whsec_SYNTHETICNOTAREALsecondaryrotation";
 const SECONDARY_ACCESS_TOKEN = "opaque-secondary-token-material-9Lm3Np7R";
 const PROVIDER_OUTPUT_POLICIES: readonly ProviderOutputPolicy[] = [
   {
@@ -435,7 +435,7 @@ describe("recursive command Agent Surfaces", () => {
     const request = input(selectedScope.customerOrganizationId);
     request.payload = {
       requestId: "request-safe",
-      receiptHint: "whsec_secondary_fixture_8Hk2Lm9Q",
+      receiptHint: "whsec_SYNTHETICNOTAREALsecondaryrotation",
     };
     const failures = await sixSurfaceFailures(runtime, command.id, request, {
       context: commandContext(selectedScope),
@@ -443,7 +443,7 @@ describe("recursive command Agent Surfaces", () => {
     });
     expect(new Set(failures.map(({ code }) => code))).toEqual(new Set(["invalid_input"]));
     expect(new Set(failures.map(({ message }) => message)).size).toBe(1);
-    expect(JSON.stringify(failures)).not.toContain("whsec_secondary_fixture_8Hk2Lm9Q");
+    expect(JSON.stringify(failures)).not.toContain("whsec_SYNTHETICNOTAREALsecondaryrotation");
     expect(provider).not.toHaveBeenCalled();
     expect(store.usageStatus(selectedScope, "inbound-secondary-credential")).toBeNull();
 
@@ -475,11 +475,11 @@ describe("recursive command Agent Surfaces", () => {
 
   it("keeps source, ESM dist, and CJS dist recursive parsers on the shared credential policy", async () => {
     const credentialShapes = [
-      "whsec_secondary_fixture_8Hk2Lm9Q",
+      "whsec_SYNTHETICNOTAREALsecondaryrotation",
       "ghp_abcdefghijklmnopqrstuvwxyz",
       "xoxb-1234567890-abcdefghijkl",
-      "AKIAABCDEFGHIJKLMNOP",
-      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.signature_fixture",
+      "AKIASYNTHETICNOTREAL",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJTWU5USEVUSUNOT1RBUkVBTCJ9.SYNTHETICNOTAREALsignature",
     ];
     const esm = (await import("../packages/agent-runtime/dist/index.js")) as {
       recursiveServiceExecuteCommand: typeof command;

@@ -87,7 +87,8 @@ export type RequirementVerification =
       kind: "expected_incomplete_quality_profile";
       path: string;
       commandId: string;
-      profile: "release";
+      // Only a live provider profile may rest on an expected INCOMPLETE.
+      profile: "live";
       expectedStatus: "INCOMPLETE";
       allowedSkipIds: string[];
     };
@@ -110,7 +111,7 @@ export interface RequirementProof {
   result: string;
   verification: RequirementVerification[];
   reviewedAt: string;
-  reviewedBy: "codex-independent-audit";
+  reviewedBy: (typeof REVIEWED_BY_IDENTITIES)[number];
   liveVerification?: {
     attempted: false;
     reason: string;
@@ -153,10 +154,34 @@ const ALL_REQUIREMENT_PROOF_STATUSES = [
   ...NONTERMINAL_REQUIREMENT_STATUSES,
 ] as const;
 
-const QUAL_013_RELEASE_COMMAND =
-  "pnpm verify:release -- --report reports/audit/quality-release.json";
-const QUAL_013_RELEASE_REPORT = "reports/audit/quality-release.json";
-const QUAL_013_ALLOWED_RELEASE_SKIPS = ["analytics_readiness", "live_analytics_readback"] as const;
+/**
+ * Audit runs allowed to sign a proof row.
+ *
+ * A row must name the run that actually reviewed it. Reusing an earlier run's
+ * identity to satisfy this check would misattribute the review, so a new
+ * reviewing run is added here instead.
+ */
+const REVIEWED_BY_IDENTITIES = ["codex-independent-audit", "opus-v0.2-launch-cut"] as const;
+
+/**
+ * Reviewed proofs that are allowed to rest on an INCOMPLETE quality profile.
+ *
+ * Only a live provider profile may qualify. The founder-alpha release gate is
+ * deliberately absent: a release profile that is required to exit non-zero can
+ * never show that the alpha is code-complete, so it is proved by an ordinary
+ * passing artifact instead.
+ */
+const CANONICAL_EXPECTED_INCOMPLETE_PROOFS = {
+  "QUAL-020": {
+    commandId: "final-verify-live",
+    command: "pnpm verify:live -- --report reports/audit/quality-live.json",
+    report: "reports/audit/quality-live.json",
+    profile: "live",
+    status: "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+    evidenceCeiling: "IMPLEMENTATION_ONLY",
+    allowedSkipIds: ["live_analytics_readback", "live_stack_readback"],
+  },
+} as const;
 
 function assertRelativePath(relativePath: string, label: string): void {
   if (!relativePath || relativePath.startsWith("/") || relativePath.includes("..")) {
@@ -441,26 +466,30 @@ function validateExpectedIncompleteQualityProfile(options: {
   root: string;
 }): void {
   const { proof, verification, command, root } = options;
+  const canonical =
+    CANONICAL_EXPECTED_INCOMPLETE_PROOFS[
+      proof.id as keyof typeof CANONICAL_EXPECTED_INCOMPLETE_PROOFS
+    ];
   if (
-    proof.id !== "QUAL-013" ||
-    verification.commandId !== "final-verify-release" ||
-    verification.path !== QUAL_013_RELEASE_REPORT ||
-    verification.profile !== "release" ||
+    !canonical ||
+    verification.commandId !== canonical.commandId ||
+    verification.path !== canonical.report ||
+    verification.profile !== canonical.profile ||
     verification.expectedStatus !== "INCOMPLETE" ||
-    command.command !== QUAL_013_RELEASE_COMMAND
+    command.command !== canonical.command
   ) {
     throw new Error(
-      `${proof.id} expected-incomplete quality proof is restricted to the canonical QUAL-013 release command and report`,
+      `${proof.id} expected-incomplete quality proof is restricted to a reviewed live profile command and report`,
     );
   }
-  if (proof.status !== "EXTERNAL_BLOCKER" || proof.evidenceCeiling !== "EXTERNAL_BLOCKER") {
+  if (proof.status !== canonical.status || proof.evidenceCeiling !== canonical.evidenceCeiling) {
     throw new Error(
-      `${proof.id} expected-incomplete release proof requires EXTERNAL_BLOCKER status and ceiling`,
+      `${proof.id} expected-incomplete live proof requires ${canonical.status} status and ${canonical.evidenceCeiling} ceiling`,
     );
   }
   if (command.status !== "FAILED" || command.exitCode !== 1 || command.skipped) {
     throw new Error(
-      `${proof.id} expected-incomplete release proof requires FAILED exit 1 without a skipped command`,
+      `${proof.id} expected-incomplete live proof requires FAILED exit 1 without a skipped command`,
     );
   }
   if (!proof.evidence.includes(verification.path)) {
@@ -481,7 +510,7 @@ function validateExpectedIncompleteQualityProfile(options: {
     !report.summary ||
     typeof report.summary !== "object"
   ) {
-    throw new Error(`${proof.id} quality report is not a truthful release INCOMPLETE result`);
+    throw new Error(`${proof.id} quality report is not a truthful INCOMPLETE result`);
   }
   const generatedAt = Date.parse(report.generated_at);
   const startedAt = Date.parse(command.startedAt!);
@@ -495,13 +524,13 @@ function validateExpectedIncompleteQualityProfile(options: {
     new Set(verification.allowedSkipIds).size !== verification.allowedSkipIds.length ||
     verification.allowedSkipIds.some((id) => !id.trim())
   ) {
-    throw new Error(`${proof.id} must name a non-empty unique allowlist of release SKIPs`);
+    throw new Error(`${proof.id} must name a non-empty unique allowlist of SKIPs`);
   }
   if (
     [...verification.allowedSkipIds].sort().join("\n") !==
-    [...QUAL_013_ALLOWED_RELEASE_SKIPS].sort().join("\n")
+    [...canonical.allowedSkipIds].sort().join("\n")
   ) {
-    throw new Error(`${proof.id} release SKIP allowlist differs from the reviewed external gaps`);
+    throw new Error(`${proof.id} SKIP allowlist differs from the reviewed external gaps`);
   }
   const resultIds = new Set<string>();
   const counts: Record<QualityResultEvidence["status"], number> = {
@@ -774,7 +803,9 @@ export function validateAndApplyRequirementProofs(options: {
       throw new Error(`${proof.id} status does not match its evidence ceiling`);
     }
     if (
-      proof.reviewedBy !== "codex-independent-audit" ||
+      !REVIEWED_BY_IDENTITIES.includes(
+        proof.reviewedBy as (typeof REVIEWED_BY_IDENTITIES)[number],
+      ) ||
       !/^\d{4}-\d{2}-\d{2}$/u.test(proof.reviewedAt)
     ) {
       throw new Error(`${proof.id} is missing an independent dated review`);

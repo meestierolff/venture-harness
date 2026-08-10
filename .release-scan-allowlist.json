@@ -4,36 +4,36 @@
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 79,
-      "sha256": "7438757f2996a1b43385c0936df0c1cf91c6355bf322b1a9b1ae4d722725897b",
+      "line": 118,
+      "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 83,
-      "sha256": "7438757f2996a1b43385c0936df0c1cf91c6355bf322b1a9b1ae4d722725897b",
+      "line": 122,
+      "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/mobile-scaffold.test.ts",
       "rule": "stripe-access-token",
       "line": 293,
-      "sha256": "014c07288c45eaf54c4b9b7b252576e7a5cd30ac39cbdf7342602166c949a51a",
+      "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
       "reason": "Synthetic scaffold leak canary."
     },
     {
       "path": "tests/runtime-provider-lifecycle.test.ts",
       "rule": "stripe-access-token",
       "line": 203,
-      "sha256": "c71dc50c6d0af42b23a5ff24d7885193ce30ab962a1e412441ff90058c9383da",
+      "sha256": "235d330ebeee14d682470b1d2200c90be55f2df0c3599a1d65b4ca127293ac31",
       "reason": "Synthetic lifecycle redaction canary."
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "stripe-access-token",
       "line": 255,
-      "sha256": "014c07288c45eaf54c4b9b7b252576e7a5cd30ac39cbdf7342602166c949a51a",
+      "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
       "reason": "Synthetic model-context leak canary."
     },
     {
@@ -145,7 +145,7 @@
       "path": "tests/provider-idempotency-safety.test.ts",
       "rule": "stripe-access-token",
       "line": 179,
-      "sha256": "19c90a6d5f305cbd85b8db30328ed4c956d4e41e0564d4cdcfc256cf8a3d17a2",
+      "sha256": "42540ee5794dceb4c730d62655ba090cf29cff62820b0a50ff04a2213ecdad5f",
       "reason": "Synthetic provider-ledger private-output canary."
     },
     {
@@ -173,7 +173,7 @@
       "path": "tests/recursive-command-surfaces.test.ts",
       "rule": "aws-access-key",
       "line": 481,
-      "sha256": "457643f44d19aed85fd756aa50cc0cd6b57376d4e8f5a72f9f85972a522002a3",
+      "sha256": "35bda0fa107dbfda4d320cc1f49c6f59f73d54a1044593fab8bd1fd6ab7a15e4",
       "reason": "Synthetic recursive parser credential-classifier canary."
     },
     {
@@ -194,7 +194,7 @@
       "path": "tests/winner-loop-integrations.test.ts",
       "rule": "aws-access-key",
       "line": 680,
-      "sha256": "457643f44d19aed85fd756aa50cc0cd6b57376d4e8f5a72f9f85972a522002a3",
+      "sha256": "35bda0fa107dbfda4d320cc1f49c6f59f73d54a1044593fab8bd1fd6ab7a15e4",
       "reason": "Synthetic Winner fixture credential-classifier canary."
     }
   ]

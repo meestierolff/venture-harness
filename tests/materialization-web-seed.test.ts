@@ -104,9 +104,10 @@ describe("ordinary web venture seed", () => {
       "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
     ]);
     expect(actions.every((action) => /@[a-f0-9]{40}$/u.test(action))).toBe(true);
-    expect(steps.find(({ uses }) => uses?.startsWith("pnpm/action-setup@"))?.with).toEqual({
-      version: "9.15.9",
-    });
+    // The child's package.json `packageManager` is the single pnpm version
+    // source. Declaring a second version here makes pnpm/action-setup refuse
+    // to install at all, which is what broke every CI job on this repository.
+    expect(steps.find(({ uses }) => uses?.startsWith("pnpm/action-setup@"))?.with).toBeUndefined();
     expect(steps.find(({ name }) => name === "Install exact child dependencies")?.run).toBe(
       "pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false",
     );

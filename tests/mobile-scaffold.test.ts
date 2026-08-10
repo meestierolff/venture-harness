@@ -290,7 +290,7 @@ describe("repo-native mobile scaffold generation", () => {
       generateMobileScaffold(temporaryRoot(), {
         stack: "swiftui",
         ventureId: "safe-app",
-        displayName: "sk_live_1234567890abcdef",
+        displayName: "sk_live_SYNTHETICNOTAREALa",
       }),
     ).toThrow(/credential/i);
 

@@ -13,8 +13,8 @@ onboarding, DNS propagation, or a production build finishes in five minutes.
 
 ## 1. Run from source
 
-The v0.2 package is not published as a stable release. With Node 20.9 or newer,
-from a reviewed checkout:
+The v0.2 package is not published as a stable release. With Node 22.5 or newer
+(the durable runtime uses `node:sqlite`), from a reviewed checkout:
 
 ```bash
 corepack enable

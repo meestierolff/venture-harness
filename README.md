@@ -42,8 +42,8 @@ Five minutes is enough to understand and inspect the flow. Provider onboarding,
 DNS propagation, product generation, and a real production build can take
 longer.
 
-The v0.2 package is not published as a stable release. With Node 20.9 or newer,
-from a reviewed source checkout:
+The v0.2 package is not published as a stable release. With Node 22.5 or newer
+(the durable runtime uses `node:sqlite`), from a reviewed source checkout:
 
 ```bash
 corepack enable

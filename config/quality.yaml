@@ -55,7 +55,11 @@ profiles:
       - analytics_readiness
       - provider_dry_run
   release:
-    description: MVP evidence plus release safety, resume/rollback, live read-back gaps, and human audits.
+    description: >-
+      Founder-alpha code and fixture release gate. Source, tests, package,
+      release safety, resume/rollback, and deterministic Golden Paths. This
+      profile must be able to reach PASS with no live provider connected; it
+      never contains a live provider read-back.
     checks:
       - compatibility_verify
       - public_release_safety
@@ -75,6 +79,37 @@ profiles:
       - analytics_pack_tests
       - analytics_readiness
       - provider_dry_run
+  live:
+    description: >-
+      Real founder Stack and provider read-backs only. Reports INCOMPLETE with
+      an exact command and expected evidence per unresolved provider. It passes
+      only for the provider, account, and resource scope actually observed.
+    checks:
+      - live_stack_readback
+  stable:
+    description: >-
+      Stable-release gate. Every release check plus the required live provider
+      read-back evidence. Remains INCOMPLETE until both are satisfied.
+    checks:
+      - compatibility_verify
+      - public_release_safety
+      - full_format
+      - full_lint
+      - typecheck
+      - unit_integration
+      - workspace_build
+      - workspace_contract
+      - workspace_pack_consumer
+      - production_build
+      - migration_tests
+      - migration_rollback_tests
+      - provider_contract_tests
+      - synthetic_fixture_tests
+      - graph_resume_idempotency
+      - analytics_pack_tests
+      - analytics_readiness
+      - provider_dry_run
+      - live_stack_readback
 
 checks:
   changed_format:
@@ -243,6 +278,23 @@ checks:
     kind: command
     phase: 5
     command: [pnpm, exec, playwright, test, tests/e2e/responsive-screenshots.spec.ts]
+  live_stack_readback:
+    kind: provider_readback
+    phase: 3
+    provider: github
+    command: [pnpm, vh, stack, doctor, founder-default]
+    gap:
+      why: >-
+        Founder Stack proof requires a connected Stack plus GitHub, Vercel, and
+        Neon resource read-back from a real launch. Configuration and a doctor
+        exit are readiness, not read-back.
+      missing: >-
+        A connected founder-default Stack and one applied launch with GitHub
+        commit, Vercel production deployment, and Neon migration read-back.
+      exact_command: pnpm vh stack connect founder-default && pnpm vh launch --idea <idea.md> --stack founder-default --production --apply --non-interactive
+      expected_evidence: >-
+        Redacted repository/commit, production URL and deployment state, and
+        migration ledger read-back recorded in the launch report.
   live_stripe_readback:
     kind: provider_readback
     phase: 3
@@ -313,52 +365,77 @@ checks:
       exact_command: pnpm vh launch --dry-run
       expected_evidence: Validated ASO metadata and labeled screenshot narrative in the launch report.
 
+# A capability may add deterministic checks to fast/mvp/release and live
+# provider read-backs to live/stable. A live read-back must never appear under
+# `release`: that profile has to stay reachable without a connected provider.
 capability_checks:
   public_website:
     mvp: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
     release: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
+    stable: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
   authenticated_product:
     mvp: [consent_contract]
     release: [consent_contract, web_e2e]
+    stable: [consent_contract, web_e2e]
   database:
     mvp: [migration_tests]
     release: [migration_tests, migration_rollback_tests]
+    stable: [migration_tests, migration_rollback_tests]
   transactional_email:
     mvp: [provider_contract_tests]
-    release: [live_brevo_readback]
+    release: [provider_contract_tests]
+    live: [live_brevo_readback]
+    stable: [provider_contract_tests, live_brevo_readback]
   lifecycle_email:
     mvp: [provider_contract_tests]
-    release: [live_brevo_readback]
+    release: [provider_contract_tests]
+    live: [live_brevo_readback]
+    stable: [provider_contract_tests, live_brevo_readback]
   stripe:
     mvp: [pricing_integrity, provider_contract_tests]
-    release: [pricing_integrity, live_stripe_readback]
+    release: [pricing_integrity, provider_contract_tests]
+    live: [live_stripe_readback]
+    stable: [pricing_integrity, provider_contract_tests, live_stripe_readback]
   revenuecat:
     mvp: [pricing_integrity, provider_contract_tests]
-    release: [pricing_integrity, live_revenuecat_readback]
+    release: [pricing_integrity, provider_contract_tests]
+    live: [live_revenuecat_readback]
+    stable: [pricing_integrity, provider_contract_tests, live_revenuecat_readback]
   ga4:
     mvp: [analytics_pack_tests, consent_contract]
-    release: [analytics_pack_tests, consent_contract, live_analytics_readback]
+    release: [analytics_pack_tests, consent_contract]
+    live: [live_analytics_readback]
+    stable: [analytics_pack_tests, consent_contract, live_analytics_readback]
   gsc:
     mvp: [seo_static]
-    release: [seo_static, live_analytics_readback]
+    release: [seo_static]
+    live: [live_analytics_readback]
+    stable: [seo_static, live_analytics_readback]
   bing_webmaster:
     mvp: [seo_static]
-    release: [seo_static, live_analytics_readback]
+    release: [seo_static]
+    live: [live_analytics_readback]
+    stable: [seo_static, live_analytics_readback]
   vercel_analytics:
     mvp: [analytics_pack_tests, consent_contract]
     release: [analytics_pack_tests, consent_contract]
+    stable: [analytics_pack_tests, consent_contract]
   web_seo_aeo_geo:
     mvp: [seo_static, raw_html]
     release: [seo_static, raw_html]
+    stable: [seo_static, raw_html]
   ios_aso:
     mvp: [mobile_fixture_validation]
     release: [mobile_fixture_validation, aso_validation]
+    stable: [mobile_fixture_validation, aso_validation]
   app_store_connect:
     mvp: [mobile_fixture_validation]
     release: [mobile_fixture_validation, mobile_build_readiness, aso_validation]
+    stable: [mobile_fixture_validation, mobile_build_readiness, aso_validation]
   eas:
     mvp: [mobile_fixture_validation]
     release: [mobile_fixture_validation, mobile_build_readiness]
+    stable: [mobile_fixture_validation, mobile_build_readiness]
 
 # Documents that must exist and pass validate:docs.
 required_documents:

@@ -291,7 +291,7 @@ describe("recursive venture runtime", () => {
     const tenantA = scope("venture-request", "customer-request", "user-request");
     const ids = installCustomer(runtime, tenantA, "request", CANARY_A);
     const provider = vi.fn(() => Promise.resolve({ providerPostId: "fixture-post-request" }));
-    const secondarySecret = "whsec_secondary_fixture_8Hk2Lm9Q";
+    const secondarySecret = "whsec_SYNTHETICNOTAREALsecondaryrotation";
     await expect(
       runtime.service.execute(
         executeInput(tenantA, ids, "unsafe-operation-request", {
