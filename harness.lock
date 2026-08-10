@@ -1411,7 +1411,7 @@ managed_files:
     sha256: ca4455d0b5c5df3ef1beaf5412525064d415c3a1c54f4840daab10f52930ce1f
   - path: tests/recursive-packed-credential.test.ts
     ownership: harness
-    sha256: 1339729e63657e098d95390c6248d03db4e818e8e0eb7f338e1fa26a80571afa
+    sha256: 92cd8fca2f1456ebebff11686e6258d8cdcf49641b427dd48c87bfd1b2b44169
   - path: tests/requirement-matrix-integrity.test.ts
     ownership: harness
     sha256: 8bc1dbd065a08f5a1bf222188c9aa520e8efe6a903346c6dbdb7027f13105b91

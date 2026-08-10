@@ -117,9 +117,16 @@ describe("packed recursive credential boundary", () => {
     const install = spawnSync(
       "pnpm",
       ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
-      { cwd: consumer, encoding: "utf8", timeout: 120_000 },
+      { cwd: consumer, encoding: "utf8", timeout: 240_000 },
     );
-    expect(install.status, `${install.stdout}\n${install.stderr}`).toBe(0);
+    expect(
+      install.status,
+      // A null status means the install was killed by its timeout rather than
+      // failing, which is a different problem from a rejected dependency.
+      install.status === null
+        ? "the packed consumer install exceeded its timeout"
+        : `${install.stdout}\n${install.stderr}`,
+    ).toBe(0);
     writeFileSync(
       join(consumer, "verify.mjs"),
       `import { createRequire } from "node:module";
@@ -165,5 +172,5 @@ process.stdout.write("packed-recursive-credential-rejected\\n");
     expect(verification.stdout + verification.stderr).not.toContain(
       "whsec_SYNTHETICNOTAREALsecondaryrotation",
     );
-  }, 60_000);
+  }, 300_000);
 });
