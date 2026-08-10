@@ -96,11 +96,18 @@ describe("workspace distribution", () => {
       "dist",
       "bin.js",
     );
+    // Several assertions below parse stderr as pure JSON, which is the CLI's
+    // error contract. The durable runtime loads `node:sqlite`, still flagged
+    // experimental on the Node 22 line CI uses, and that warning is written to
+    // stderr by the runtime rather than by the command. Silencing just that
+    // class keeps the contract assertable while leaving every genuine warning
+    // visible.
     const invokeAdvancedCli = (args: readonly string[], timeout = 10_000) =>
       spawnSync(process.execPath, [advancedCliEntry, ...args], {
         cwd: consumer,
         encoding: "utf8",
         timeout,
+        env: { ...process.env, NODE_OPTIONS: "--disable-warning=ExperimentalWarning" },
       });
 
     const cli = invokeAdvancedCli(["commands"]);

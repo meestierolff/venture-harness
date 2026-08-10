@@ -1525,7 +1525,7 @@ managed_files:
     sha256: d832b609c038356c69110d233ae217c9ea21660e62364fe738b1ba9d5e5026a1
   - path: tests/workspace-pack.test.ts
     ownership: harness
-    sha256: 457a838f6e029d334fc47b90927cab577516ec6feb56548c2ae56da0ac2514b7
+    sha256: 89d899d0e4144a279b58ec50a56f4564231c857bf52c4fab71b57b51f549b2e2
   - path: tsconfig.json
     ownership: harness
     sha256: d8cf838419ad00e94cf202d83e9b183042185ed6b51ff1d23b2e852d2584c49d
