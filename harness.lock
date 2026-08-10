@@ -292,7 +292,7 @@ managed_files:
     sha256: 7aeaeaa85197f69805e7c67fc3c0951c3314df51ce90f1d1d1d31fafb8961e00
   - path: .github/workflows/quality.yml
     ownership: harness
-    sha256: 36cfb7449c7363f815e117496ae2cc678743351ae28d178d2b5a48f5d7239294
+    sha256: 3ef7949014a94afb38978e1d9f4982efdc5d33af26402aa10899980e175c2a2a
   - path: .github/workflows/security.yml
     ownership: harness
     sha256: 3c9a91a961cdd135a9ce14d47b258ce4d919403251a8f17e6c79738014c7dd99
@@ -1525,7 +1525,7 @@ managed_files:
     sha256: d832b609c038356c69110d233ae217c9ea21660e62364fe738b1ba9d5e5026a1
   - path: tests/workspace-pack.test.ts
     ownership: harness
-    sha256: 2a7e88c6d936e4ee17e5e538ae70340918ab497a8e69ee7f22d234a9f32180f9
+    sha256: 457a838f6e029d334fc47b90927cab577516ec6feb56548c2ae56da0ac2514b7
   - path: tsconfig.json
     ownership: harness
     sha256: d8cf838419ad00e94cf202d83e9b183042185ed6b51ff1d23b2e852d2584c49d

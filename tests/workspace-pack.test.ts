@@ -72,7 +72,11 @@ describe("workspace distribution", () => {
     }).trim();
     const install = spawnSync(
       "pnpm",
-      ["install", "--offline", "--ignore-scripts", "--store-dir", storeDirectory],
+      // --prefer-offline rather than --offline: a `--frozen-lockfile` install
+      // resolves from the lockfile and never populates the registry metadata
+      // cache, so a strict offline install fails on missing metadata for a
+      // third-party dependency rather than on anything this test is about.
+      ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
       {
         cwd: consumer,
         encoding: "utf8",

@@ -53,6 +53,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Workspace packages publish only from an uncommitted dist/, so the
+      # boundary and parity suites cannot resolve @venture-harness/* without a
+      # build. --skip-cli keeps the reviewed-source provenance assertion out of
+      # a job that only exercises the packed distribution.
+      - run: pnpm workspace:build -- --skip-cli
       - name: Packed workspace distribution
         run: pnpm test:workspace
 
