@@ -130,7 +130,7 @@
     {
       "path": "tests/fixtures/synthetic-founder-golden-path.ts",
       "rule": "database-url-with-credentials",
-      "line": 779,
+      "line": 793,
       "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
       "reason": "Synthetic Golden Path durable-secret absence canary."
     },

@@ -283,7 +283,7 @@ managed_files:
     sha256: a48d175f7269485e8bf500bf7df7c6e0a2447434b90ebc833b57fba1be7c1caa
   - path: .github/workflows/final-evidence.yml
     ownership: harness
-    sha256: 32ca5202b631314dfb5cb6ed8cde8393e59c780be446a58e9c22055c27722f2d
+    sha256: 2f3b732aa72887828a0a98fab614659800a0a1ac366bb7c1283e61fc6006e063
   - path: .github/workflows/learning-cadence.yml
     ownership: harness
     sha256: ad6556b6c162f0906fa442fd00414c4a98038bec29e1f6a2e1dd6a40effc3e74

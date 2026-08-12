@@ -102,7 +102,7 @@
         "scripts/workspace-check.mjs",
         "tests/workspace-boundaries.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “pnpm workspace” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpnpm workspace\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -124,7 +124,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/", "tests/workspace-boundaries.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “package boundaries” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpackage boundaries\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -142,7 +142,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/config/", "lib/config/", "tests/config-schemas.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “config and schemas” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cconfig and schemas\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -160,7 +160,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/command-bus/", "tests/command-surfaces-parity.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “command bus” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201ccommand bus\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -178,7 +178,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/events/", "tests/command-surfaces-parity.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “event log” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cevent log\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -196,7 +196,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/audit/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “audit hash chain” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201caudit hash chain\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -214,7 +214,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/assets/", "tests/winner-loop-fixture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “asset vault” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201casset vault\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -232,7 +232,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/credentials/", "packages/credentials/", "tests/credentials-broker.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “credential broker” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccredential broker\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -250,7 +250,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/authorization/", "packages/policy/", "tests/authorization.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “authorization and policy” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cauthorization and policy\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -268,7 +268,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/organizations/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “organizations” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201corganizations\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -286,7 +286,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/billing/", "packages/entitlements/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “subscriptions and entitlements” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201csubscriptions and entitlements\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -304,7 +304,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/connections/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “provider connections” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cprovider connections\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -322,7 +322,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/provider-sdk/", "lib/providers/", "tests/providers-execution.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “provider SDK” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cprovider SDK\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -344,7 +344,7 @@
         "lib/providers/registry.ts",
         "tests/provider-stack-profiles.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “provider registry” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cprovider registry\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -362,7 +362,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/workflow/", "tests/workflow-durable-recovery.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “graph runtime” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cgraph runtime\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -398,7 +398,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/cli-generator/", "lib/cli/", "tests/cli-runtime.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “CLI” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cCLI\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -416,7 +416,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/api-generator/", "apps/api/", "tests/command-surfaces-parity.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “API” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cAPI\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -434,7 +434,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/mcp-generator/", "tests/workspace-pack.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “MCP” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cMCP\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -452,7 +452,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/sdk-generator/", "tests/workspace-pack.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “SDK” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cSDK\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -474,7 +474,7 @@
         "lib/materialization/packs.ts",
         "tests/materialization.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “pack runtime” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpack runtime\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -496,7 +496,7 @@
         "lib/materialization/seeds.ts",
         "tests/materialization.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “seed runtime” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cseed runtime\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -532,7 +532,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/telemetry/", "tests/command-surfaces-parity.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “telemetry” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ctelemetry\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -550,7 +550,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["packages/ui/", "tests/command-surfaces-parity.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “shared UI” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cshared UI\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -568,7 +568,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["apps/control-plane/", "tests/workspace-boundaries.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “control-plane app boundary” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201ccontrol-plane app boundary\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -592,7 +592,7 @@
         "apps/fleet-controller/",
         "tests/workspace-boundaries.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “API/worker/docs/Fleet Controller app boundaries” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cAPI/worker/docs/Fleet Controller app boundaries\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -610,7 +610,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["scripts/workspace-pack.mjs", "tests/workspace-pack.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “package exports, packing, and clean-consumer install” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpackage exports, packing, and clean-consumer install\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -628,7 +628,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["scripts/public-release-check.ts", "tests/security-release.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “public release checks” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpublic release checks\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -650,7 +650,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “idea compiler” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cidea compiler\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -672,7 +672,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “Stack Profile resolution” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cStack Profile resolution\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -739,7 +739,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “local isolated workspace” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201clocal isolated workspace\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -764,7 +764,7 @@
         "lib/providers/github-source-publication.ts",
         "tests/providers-github-source.test.ts"
       ],
-      "result": "The cited implementation and deterministic controls cover “GitHub repository creation”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cGitHub repository creation\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -792,7 +792,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “seed materialization” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cseed materialization\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -814,7 +814,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “harness.lock” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201charness.lock\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -836,7 +836,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “Venture Manifest” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cVenture Manifest\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -858,7 +858,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/seeds.ts", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “unique design” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cunique design\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -884,7 +884,7 @@
         "scripts/run-synthetic-venture-launch.mts",
         "tests/materialization.test.ts"
       ],
-      "result": "The cited labelled synthetic fixture verifies “unique application” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cunique application\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -906,7 +906,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “ServiceBlueprint” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cServiceBlueprint\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -928,7 +928,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “Connector Manifest” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cConnector Manifest\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -950,7 +950,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “unique Agent Surface” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cunique Agent Surface\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -972,7 +972,7 @@
       "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
       "evidenceCeiling": "IMPLEMENTATION_ONLY",
       "evidence": ["lib/materialization/materializer.ts", "tests/materialization.test.ts"],
-      "result": "The cited implementation and deterministic controls cover “CompanyStack provisioning”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cCompanyStack provisioning\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -1003,7 +1003,7 @@
         "lib/providers/github-source-publication.ts",
         "tests/providers-github-source.test.ts"
       ],
-      "result": "The cited implementation and deterministic controls cover “source push”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201csource push\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -1031,7 +1031,7 @@
       "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
       "evidenceCeiling": "IMPLEMENTATION_ONLY",
       "evidence": ["lib/providers/", "tests/launch-fixtures.test.ts"],
-      "result": "The cited implementation and deterministic controls cover “preview verification”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cpreview verification\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -1059,7 +1059,7 @@
       "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
       "evidenceCeiling": "IMPLEMENTATION_ONLY",
       "evidence": ["lib/launch/", "lib/providers/", "tests/launch-fixtures.test.ts"],
-      "result": "The cited implementation and deterministic controls cover “production deployment planning”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cproduction deployment planning\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -1087,7 +1087,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["scripts/run-synthetic-venture-launch.mts", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “live/fixture verification” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201clive/fixture verification\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -1109,7 +1109,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/materialization/", "tests/materialization.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “three versioned seed rails” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cthree versioned seed rails\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -1131,7 +1131,7 @@
       "status": "VERIFIED_FIXTURE",
       "evidenceCeiling": "SYNTHETIC_FIXTURE",
       "evidence": ["lib/migrations/v0-1-to-v0-2.ts", "tests/migrations.test.ts"],
-      "result": "The cited labelled synthetic fixture verifies “v0.1-to-v0.2 materialization fixture” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cv0.1-to-v0.2 materialization fixture\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -1153,7 +1153,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “customer users” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccustomer users\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1171,7 +1171,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “customer organizations and memberships” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccustomer organizations and memberships\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1189,7 +1189,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “venture subscriptions” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cventure subscriptions\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1207,7 +1207,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “entitlements” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201centitlements\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1225,7 +1225,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “Connection Hub” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cConnection Hub\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1243,7 +1243,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “Customer Service Grants” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cCustomer Service Grants\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1261,7 +1261,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “Provider Connections” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cProvider Connections\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1279,7 +1279,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “Agent Grants” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cAgent Grants\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1320,7 +1320,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “usage metering” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cusage metering\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1338,7 +1338,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “revocation” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201crevocation\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1356,7 +1356,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “offboarding” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201coffboarding\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1374,7 +1374,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “customer resource ownership” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccustomer resource ownership\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1507,7 +1507,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/venture-runtime/", "tests/venture-runtime.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “subscription and entitlement negative controls” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201csubscription and entitlement negative controls\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1529,7 +1529,7 @@
         "lib/materialization/",
         "tests/materialization.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “founder default Stack Profile” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cfounder default Stack Profile\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1590,7 +1590,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/providers/", "tests/providers-contract.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “capability resolution” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201ccapability resolution\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1612,7 +1612,7 @@
         "lib/providers/adapter.ts",
         "tests/credentials-auth-lifecycle.test.ts"
       ],
-      "result": "The cited implementation and deterministic controls cover “provider-specific auth”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cprovider-specific auth\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -1639,7 +1639,7 @@
         "lib/runtime/provider-lifecycle-store.ts",
         "tests/runtime-provider-lifecycle.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “provider state and ownership metadata” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cprovider state and ownership metadata\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1657,7 +1657,7 @@
       "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
       "evidenceCeiling": "IMPLEMENTATION_ONLY",
       "evidence": ["lib/providers/adapter.ts", "tests/providers-execution.test.ts"],
-      "result": "The cited implementation and deterministic controls cover “read-back verification”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cread-back verification\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -1681,7 +1681,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/providers/adapter.ts", "tests/provider-idempotency-safety.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “unknown-outcome reconciliation” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cunknown-outcome reconciliation\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1699,7 +1699,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["docs/audits/PROVIDER_CAPABILITY_MATRIX.md", "tests/providers-contract.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “provider status matrix” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cprovider status matrix\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1717,7 +1717,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["tests/provider-idempotency-safety.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “failure injection and idempotent retry” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cfailure injection and idempotent retry\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1738,7 +1738,7 @@
         "lib/runtime/file-idempotency-ledger.ts",
         "tests/provider-idempotency-safety.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “no duplicate external writes” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cno duplicate external writes\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -1756,7 +1756,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/venture-runtime/service.ts", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “revoked delegated access preserves resources” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201crevoked delegated access preserves resources\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -1774,7 +1774,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/providers/adapter.ts", "tests/providers-contract.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “provider doctor/dry-run/diagnostics without credentials” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cprovider doctor/dry-run/diagnostics without credentials\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -2217,7 +2217,7 @@
         "packages/config/src/growth-contract.ts",
         "tests/config-schemas.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “Growth Contract” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cGrowth Contract\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2235,7 +2235,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["config/growth.yaml", "tests/winner-loop-evaluator.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “creative experiment matrix” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccreative experiment matrix\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2276,7 +2276,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/fingerprint.ts", "tests/winner-loop-creative-ledger.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “content fingerprint” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccontent fingerprint\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2297,7 +2297,7 @@
         "lib/winner-loop/creative-ledger.ts",
         "tests/winner-loop-creative-ledger.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “delivery variants and lineage” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cdelivery variants and lineage\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2315,7 +2315,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/creative-manifest.ts", "tests/winner-loop-paid-gate.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “creative manifests” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccreative manifests\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2333,7 +2333,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/creative-manifest.ts", "tests/winner-loop-paid-gate.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “rights and paid-use enforcement” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201crights and paid-use enforcement\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2448,7 +2448,7 @@
         "tests/winner-loop-live-provider-contracts.test.ts",
         "tests/winner-loop-organic-policy.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “organic account caps and duplicate policy” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201corganic account caps and duplicate policy\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2522,7 +2522,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/evaluator.ts", "tests/winner-loop-evaluator.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “winner evaluator” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cwinner evaluator\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2540,7 +2540,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/paid-test.ts", "tests/winner-loop-paid-gate.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “PaidTestProposal” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cPaidTestProposal\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2558,7 +2558,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/paid-test.ts", "tests/winner-loop-paid-gate.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “human approval and immutable Spend Grant” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201chuman approval and immutable Spend Grant\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2576,7 +2576,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/spend-store.ts", "tests/winner-loop-spend-safety.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “budget ledger” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cbudget ledger\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2594,7 +2594,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/spend-store.ts", "tests/winner-loop-spend-safety.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “distributed concurrency safety” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cdistributed concurrency safety\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2616,7 +2616,7 @@
         "tests/winner-loop-spend-safety.test.ts",
         "tests/winner-loop-provider-pause.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “settlement, reconciliation, incident, freeze, kill switch” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201csettlement, reconciliation, incident, freeze, kill switch\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2695,7 +2695,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/readiness.ts", "tests/winner-loop-evaluator.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “readiness ladder” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201creadiness ladder\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2717,7 +2717,7 @@
         "tests/winner-loop-spend-safety.test.ts",
         "tests/winner-loop-provider-pause.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “no auto-scale” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cno auto-scale\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2735,7 +2735,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/readiness.ts", "tests/winner-loop-evaluator.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “VBO fails closed before evidence and eligibility” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cVBO fails closed before evidence and eligibility\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2756,7 +2756,7 @@
         "lib/winner-loop/attribution.ts",
         "tests/winner-loop-attribution-cohorts.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “attribution ledger” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cattribution ledger\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2841,7 +2841,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/evaluator.ts", "tests/winner-loop-evaluator.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “fatigue state” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cfatigue state\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -2862,7 +2862,7 @@
         "lib/winner-integrations/analytics.ts",
         "tests/winner-loop-integrations.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “Winner Loop analytics event pack” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cWinner Loop analytics event pack\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3235,7 +3235,7 @@
         "reports/audit/winner-loop-creative-trace.json",
         "tests/winner-loop-fixture-runtime.test.ts"
       ],
-      "result": "The cited labelled synthetic fixture verifies “full creative trace artifact” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cfull creative trace artifact\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -3250,7 +3250,7 @@
           "kind": "artifact",
           "path": "reports/audit/winner-loop-creative-trace.json",
           "jsonPath": "label",
-          "expected": "SYNTHETIC_FIXTURE — no provider was contacted",
+          "expected": "SYNTHETIC_FIXTURE \u2014 no provider was contacted",
           "commandId": "final-fixture-d"
         }
       ],
@@ -3264,7 +3264,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/materialization/packs.ts", "tests/materialization.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “Winner Loop pack install/uninstall/idempotency” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cWinner Loop pack install/uninstall/idempotency\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3295,7 +3295,7 @@
         "tests/winner-loop-creative-persistence.test.ts",
         "tests/winner-loop-evaluator.test.ts"
       ],
-      "result": "The Winner Loop migration stream is additive and reversible for its committed schemas. All six durable stores—creative ledger, creative manifest, evidence, subscription, spend, and paid-test proposal—require a complete explicit ownership mapping before adopting legacy rows, rewrite nested tenant identity atomically, isolate equal opaque IDs across organizations, reject collisions, remove sentinel access, and invalidate financial or approval authority so reapproval is required.",
+      "result": "The Winner Loop migration stream is additive and reversible for its committed schemas. All six durable stores\u2014creative ledger, creative manifest, evidence, subscription, spend, and paid-test proposal\u2014require a complete explicit ownership mapping before adopting legacy rows, rewrite nested tenant identity atomically, isolate equal opaque IDs across organizations, reject collisions, remove sentinel access, and invalidate financial or approval authority so reapproval is required.",
       "verification": [
         {
           "kind": "test",
@@ -3331,7 +3331,7 @@
         "lib/winner-loop/creative-ledger.ts",
         "tests/winner-loop-creative-ledger.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “TikTok proof does not imply Meta proof” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cTikTok proof does not imply Meta proof\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3353,7 +3353,7 @@
         "tests/winner-loop-spend-safety.test.ts",
         "tests/winner-loop-provider-pause.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “auto-pause” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cauto-pause\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3371,7 +3371,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/metrics.ts", "tests/winner-loop-metrics.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “missing metrics never become zero” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cmissing metrics never become zero\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3389,7 +3389,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/metrics.ts", "tests/winner-loop-metrics.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “incompatible metric definitions never combine” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cincompatible metric definitions never combine\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3407,7 +3407,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/winner-loop/paid-test.ts", "tests/winner-loop-paid-gate.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “exact proposal/grant mismatch negative controls” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cexact proposal/grant mismatch negative controls\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3429,7 +3429,7 @@
         "tests/winner-loop-spend-safety.test.ts",
         "tests/winner-loop-provider-pause.test.ts"
       ],
-      "result": "The cited production-path implementation and deterministic controls verify “provider actual overspend recorded honestly” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cprovider actual overspend recorded honestly\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3447,7 +3447,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["lib/credentials/redaction.ts", "tests/runtime-build-agent-host.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “canary-secret non-disclosure across logs/events/reports/CLI/errors/model context” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201ccanary-secret non-disclosure across logs/events/reports/CLI/errors/model context\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3465,7 +3465,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/security/webhooks.ts", "tests/security-boundaries.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “webhook signature verification and routing isolation” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cwebhook signature verification and routing isolation\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3483,7 +3483,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/security/oauth.ts", "tests/security-boundaries.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “OAuth state, PKCE, redirect allowlist, and callback validation” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cOAuth state, PKCE, redirect allowlist, and callback validation\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3501,7 +3501,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/security/outbound-http.ts", "tests/security-boundaries.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “SSRF protection” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cSSRF protection\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3519,7 +3519,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/security/uploads.ts", "tests/security-boundaries.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “upload size/MIME/path traversal protection” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201cupload size/MIME/path traversal protection\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3537,7 +3537,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["lib/credentials/node-runner.ts", "tests/runtime-provider-transports.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “command injection protection” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201ccommand injection protection\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3559,7 +3559,7 @@
         "scripts/public-release-check.ts",
         "tests/security-release.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “Gitleaks or equivalent current-tree/history/package scan” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cGitleaks or equivalent current-tree/history/package scan\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3585,7 +3585,7 @@
       "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
       "evidenceCeiling": "IMPLEMENTATION_ONLY",
       "evidence": [".github/workflows/codeql.yml", "tests/security-release.test.ts"],
-      "result": "The cited implementation and deterministic controls cover “CodeQL or justified local equivalent”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cCodeQL or justified local equivalent\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -3613,7 +3613,7 @@
         ".github/dependabot.yml",
         "tests/security-release.test.ts"
       ],
-      "result": "The cited implementation and deterministic controls cover “dependency review and Dependabot”; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
+      "result": "The cited implementation and deterministic controls cover \u201cdependency review and Dependabot\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
       "verification": [
         {
           "kind": "test",
@@ -3637,7 +3637,7 @@
       "status": "VERIFIED_RUNTIME",
       "evidenceCeiling": "LOCAL_RUNTIME",
       "evidence": ["packages/audit/", "tests/venture-runtime.test.ts"],
-      "result": "The cited production-path implementation and deterministic controls verify “audit integrity” locally without an external effect.",
+      "result": "The cited production-path implementation and deterministic controls verify \u201caudit integrity\u201d locally without an external effect.",
       "verification": [
         {
           "kind": "test",
@@ -3655,7 +3655,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["scripts/public-release-check.ts", "tests/security-release.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “public repository contains no real private provider/customer/fleet data” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpublic repository contains no real private provider/customer/fleet data\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3677,7 +3677,7 @@
         "docs/public/OPEN_SOURCE_READINESS.md",
         "tests/security-boundaries.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “branch/push protection guidance” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cbranch/push protection guidance\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3695,7 +3695,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["pnpm-lock.yaml", "reports/audit/commands-run.json", "package.json"],
-      "result": "The cited cross-boundary implementation and controls verify “frozen install” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cfrozen install\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "command",
@@ -3819,7 +3819,7 @@
         "tests/materialization.test.ts",
         "reports/audit/golden-paths.json"
       ],
-      "result": "The cited labelled synthetic fixture verifies “golden path A one-prompt launch” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cgolden path A one-prompt launch\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -3845,7 +3845,7 @@
         "tests/venture-runtime.test.ts",
         "reports/audit/golden-paths.json"
       ],
-      "result": "The cited labelled synthetic fixture verifies “golden path B recursive SaaS” across its declared boundary without claiming a live provider effect.",
+      "result": "The cited labelled synthetic fixture verifies \u201cgolden path B recursive SaaS\u201d across its declared boundary without claiming a live provider effect.",
       "verification": [
         {
           "kind": "test",
@@ -3931,7 +3931,7 @@
         "reports/audit/negative-controls.json",
         "tests/requirement-matrix-integrity.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “negative controls artifact” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cnegative controls artifact\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3953,7 +3953,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["scripts/run-quality-profile.ts", "tests/quality-profiles.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “vh verify fast” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cvh verify fast\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -3975,7 +3975,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["scripts/run-quality-profile.ts", "tests/quality-profiles.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “vh verify mvp” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cvh verify mvp\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -4046,7 +4046,7 @@
         "reports/audit/commands-run.json",
         "tests/quality-profiles.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “pnpm verify compatibility gate” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cpnpm verify compatibility gate\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -4068,7 +4068,7 @@
       "status": "VERIFIED_INTEGRATION",
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": ["scripts/verify-raw-html.ts", "tests/e2e/", "tests/security-release.test.ts"],
-      "result": "The cited cross-boundary implementation and controls verify “raw HTML/e2e/accessibility/responsive verification” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201craw HTML/e2e/accessibility/responsive verification\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -4124,7 +4124,7 @@
         "reports/audit/opus-claims-verification.json",
         "tests/requirement-matrix-integrity.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “Opus claims verification” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cOpus claims verification\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -4145,7 +4145,7 @@
         "reports/audit/stubs-and-dead-code.json",
         "tests/requirement-matrix-integrity.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “stubs and dead-code audit” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cstubs and dead-code audit\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
@@ -4167,7 +4167,7 @@
         "scripts/validate-claims.ts",
         "tests/security-release.test.ts"
       ],
-      "result": "The cited cross-boundary implementation and controls verify “product-truth and public-claim alignment” through its package, application, persistence, or evidence boundary.",
+      "result": "The cited cross-boundary implementation and controls verify \u201cproduct-truth and public-claim alignment\u201d through its package, application, persistence, or evidence boundary.",
       "verification": [
         {
           "kind": "test",
