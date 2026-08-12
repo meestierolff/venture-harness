@@ -283,7 +283,7 @@ managed_files:
     sha256: a48d175f7269485e8bf500bf7df7c6e0a2447434b90ebc833b57fba1be7c1caa
   - path: .github/workflows/final-evidence.yml
     ownership: harness
-    sha256: 075160f3b68c622cf1d71bf2a9d14210898587cc76db179798cc545edcb0ffbb
+    sha256: 32ca5202b631314dfb5cb6ed8cde8393e59c780be446a58e9c22055c27722f2d
   - path: .github/workflows/learning-cadence.yml
     ownership: harness
     sha256: ad6556b6c162f0906fa442fd00414c4a98038bec29e1f6a2e1dd6a40effc3e74
@@ -292,7 +292,7 @@ managed_files:
     sha256: 7aeaeaa85197f69805e7c67fc3c0951c3314df51ce90f1d1d1d31fafb8961e00
   - path: .github/workflows/quality.yml
     ownership: harness
-    sha256: 3ef7949014a94afb38978e1d9f4982efdc5d33af26402aa10899980e175c2a2a
+    sha256: e856f5f7d173a87e18d6256659d2788c8cb5783e43e600a9fb0c6484b2ec5c1c
   - path: .github/workflows/security.yml
     ownership: harness
     sha256: 3c9a91a961cdd135a9ce14d47b258ce4d919403251a8f17e6c79738014c7dd99
@@ -316,7 +316,7 @@ managed_files:
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
   - path: config/quality.yaml
     ownership: harness
-    sha256: 0586e854476fd88d49fa9a9e07c069d53868f1d9c7074356d7df35e48de98dca
+    sha256: cfbe79b514c383d5376e68a953c48f8ef415e1b28239ba73498d620949f666f7
   - path: eslint.config.mjs
     ownership: harness
     sha256: 9c351c61b1b40c0aaee4363100826d7090b309d86ec1d5c28b9be7eb6811f8a4
@@ -901,7 +901,7 @@ managed_files:
     sha256: 5fa04a810adc1aaac0575af373dd8b43b61690efb2e13f6a116c270782c6f791
   - path: package.json
     ownership: harness
-    sha256: 857c91e10c8e4198073fac16c6f19e2275d814e3e1d9fd858178847e962dccd7
+    sha256: 165a0af14c09062f2a086054bd0440e6c5e9f33cf49d43f449ff86fe1243347c
   - path: pnpm-lock.yaml
     ownership: harness
     sha256: b7bde852e033c8e0177df0ff8843c85573885675cfd404a71fa5dc6f76729160
@@ -922,7 +922,7 @@ managed_files:
     sha256: ac9d66f797b290acfb1262f235027bdb4b752fa49b1e0fc2e5674b85994ab313
   - path: scripts/framework-health.ts
     ownership: harness
-    sha256: 122895d65fd2baa3aa1c065a1947e648650b1f78243add98ad09d20160314edc
+    sha256: a16dc366f326ca749c9635a30df211d5aa4e8d95af00166cd4ed208c06a08ea8
   - path: scripts/github-publish-source.ts
     ownership: harness
     sha256: 97e0f6676c98a9299f4177c346c51dc1ed6b81dd850e1fc615d495ab36b30f6c
@@ -968,6 +968,9 @@ managed_files:
   - path: scripts/run-winner-loop-fixture.ts
     ownership: harness
     sha256: 803d506d7b9218980d0f5ba4154b37ffcbb5e9ba41eb1b2aa893b2eb6f19e4fb
+  - path: scripts/seed-fetch.ts
+    ownership: harness
+    sha256: 80f3d7925626c4eac7d450fdbdfb98263ae7b3b1afd5d4086d6de1e39676db41
   - path: scripts/sync-agent-skills.ts
     ownership: harness
     sha256: 7dee18bf2ed44d0121ca6786b8cd8f4b688ef4663dfd4fe63107d4faae44d9c5
@@ -1300,7 +1303,7 @@ managed_files:
     sha256: 5fc8b91199619f60913f7e246ec98c656529b51d93f734c025f8c7b03ca1f9b2
   - path: tests/fixtures/synthetic-founder-golden-path.ts
     ownership: harness
-    sha256: 4bc843f10afd00c08bfc85692d3ff9805ca2ef8ef919e6b83bb7dd76e9e67760
+    sha256: fe86db90ffbf1756257614a8f7da24d152f1984f02fecdfefbd78d1468b36e13
   - path: tests/fleet-controller.test.ts
     ownership: harness
     sha256: bddcbc7ea080c9b99761231e27ea72e5e6296a131556192283178706d7f2f62e

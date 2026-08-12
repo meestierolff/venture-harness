@@ -503,7 +503,21 @@ export async function runSyntheticFounderGoldenPath(
   });
   const waitingState = childStore.load(runId);
   assert.equal(waitingState.status, "waiting");
-  assert.equal(waitingState.nodes["dns-records"]?.state, "waiting_for_manual_action");
+  // A bare `pending` here says nothing about why the graph stopped. The run is
+  // already known to be waiting, so if DNS is not the node that is waiting then
+  // something upstream is, and naming it is the whole diagnosis.
+  const dnsState = waitingState.nodes["dns-records"]?.state;
+  if (dnsState !== "waiting_for_manual_action") {
+    const unfinished = Object.entries(waitingState.nodes)
+      .filter(([, node]) => node.state !== "succeeded")
+      .map(([id, node]) => `${id}=${node.state}${node.error ? ` (${node.error.code})` : ""}`)
+      .join(", ");
+    assert.fail(
+      `Expected dns-records to be waiting_for_manual_action but it was ${dnsState}. ` +
+        `The run status is ${waitingState.status}, so another node stopped the graph first. ` +
+        `Unfinished nodes: ${unfinished || "none"}.`,
+    );
+  }
   const dependencyOutputs = Object.fromEntries(
     waitingState.nodes["dns-records"]!.definition.dependencies.map((dependency) => [
       dependency,

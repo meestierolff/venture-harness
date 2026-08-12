@@ -149,10 +149,15 @@ checks:
     phase: 1
     command: [pnpm, agents:check]
     when_paths: [skills/, .agents/, .claude/skills/, AGENTS.md, CLAUDE.md, GEMINI.md]
+  # `pnpm verify` runs the always-required command list, which includes
+  # `pnpm test` and `pnpm typecheck`. The profiles own those two as separate
+  # checks, so running them again here executed the whole unit suite twice,
+  # concurrently, against the same temporary directories and SQLite files.
+  # Delegating is explicit and reported; it is never counted as a pass.
   compatibility_verify:
     kind: command
     phase: 2
-    command: [pnpm, verify]
+    command: [pnpm, verify, --, --delegate, pnpm test, --delegate, pnpm typecheck]
   public_release_safety:
     kind: command
     phase: 2

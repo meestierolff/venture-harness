@@ -75,6 +75,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # A materialized venture installs from its own lockfile with
+      # --ignore-workspace, so its dependency closure is not the root closure and
+      # a root install never fetches it. Prepare it before any check that
+      # materializes or builds a child.
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:fetch agentic-web-saas
       - name: Capability-aware MVP profile
         run: pnpm verify:mvp
       - name: Upload MVP quality report
@@ -101,6 +107,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # A materialized venture installs from its own lockfile with
+      # --ignore-workspace, so its dependency closure is not the root closure and
+      # a root install never fetches it. Prepare it before any check that
+      # materializes or builds a child.
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:fetch agentic-web-saas
       - name: Capability-aware release profile
         run: pnpm verify:release
       # Live provider proof is a separate question from code readiness. This

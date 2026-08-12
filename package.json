@@ -80,6 +80,7 @@
     "improve:propose": "tsx scripts/propose-improvement.ts",
     "release:check": "tsx scripts/public-release-check.ts",
     "init:venture": "tsx scripts/init-venture.ts",
+    "seed:fetch": "tsx scripts/seed-fetch.ts",
     "vh": "tsx scripts/vh.ts",
     "fixture:winner-loop": "tsx scripts/run-winner-loop-fixture.ts",
     "fixture:venture-launch": "tsx scripts/run-synthetic-venture-launch.mts"
