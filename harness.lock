@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: d6b017c3b149c7f4902d385ec69a523076cb394c5aa05b701083a9acf2ef595e
+    sha256: aa643ccbeaca9c356e62faccaf31327c2a0efef98a2981a90b5aa2034450d052
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 96eec4fd087d1b64ae7b777939bd8f5f89db59329c12e2690e5868c91f80fe43
+    sha256: f4024cbc6db84f9c2078ddfe183efe8dc8a66416ba3b380bdf72cc158b602fd5
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -526,7 +526,7 @@ managed_files:
     sha256: 307a0e7f6d6afaf1b2ed89e52c57db816cd04e64fc0da3edf399e6296efc0c2e
   - path: lib/launch/manual-evidence.ts
     ownership: harness
-    sha256: 85f6cff953481d56deb435928d1ca6b5c11a7a6fe780dd9e56c77e477ab4598c
+    sha256: eba4a2b0a2b0ba41016d71b3208819b90918e3a17fa9dd921a8e2e0b195e1c53
   - path: lib/launch/router.ts
     ownership: harness
     sha256: fe55dddd0bae7f4c23260f5739bfbda4ffe4e5d080c97b0085e1b08cedaeb56f
@@ -970,7 +970,7 @@ managed_files:
     sha256: 803d506d7b9218980d0f5ba4154b37ffcbb5e9ba41eb1b2aa893b2eb6f19e4fb
   - path: scripts/seed-fetch.ts
     ownership: harness
-    sha256: 80f3d7925626c4eac7d450fdbdfb98263ae7b3b1afd5d4086d6de1e39676db41
+    sha256: fb02031438e9a00412f2e337ade07b9f8e543ec9b45c35b216e8f3c06194e725
   - path: scripts/sync-agent-skills.ts
     ownership: harness
     sha256: 7dee18bf2ed44d0121ca6786b8cd8f4b688ef4663dfd4fe63107d4faae44d9c5
@@ -994,7 +994,7 @@ managed_files:
     sha256: ca06ed5ccdbfd1e3c7c2d77d541899af50abd20cdb5e89d076f268c69cb1010f
   - path: scripts/verify-consent.ts
     ownership: harness
-    sha256: c23497b3d1ea42d68b1a796e8e30d0c6ad0a6540e1b0045cfd98a93eb7cb04b3
+    sha256: 85fc3f06f582d32cedaa4963672865ff6e5b3f5608873e3f0a96ebe541ced7b9
   - path: scripts/verify-experiment-assignment.ts
     ownership: harness
     sha256: 9e1032789f5bc9c44ea78725286c46e5200be56cd41381ae30d2856fea313ad0

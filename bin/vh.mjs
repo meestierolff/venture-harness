@@ -15615,7 +15615,7 @@ var manualDnsOutputSchema = external_exports.object({
 }).strict().superRefine(rejectCredentialMaterial);
 var appleFirstAppRecordOutputSchema = external_exports.object({
   app_name: external_exports.string().min(1).max(255),
-  bundle_identifier: external_exports.string().regex(/^[A-Za-z0-9]+(?:[.-][A-Za-z0-9-]+)+$/, "expected a reverse-DNS bundle ID"),
+  bundle_identifier: external_exports.string().regex(/^[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)+$/, "expected a reverse-DNS bundle ID"),
   sku: external_exports.string().min(1).max(255),
   primary_language: external_exports.string().regex(/^[a-z]{2}(?:-[A-Z]{2})?$/),
   apple_app_id: external_exports.string().regex(/^\d{6,20}$/),
@@ -37104,7 +37104,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "da7bff2277f4c6dcceb86e77d0b74aa3f7851c1e" : void 0;
+  const workflowRefSha = true ? "150e1fed26e345b3928eb700aa08df28eab90a13" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
