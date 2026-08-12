@@ -28,6 +28,29 @@ function planRequest(
   return { ...base, capabilities, dryRun: false };
 }
 
+function emptyStripeSearch(operation: ProviderOperation) {
+  if (!operation.action.endsWith(".search_before_create")) return null;
+  return {
+    status: "succeeded" as const,
+    message: "Fixture search found no deterministic resource",
+    output: { data: [], has_more: false },
+    effectOutcome: "confirmed_no_write" as const,
+  };
+}
+
+function stripeCredentialPreflightResponse(
+  request: HttpRequest,
+  accountId = "acct_venture_example",
+) {
+  if (request.url === "https://api.stripe.com/v1/account") {
+    return { status: 200, body: { id: accountId } };
+  }
+  if (request.url === "https://api.stripe.com/v1/balance") {
+    return { status: 200, body: { livemode: false } };
+  }
+  return null;
+}
+
 describe("provider execution", () => {
   it("never invokes a transport during dry-run", async () => {
     const transport = new MockProviderTransport("cli");
@@ -159,11 +182,15 @@ describe("provider execution", () => {
   });
 
   it("reuses a successful result from the idempotency ledger", async () => {
-    const transport = new MockProviderTransport("http", async () => ({
-      status: "succeeded",
-      message: "Created",
-      output: { id: "prod_example" },
-    }));
+    const transport = new MockProviderTransport(
+      "http",
+      async (operation) =>
+        emptyStripeSearch(operation) ?? {
+          status: "succeeded",
+          message: "Created",
+          output: { id: "prod_example" },
+        },
+    );
     const adapter = getProviderAdapter("stripe");
     const plan = adapter.plan(planRequest(providerPlanFixtures.stripe, ["product"]));
     const ledger = new InMemoryIdempotencyLedger();
@@ -179,25 +206,224 @@ describe("provider execution", () => {
     const second = await adapter.apply(plan, context);
     expect(first.operations[0].reused).toBe(false);
     expect(second.operations[0].reused).toBe(true);
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it("reuses one exact Stripe search match and fails closed on deterministic drift", async () => {
+    const exact = new MockProviderTransport("http", async () => ({
+      status: "succeeded",
+      message: "Fixture search completed",
+      output: {
+        data: [
+          {
+            id: "prod_fixture_existing",
+            name: "Example plan",
+            description: "Illustrative fixture product",
+            active: true,
+            livemode: false,
+            metadata: {
+              venture_harness_venture: "venture-example",
+              venture_harness_resource: "product",
+              venture_harness_lookup_key: "vh:venture-example:product:v1",
+            },
+          },
+        ],
+        has_more: false,
+      },
+      effectOutcome: "confirmed_no_write",
+    }));
+    const adapter = getProviderAdapter("stripe");
+    const plan = adapter.plan(planRequest(providerPlanFixtures.stripe, ["product"]));
+    const exactReport = await adapter.apply(plan, {
+      authorization: "approved",
+      transports: { http: exact },
+      redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
+    });
+    expect(exactReport.operations[0]).toMatchObject({
+      reused: true,
+      result: {
+        status: "succeeded",
+        output: { id: "prod_fixture_existing" },
+        effectOutcome: "confirmed_no_write",
+      },
+    });
+    expect(exact.calls).toHaveLength(1);
+
+    const drift = new MockProviderTransport("http", async () => ({
+      status: "succeeded",
+      message: "Fixture search completed",
+      output: {
+        data: [
+          {
+            id: "prod_fixture_existing",
+            name: "Wrong venture product",
+            description: "Illustrative fixture product",
+            active: true,
+            livemode: false,
+            metadata: {
+              venture_harness_venture: "venture-example",
+              venture_harness_lookup_key: "vh:venture-example:product:v1",
+            },
+          },
+        ],
+        has_more: false,
+      },
+    }));
+    const driftReport = await adapter.apply(plan, {
+      authorization: "approved",
+      transports: { http: drift },
+      redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
+    });
+    expect(driftReport.operations[0]).toMatchObject({
+      reused: false,
+      result: {
+        status: "failed",
+        providerCode: "existing_resource_conflict",
+        effectOutcome: "confirmed_no_write",
+      },
+    });
+    expect(drift.calls).toHaveLength(1);
+  });
+
+  it("refuses to reuse a recurring Stripe price for a reviewed one-time offer", async () => {
+    const { recurringInterval, ...baseInputs } = providerPlanFixtures.stripe.inputs;
+    expect(recurringInterval).toBe("month");
+    const adapter = getProviderAdapter("stripe");
+    const plan = adapter.plan({
+      ...providerPlanFixtures.stripe,
+      capabilities: ["price"],
+      inputs: { ...baseInputs, productId: "prod_one_time" },
+      dryRun: false,
+    });
+    const lookupKey = "vh_venture_example_eur_1900_once";
+    const transport = new MockProviderTransport("http", async () => ({
+      status: "succeeded",
+      message: "Fixture search completed",
+      output: {
+        data: [
+          {
+            id: "price_recurring_conflict",
+            product: "prod_one_time",
+            currency: "eur",
+            unit_amount: 1900,
+            active: true,
+            livemode: false,
+            lookup_key: lookupKey,
+            type: "recurring",
+            recurring: { interval: "month" },
+            metadata: {
+              venture_harness_venture: "venture-example",
+              venture_harness_resource: "price",
+              venture_harness_lookup_key: lookupKey,
+            },
+          },
+        ],
+        has_more: false,
+      },
+      effectOutcome: "confirmed_no_write",
+    }));
+
+    const report = await adapter.apply(plan, {
+      authorization: "approved",
+      transports: { http: transport },
+      redactor: new Redactor(),
+      idempotencyLedger: new InMemoryIdempotencyLedger(),
+      fixtureMode: true,
+    });
+
+    expect(report.operations[0].result).toMatchObject({
+      status: "failed",
+      providerCode: "existing_resource_conflict",
+      effectOutcome: "confirmed_no_write",
+    });
     expect(transport.calls).toHaveLength(1);
   });
 
+  it("fails closed when Stripe lookup is ambiguous or pagination makes absence inconclusive", async () => {
+    const adapter = getProviderAdapter("stripe");
+    const plan = adapter.plan(planRequest(providerPlanFixtures.stripe, ["product"]));
+    const exactCandidate = {
+      id: "prod_fixture_existing",
+      name: "Example plan",
+      description: "Illustrative fixture product",
+      active: true,
+      livemode: false,
+      metadata: {
+        venture_harness_venture: "venture-example",
+        venture_harness_resource: "product",
+        venture_harness_lookup_key: "vh:venture-example:product:v1",
+      },
+    };
+    const cases = [
+      {
+        output: {
+          data: [
+            exactCandidate,
+            {
+              ...exactCandidate,
+              id: "prod_fixture_duplicate",
+              metadata: { ...exactCandidate.metadata },
+            },
+          ],
+        },
+        providerCode: "existing_resource_ambiguous",
+      },
+      {
+        output: { data: [], has_more: true },
+        providerCode: "existing_resource_search_incomplete",
+      },
+    ] as const;
+
+    for (const fixture of cases) {
+      const transport = new MockProviderTransport("http", async () => ({
+        status: "succeeded",
+        message: "Fixture search completed",
+        output: fixture.output,
+        effectOutcome: "confirmed_no_write",
+      }));
+      const report = await adapter.apply(plan, {
+        authorization: "approved",
+        transports: { http: transport },
+        redactor: new Redactor(),
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
+      });
+      expect(report.operations[0].result).toMatchObject({
+        status: "failed",
+        providerCode: fixture.providerCode,
+        effectOutcome: "confirmed_no_write",
+      });
+      expect(transport.calls).toHaveLength(1);
+    }
+  });
+
   it("materializes a declared dependency output before creating an exact Stripe price", async () => {
-    const transport = new MockProviderTransport("http", async (operation) => ({
-      status: "succeeded",
-      message: "Fixture operation completed",
-      output:
-        operation.capability === "product"
-          ? { id: "prod_from_verified_create" }
-          : { id: "price_from_verified_create" },
-      verified: true,
-    }));
+    const transport = new MockProviderTransport(
+      "http",
+      async (operation) =>
+        emptyStripeSearch(operation) ?? {
+          status: "succeeded",
+          message: "Fixture operation completed",
+          output:
+            operation.capability === "product"
+              ? { id: "prod_from_verified_create" }
+              : { id: "price_from_verified_create" },
+          verified: true,
+        },
+    );
     const adapter = getProviderAdapter("stripe");
     const plan = adapter.plan({
       environment: "sandbox",
       capabilities: ["product", "price"],
       credentialRef: "cred://stripe/test",
       inputs: {
+        ventureSlug: "reviewed-product",
+        stripeAccountId: "acct_reviewed_product",
+        stripeMode: "test",
         productName: "Reviewed product",
         productId: "{dependency.product.id}",
         currency: "eur",
@@ -215,12 +441,12 @@ describe("provider execution", () => {
     });
 
     expect(report.state).toBe("applied");
-    expect(transport.calls[1].http?.body).toMatchObject({
+    expect(transport.calls[3].http?.body).toMatchObject({
       product: "prod_from_verified_create",
       currency: "eur",
       unit_amount: 1995,
     });
-    expect(transport.calls[1].readBack?.assertions).toContainEqual({
+    expect(transport.calls[3].readBack?.assertions).toContainEqual({
       path: "product",
       operator: "equals",
       expected: "prod_from_verified_create",
@@ -234,24 +460,42 @@ describe("provider execution", () => {
     const fetcher: HttpFetcher = {
       async fetch(request) {
         requests.push(request);
-        return request.method === "POST"
-          ? {
-              status: 201,
-              body: {
-                id: "we_fixture",
-                url: "https://example.test/api/stripe/webhook",
-                enabled_events: ["checkout.session.completed"],
-                secret: rawSecret,
-              },
-            }
-          : {
-              status: 200,
-              body: {
-                id: "we_fixture",
-                url: "https://example.test/api/stripe/webhook",
-                enabled_events: ["checkout.session.completed"],
-              },
-            };
+        const preflight = stripeCredentialPreflightResponse(request, "acct_webhook_capture");
+        if (preflight) return preflight;
+        return request.url.includes("webhook_endpoints?limit=")
+          ? { status: 200, body: { data: [], has_more: false } }
+          : request.method === "POST"
+            ? {
+                status: 201,
+                body: {
+                  id: "we_fixture",
+                  url: "https://example.test/api/stripe/webhook",
+                  enabled_events: ["checkout.session.completed"],
+                  status: "enabled",
+                  livemode: false,
+                  metadata: {
+                    venture_harness_lookup_key: "vh:webhook-capture:webhook:v1",
+                    venture_harness_venture: "webhook-capture",
+                    venture_harness_resource: "webhook",
+                  },
+                  secret: rawSecret,
+                },
+              }
+            : {
+                status: 200,
+                body: {
+                  id: "we_fixture",
+                  url: "https://example.test/api/stripe/webhook",
+                  enabled_events: ["checkout.session.completed"],
+                  status: "enabled",
+                  livemode: false,
+                  metadata: {
+                    venture_harness_lookup_key: "vh:webhook-capture:webhook:v1",
+                    venture_harness_venture: "webhook-capture",
+                    venture_harness_resource: "webhook",
+                  },
+                },
+              };
       },
     };
     const memory = new MemoryCredentialBackend();
@@ -275,6 +519,9 @@ describe("provider execution", () => {
       capabilities: ["webhook"],
       credentialRef: "cred://stripe/primary",
       inputs: {
+        ventureSlug: "webhook-capture",
+        stripeAccountId: "acct_webhook_capture",
+        stripeMode: "test",
         webhookUrl: "https://example.test/api/stripe/webhook",
         enabledEvents: ["checkout.session.completed"],
         webhookSecretCredentialRef: "cred://stripe/webhook-secret",
@@ -295,7 +542,7 @@ describe("provider execution", () => {
     const captured = await broker.withSecret("cred://stripe/webhook-secret", (value) => value);
 
     expect(captured).toBe(rawSecret);
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(5);
     expect(readBack.results[0].status).toBe("matched");
     expect(JSON.stringify({ report, readBack })).not.toContain(rawSecret);
     expect(JSON.stringify(report)).toContain("[REDACTED]");
@@ -331,7 +578,9 @@ describe("provider execution", () => {
 
   it("reports a partial provider outage as degraded and keeps evidence per operation", async () => {
     let count = 0;
-    const transport = new MockProviderTransport("http", async () => {
+    const transport = new MockProviderTransport("http", async (operation) => {
+      const search = emptyStripeSearch(operation);
+      if (search) return search;
       count += 1;
       return count === 1
         ? {
@@ -376,11 +625,15 @@ describe("provider execution", () => {
       backend: "memory",
       value: raw,
     });
-    const transport = new MockProviderTransport("http", async () => ({
-      status: "succeeded",
-      message: `Bearer ${raw}`,
-      output: { authorization: raw, diagnostic: `token=${raw}` },
-    }));
+    const transport = new MockProviderTransport(
+      "http",
+      async (operation) =>
+        emptyStripeSearch(operation) ?? {
+          status: "succeeded",
+          message: `Bearer ${raw}`,
+          output: { authorization: raw, diagnostic: `token=${raw}` },
+        },
+    );
     const adapter = getProviderAdapter("stripe");
     const report = await adapter.apply(
       adapter.plan(planRequest(providerPlanFixtures.stripe, ["product"])),
@@ -479,6 +732,11 @@ describe("provider execution", () => {
     const fetcher: HttpFetcher = {
       async fetch(request) {
         requests.push(request);
+        const preflight = stripeCredentialPreflightResponse(request);
+        if (preflight) return preflight;
+        if (request.url.includes("/products/search")) {
+          return { status: 200, body: { data: [], has_more: false } };
+        }
         return {
           status: 200,
           body: { id: "prod_example", authorization: request.headers.Authorization },
@@ -508,8 +766,9 @@ describe("provider execution", () => {
       },
     );
 
-    expect(requests[0].headers.Authorization).toBe(
-      `Basic ${Buffer.from(`${raw}:`).toString("base64")}`,
+    const expectedAuthorization = `Basic ${Buffer.from(`${raw}:`).toString("base64")}`;
+    expect(requests.every(({ headers }) => headers.Authorization === expectedAuthorization)).toBe(
+      true,
     );
     expect(requests[0].sensitiveHeaders).toContain("authorization");
     expect(JSON.stringify(report)).not.toContain(raw);
@@ -521,12 +780,27 @@ describe("provider execution", () => {
   it("verifies an HTTP operation only when declared read-back assertions match", async () => {
     const fetcher: HttpFetcher = {
       async fetch(request) {
+        const preflight = stripeCredentialPreflightResponse(request);
+        if (preflight) return preflight;
+        if (request.url.includes("/products/search")) {
+          return { status: 200, body: { data: [], has_more: false } };
+        }
         if (request.method === "POST") {
           return { status: 201, body: { id: "prod_readback" } };
         }
         return {
           status: 200,
-          body: { id: "prod_readback", name: "Example plan", active: true },
+          body: {
+            id: "prod_readback",
+            name: "Example plan",
+            active: true,
+            livemode: false,
+            metadata: {
+              venture_harness_lookup_key: "vh:venture-example:product:v1",
+              venture_harness_venture: "venture-example",
+              venture_harness_resource: "product",
+            },
+          },
         };
       },
     };
@@ -554,6 +828,114 @@ describe("provider execution", () => {
     const readBack = await adapter.readBack(report, context);
     expect(readBack.results[0].status).toBe("matched");
     expect(adapter.verify(report, readBack).state).toBe("verified");
+  });
+
+  it.each([
+    {
+      label: "a different account",
+      account: { id: "acct_other" },
+      balance: { livemode: false },
+    },
+    {
+      label: "live mode",
+      account: { id: "acct_venture_example" },
+      balance: { livemode: true },
+    },
+  ])("blocks a Stripe mutation when the exact backend secret proves $label", async (proof) => {
+    const requests: HttpRequest[] = [];
+    const rotatedSecret = ["sk", "live", "rotated", "after", "attestation"].join("_");
+    const fetcher: HttpFetcher = {
+      async fetch(request) {
+        requests.push(request);
+        if (request.url.includes("/products/search")) {
+          return { status: 200, body: { data: [], has_more: false } };
+        }
+        if (request.url === "https://api.stripe.com/v1/account") {
+          return { status: 200, body: proof.account };
+        }
+        if (request.url === "https://api.stripe.com/v1/balance") {
+          return { status: 200, body: proof.balance };
+        }
+        return { status: 201, body: { id: "must_not_be_created" } };
+      },
+    };
+    const broker = new CredentialBroker([new MemoryCredentialBackend()]);
+    await broker.store({
+      ref: "cred://stripe/primary",
+      provider: "stripe",
+      kind: "restricted_api_key",
+      backend: "memory",
+      accountId: "acct_venture_example",
+      testedAt: "2026-08-12T10:00:00.000Z",
+      testStatus: "passed",
+      providerMode: "test",
+      value: rotatedSecret,
+    });
+    const adapter = getProviderAdapter("stripe");
+
+    const report = await adapter.apply(
+      adapter.plan(planRequest(providerPlanFixtures.stripe, ["product"])),
+      {
+        authorization: "approved",
+        transports: { http: new HttpProviderTransport(fetcher) },
+        credentials: broker,
+        redactor: broker.redactor,
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
+      },
+    );
+
+    expect(report.operations[0].result).toMatchObject({
+      status: "failed",
+      providerCode: "credential_preflight_mismatch",
+      effectOutcome: "confirmed_no_write",
+    });
+    expect(requests.some(({ method }) => method === "POST")).toBe(false);
+    expect(JSON.stringify(report)).not.toContain(rotatedSecret);
+  });
+
+  it("never sends a provider credential to a cross-origin preflight", async () => {
+    const requests: HttpRequest[] = [];
+    const broker = new CredentialBroker([new MemoryCredentialBackend()]);
+    await broker.store({
+      ref: "cred://stripe/primary",
+      provider: "stripe",
+      kind: "restricted_api_key",
+      backend: "memory",
+      value: "fixture-cross-origin-preflight-secret",
+    });
+    const operation = getProviderAdapter("stripe").plan(
+      planRequest(providerPlanFixtures.stripe, ["product"]),
+    ).operations[0]!;
+    const result = await new HttpProviderTransport({
+      async fetch(request) {
+        requests.push(request);
+        return { status: 200, body: { id: "acct_venture_example" } };
+      },
+    }).execute(
+      {
+        ...operation,
+        http: {
+          ...operation.http!,
+          credentialPreflight: {
+            requests: [
+              {
+                url: "https://untrusted.example.test/collect",
+                assertions: [{ path: "id", operator: "equals", expected: "acct_venture_example" }],
+              },
+            ],
+          },
+        },
+      },
+      { credentials: broker, redactor: broker.redactor },
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      providerCode: "credential_preflight_invalid",
+      effectOutcome: "confirmed_no_write",
+    });
+    expect(requests).toHaveLength(0);
   });
 
   it("uses structured Vercel deploy output to inspect the exact deployment id and READY state", async () => {

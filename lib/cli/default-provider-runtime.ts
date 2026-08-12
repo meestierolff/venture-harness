@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { resolve } from "node:path";
 import { parse } from "yaml";
 import { credentialReferenceSchema } from "../config/contracts";
@@ -10,6 +11,7 @@ import {
 } from "../config/provider-schema";
 import { offerSchema } from "../config/schemas";
 import { ventureSchema, type VentureV02 } from "../config/venture-schema";
+import { launchContractSchema, type LaunchContract } from "../founder-launch";
 import {
   inspectCliPrerequisites,
   type CliPrerequisite,
@@ -19,7 +21,7 @@ import {
   type CredentialInspection,
   type CredentialKind,
 } from "../credentials";
-import type { FounderBrief } from "../launch";
+import { founderBriefSchema, type FounderBrief } from "../launch";
 import {
   providerRegistry,
   publicIdentifier,
@@ -56,6 +58,10 @@ export interface DefaultProviderFactoryOptions {
   rootDir: string;
   brief: FounderBrief | (() => FounderBrief);
   definition: WorkflowDefinition;
+  /** Pre-model immutable provider/config snapshot used by founder apply/resume. */
+  configSnapshot?: DefaultProviderConfigSnapshot;
+  /** Canonical commercial decisions; Stripe may not reread a model-mutable offer instead. */
+  launchContract?: LaunchContract;
   loadConfig?: () => DefaultProviderConfigSnapshot;
   lifecycleStore?: ProviderLifecycleStore;
 }
@@ -64,8 +70,12 @@ export class ProviderFactoryPrerequisiteError extends ProviderPlanFactoryPrerequ
   constructor(
     readonly handler: string,
     message: string,
+    waitKind?: "auth" | "external",
   ) {
-    super(`${handler}: ${message}; no partial plan was returned and no provider request was made.`);
+    super(
+      `${handler}: ${message}; no partial plan was returned and no provider request was made.`,
+      waitKind,
+    );
     this.name = "ProviderFactoryPrerequisiteError";
   }
 }
@@ -82,6 +92,8 @@ export const DEFAULT_PROVIDER_TARGETS: Readonly<Record<string, ProviderHandlerTa
   "provider.brevo-domain-verification": { provider: "brevo", environment: "preview" },
   "provider.brevo-email": { provider: "brevo", environment: "preview" },
   "provider.stripe-commerce": { provider: "stripe", environment: "sandbox" },
+  "provider.stripe-callbacks": { provider: "stripe", environment: "sandbox" },
+  "provider.stripe-domain-callbacks": { provider: "stripe", environment: "sandbox" },
   "provider.google-analytics-property": { provider: "google", environment: "preview" },
   "provider.google-analytics-stream": { provider: "google", environment: "preview" },
   "provider.google-site-dns-record": { provider: "google", environment: "preview" },
@@ -89,11 +101,22 @@ export const DEFAULT_PROVIDER_TARGETS: Readonly<Record<string, ProviderHandlerTa
   "provider.google-search-console": { provider: "google", environment: "preview" },
   "provider.bing-discovery": { provider: "bing", environment: "preview" },
   "provider.vercel-project": { provider: "vercel", environment: "preview" },
-  "provider.vercel-database-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-stripe-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-stripe-webhook-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-brevo-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-ga-environment": { provider: "vercel", environment: "preview" },
+  "provider.vercel-database-environment": { provider: "vercel", environment: "production" },
+  "provider.vercel-stripe-environment": { provider: "vercel", environment: "production" },
+  "provider.vercel-stripe-webhook-environment": {
+    provider: "vercel",
+    environment: "production",
+  },
+  "provider.vercel-stripe-price-environment": {
+    provider: "vercel",
+    environment: "production",
+  },
+  "provider.vercel-stripe-price-lookup-environment": {
+    provider: "vercel",
+    environment: "production",
+  },
+  "provider.vercel-brevo-environment": { provider: "vercel", environment: "production" },
+  "provider.vercel-ga-environment": { provider: "vercel", environment: "production" },
   "provider.dns-records": { provider: "dns", environment: "production" },
   "provider.revenuecat-entitlements": { provider: "revenuecat", environment: "sandbox" },
   "provider.eas-build": { provider: "eas", environment: "testflight" },
@@ -103,6 +126,9 @@ export const DEFAULT_PROVIDER_TARGETS: Readonly<Record<string, ProviderHandlerTa
     environment: "testflight",
   },
   "provider.production-deploy": { provider: "vercel", environment: "production" },
+  "provider.initial-production-deploy": { provider: "vercel", environment: "production" },
+  "provider.analytics-production-redeploy": { provider: "vercel", environment: "production" },
+  "provider.email-production-redeploy": { provider: "vercel", environment: "production" },
 };
 
 const ADAPTER_CAPABILITIES: Partial<Record<ProviderId, Record<string, string[]>>> = {
@@ -191,6 +217,17 @@ function currentBrief(value: FounderBrief | (() => FounderBrief)): FounderBrief 
   return typeof value === "function" ? value() : value;
 }
 
+function immutableConfigSnapshot(
+  snapshot: DefaultProviderConfigSnapshot,
+): DefaultProviderConfigSnapshot {
+  return {
+    providers: providersSchema.parse(snapshot.providers),
+    venture: ventureSchema.parse(snapshot.venture),
+    mobile: mobileSchema.parse(snapshot.mobile),
+    offer: offerSchema.parse(snapshot.offer),
+  };
+}
+
 function providerState(
   snapshot: DefaultProviderConfigSnapshot,
   provider: ProviderId,
@@ -236,13 +273,33 @@ function requireCredential(
   value: string | null | undefined,
   path = `config/providers.yaml providers.${provider}.credential_ref`,
 ): string {
-  const ref = requireValue(
-    handler,
-    value,
-    path,
-    `run vh auth login ${provider}, then record the registered cred:// reference in that field`,
-  );
-  return credentialReferenceSchema.parse(ref);
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      `missing ${path}. Next: run vh auth login ${provider}, then record the registered cred:// reference in that field`,
+      "auth",
+    );
+  }
+  try {
+    return credentialReferenceSchema.parse(value);
+  } catch {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      `${path} is not a valid cred:// reference. Next: run vh auth login ${provider} and record its registered reference`,
+      "auth",
+    );
+  }
+}
+
+function requireCustomDomain(handler: string, brief: FounderBrief, purpose: string): string {
+  if (!brief.domain) {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      `missing canonical custom domain for ${purpose}. Next: keep the provider production URL live and resume this optional integration after a domain is reviewed`,
+      "external",
+    );
+  }
+  return brief.domain;
 }
 
 function requireVerifiedExisting(
@@ -452,6 +509,7 @@ function vercelRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
   lifecycleRecords: readonly VerifiedProviderLifecycleRecord[],
+  authorizedDomain: string | null,
 ): ProviderWorkflowPlanRequest {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
   const state = providerState(snapshot, "vercel");
@@ -468,7 +526,12 @@ function vercelRequest(
     "config/providers.yaml providers.vercel.team_id or account_id",
     "record the exact Vercel team/account scope so the active CLI account is never inferred",
   );
-  if (handler === "provider.production-deploy") {
+  if (
+    handler === "provider.production-deploy" ||
+    handler === "provider.initial-production-deploy" ||
+    handler === "provider.analytics-production-redeploy" ||
+    handler === "provider.email-production-redeploy"
+  ) {
     requireVerifiedExisting(
       handler,
       "vercel",
@@ -478,7 +541,18 @@ function vercelRequest(
       ["project"],
       [{ type: "project", value: project }],
     );
-    return request(target, credentialRef, ["deployment"], { project, scope });
+    return request(target, credentialRef, ["deployment"], {
+      project,
+      scope,
+      deploymentPhase:
+        handler === "provider.initial-production-deploy"
+          ? "initial_production_origin"
+          : handler === "provider.analytics-production-redeploy"
+            ? "analytics_configured_production"
+            : handler === "provider.email-production-redeploy"
+              ? "email_configured_production"
+              : "final_configured_production",
+    });
   }
   const lifecycleProjectExists = lifecycleProvesExisting(lifecycleRecords, "project", {
     type: "project",
@@ -523,12 +597,12 @@ function vercelRequest(
   return request(
     target,
     credentialRef,
-    ["project", "deployment", ...(snapshot.venture.venture.domain ? ["domain"] : [])],
+    ["project", "deployment", ...(authorizedDomain ? ["domain"] : [])],
     {
       project,
       scope,
       projectIntent,
-      ...(snapshot.venture.venture.domain ? { domain: snapshot.venture.venture.domain } : {}),
+      ...(authorizedDomain ? { domain: authorizedDomain } : {}),
     },
   );
 }
@@ -573,11 +647,6 @@ function vercelEnvironmentRequest(
       provider: "brevo",
       path: "credential_ref",
     },
-    "provider.vercel-ga-environment": {
-      name: "NEXT_PUBLIC_GA_MEASUREMENT_ID",
-      provider: "google",
-      path: "measurement_id_credential_ref",
-    },
   };
   const selected = binding[handler];
   if (!selected) fail(handler, "unknown Vercel environment binding");
@@ -603,6 +672,93 @@ function vercelEnvironmentRequest(
     environmentTarget: "production",
     environmentValueCredentialRef,
   });
+}
+
+function vercelPublicStripeEnvironmentRequest(
+  handler: string,
+  snapshot: DefaultProviderConfigSnapshot,
+  brief: FounderBrief,
+  workflow: WorkflowHandlerContext,
+  launchContract?: LaunchContract,
+): ProviderWorkflowPlanRequest {
+  const target = DEFAULT_PROVIDER_TARGETS[handler]!;
+  const state = providerState(snapshot, "vercel");
+  const credentialRef = requireCredential(handler, "vercel", state.credential_ref);
+  const project = requireExternal(
+    handler,
+    state,
+    "project",
+    "record the exact Vercel project slug to configure",
+  );
+  const scope = requireValue(
+    handler,
+    state.team_id ?? state.account_id,
+    "config/providers.yaml providers.vercel.team_id or account_id",
+    "record the exact Vercel team/account scope",
+  );
+  let environmentVariableName: string;
+  let environmentPublicValue: string;
+  if (handler === "provider.vercel-stripe-price-environment") {
+    environmentVariableName = "STRIPE_PRICE_ID";
+    environmentPublicValue = dependencyIdentifier(handler, workflow, "stripe-commerce", "price_id");
+  } else if (handler === "provider.vercel-stripe-price-lookup-environment") {
+    environmentVariableName = "STRIPE_PRICE_LOOKUP_KEY";
+    const price = launchContract
+      ? contractStripePrice(handler, launchContract)
+      : configuredStripePrice(handler, snapshot);
+    const unitAmount = exactMinorUnits(handler, price.amount, price.path);
+    environmentPublicValue = stripePriceLookupKey(
+      brief.id,
+      price.currency,
+      unitAmount,
+      price.interval,
+    );
+  } else {
+    return fail(handler, "unknown public Stripe application binding");
+  }
+  return request(target, credentialRef, ["environment_variable"], {
+    project,
+    scope,
+    environmentVariableName,
+    environmentTarget: "production",
+    environmentPublicValue,
+  });
+}
+
+function vercelPublicGoogleEnvironmentRequest(
+  handler: string,
+  snapshot: DefaultProviderConfigSnapshot,
+  workflow: WorkflowHandlerContext,
+): ProviderWorkflowPlanRequest {
+  const target = DEFAULT_PROVIDER_TARGETS[handler]!;
+  const state = providerState(snapshot, "vercel");
+  return request(
+    target,
+    requireCredential(handler, "vercel", state.credential_ref),
+    ["environment_variable"],
+    {
+      project: requireExternal(
+        handler,
+        state,
+        "project",
+        "record the exact Vercel project slug to configure",
+      ),
+      scope: requireValue(
+        handler,
+        state.team_id ?? state.account_id,
+        "config/providers.yaml providers.vercel.team_id or account_id",
+        "record the exact Vercel team/account scope",
+      ),
+      environmentVariableName: "NEXT_PUBLIC_GA_MEASUREMENT_ID",
+      environmentTarget: "production",
+      environmentPublicValue: dependencyIdentifier(
+        handler,
+        workflow,
+        "google-analytics-stream",
+        "measurement_id",
+      ),
+    },
+  );
 }
 
 function neonRequest(
@@ -718,13 +874,253 @@ function exactMinorUnits(handler: string, amount: number, path: string): number 
   return minorUnits;
 }
 
+function safeVerifiedVercelOrigin(
+  handler: string,
+  workflow: WorkflowHandlerContext,
+  purpose = "domainless Stripe callbacks",
+  dependencyId = "initial-production-deploy",
+): string {
+  const dependency = workflow.dependencyOutputs[dependencyId];
+  if (
+    !dependency ||
+    Array.isArray(dependency) ||
+    typeof dependency !== "object" ||
+    dependency.provider !== "vercel" ||
+    dependency.state !== "verified" ||
+    !Array.isArray(dependency.environments) ||
+    !dependency.environments.includes("production") ||
+    !Array.isArray(dependency.capabilities) ||
+    !dependency.capabilities.includes("deployment") ||
+    !Array.isArray(dependency.resourceRefs)
+  ) {
+    return fail(
+      handler,
+      `${purpose} requires same-run verified ${dependencyId} output with one exact production deployment URL. Next: resume after that production deployment read-back`,
+    );
+  }
+  const origins = new Set<string>();
+  for (const reference of dependency.resourceRefs) {
+    if (typeof reference !== "string" || !reference.startsWith("url=")) continue;
+    try {
+      const url = new URL(reference.slice("url=".length));
+      const hostname = url.hostname.toLowerCase();
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.port ||
+        isIP(hostname) !== 0 ||
+        !hostname.includes(".") ||
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        hostname.endsWith(".local") ||
+        hostname.endsWith(".internal")
+      ) {
+        continue;
+      }
+      origins.add(url.origin);
+    } catch {
+      // Provider output is never repaired or guessed at this boundary.
+    }
+  }
+  if (origins.size !== 1) {
+    return fail(
+      handler,
+      `${dependencyId} read-back must contain one exact safe HTTPS production origin for ${purpose}; found ${origins.size}. Next: reconcile the production deployment before configuring it`,
+    );
+  }
+  return [...origins][0]!;
+}
+
+function verifiedCustomDomainOrigin(
+  handler: string,
+  brief: FounderBrief,
+  workflow: WorkflowHandlerContext,
+): string {
+  const domain = requireValue(
+    handler,
+    brief.domain,
+    "canonical founder brief domain",
+    "record a reviewed custom domain before requesting callback rebinding",
+  );
+  let expected: string;
+  try {
+    const url = new URL(`https://${domain}`);
+    if (
+      url.origin !== `https://${domain}` ||
+      url.username ||
+      url.password ||
+      url.port ||
+      isIP(url.hostname) !== 0 ||
+      !url.hostname.includes(".") ||
+      url.hostname.endsWith(".local") ||
+      url.hostname.endsWith(".internal")
+    ) {
+      return fail(handler, "the canonical custom domain is not one safe HTTPS hostname");
+    }
+    expected = url.origin;
+  } catch {
+    return fail(handler, "the canonical custom domain is not one safe HTTPS hostname");
+  }
+  const project = workflow.dependencyOutputs["vercel-project"];
+  const dns = workflow.dependencyOutputs["dns-records"];
+  const verification = workflow.dependencyOutputs["verify-custom-domain"];
+  const projectRefs =
+    project &&
+    !Array.isArray(project) &&
+    typeof project === "object" &&
+    project.provider === "vercel" &&
+    project.state === "verified" &&
+    Array.isArray(project.capabilities) &&
+    project.capabilities.includes("domain") &&
+    Array.isArray(project.resourceRefs)
+      ? project.resourceRefs
+      : [];
+  const attached = projectRefs.some((reference) => {
+    if (typeof reference !== "string") return false;
+    const separator = reference.indexOf("=");
+    if (separator < 0 || !["domain", "site_url", "url"].includes(reference.slice(0, separator))) {
+      return false;
+    }
+    const value = reference.slice(separator + 1);
+    if (value === domain) return true;
+    try {
+      return new URL(value).origin === expected;
+    } catch {
+      return false;
+    }
+  });
+  const dnsVerified =
+    dns !== undefined &&
+    dns !== null &&
+    !Array.isArray(dns) &&
+    typeof dns === "object" &&
+    ((dns.mode === "manual_dns" &&
+      Array.isArray(dns.propagation_checks) &&
+      dns.propagation_checks.length >= 2 &&
+      dns.propagation_checks.every(
+        (check) =>
+          check && !Array.isArray(check) && typeof check === "object" && check.status === "matched",
+      )) ||
+      (dns.provider === "dns" &&
+        dns.state === "verified" &&
+        Array.isArray(dns.capabilities) &&
+        dns.capabilities.includes("record")));
+  const journeyVerified =
+    verification !== undefined &&
+    verification !== null &&
+    !Array.isArray(verification) &&
+    typeof verification === "object" &&
+    verification.target === "verified_custom_domain" &&
+    verification.deploymentUrl === expected &&
+    verification.customDomain !== null &&
+    typeof verification.customDomain === "object" &&
+    !Array.isArray(verification.customDomain) &&
+    verification.customDomain.state === "verified" &&
+    verification.customDomain.origin === expected;
+  if (!attached || !dnsVerified || !journeyVerified) {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      "custom-domain callbacks require same-run verified Vercel attachment, authoritative DNS, and exact-origin product-journey evidence. Next: finish the custom-domain verification node, then resume callback rebinding",
+      "external",
+    );
+  }
+  return expected;
+}
+
+function contractStripePrice(
+  handler: string,
+  contract: LaunchContract,
+): { amount: number; interval: string | null; currency: string; path: string } {
+  if (
+    contract.business.paymentProvider !== "stripe" ||
+    contract.business.priceHypothesis === null
+  ) {
+    return fail(handler, "the canonical Launch Contract does not authorize one Stripe price");
+  }
+  if (!["subscription", "one_time", "service"].includes(contract.business.model)) {
+    return fail(
+      handler,
+      `Launch Contract pricing model ${contract.business.model} has no deterministic built-in Stripe price shape. Next: select a supported exact subscription, one-time, or service price or inject a reviewed typed factory`,
+    );
+  }
+  return {
+    amount: contract.business.priceHypothesis,
+    interval: contract.business.model === "subscription" ? "month" : null,
+    currency: contract.business.currency,
+    path: "canonical Launch Contract business.priceHypothesis",
+  };
+}
+
+function configuredStripePrice(
+  handler: string,
+  snapshot: DefaultProviderConfigSnapshot,
+): { amount: number; interval: string | null; currency: string; path: string } {
+  const configuredPrices = [
+    snapshot.offer.pricing.monthly_price === null
+      ? null
+      : {
+          amount: snapshot.offer.pricing.monthly_price,
+          interval: "month",
+          currency: snapshot.offer.pricing.currency,
+          path: "config/offer.yaml pricing.monthly_price",
+        },
+    snapshot.offer.pricing.annual_price === null
+      ? null
+      : {
+          amount: snapshot.offer.pricing.annual_price,
+          interval: "year",
+          currency: snapshot.offer.pricing.currency,
+          path: "config/offer.yaml pricing.annual_price",
+        },
+    snapshot.offer.pricing.one_time_price === null
+      ? null
+      : {
+          amount: snapshot.offer.pricing.one_time_price,
+          interval: null,
+          currency: snapshot.offer.pricing.currency,
+          path: "config/offer.yaml pricing.one_time_price",
+        },
+  ].filter(
+    (value): value is { amount: number; interval: string | null; currency: string; path: string } =>
+      value !== null,
+  );
+  if (configuredPrices.length !== 1) {
+    return fail(
+      handler,
+      configuredPrices.length === 0
+        ? "no approved recurring or one-time price exists in config/offer.yaml. Next: record the exact displayed price before planning Stripe"
+        : "multiple launch prices are active, but the built-in node cannot yet prove multiple immutable Stripe price resources without omitting one. Next: select one launch price or inject a multi-price factory",
+    );
+  }
+  return configuredPrices[0]!;
+}
+
+function stripePriceLookupKey(
+  ventureSlug: string,
+  currency: string,
+  unitAmount: number,
+  interval: string | null,
+): string {
+  return `vh_${ventureSlug.replaceAll("-", "_")}_${currency.toLowerCase()}_${unitAmount}_${interval ?? "once"}`;
+}
+
 function stripeRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
+  brief: FounderBrief,
+  workflow: WorkflowHandlerContext,
+  launchContract?: LaunchContract,
 ): ProviderWorkflowPlanRequest {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
   const state = providerState(snapshot, "stripe");
   const credentialRef = requireCredential(handler, "stripe", state.credential_ref);
+  const stripeAccountId = requireValue(
+    handler,
+    state.account_id,
+    "config/providers.yaml providers.stripe.account_id",
+    "record the exact Stripe account proven by the restricted test credential",
+  );
   const mode = requireExternal(
     handler,
     state,
@@ -737,57 +1133,54 @@ function stripeRequest(
       `Stripe mode is ${mode}. Next: use an explicitly registered test-mode credential and set providers.stripe.external_resource_ids.mode to test; the default launch node never creates live prices`,
     );
   }
-  const configuredPrices = [
-    snapshot.offer.pricing.monthly_price === null
-      ? null
-      : {
-          amount: snapshot.offer.pricing.monthly_price,
-          interval: "month",
-          path: "config/offer.yaml pricing.monthly_price",
-        },
-    snapshot.offer.pricing.annual_price === null
-      ? null
-      : {
-          amount: snapshot.offer.pricing.annual_price,
-          interval: "year",
-          path: "config/offer.yaml pricing.annual_price",
-        },
-  ].filter((value): value is { amount: number; interval: string; path: string } => value !== null);
-  if (configuredPrices.length !== 1) {
-    fail(
-      handler,
-      configuredPrices.length === 0
-        ? "no approved monthly or annual price exists in config/offer.yaml. Next: record the exact displayed price before planning Stripe"
-        : "both monthly and annual prices are active, but the built-in node cannot yet prove two immutable Stripe price resources without omitting one. Next: select one launch price or inject a multi-price factory",
-    );
+  const productName = launchContract?.venture.name ?? brief.name;
+  const stripeMode = requireExternal(
+    handler,
+    state,
+    "mode",
+    "record Stripe test mode in the Founder Stack profile",
+  );
+  if (stripeMode !== "test") {
+    fail(handler, "dogfood Stripe provisioning is restricted to test mode");
   }
-  const [configuredPrice] = configuredPrices;
-  const domain = requireValue(
-    handler,
-    snapshot.venture.venture.domain,
-    "config/venture.yaml venture.domain",
-    "record the exact callback domain before creating the Stripe webhook",
-  );
-  const productName = requireValue(
-    handler,
-    snapshot.venture.venture.name,
-    "config/venture.yaml venture.name",
-    "record the exact product name",
-  );
+  if (handler === "provider.stripe-commerce") {
+    const configuredPrice = launchContract
+      ? contractStripePrice(handler, launchContract)
+      : configuredStripePrice(handler, snapshot);
+    return request(target, credentialRef, ["product", "price"], {
+      ventureSlug: brief.id,
+      stripeAccountId,
+      stripeMode,
+      productName,
+      ...(launchContract
+        ? { productDescription: launchContract.venture.oneSentenceThesis }
+        : snapshot.offer.offer.sentence
+          ? { productDescription: snapshot.offer.offer.sentence }
+          : {}),
+      productId: "{dependency.product.id}",
+      currency: configuredPrice.currency.toLowerCase(),
+      unitAmount: exactMinorUnits(handler, configuredPrice.amount, configuredPrice.path),
+      ...(configuredPrice.interval ? { recurringInterval: configuredPrice.interval } : {}),
+    });
+  }
+  if (handler !== "provider.stripe-callbacks" && handler !== "provider.stripe-domain-callbacks") {
+    return fail(handler, "unknown staged Stripe handler");
+  }
+  const callbackOrigin =
+    handler === "provider.stripe-domain-callbacks"
+      ? verifiedCustomDomainOrigin(handler, brief, workflow)
+      : safeVerifiedVercelOrigin(handler, workflow, "Stripe callbacks");
   const webhookSecretCredentialRef = requireCredential(
     handler,
     "stripe",
     state.external_resource_ids.webhook_secret_credential_ref,
     "config/providers.yaml providers.stripe.external_resource_ids.webhook_secret_credential_ref",
   );
-  return request(target, credentialRef, ["product", "price", "webhook", "billing_portal"], {
-    productName,
-    ...(snapshot.offer.offer.sentence ? { productDescription: snapshot.offer.offer.sentence } : {}),
-    productId: "{dependency.product.id}",
-    currency: snapshot.offer.pricing.currency.toLowerCase(),
-    unitAmount: exactMinorUnits(handler, configuredPrice.amount, configuredPrice.path),
-    recurringInterval: configuredPrice.interval,
-    webhookUrl: `https://${domain}/api/stripe/webhook`,
+  return request(target, credentialRef, ["webhook", "billing_portal"], {
+    ventureSlug: brief.id,
+    stripeAccountId,
+    stripeMode,
+    webhookUrl: `${callbackOrigin}/api/stripe/webhook`,
     webhookSecretCredentialRef,
     enabledEvents: [
       "checkout.session.completed",
@@ -796,6 +1189,7 @@ function stripeRequest(
       "invoice.payment_failed",
     ],
     headline: `Manage ${productName}`,
+    portalReturnUrl: `${callbackOrigin}/account`,
   });
 }
 
@@ -913,19 +1307,12 @@ function dependencyIdentifier(
 function googleRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
+  brief: FounderBrief,
   workflow: WorkflowHandlerContext,
 ): ProviderWorkflowPlanRequest {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
   const state = providerState(snapshot, "google");
   const credentialRef = requireCredential(handler, "google", state.credential_ref);
-  const domain = requireValue(
-    handler,
-    snapshot.venture.venture.domain,
-    "config/venture.yaml venture.domain",
-    "record the exact production domain before Google setup",
-  );
-  const siteUrl = state.external_resource_ids.site_url ?? `sc-domain:${domain}`;
-  const sitemapUrl = state.external_resource_ids.sitemap_url ?? `https://${domain}/sitemap.xml`;
   switch (handler) {
     case "provider.google-analytics-property": {
       const analyticsAccountId = requireExternal(
@@ -949,7 +1336,16 @@ function googleRequest(
         currencyCode: snapshot.venture.venture.currency,
       });
     }
-    case "provider.google-analytics-stream":
+    case "provider.google-analytics-stream": {
+      const originDependency = workflow.node.dependencies.includes("initial-production-deploy")
+        ? "initial-production-deploy"
+        : "production-deploy";
+      const productionOrigin = safeVerifiedVercelOrigin(
+        handler,
+        workflow,
+        "the GA4 web stream",
+        originDependency,
+      );
       return request(target, credentialRef, ["analytics_web_stream"], {
         analyticsPropertyId: dependencyIdentifier(
           handler,
@@ -957,8 +1353,10 @@ function googleRequest(
           "google-analytics-property",
           "property_id",
         ),
-        streamDisplayName: state.external_resource_ids.stream_display_name ?? `${domain} web`,
-        defaultUri: `https://${domain}/`,
+        streamDisplayName:
+          state.external_resource_ids.stream_display_name ??
+          `${new URL(productionOrigin).hostname} web`,
+        defaultUri: `${productionOrigin}/`,
         measurementIdCredentialRef: requireCredential(
           handler,
           "google",
@@ -966,63 +1364,71 @@ function googleRequest(
           "config/providers.yaml providers.google.external_resource_ids.measurement_id_credential_ref",
         ),
       });
-    case "provider.google-site-dns-record":
-      return request(target, credentialRef, ["site_verification_token"], {
-        siteIdentifier: domain,
-        siteType: "INET_DOMAIN",
-        verificationMethod: "DNS_TXT",
-        dnsTtl: 3_600,
-      });
-    case "provider.google-site-verification": {
-      const dns = workflow.dependencyOutputs["dns-records"];
-      const records =
-        dns && !Array.isArray(dns) && typeof dns === "object" && Array.isArray(dns.records)
-          ? dns.records
-          : [];
-      if (
-        !records.some(
-          (record) =>
-            record &&
-            !Array.isArray(record) &&
-            typeof record === "object" &&
-            record.source_provider === "google",
-        )
-      ) {
-        fail(
-          handler,
-          "the same-run DNS evidence does not contain the Google token record. Next: complete the consolidated DNS node with its exact typed output",
-        );
-      }
-      return request(target, credentialRef, ["site_verification"], {
-        siteIdentifier: domain,
-        siteType: "INET_DOMAIN",
-        verificationMethod: "DNS_TXT",
-      });
     }
-    case "provider.google-search-console":
-      return request(target, credentialRef, ["search_console_site", "search_console_sitemap"], {
-        siteUrl,
-        sitemapUrl,
-      });
-    default:
-      return fail(handler, "unknown staged Google handler");
+    default: {
+      const domain = requireCustomDomain(
+        handler,
+        brief,
+        "Google site verification or search setup",
+      );
+      const siteUrl = state.external_resource_ids.site_url ?? `sc-domain:${domain}`;
+      const sitemapUrl = state.external_resource_ids.sitemap_url ?? `https://${domain}/sitemap.xml`;
+      switch (handler) {
+        case "provider.google-site-dns-record":
+          return request(target, credentialRef, ["site_verification_token"], {
+            siteIdentifier: domain,
+            siteType: "INET_DOMAIN",
+            verificationMethod: "DNS_TXT",
+            dnsTtl: 3_600,
+          });
+        case "provider.google-site-verification": {
+          const dns = workflow.dependencyOutputs["dns-records"];
+          const records =
+            dns && !Array.isArray(dns) && typeof dns === "object" && Array.isArray(dns.records)
+              ? dns.records
+              : [];
+          if (
+            !records.some(
+              (record) =>
+                record &&
+                !Array.isArray(record) &&
+                typeof record === "object" &&
+                record.source_provider === "google",
+            )
+          ) {
+            fail(
+              handler,
+              "the same-run DNS evidence does not contain the Google token record. Next: complete the consolidated DNS node with its exact typed output",
+            );
+          }
+          return request(target, credentialRef, ["site_verification"], {
+            siteIdentifier: domain,
+            siteType: "INET_DOMAIN",
+            verificationMethod: "DNS_TXT",
+          });
+        }
+        case "provider.google-search-console":
+          return request(target, credentialRef, ["search_console_site", "search_console_sitemap"], {
+            siteUrl,
+            sitemapUrl,
+          });
+        default:
+          return fail(handler, "unknown staged Google handler");
+      }
+    }
   }
 }
 
 function bingRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
+  brief: FounderBrief,
   lifecycleRecords: readonly VerifiedProviderLifecycleRecord[],
 ): ProviderWorkflowPlanRequest {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
   const state = providerState(snapshot, "bing");
   const credentialRef = requireCredential(handler, "bing", state.credential_ref);
-  const domain = requireValue(
-    handler,
-    snapshot.venture.venture.domain,
-    "config/venture.yaml venture.domain",
-    "record the exact verified production domain",
-  );
+  const domain = requireCustomDomain(handler, brief, "Bing site and sitemap setup");
   const authMode = requireExternal(
     handler,
     state,
@@ -1182,8 +1588,8 @@ function testflightRequest(
 
 function unsupportedRequest(handler: string, snapshot: DefaultProviderConfigSnapshot): never {
   const target = DEFAULT_PROVIDER_TARGETS[handler]!;
-  // Load every typed config snapshot before deciding. This keeps later config
-  // changes visible while ensuring a broad-but-partial factory never slips in.
+  // Validate the complete captured config before deciding so a broad but
+  // partial factory never slips in through mutable late-bound state.
   void snapshot.offer;
   void snapshot.mobile;
   void providerState(snapshot, target.provider);
@@ -1205,26 +1611,43 @@ function unsupportedRequest(handler: string, snapshot: DefaultProviderConfigSnap
 function buildDefaultRequest(
   handler: string,
   snapshot: DefaultProviderConfigSnapshot,
+  brief: FounderBrief,
   lifecycleRecords: readonly VerifiedProviderLifecycleRecord[],
   workflow: WorkflowHandlerContext,
   rootDir: string,
+  launchContract?: LaunchContract,
 ): ProviderWorkflowPlanRequest {
   switch (handler) {
     case "provider.github-repository":
       return githubRequest(handler, snapshot, lifecycleRecords, rootDir);
     case "provider.vercel-project":
+    case "provider.initial-production-deploy":
+    case "provider.analytics-production-redeploy":
+    case "provider.email-production-redeploy":
     case "provider.production-deploy":
-      return vercelRequest(handler, snapshot, lifecycleRecords);
+      return vercelRequest(handler, snapshot, lifecycleRecords, brief.domain ?? null);
     case "provider.vercel-database-environment":
     case "provider.vercel-stripe-environment":
     case "provider.vercel-stripe-webhook-environment":
     case "provider.vercel-brevo-environment":
-    case "provider.vercel-ga-environment":
       return vercelEnvironmentRequest(handler, snapshot);
+    case "provider.vercel-ga-environment":
+      return vercelPublicGoogleEnvironmentRequest(handler, snapshot, workflow);
+    case "provider.vercel-stripe-price-environment":
+    case "provider.vercel-stripe-price-lookup-environment":
+      return vercelPublicStripeEnvironmentRequest(
+        handler,
+        snapshot,
+        brief,
+        workflow,
+        launchContract,
+      );
     case "provider.neon-database":
       return neonRequest(handler, snapshot, lifecycleRecords, rootDir);
     case "provider.stripe-commerce":
-      return stripeRequest(handler, snapshot);
+    case "provider.stripe-callbacks":
+    case "provider.stripe-domain-callbacks":
+      return stripeRequest(handler, snapshot, brief, workflow, launchContract);
     case "provider.brevo-sending-domain":
     case "provider.brevo-domain-verification":
     case "provider.brevo-email":
@@ -1234,9 +1657,9 @@ function buildDefaultRequest(
     case "provider.google-site-dns-record":
     case "provider.google-site-verification":
     case "provider.google-search-console":
-      return googleRequest(handler, snapshot, workflow);
+      return googleRequest(handler, snapshot, brief, workflow);
     case "provider.bing-discovery":
-      return bingRequest(handler, snapshot, lifecycleRecords);
+      return bingRequest(handler, snapshot, brief, lifecycleRecords);
     case "provider.eas-build":
     case "provider.eas-submit":
       return easRequest(handler, snapshot, workflow, rootDir);
@@ -1250,6 +1673,17 @@ function buildDefaultRequest(
 export function createDefaultProviderPlanFactories(
   options: DefaultProviderFactoryOptions,
 ): Readonly<Record<string, ProviderWorkflowPlanFactory>> {
+  if (options.configSnapshot && options.loadConfig) {
+    throw new Error("Default provider factories accept configSnapshot or loadConfig, not both");
+  }
+  const brief = founderBriefSchema.parse(currentBrief(options.brief));
+  const launchContract = options.launchContract
+    ? launchContractSchema.parse(options.launchContract)
+    : undefined;
+  const capturedConfig = immutableConfigSnapshot(
+    options.configSnapshot ??
+      (options.loadConfig ? options.loadConfig() : loadDefaultProviderConfig(options.rootDir)),
+  );
   const handlers = options.definition.nodes
     .filter((node) => node.kind === "provider" && node.handler)
     .map((node) => node.handler!);
@@ -1268,16 +1702,13 @@ export function createDefaultProviderPlanFactories(
             `factory was invoked for ${workflow.node.handler ?? workflow.node.id}. Next: fix the runtime handler map`,
           );
         }
-        const brief = currentBrief(options.brief);
         if (brief.id !== options.definition.id.replace(/^launch-/, "")) {
           fail(
             handler,
             `founder brief ${brief.id} does not match graph ${options.definition.id}. Next: recreate the launch plan from the current brief`,
           );
         }
-        const snapshot = (
-          options.loadConfig ?? (() => loadDefaultProviderConfig(options.rootDir))
-        )();
+        const snapshot = immutableConfigSnapshot(capturedConfig);
         let lifecycleRecords: VerifiedProviderLifecycleRecord[] = [];
         if (options.lifecycleStore) {
           try {
@@ -1287,7 +1718,10 @@ export function createDefaultProviderPlanFactories(
                 if (provider !== target.provider) return false;
                 if (environment === target.environment) return true;
                 return (
-                  handler === "provider.production-deploy" &&
+                  (handler === "provider.production-deploy" ||
+                    handler === "provider.initial-production-deploy" ||
+                    handler === "provider.analytics-production-redeploy" ||
+                    handler === "provider.email-production-redeploy") &&
                   provider === "vercel" &&
                   target.environment === "production" &&
                   environment === "preview" &&
@@ -1305,9 +1739,11 @@ export function createDefaultProviderPlanFactories(
         return buildDefaultRequest(
           handler,
           withLifecycleResources(handler, snapshot, lifecycleRecords),
+          brief,
           lifecycleRecords,
           workflow,
           options.rootDir,
+          launchContract,
         );
       };
       return [handler, factory];
@@ -1375,7 +1811,9 @@ function authenticated(inspection: CredentialInspection): boolean {
   return (
     inspection.status === "available" &&
     ((inspection.kind === "cli_session" && inspection.backend === "cli_session") ||
-      (inspection.testStatus === "passed" && inspection.testedAt !== undefined))
+      (inspection.testStatus === "passed" &&
+        inspection.testedAt !== undefined &&
+        (inspection.provider !== "stripe" || inspection.providerMode === "test")))
   );
 }
 
@@ -1471,16 +1909,15 @@ async function inspectProviderPlan(
   if (nodes.length === 0) {
     return { handlers: [], availability: planAvailability(false, "not_required") };
   }
-  const factories =
-    launch.factories ??
-    createDefaultProviderPlanFactories({
-      rootDir: "",
-      brief: launch.brief,
-      definition: launch.definition,
-      loadConfig: () => {
-        throw new Error("doctor factory config loader was not initialized");
-      },
-    });
+  if (!launch.factories) {
+    return {
+      handlers: nodes.map((node) => node.handler!),
+      availability: planAvailability(false, "blocked", [
+        "Provider doctor has no immutable config-bound plan factories for this launch.",
+      ]),
+    };
+  }
+  const factories = launch.factories;
   const blockers: string[] = [];
   for (const node of nodes) {
     const factory = factories[node.handler!];

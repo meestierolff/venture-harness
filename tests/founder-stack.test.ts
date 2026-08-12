@@ -14,10 +14,17 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli, type CliIo } from "@/lib/cli";
 import { createDefaultCliServices } from "@/lib/cli/default-services";
-import { CredentialBroker, MemoryCredentialBackend, type CredentialKind } from "@/lib/credentials";
+import {
+  CredentialBroker,
+  MemoryCredentialBackend,
+  loadCredentialCatalog,
+  type CredentialKind,
+} from "@/lib/credentials";
 import {
   FileFounderStackStore,
+  createFounderStackConnectionDraft,
   doctorFounderStackConnection,
+  founderStackCliSessionCredentialRegistrations,
   founderStackRoleDefinitions,
   loadFounderStackConnectionFile,
   parseFounderStackConnection,
@@ -60,6 +67,85 @@ afterEach(() => {
 });
 
 describe("Founder Stack connection", () => {
+  it("builds a credential-free web profile and omits RevenueCat unless selected or preconfigured", () => {
+    const connection = createFounderStackConnectionDraft({
+      ownerOrganizationId: "fixture-founder",
+      verifiedAt: "2026-08-12T10:00:00.000Z",
+      selectedOptionalRoles: ["email.transactional", "dns.records"],
+      inspectedCliSessions: {
+        github: {
+          installed: true,
+          authenticated: true,
+          accountId: "fixture-founder",
+          mode: null,
+          verifiedAt: "2026-08-12T10:00:00.000Z",
+        },
+        vercel: {
+          installed: true,
+          authenticated: true,
+          accountId: "fixture-team",
+          mode: null,
+          verifiedAt: "2026-08-12T10:00:00.000Z",
+        },
+        stripe: {
+          installed: true,
+          authenticated: true,
+          accountId: "acct_fixture_test",
+          mode: "test",
+          verifiedAt: "2026-08-12T10:00:00.000Z",
+        },
+      },
+      roles: [
+        {
+          role: "source.repository",
+          credentialRef: "cred://github/founder-default",
+          accountId: "fixture-founder",
+          organizationId: "fixture-founder",
+          verifiedBy: "official_cli",
+        },
+        {
+          role: "hosting.web",
+          credentialRef: "cred://vercel/founder-default",
+          accountId: "fixture-team",
+          teamId: "fixture-team",
+          verifiedBy: "official_cli",
+        },
+        {
+          role: "database.postgres",
+          credentialRef: "cred://neon/founder-default",
+          accountId: "fixture-neon",
+          organizationId: "fixture-neon-org",
+        },
+        {
+          role: "commerce.web",
+          credentialRef: "cred://stripe/founder-default",
+          accountId: "acct_fixture_test",
+        },
+      ],
+      launchDefaults: {
+        neonRegion: "aws-eu-central-1",
+        dns: { adapter: "manual_generic", registrarAccountId: "fixture-zone-owner" },
+      },
+    });
+
+    expect(connection.selectedOptionalRoles).toEqual(["email.transactional", "dns.records"]);
+    expect(connection.roles["commerce.native"]).toEqual({
+      scopes: [],
+      verification: { status: "unverified" },
+    });
+    expect(connection.inspectedCliSessions.stripe).toMatchObject({
+      accountId: "acct_fixture_test",
+      mode: "test",
+    });
+    expect(
+      founderStackCliSessionCredentialRegistrations(connection).map(({ provider }) => provider),
+    ).toEqual(["github", "vercel"]);
+    const wrongMode = structuredClone(connection);
+    wrongMode.inspectedCliSessions.stripe!.mode = null;
+    expect(() => parseFounderStackConnection(wrongMode)).toThrow(/must prove test mode/u);
+    expect(JSON.stringify(connection)).not.toMatch(/sk_(?:test|live)|whsec_|xkeysib-/u);
+  });
+
   it("parses one exact fixed-role profile and renders credential-reference-only overrides", () => {
     const connection = fixture();
 
@@ -295,6 +381,7 @@ async function verifiedContext(
       expiresAt: metadata.expiresAt,
       testedAt: "2026-08-09T10:00:00.000Z",
       testStatus: "passed",
+      ...(providerId === "stripe" ? { providerMode: "test" as const } : {}),
       value: `fixture-${providerId}-credential-value`,
     });
   }
@@ -379,7 +466,8 @@ describe("Founder Stack doctor", () => {
     expect(report.writableCredentialTargets).toMatchObject({
       status: "unconfigured",
       fixtureOnly: false,
-      nextCommand: "vh stack create founder-default --file <connection.json>",
+      nextCommand:
+        "vh stack connect founder-default --role database.postgres --credential-backend onepassword",
     });
     expect(
       report.roles
@@ -404,8 +492,35 @@ describe("Founder Stack doctor", () => {
     expect(report.roles.find(({ role }) => role === "growth.google")).toMatchObject({
       status: "unconfigured",
       missingLaunchDefaults: ["launchDefaults.google.analyticsAccountId"],
-      nextCommand: "vh stack create founder-default --file <connection.json>",
+      nextCommand: "vh stack connect founder-default --role growth.google",
     });
+  });
+
+  it("repairs unconfigured Stripe with one exact guided role command", async () => {
+    const base = fixture();
+    const connection = parseFounderStackConnection({
+      ...base,
+      roles: {
+        ...base.roles,
+        "commerce.web": { scopes: [], verification: { status: "unverified" } },
+      },
+    });
+    const report = await doctorFounderStackConnection({
+      connection,
+      context: await verifiedContext(connection),
+    });
+
+    expect(report.launchReady).toBe(false);
+    expect(report.roles.find(({ role }) => role === "commerce.web")).toMatchObject({
+      status: "unconfigured",
+      nextCommand: "vh stack connect founder-default --role commerce.web",
+    });
+    expect(report.unresolvedActions.filter(({ role }) => role === "commerce.web")).toEqual([
+      expect.objectContaining({
+        command: "vh stack connect founder-default --role commerce.web",
+        blocksLaunch: true,
+      }),
+    ]);
   });
 
   it("requires one exact manual DNS adapter and destination before reporting DNS readiness", async () => {
@@ -479,9 +594,59 @@ describe("Founder Stack doctor", () => {
     expect(report.roles.find(({ role }) => role === "source.repository")).toMatchObject({
       status: "auth_required",
       providerDoctorStatus: "auth_required",
-      nextCommand: "vh auth test github --ref cred://github/founder-default",
+      nextCommand: "vh auth login github --ref cred://github/founder-default",
       liveProviderState: "not_checked",
     });
+    expect(report.roles.find(({ role }) => role === "hosting.web")).toMatchObject({
+      status: "auth_required",
+      nextCommand: "vh auth login vercel --ref cred://vercel/founder-default",
+    });
+  });
+
+  it("requires durable Stripe test-mode evidence and returns one executable repair action", async () => {
+    const connection = fixture();
+    const context = await verifiedContext(connection);
+    await context.credentials!.store({
+      ref: "cred://stripe/founder-default",
+      provider: "stripe",
+      kind: "restricted_api_key",
+      backend: "memory",
+      scopes: [],
+      accountId: "fixture-stripe-account",
+      testedAt: "2026-08-09T10:00:00.000Z",
+      testStatus: "passed",
+      value: "fixture-stripe-credential-without-mode-proof",
+    });
+
+    const report = await doctorFounderStackConnection({ connection, context });
+
+    expect(report.roles.find(({ role }) => role === "commerce.web")).toMatchObject({
+      status: "auth_required",
+      nextCommand: "vh auth test stripe --ref cred://stripe/founder-default",
+    });
+  });
+
+  it("repairs a failed Stripe credential test by reconnecting the guided role", async () => {
+    const connection = fixture();
+    const context = await verifiedContext(connection);
+    await context.credentials!.test("cred://stripe/founder-default", async () => ({
+      ok: false,
+      message: "fixture rejected the rotated credential",
+    }));
+
+    const report = await doctorFounderStackConnection({ connection, context });
+
+    expect(report.roles.find(({ role }) => role === "commerce.web")).toMatchObject({
+      status: "auth_required",
+      nextCommand: "vh stack connect founder-default --role commerce.web",
+    });
+    expect(report.unresolvedActions).toContainEqual(
+      expect.objectContaining({
+        role: "commerce.web",
+        command: "vh stack connect founder-default --role commerce.web",
+        blocksLaunch: true,
+      }),
+    );
   });
 
   it("routes create and restart doctor through the root CLI service", async () => {
@@ -537,5 +702,192 @@ describe("Founder Stack doctor", () => {
         expect.objectContaining({ role: "dns.records", status: "manual_only" }),
       ]),
     });
+  });
+
+  it("atomically persists an in-memory wizard draft before running Stack doctor", async () => {
+    const directory = temporaryDirectory();
+    const stateRoot = join(directory, "founder-state");
+    const workflowStore = new FileWorkflowStore({ rootDir: join(directory, "runs") });
+    const connection = createFounderStackConnectionDraft({
+      ownerOrganizationId: "fixture-founder",
+      roles: [],
+      inspectedCliSessions: { github: null, vercel: null, stripe: null },
+    });
+    const services = createDefaultCliServices({
+      rootDir: directory,
+      founderStackRoot: stateRoot,
+      store: workflowStore,
+    });
+
+    const report = await services.stack?.({
+      action: "connect",
+      profileId: "founder-default",
+      connection,
+    });
+
+    expect(report).toMatchObject({
+      profileId: "founder-default",
+      status: "attention_required",
+      launchReady: false,
+      externalEffects: false,
+    });
+    expect(new FileFounderStackStore(stateRoot).load("founder-default")).toEqual(connection);
+  });
+
+  it("repairs one guided role without erasing previously connected roles or defaults", async () => {
+    const directory = temporaryDirectory();
+    const stateRoot = join(directory, "founder-state");
+    const catalogPath = join(directory, ".venture", "credentials.json");
+    const current = fixture();
+    new FileFounderStackStore(stateRoot).save(current);
+    const backend = new MemoryCredentialBackend("macos_keychain");
+    const broker = new CredentialBroker([backend]);
+    let stripeTests = 0;
+    const services = createDefaultCliServices({
+      rootDir: directory,
+      founderStackRoot: stateRoot,
+      credentialCatalogPath: catalogPath,
+      credentialBroker: broker,
+      credentialTesters: {
+        stripe: async (secret) => {
+          stripeTests += 1;
+          return {
+            ok: secret === "fixture-repaired-stripe-key",
+            accountId: "acct_repaired_test",
+            providerMode: "test",
+          };
+        },
+      },
+    });
+    const repair = createFounderStackConnectionDraft({
+      ownerOrganizationId: current.ownerOrganizationId,
+      roles: [
+        {
+          role: "commerce.web",
+          credentialRef: "cred://stripe/founder-default",
+          accountId: "acct_repaired_test",
+        },
+      ],
+      selectedOptionalRoles: [],
+      writableCredentialBackend: { mode: "shared", backend: "macos_keychain" },
+    });
+
+    await services.stack!({
+      action: "connect",
+      profileId: "founder-default",
+      connection: repair,
+      updatedRoles: ["commerce.web"],
+      replaceOptionalRoles: false,
+      updateWritableCredentialBackend: true,
+      credentialWrites: [
+        {
+          reference: "cred://stripe/founder-default",
+          provider: "stripe",
+          kind: "restricted_api_key",
+          backend: "macos_keychain",
+          scopes: [],
+          accountId: "acct_repaired_test",
+          readValue: async () => "fixture-repaired-stripe-key",
+        },
+      ],
+    });
+
+    const saved = new FileFounderStackStore(stateRoot).load("founder-default")!;
+    expect(saved.roles["database.postgres"]).toEqual(current.roles["database.postgres"]);
+    expect(saved.launchDefaults.neon).toEqual(current.launchDefaults.neon);
+    expect(saved.roles["commerce.web"]).toMatchObject({
+      credentialRef: "cred://stripe/founder-default",
+      accountId: "acct_repaired_test",
+    });
+    expect(saved.selectedOptionalRoles).toEqual(current.selectedOptionalRoles);
+    expect(saved.writableCredentialBackend).toEqual({
+      mode: "shared",
+      backend: "macos_keychain",
+    });
+    expect(loadCredentialCatalog(catalogPath).references).toContainEqual(
+      expect.objectContaining({
+        ref: "cred://stripe/founder-default",
+        provider: "stripe",
+        testStatus: "passed",
+        providerMode: "test",
+      }),
+    );
+    expect(stripeTests).toBe(1);
+  });
+
+  it("bounds and persists a failed Stack credential test before returning one repair action", async () => {
+    const directory = temporaryDirectory();
+    const stateRoot = join(directory, "founder-state");
+    const catalogPath = join(directory, ".venture", "credentials.json");
+    const current = fixture();
+    new FileFounderStackStore(stateRoot).save(current);
+    const broker = new CredentialBroker([new MemoryCredentialBackend("macos_keychain")]);
+    let testSignal: AbortSignal | undefined;
+    const services = createDefaultCliServices({
+      rootDir: directory,
+      founderStackRoot: stateRoot,
+      credentialCatalogPath: catalogPath,
+      credentialBroker: broker,
+      credentialTestTimeoutMs: 5,
+      credentialTesters: {
+        stripe: async (_secret, _reference, context) => {
+          testSignal = context?.signal;
+          return await new Promise<never>(() => undefined);
+        },
+      },
+    });
+    const repair = createFounderStackConnectionDraft({
+      ownerOrganizationId: current.ownerOrganizationId,
+      roles: [
+        {
+          role: "commerce.web",
+          credentialRef: "cred://stripe/founder-default",
+          accountId: "acct_timeout_test",
+        },
+      ],
+      selectedOptionalRoles: [],
+      writableCredentialBackend: { mode: "shared", backend: "macos_keychain" },
+    });
+
+    const report = (await services.stack!({
+      action: "connect",
+      profileId: "founder-default",
+      connection: repair,
+      updatedRoles: ["commerce.web"],
+      replaceOptionalRoles: false,
+      updateWritableCredentialBackend: true,
+      credentialWrites: [
+        {
+          reference: "cred://stripe/founder-default",
+          provider: "stripe",
+          kind: "restricted_api_key",
+          backend: "macos_keychain",
+          scopes: [],
+          accountId: "acct_timeout_test",
+          readValue: async () => "fixture-timeout-stripe-key",
+        },
+      ],
+    })) as unknown as {
+      roles: Array<{ role: string; status: string; nextCommand: string }>;
+      unresolvedActions: Array<{ role: string; command: string }>;
+    };
+
+    expect(testSignal?.aborted).toBe(true);
+    expect(loadCredentialCatalog(catalogPath).references).toContainEqual(
+      expect.objectContaining({
+        ref: "cred://stripe/founder-default",
+        testStatus: "failed",
+      }),
+    );
+    expect(report.roles.find(({ role }) => role === "commerce.web")).toMatchObject({
+      status: "auth_required",
+      nextCommand: "vh stack connect founder-default --role commerce.web",
+    });
+    expect(report.unresolvedActions).toContainEqual(
+      expect.objectContaining({
+        role: "commerce.web",
+        command: "vh stack connect founder-default --role commerce.web",
+      }),
+    );
   });
 });

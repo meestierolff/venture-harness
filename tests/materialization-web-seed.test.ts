@@ -86,6 +86,7 @@ describe("ordinary web venture seed", () => {
             uses?: string;
             run?: string;
             with?: Record<string, string | number>;
+            env?: Record<string, string>;
           }>;
         };
       };
@@ -111,9 +112,17 @@ describe("ordinary web venture seed", () => {
     expect(steps.find(({ name }) => name === "Install exact child dependencies")?.run).toBe(
       "pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false",
     );
-    expect(steps.find(({ name }) => name === "Verify child fast profile")?.run).toBe(
-      "pnpm verify:fast",
+    expect(steps.find(({ name }) => name === "Install Chromium for the primary journey")?.run).toBe(
+      "pnpm exec playwright install --with-deps chromium",
     );
+    const mvp = steps.find(({ name }) => name === "Verify child production-shaped MVP");
+    expect(mvp?.run).toBe("pnpm verify:mvp");
+    expect(mvp?.env).toEqual({
+      NEXT_PUBLIC_SITE_URL: "https://child-ci.example.invalid",
+      NEXT_PUBLIC_INDEXING_ENABLED: "true",
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+    });
   });
 
   it("materializes an independently installable and buildable Next.js repository shape", () => {
@@ -130,10 +139,14 @@ describe("ordinary web venture seed", () => {
       start: "next start",
       typecheck: "tsc --noEmit",
       test: "node --test tests/*.test.mjs",
-      "test:e2e:readonly": "playwright test tests/e2e/post-deploy-readonly.spec.ts",
+      "test:e2e:readonly":
+        "tsx scripts/run-local-browser-check.ts tests/e2e/post-deploy-readonly.spec.ts",
+      "test:e2e:primary-journey":
+        "tsx scripts/run-local-browser-check.ts tests/e2e/primary-journey.spec.ts",
       verify: "pnpm typecheck && pnpm test && pnpm build",
       "verify:fast": "pnpm typecheck && pnpm test",
-      "verify:mvp": "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly",
+      "verify:mvp":
+        "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly && pnpm test:e2e:primary-journey",
     });
     expect(packageJson.dependencies).toEqual({
       next: "15.5.21",
@@ -166,11 +179,16 @@ describe("ordinary web venture seed", () => {
         "pnpm-lock.yaml",
         "tsconfig.json",
         "playwright.config.ts",
+        "scripts/run-local-browser-check.ts",
         "scripts/github-publish-source.ts",
+        "PROJECT.md",
+        "AGENTS.md",
+        "docs/product/PRODUCT_CONSTITUTION.md",
+        "docs/product/idea.md",
+        "skills/design-director/SKILL.md",
+        "skills/design-director/references/originality-audit.md",
         "tests/seed-contract.test.mjs",
         "tests/e2e/post-deploy-readonly.spec.ts",
-        "migrations/sql/001_core_evidence.up.sql",
-        "migrations/sql/001_core_evidence.down.sql",
       ]),
     );
     const dependencyLock = parse(content(compiled, "pnpm-lock.yaml")) as {
@@ -204,11 +222,11 @@ describe("ordinary web venture seed", () => {
     expect(compiled.files.find(({ path }) => path === "pnpm-lock.yaml")?.ownership).toBe(
       "merge_managed",
     );
-    expect(content(compiled, "migrations/sql/001_core_evidence.up.sql")).toContain(
-      "values ('001_core_evidence')",
-    );
-    expect(content(compiled, "migrations/sql/001_core_evidence.up.sql")).toContain(
-      "create table if not exists analytics_sync_runs",
+    expect(compiled.files.map(({ path }) => path)).not.toEqual(
+      expect.arrayContaining([
+        "migrations/sql/001_core_evidence.up.sql",
+        "migrations/sql/001_core_evidence.down.sql",
+      ]),
     );
   });
 
@@ -222,6 +240,47 @@ describe("ordinary web venture seed", () => {
     expect(paths.has("runtime/bootstrap.ts")).toBe(false);
     expect(paths.has("service-blueprints/primary.json")).toBe(false);
     expect(compiled.seed.generatorVersions).toEqual({ ui: "0.2.0" });
+    expect(compiled.seed.runtimePackages).toEqual({
+      next: "15.5.21",
+      react: "19.2.7",
+      "react-dom": "19.2.7",
+    });
+    expect(JSON.parse(readFileSync("seeds/agentic-web-saas/seed.json", "utf8")).runtime).toEqual([
+      "next",
+      "react",
+    ]);
+  });
+
+  it("provides bounded product context and an originality skill without inventing a contract", () => {
+    const compiled = plan("agentic-web-saas");
+
+    expect(content(compiled, "PROJECT.md")).toContain("config/launch-contract.yaml");
+    expect(content(compiled, "PROJECT.md")).toContain("One primary journey");
+    expect(content(compiled, "AGENTS.md")).toContain("skills/design-director/SKILL.md");
+    expect(content(compiled, "docs/product/PRODUCT_CONSTITUTION.md")).toContain(
+      "every capability, provider connection, customer outcome, metric, and commercial result is UNKNOWN",
+    );
+    expect(content(compiled, "docs/product/idea.md")).toContain(
+      "This seed placeholder makes no product or market claim",
+    );
+    expect(compiled.files.some(({ path }) => path === "config/launch-contract.yaml")).toBe(false);
+
+    const designSkill = content(compiled, "skills/design-director/SKILL.md");
+    const audit = content(compiled, "skills/design-director/references/originality-audit.md");
+    expect(designSkill).toContain("Launch Contract and Product Constitution");
+    expect(designSkill).toContain("Product and design files are venture-owned");
+    expect(audit).toContain("generic purple AI gradient");
+    expect(audit).toContain("static marketing page");
+    expect(audit).toContain("visible focus");
+    expect(compiled.files.find(({ path }) => path === "PROJECT.md")?.ownership).toBe(
+      "venture_owned",
+    );
+    expect(
+      compiled.files.find(({ path }) => path === "docs/product/PRODUCT_CONSTITUTION.md")?.ownership,
+    ).toBe("venture_owned");
+    expect(
+      compiled.files.find(({ path }) => path === "skills/design-director/SKILL.md")?.ownership,
+    ).toBe("core_owned");
   });
 
   it("materializes the exact child-local publisher and read-only journey contracts", () => {
@@ -231,6 +290,10 @@ describe("ordinary web venture seed", () => {
     );
     const journey = compiled.files.find(
       ({ path }) => path === "tests/e2e/post-deploy-readonly.spec.ts",
+    );
+    const playwright = compiled.files.find(({ path }) => path === "playwright.config.ts");
+    const localRunner = compiled.files.find(
+      ({ path }) => path === "scripts/run-local-browser-check.ts",
     );
 
     expect(publisher?.ownership).toBe("core_owned");
@@ -242,9 +305,32 @@ describe("ordinary web venture seed", () => {
     expect(publisher?.content).toContain('const BOOTSTRAP_PATH = ".venture-harness-bootstrap"');
     expect(publisher?.content).toContain("parents: [parentCommitOid]");
     expect(publisher?.content).toContain('method: "PATCH"');
+    expect(publisher?.content).toContain("ensureWorkingRepository");
+    expect(publisher?.content).toContain(
+      'gh",\n            [\n              "repo",\n              "clone"',
+    );
+    expect(publisher?.content).toContain("Child Git working tree is not clean");
+    expect(publisher?.content).toContain("force: false");
     expect(publisher?.content).not.toContain("../lib/");
-    expect(journey?.ownership).toBe("venture_owned");
+    expect(journey?.ownership).toBe("core_owned");
+    expect(playwright?.content).toContain("retries: 0");
+    expect(playwright?.content).not.toContain("process.env.CI ? 1 : 0");
+    expect(playwright?.content).not.toContain("43127");
+    expect(localRunner?.ownership).toBe("core_owned");
+    expect(localRunner?.content).toContain('reservation.listen(0, "127.0.0.1")');
+    expect(localRunner?.content).toContain("VH_LOCAL_SERVER_NONCE");
+    expect(localRunner?.content).toContain("localServerNonce === serverNonce");
+    expect(localRunner?.content).toContain("EADDRINUSE");
+    expect(localRunner?.content).toContain(
+      "Owned local production listener remained after teardown",
+    );
+    expect(localRunner?.content).toContain("await stopServer(server)");
+    expect(localRunner?.content.indexOf('const exited = once(server, "exit")')).toBeLessThan(
+      localRunner?.content.indexOf('server.kill("SIGTERM")') ?? -1,
+    );
     expect(journey?.content).toContain('method === "GET" || method === "HEAD"');
+    expect(journey?.content).toContain("VH_PRIMARY_JOURNEY_OBSERVER_RESULT");
+    expect(journey?.content).toContain("venture_harness_primary_journey_v1");
     expect(journey?.content).toContain('name: "Review launch status"');
     expect(journey?.content).toContain('link[rel="canonical"]');
     expect(journey?.content).toContain('request.get("/robots.txt"');
@@ -297,6 +383,35 @@ describe("ordinary web venture seed", () => {
     );
     expect(Object.values(analytics.events).flatMap(({ props }) => props)).not.toEqual(
       expect.arrayContaining(["email", "name", "message", "search_text", "form_value"]),
+    );
+    expect(analytics.providers).toEqual({});
+    expect(analytics.events).toEqual({});
+    expect(
+      (analytics as typeof analytics & { event_packs: { active: string[] } }).event_packs.active,
+    ).toEqual([]);
+    const venture = ventureSchema.parse(parse(content(compiled, "config/venture.yaml")));
+    expect(venture.validation).toMatchObject({
+      minimum_days: null,
+      target_days: null,
+      maximum_days: null,
+      primary_conversion: null,
+      build_threshold: null,
+      stop_threshold: null,
+    });
+    expect(venture.venture.capabilities.active).toEqual(["public_website", "web_seo_aeo_geo"]);
+    expect(content(compiled, "config/loops.yaml")).not.toMatch(/enabled:\s+true/u);
+    expect(offerSchema.parse(parse(content(compiled, "config/offer.yaml")))).toMatchObject({
+      pricing: {
+        monthly_price: null,
+        annual_price: null,
+        one_time_price: null,
+        implementation_fee: null,
+      },
+      economics: { payback_target_days: null },
+    });
+    expect(content(compiled, ".gitignore")).toContain(".venture/\nreports/\n");
+    expect(compiled.lock.managed_files.some(({ path }) => path.startsWith(".venture/"))).toBe(
+      false,
     );
 
     const tracked = compiled.files.map(({ content: value }) => value).join("\n");

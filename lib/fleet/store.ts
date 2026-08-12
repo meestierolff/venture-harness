@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { initializeSqliteWal } from "@venture-harness/core";
 import { fleetTargetIdentity, fleetTargetKey } from "./identity";
 import type { FleetRunRecord, FleetStateStore } from "./types";
 
@@ -134,8 +135,7 @@ export function createSqliteFleetStateStore(filename: string): FleetStateStore {
     DatabaseSync: new (path: string) => Database;
   };
   const database = new DatabaseSync(filename);
-  database.exec("PRAGMA busy_timeout = 5000");
-  execWithBusyRetry(database, "PRAGMA journal_mode = WAL");
+  initializeSqliteWal(database, { label: "fleet state store" });
   execWithBusyRetry(
     database,
     "CREATE TABLE IF NOT EXISTS fleet_runs (run_id TEXT PRIMARY KEY, release_digest TEXT NOT NULL, record_json TEXT NOT NULL)",

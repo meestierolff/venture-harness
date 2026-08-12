@@ -44,8 +44,20 @@ describe("analytics event packs", () => {
     const config = analyticsConfig as { event_packs: { active: (keyof typeof EVENT_PACKS)[] } };
     const activeEvents = new Set(eventNamesForPacks(config.event_packs.active));
     const sources = readdirSync("components")
-      .filter((file) => file.endsWith(".tsx"))
+      // PricingTable is a reusable selected-commerce component checked by
+      // verify:pricing-recording. The neutral root application does not mount
+      // it while commerce is unselected.
+      .filter((file) => file.endsWith(".tsx") && file !== "PricingTable.tsx")
       .map((file) => readFileSync(`components/${file}`, "utf8"));
+    const applicationSources = [
+      ...readdirSync("app")
+        .filter((file) => file.endsWith(".tsx"))
+        .map((file) => readFileSync(`app/${file}`, "utf8")),
+      ...readdirSync("app", { recursive: true })
+        .filter((file) => typeof file === "string" && file.endsWith(".tsx"))
+        .map((file) => readFileSync(`app/${file}`, "utf8")),
+    ];
+    expect(applicationSources.some((source) => source.includes("PricingTable"))).toBe(false);
     const calls = sources.flatMap((source) =>
       [...source.matchAll(/track\(\s*["']([a-z0-9_]+)["']/g)].map((match) => match[1]),
     );

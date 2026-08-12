@@ -6,16 +6,15 @@ the date and commit.
 
 ## Open
 
-| #   | Debt                                                                                      | Risk                                        | Repayment trigger                                                                   |
-| --- | ----------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 1   | `verify:raw-html` needs a running server; it is CI-only and easy to skip locally          | crawler regressions land unnoticed until CI | first crawler-related CI failure → add a local pre-push reminder                    |
-| 2   | Static PII checks in `verify-analytics-pii.ts` are pattern-based, not type-based          | novel property names could slip past greps  | first false negative → move prohibited-prop enforcement into the TrackedEvent types |
-| 3   | Evidence API idempotency is time-bucket based, not token based                            | duplicate events under aggressive retries   | first observed duplicate in weekly analysis                                         |
-| 4   | No automated Lighthouse/axe run in CI (thresholds documented in config/quality.yaml only) | performance/a11y drift                      | before first production launch                                                      |
+| #   | Debt                                                                                                                       | Risk                                                                                 | Repayment trigger                                                                                            |
+| --- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| 1   | `verify:raw-html` needs a running server; it is CI-only and easy to skip locally                                           | crawler regressions land unnoticed until CI                                          | first crawler-related CI failure → add a local pre-push reminder                                             |
+| 2   | Static PII checks in `verify-analytics-pii.ts` are pattern-based, not type-based                                           | novel property names could slip past greps                                           | first false negative → move prohibited-prop enforcement into the TrackedEvent types                          |
+| 3   | Evidence API idempotency is time-bucket based, not token based                                                             | duplicate events under aggressive retries                                            | first observed duplicate in weekly analysis                                                                  |
+| 4   | No automated Lighthouse/axe run in CI (thresholds documented in config/quality.yaml only)                                  | performance/a11y drift                                                               | before first production launch                                                                               |
+| 5   | Node exposes no descriptor-relative `openat2`/`renameat` API; local path locks remain cooperative against the same OS user | a malicious same-user process can ignore the lock and race the last pathname syscall | Node adds portable descriptor-relative mutation support, or the CLI moves to a multi-principal local service |
 
 ## Cleared
-
-(none yet)
 
 ## `framework.public_template` is misnamed (2026-08-10)
 
@@ -50,24 +49,14 @@ only stale inputs are packaged documentation, and consider a `verify:fast` check
 that fails early with "rebuild provenance from HEAD" rather than letting the MVP
 profile fail wide.
 
-## Durable SQLite stores race on journal-mode switching (2026-08-10)
+## Durable SQLite stores race on journal-mode switching (cleared 2026-08-12)
 
-`pnpm test` intermittently fails with `Error: database is locked` thrown from
-`packages/audit/src/index.ts:120`, which is the `PRAGMA journal_mode = WAL`
-statement in the durable audit sink's constructor. Switching journal mode needs
-an exclusive lock, so it fails whenever another connection already holds the
-same database — which happens as soon as two vitest workers touch one store.
-`busy_timeout` is already set beforehand and does not help here. The same
-constructor pattern appears in ten other durable stores under `lib/`.
+All direct durable-store constructors now use one bounded WAL initializer. It
+reads `PRAGMA journal_mode` back, accepts a concurrent busy transition only when
+the observed mode is `wal`, and fails closed on a non-WAL or exhausted result.
 
-A second, related symptom is `ENOTEMPTY` when a test removes its temporary
-directory while another worker still holds a handle inside it.
-
-Both are visible only under parallel load and pass in isolation, which is why
-they have been read as flakes. Neither was introduced by the v0.2 release cut;
-`compatibility_verify` and `unit_integration` inherit them.
-
-Recommendation: set journal mode once at store creation and, on a busy failure,
-read `PRAGMA journal_mode` back and accept the run only when it already reports
-`wal`. Deliberately not changed during this release cut: it is a durability path
-and deserves its own change with concurrency tests, not a late edit.
+`tests/command-bus-idempotency.test.ts` exercises the busy/read-back and
+fail-closed branches, starts fresh command, audit, event, and metering databases
+across concurrent processes for three rounds, and settles every spawned sibling
+before temporary-directory cleanup. Focused stress and affected-store suites
+cover the repaired path.

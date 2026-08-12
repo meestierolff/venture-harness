@@ -84,7 +84,10 @@ export type ProviderWorkflowPlanFactory = (
 export class ProviderPlanFactoryPrerequisiteError extends Error {
   readonly code = "provider_factory_prerequisite";
 
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly waitKind?: "auth" | "external",
+  ) {
     super(message);
     this.name = "ProviderPlanFactoryPrerequisiteError";
   }
@@ -333,11 +336,16 @@ async function promoteVerifiedOperations(
 const SAFE_RESOURCE_KEYS: Readonly<Record<string, ProviderResourceType>> = {
   accountId: "account_id",
   account_id: "account_id",
+  amountMinor: "amount_minor",
+  amount_minor: "amount_minor",
+  unitAmount: "amount_minor",
+  unit_amount: "amount_minor",
   appId: "app_id",
   app_id: "app_id",
   appStoreAppId: "app_id",
   appVersion: "app_version",
   appBuildVersion: "build_number",
+  branch: "branch",
   branchId: "branch_id",
   branch_id: "branch_id",
   buildId: "build_id",
@@ -346,6 +354,9 @@ const SAFE_RESOURCE_KEYS: Readonly<Record<string, ProviderResourceType>> = {
   build_number: "build_number",
   bundleId: "bundle_id",
   bundle_id: "bundle_id",
+  commitOid: "commit_oid",
+  commit_oid: "commit_oid",
+  currency: "currency",
   databaseId: "database_id",
   database_id: "database_id",
   databaseName: "database_name",
@@ -357,6 +368,9 @@ const SAFE_RESOURCE_KEYS: Readonly<Record<string, ProviderResourceType>> = {
   entitlement_id: "entitlement_id",
   measurementId: "measurement_id",
   measurement_id: "measurement_id",
+  livemode: "livemode",
+  lookupKey: "lookup_key",
+  lookup_key: "lookup_key",
   html_url: "url",
   nameWithOwner: "repository",
   offeringId: "offering_id",
@@ -388,13 +402,18 @@ const SAFE_RESOURCE_KEYS: Readonly<Record<string, ProviderResourceType>> = {
   team_id: "team_id",
   testflightGroupId: "testflight_group_id",
   testflight_group_id: "testflight_group_id",
+  treeOid: "tree_oid",
+  tree_oid: "tree_oid",
   url: "url",
+  visibility: "visibility",
   webhookId: "webhook_id",
   webhook_id: "webhook_id",
 };
 
 function safeResourceValue(value: unknown, redactor: Redactor): string | null {
-  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+    return null;
+  }
   let text = String(value).trim();
   if (
     text.length === 0 ||
@@ -448,6 +467,15 @@ function collectSafeResourceRefs(
     .slice(0, 100);
 }
 
+function topLevelValuesForKey(value: unknown, key: string): unknown[] {
+  const records = Array.isArray(value) ? value : [value];
+  return records.flatMap((candidate) => {
+    if (!candidate || Array.isArray(candidate) || typeof candidate !== "object") return [];
+    const record = candidate as Record<string, unknown>;
+    return Object.prototype.hasOwnProperty.call(record, key) ? [record[key]] : [];
+  });
+}
+
 interface PreparedProviderPlan {
   adapter: ProviderAdapter;
   context: ProviderRuntimeContext;
@@ -459,7 +487,7 @@ interface PreparedProviderReconciliation extends PreparedProviderPlan {
   ledgerIdentity: string;
 }
 
-interface ProviderPlanCheckpoint {
+export interface ProviderPlanCheckpoint {
   [key: string]: JsonValue;
   schemaVersion: 2;
   kind: "provider_plan";
@@ -469,7 +497,7 @@ interface ProviderPlanCheckpoint {
   snapshot: JsonValue;
 }
 
-interface ProviderPlanSnapshot {
+export interface ProviderPlanSnapshot {
   target: {
     provider: ProviderId;
     request: ProviderPlanRequest;
@@ -586,6 +614,18 @@ function parseProviderPlanCheckpoint(value: JsonValue | undefined): ProviderPlan
   return candidate as unknown as ProviderPlanCheckpoint;
 }
 
+/**
+ * Read-only inspection boundary for durable workflow state. A non-null result
+ * has passed the exact checkpoint shape and canonical snapshot-digest checks
+ * used by provider reconciliation.
+ */
+export function inspectProviderPlanCheckpoint(
+  value: JsonValue | undefined,
+): ProviderPlanCheckpoint | null {
+  const checkpoint = parseProviderPlanCheckpoint(value);
+  return checkpoint ? structuredClone(checkpoint) : null;
+}
+
 function checkpointSnapshot(checkpoint: ProviderPlanCheckpoint): ProviderPlanSnapshot {
   return checkpoint.snapshot as unknown as ProviderPlanSnapshot;
 }
@@ -617,6 +657,12 @@ async function prepareProviderPlan(
   try {
     plan = adapter.plan(target.request);
   } catch (error) {
+    if (error instanceof ProviderPlanFactoryPrerequisiteError && error.waitKind) {
+      throw new WorkflowExecutionError(
+        error.waitKind === "auth" ? "AUTH_REQUIRED" : "EXTERNAL_ACTION_REQUIRED",
+        error.message,
+      );
+    }
     throw new WorkflowExecutionError(
       "provider_plan_failed",
       context.redactor.redactText(error instanceof Error ? error.message : String(error)),
@@ -835,6 +881,20 @@ async function verifiedProviderResult(
     ],
     context.redactor,
   );
+  // `id` is intentionally not globally allowlisted because it is ambiguous.
+  // A Vercel deployment operation provides the capability context needed to
+  // preserve its exact safe identifier without admitting arbitrary body ids.
+  for (const execution of report.operations.filter(
+    ({ operation }) => operation.provider === "vercel" && operation.capability === "deployment",
+  )) {
+    const evidence = verification.checks
+      .filter(({ operationId }) => operationId === execution.operation.id)
+      .map(({ evidence: value }) => value);
+    for (const candidate of topLevelValuesForKey([execution.result.output, ...evidence], "id")) {
+      const value = safeResourceValue(candidate, context.redactor);
+      if (value !== null) resourceRefs.push({ type: "deployment_id", value });
+    }
+  }
   const publicOutputs = collectProviderPublicOutputs({
     provider: target.provider,
     requestInputs: target.request.inputs,
@@ -1055,6 +1115,13 @@ async function resolveProviderTarget(
   try {
     return await factory(workflow);
   } catch (error) {
+    if (error instanceof ProviderPlanFactoryPrerequisiteError && error.waitKind) {
+      throw new WorkflowExecutionError(
+        error.waitKind === "auth" ? "AUTH_REQUIRED" : "EXTERNAL_ACTION_REQUIRED",
+        error.message,
+        { details: { effectOutcome: "confirmed_no_write" } },
+      );
+    }
     throw new WorkflowExecutionError(
       "provider_plan_factory_failed",
       error instanceof ProviderPlanFactoryPrerequisiteError

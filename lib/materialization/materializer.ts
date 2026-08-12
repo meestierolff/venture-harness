@@ -146,6 +146,8 @@ export function compileVentureMaterialization(
     stackProfile: grant.stackProfile,
     rail: seed.rail,
     coreVersion: input.coreVersion,
+    launchContractDigest: grant.ideaDigest,
+    launchContractPath: "config/launch-contract.yaml",
     ...(seed.serviceRuntime === "recursive"
       ? {
           serviceBlueprints: Object.freeze([`${grant.ventureSlug}.primary`]),
@@ -227,7 +229,7 @@ export function compileVentureMaterialization(
     materialized(
       ".gitignore",
       "core_owned",
-      "node_modules/\n.next/\ndist/\n.env*\n!.env.example\n.venture/private/\n",
+      "node_modules/\n.next/\ndist/\n.env*\n!.env.example\n.venture/\nreports/\n*.tsbuildinfo\n",
     ),
     materialized(
       ".venture/launch-grant.receipt.json",
@@ -263,12 +265,16 @@ export function compileVentureMaterialization(
     runtime_packages: seed.runtimePackages,
     provider_adapters: accountProviders(grant),
     generators: seed.generatorVersions,
-    managed_files: files.map(({ path, ownership, sha256: hash }) => ({
-      path,
-      ownership,
-      sha256: hash,
-      ...(ownership === "merge_managed" ? { base_sha256: hash } : {}),
-    })),
+    // `.venture/` is durable local run state, not distributable source. It is
+    // ignored by Git and must never become a Core-upgrade managed path.
+    managed_files: files
+      .filter(({ path }) => !path.startsWith(".venture/"))
+      .map(({ path, ownership, sha256: hash }) => ({
+        path,
+        ownership,
+        sha256: hash,
+        ...(ownership === "merge_managed" ? { base_sha256: hash } : {}),
+      })),
     applied_migrations: [],
     migration_state: [],
     update_channel: "stable",

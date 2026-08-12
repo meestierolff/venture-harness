@@ -100,6 +100,8 @@ export interface WorkflowCostCharge {
   category: string;
   amount: number;
   unit: string;
+  /** False for observational measurements that must not consume a workflow budget. */
+  budgeted?: boolean;
   inputTokens?: number;
   outputTokens?: number;
   tool?: string;

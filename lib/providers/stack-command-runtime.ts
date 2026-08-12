@@ -11,7 +11,7 @@ import type {
   StackOperationInput,
   StackProfileCatalogEntry,
 } from "@venture-harness/agent-runtime";
-import type { JsonObject } from "@venture-harness/core";
+import { initializeSqliteWal, type JsonObject } from "@venture-harness/core";
 import { Redactor } from "../credentials";
 import { providerRegistry, type ProviderRegistry } from "./registry";
 import {
@@ -425,8 +425,7 @@ export class SqliteStackOperationStore implements StackOperationStore {
     }
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     this.#database = openStackDatabase(this.path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    this.#database.exec("PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "Stack operation store" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS stack_operations (
         ledger_key TEXT PRIMARY KEY,

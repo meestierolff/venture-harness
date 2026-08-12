@@ -97,16 +97,22 @@ describe("launch graph compiler", () => {
     const productGraph = compileLaunchDryRun(fixture("ios-subscription"));
 
     expect(validationGraph.decision.mode.selectedMode).toBe("validate_first");
-    expect(validationGraph.graph.nodes.some(({ id }) => id === "define-validation-gate")).toBe(
-      true,
-    );
     expect(conciergeGraph.decision.mode.selectedMode).toBe("concierge_first");
-    expect(conciergeGraph.graph.nodes.some(({ id }) => id === "prepare-concierge-operations")).toBe(
-      true,
+    for (const graph of [validationGraph, conciergeGraph]) {
+      expect(graph.graph.nodes.filter(({ kind }) => kind === "model").map(({ id }) => id)).toEqual([
+        "prepare-repository",
+        "review-product",
+      ]);
+      expect(graph.graph.nodes.some(({ id }) => id === "define-usage-proof")).toBe(false);
+      expect(graph.graph.nodes.some(({ id }) => id === "define-validation-gate")).toBe(false);
+      expect(graph.graph.nodes.some(({ id }) => id === "prepare-concierge-operations")).toBe(false);
+    }
+    expect(productGraph.graph.nodes.find(({ id }) => id === "prepare-repository")?.kind).toBe(
+      "code",
     );
-    expect(productGraph.graph.nodes.some(({ id }) => id === "define-usage-proof")).toBe(true);
-    expect(validationGraph.graph.nodes.some(({ id }) => id === "define-usage-proof")).toBe(false);
-    expect(conciergeGraph.graph.nodes.some(({ id }) => id === "define-usage-proof")).toBe(false);
+    expect(
+      productGraph.graph.nodes.filter(({ kind }) => kind === "model").map(({ id }) => id),
+    ).toEqual(["review-product"]);
   });
 
   it("compiles a valid web dry run with one consolidated DNS manual node", () => {
@@ -140,11 +146,38 @@ describe("launch graph compiler", () => {
     ]);
     expect(dryRun.graph.nodes.find(({ id }) => id === "vercel-project")?.dependencies).toEqual([
       "github-repository",
-      "google-analytics-stream",
       "neon-database",
-      "stripe-commerce",
       "verify-local",
     ]);
+    expect(
+      dryRun.graph.nodes.find(({ id }) => id === "stripe-commerce")?.dependencies,
+    ).not.toContain("vercel-project");
+    expect(
+      dryRun.graph.nodes.find(({ id }) => id === "initial-production-deploy")?.dependencies,
+    ).toEqual(["verify-launch"]);
+    expect(dryRun.graph.nodes.find(({ id }) => id === "stripe-callbacks")?.dependencies).toEqual([
+      "initial-production-deploy",
+      "stripe-commerce",
+      "vercel-project",
+    ]);
+    expect(
+      dryRun.graph.nodes.find(({ id }) => id === "vercel-stripe-price-environment")?.dependencies,
+    ).toEqual(
+      expect.arrayContaining([
+        "initial-production-deploy",
+        "stripe-callbacks",
+        "stripe-commerce",
+        "vercel-project",
+      ]),
+    );
+    expect(dryRun.graph.nodes.find(({ id }) => id === "production-deploy")?.dependencies).toEqual(
+      expect.arrayContaining([
+        "vercel-stripe-environment",
+        "vercel-stripe-webhook-environment",
+        "vercel-stripe-price-environment",
+        "vercel-stripe-price-lookup-environment",
+      ]),
+    );
     expect(dryRun.graph.nodes.find(({ id }) => id === "verify-production")?.dependencies).toEqual([
       "production-deploy",
     ]);
@@ -164,8 +197,10 @@ describe("launch graph compiler", () => {
     expect(ancestors("github-repository")).toContain("install-dependencies");
     expect(ancestors("production-deploy")).toContain("install-dependencies");
     expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).toEqual(
+      expect.arrayContaining(["verify-production"]),
+    );
+    expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).not.toEqual(
       expect.arrayContaining([
-        "verify-production",
         "dns-records",
         "brevo-email",
         "google-search-console",
@@ -201,6 +236,48 @@ describe("launch graph compiler", () => {
     expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).not.toContain(
       "dns-records",
     );
+  });
+
+  it("stages domainless Stripe around a verified production origin and final deploy", () => {
+    const base = fixture("web-saas");
+    const domainlessStripe: FounderBrief = {
+      ...base,
+      domain: null,
+      needs: {
+        ...base.needs,
+        transactional_email: false,
+        lifecycle_email: false,
+        analytics: false,
+        search_discovery: false,
+      },
+    };
+    const graph = compileLaunchDryRun(domainlessStripe).graph;
+    expect(() => validateWorkflow(graph)).not.toThrow();
+    expect(graph.nodes.map(({ id }) => id)).not.toContain("dns-records");
+    expect(graph.nodes.find(({ id }) => id === "vercel-project")?.dependencies).not.toContain(
+      "stripe-commerce",
+    );
+    expect(graph.nodes.find(({ id }) => id === "initial-production-deploy")?.dependencies).toEqual([
+      "verify-launch",
+    ]);
+    expect(graph.nodes.find(({ id }) => id === "stripe-callbacks")?.dependencies).toEqual([
+      "initial-production-deploy",
+      "stripe-commerce",
+      "vercel-project",
+    ]);
+    for (const id of [
+      "vercel-stripe-environment",
+      "vercel-stripe-webhook-environment",
+      "vercel-stripe-price-environment",
+      "vercel-stripe-price-lookup-environment",
+    ]) {
+      expect(graph.nodes.find((node) => node.id === id)?.dependencies).toContain(
+        "stripe-callbacks",
+      );
+      expect(graph.nodes.find((node) => node.id === "production-deploy")?.dependencies).toContain(
+        id,
+      );
+    }
   });
 
   it("reaches the explicit Apple record and DNS manual nodes before TestFlight continuation", () => {

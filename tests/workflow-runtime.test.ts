@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -90,6 +98,31 @@ describe("workflow contracts", () => {
 });
 
 describe("workflow scheduling and durability", () => {
+  it("refuses symlinked durable state and event files", async () => {
+    const { directory, store } = harness();
+    const executor = new WorkflowExecutor({
+      store,
+      bindings: { handlers: { done: () => ({}) } },
+    });
+    const definition = graph([workflowNode("done")]);
+
+    await executor.start(definition, { runId: "linked-state" });
+    const statePath = join(store.rootDir, "linked-state", "state.json");
+    const stateTarget = join(directory, "state-target.json");
+    writeFileSync(stateTarget, readFileSync(statePath));
+    unlinkSync(statePath);
+    symlinkSync(stateTarget, statePath);
+    expect(() => store.load("linked-state")).toThrow(/regular non-symlink/);
+
+    await executor.start(definition, { runId: "linked-events" });
+    const eventsPath = join(store.rootDir, "linked-events", "events.jsonl");
+    const eventsTarget = join(directory, "events-target.jsonl");
+    writeFileSync(eventsTarget, readFileSync(eventsPath));
+    unlinkSync(eventsPath);
+    symlinkSync(eventsTarget, eventsPath);
+    expect(() => store.readEvents("linked-events")).toThrow(/regular non-symlink/);
+  });
+
   it("runs independent nodes in parallel and waits for fan-in dependencies", async () => {
     const { store } = harness();
     let active = 0;
@@ -395,6 +428,60 @@ describe("workflow failure handling", () => {
     expect(state.status).toBe("failed");
     expect(state.nodes.costly.error?.code).toBe("BUDGET_EXHAUSTED");
     expect(calls).toBe(0);
+  });
+
+  it("records observational token usage without consuming the task budget", async () => {
+    const { store } = harness();
+    const executor = new WorkflowExecutor({
+      store,
+      bindings: {
+        handlers: {
+          measured: () => ({
+            costs: [
+              {
+                kind: "model",
+                category: "launch.build_agent_tasks",
+                amount: 1,
+                unit: "tasks",
+                budgeted: true,
+              },
+              {
+                kind: "model",
+                category: "launch.observed_model_tokens",
+                amount: 150,
+                unit: "tokens",
+                budgeted: false,
+                inputTokens: 100,
+                outputTokens: 50,
+              },
+            ],
+          }),
+        },
+      },
+    });
+    const definition = graph(
+      [
+        workflowNode("measured", {
+          kind: "model",
+          model: { tier: "cheap" },
+          handler: "measured",
+          cost: { amount: 1, unit: "tasks" },
+          budgetCategory: "launch.build_agent_tasks",
+        }),
+      ],
+      { budgets: { "launch.build_agent_tasks": 1 } },
+    );
+
+    const state = await executor.start(definition, { runId: "observed-cost" });
+
+    expect(state.status).toBe("succeeded");
+    expect(state.budget.consumed).toEqual({ "launch.build_agent_tasks": 1 });
+    expect(state.costs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ unit: "tasks", budgeted: true }),
+        expect.objectContaining({ unit: "tokens", budgeted: false, amount: 150 }),
+      ]),
+    );
   });
 
   it("stops at the configured scheduler iteration limit", async () => {

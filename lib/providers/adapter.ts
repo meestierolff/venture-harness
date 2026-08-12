@@ -74,6 +74,179 @@ function resultPath(input: unknown, path: string): unknown {
   }, input);
 }
 
+function deepContains(actual: unknown, expected: unknown): boolean {
+  if (canonicalJson(actual) === canonicalJson(expected)) return true;
+  if (Array.isArray(actual)) {
+    if (Array.isArray(expected)) {
+      return expected.every((expectedItem) =>
+        actual.some((actualItem) => deepContains(actualItem, expectedItem)),
+      );
+    }
+    return actual.some((item) => deepContains(item, expected));
+  }
+  if (
+    actual !== null &&
+    expected !== null &&
+    typeof actual === "object" &&
+    typeof expected === "object" &&
+    !Array.isArray(expected)
+  ) {
+    return Object.entries(expected as Record<string, unknown>).every(([key, value]) =>
+      deepContains((actual as Record<string, unknown>)[key], value),
+    );
+  }
+  if (typeof actual === "string" && typeof expected === "string") {
+    return actual.includes(expected);
+  }
+  return false;
+}
+
+function discoveryAssertionsMatch(
+  value: unknown,
+  assertions:
+    | NonNullable<ProviderOperation["existingResource"]>["identityAssertions"]
+    | NonNullable<ProviderOperation["existingResource"]>["stateAssertions"],
+): boolean {
+  return assertions.every(({ path, operator, expected }) => {
+    const actual = resultPath(value, path);
+    return operator === "equals"
+      ? canonicalJson(actual) === canonicalJson(expected)
+      : deepContains(actual, expected);
+  });
+}
+
+async function discoverExistingResource(
+  operation: ProviderOperation,
+  transport: ProviderTransport,
+  context: ProviderExecutionContext,
+): Promise<ProviderTransportResult | null> {
+  const discovery = operation.existingResource;
+  if (!discovery) return null;
+  const lookupOperation: ProviderOperation = {
+    ...operation,
+    action: `${operation.action}.search_before_create`,
+    title: discovery.description,
+    effectClass: "read",
+    reversibility: "reversible",
+    command: discovery.command,
+    http: discovery.http,
+    manual: undefined,
+    existingResource: undefined,
+    readBack: undefined,
+  };
+  let lookup: ProviderTransportResult;
+  try {
+    lookup = await transport.execute(lookupOperation, {
+      credentials: context.credentials,
+      redactor: context.redactor,
+      signal: context.signal,
+    });
+  } catch (error) {
+    lookup = {
+      status: "failed",
+      providerCode: "transport_exception",
+      message: context.redactor.redactText(error instanceof Error ? error.message : String(error)),
+      retryable: false,
+      effectOutcome: "confirmed_no_write",
+    };
+  }
+  lookup = context.redactor.redact(lookup);
+  if (lookup.status !== "succeeded") {
+    return {
+      ...lookup,
+      message: `Search-before-create failed: ${lookup.message}`,
+      effectOutcome: "confirmed_no_write",
+    };
+  }
+  const candidates = resultPath(lookup.output, discovery.candidatesPath);
+  if (!Array.isArray(candidates)) {
+    return {
+      status: "failed",
+      providerCode: "terminal_validation",
+      message: "Search-before-create returned no bounded candidate list",
+      retryable: false,
+      effectOutcome: "confirmed_no_write",
+    };
+  }
+  const identityMatches = candidates.filter((candidate) =>
+    discoveryAssertionsMatch(candidate, discovery.identityAssertions),
+  );
+  if (identityMatches.length > 1) {
+    return {
+      status: "failed",
+      providerCode: "existing_resource_ambiguous",
+      message: "Search-before-create found duplicate resources for one deterministic identity",
+      retryable: false,
+      effectOutcome: "confirmed_no_write",
+    };
+  }
+  if (identityMatches.length === 1) {
+    const candidate = identityMatches[0];
+    if (!discoveryAssertionsMatch(candidate, discovery.stateAssertions)) {
+      return {
+        status: "failed",
+        providerCode: "existing_resource_conflict",
+        message: "The deterministic provider resource exists with different reviewed state",
+        retryable: false,
+        effectOutcome: "confirmed_no_write",
+      };
+    }
+    if (discovery.reuseRequiresCredentialRef) {
+      if (!context.credentials) {
+        return {
+          status: "failed",
+          providerCode: "existing_resource_credential_unavailable",
+          message:
+            "The existing resource cannot be reused without its separately stored credential reference",
+          retryable: false,
+          effectOutcome: "confirmed_no_write",
+        };
+      }
+      try {
+        const inspection = await context.credentials.inspect(discovery.reuseRequiresCredentialRef);
+        if (inspection.status !== "available") {
+          return {
+            status: "failed",
+            providerCode: "existing_resource_credential_unavailable",
+            message:
+              "The existing resource was found, but its separately stored credential is unavailable",
+            retryable: false,
+            effectOutcome: "confirmed_no_write",
+          };
+        }
+      } catch {
+        return {
+          status: "failed",
+          providerCode: "existing_resource_credential_unavailable",
+          message:
+            "The existing resource was found, but its credential reference cannot be inspected",
+          retryable: false,
+          effectOutcome: "confirmed_no_write",
+        };
+      }
+    }
+    return {
+      status: "succeeded",
+      message: "Reused the exact deterministic resource found before create",
+      output: candidate,
+      verified: false,
+      retryable: false,
+      effectOutcome: "confirmed_no_write",
+    };
+  }
+  if (discovery.hasMorePath && resultPath(lookup.output, discovery.hasMorePath) === true) {
+    return {
+      status: "failed",
+      providerCode: "existing_resource_search_incomplete",
+      message:
+        "Search-before-create was paginated before the deterministic identity could be ruled out",
+      retryable: false,
+      effectOutcome: "confirmed_no_write",
+    };
+  }
+  return null;
+}
+
 function interpolateDependencyString(
   value: string,
   operation: ProviderOperation,
@@ -170,6 +343,24 @@ function executionState(
 
 function scopeMissing(actual: readonly string[], required: readonly string[]): string[] {
   return required.filter((scope) => !actual.includes(scope) && !actual.includes("*"));
+}
+
+function preflightUrlMatchesOperation(url: string, operationUrl: string): boolean {
+  try {
+    const preflight = new URL(url);
+    const operation = new URL(operationUrl);
+    return (
+      preflight.protocol === "https:" &&
+      !preflight.username &&
+      !preflight.password &&
+      operation.protocol === "https:" &&
+      !operation.username &&
+      !operation.password &&
+      preflight.origin === operation.origin
+    );
+  } catch {
+    return false;
+  }
 }
 
 export class DeclarativeProviderAdapter implements ProviderAdapter {
@@ -393,6 +584,51 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
           "invalid_plan",
         );
       }
+      if (operation.existingResource) {
+        const discovery = operation.existingResource;
+        const discoverySpecCount = [discovery.command, discovery.http].filter(Boolean).length;
+        if (
+          discoverySpecCount !== 1 ||
+          discovery.transport !== operation.transport ||
+          (discovery.http !== undefined && discovery.http.method !== "GET") ||
+          discovery.identityAssertions.length === 0 ||
+          discovery.stateAssertions.length === 0
+        ) {
+          throw new ProviderPlanError(
+            `Operation ${operation.id} has an invalid search-before-create declaration`,
+            "invalid_plan",
+          );
+        }
+      }
+      if (operation.http?.credentialPreflight) {
+        const preflight = operation.http.credentialPreflight;
+        if (
+          operation.http.method === "GET" ||
+          !operation.http.auth ||
+          preflight.requests.length === 0 ||
+          preflight.requests.length > 4 ||
+          preflight.requests.some(
+            ({ url, assertions }) =>
+              !preflightUrlMatchesOperation(url, operation.http!.url) || assertions.length === 0,
+          )
+        ) {
+          throw new ProviderPlanError(
+            `Operation ${operation.id} has an invalid same-credential preflight declaration`,
+            "invalid_plan",
+          );
+        }
+      }
+      if (
+        this.descriptor.id === "stripe" &&
+        operation.http &&
+        operation.http.method !== "GET" &&
+        !operation.http.credentialPreflight
+      ) {
+        throw new ProviderPlanError(
+          `Stripe operation ${operation.id} must prove the exact credential account and mode before mutation`,
+          "invalid_plan",
+        );
+      }
     }
     return plan;
   }
@@ -424,7 +660,7 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
 
     if (!dryRun) {
       for (const operation of plan.operations) {
-        const capture = operation.command?.captureCredential;
+        const capture = operation.command?.captureCredential ?? operation.http?.captureCredential;
         if (!capture) continue;
         if (!context.credentials) {
           throw new ProviderPlanError(
@@ -553,6 +789,20 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
         );
         results.push({ operation, result, reused: true });
         completed.set(operation.id, result);
+        continue;
+      }
+      const existing = await discoverExistingResource(operation, transport, context);
+      if (existing) {
+        const settlement = existing.status === "succeeded" ? "succeeded" : "definitive_no_write";
+        await context.idempotencyLedger?.settle(
+          operation.idempotencyKey,
+          operationRequestHash,
+          settlement,
+          existing,
+          replay,
+        );
+        results.push({ operation, result: existing, reused: existing.status === "succeeded" });
+        completed.set(operation.id, existing);
         continue;
       }
       let result: ProviderTransportResult;
@@ -843,7 +1093,25 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
     prior: ProviderTransportResult,
     context: ProviderExecutionContext,
   ): Promise<ProviderTransportResult> {
+    let discoveryFailure: ProviderTransportResult | null = null;
     try {
+      // A deterministic search is also the only generic reconciliation path
+      // for HTTP providers whose POST timed out after the remote commit. Run
+      // it again on resume before attempting an id-based read-back, because an
+      // ambiguous response often contains no resource id to interpolate.
+      if (operation.existingResource) {
+        const discovered = await discoverExistingResource(operation, transport, context);
+        if (discovered?.status === "succeeded") {
+          return {
+            ...discovered,
+            message: `Unknown provider outcome reconciled by deterministic lookup: ${discovered.message}`,
+            retryable: false,
+            verified: true,
+            effectOutcome: "confirmed_write",
+          };
+        }
+        discoveryFailure = discovered;
+      }
       if (transport.reconcile) {
         const reconciliation = context.redactor.redact(
           await transport.reconcile(operation, {
@@ -901,9 +1169,38 @@ export class DeclarativeProviderAdapter implements ProviderAdapter {
         ),
       );
     }
+    if (
+      operation.http?.nativeIdempotency === true &&
+      (!discoveryFailure ||
+        discoveryFailure.providerCode === "existing_resource_credential_unavailable")
+    ) {
+      try {
+        const retried = context.redactor.redact(
+          await transport.execute(operation, {
+            credentials: context.credentials,
+            redactor: context.redactor,
+            signal: context.signal,
+          }),
+        );
+        if (retried.status === "succeeded") {
+          return {
+            ...retried,
+            message: `Unknown provider outcome recovered through the provider's native idempotency key: ${retried.message}`,
+            retryable: false,
+            verified: false,
+            effectOutcome: "confirmed_write",
+          };
+        }
+      } catch {
+        // The original write is still ambiguous; keep the durable ledger in
+        // reconciliation instead of treating the retry failure as no-write.
+      }
+    }
     return idempotencyFailure(
       "unknown_outcome_reconciliation_required",
-      "The prior provider write remains ambiguous; the write was not repeated",
+      discoveryFailure
+        ? `The prior provider write remains ambiguous after bounded lookup: ${discoveryFailure.message}`
+        : "The prior provider write remains ambiguous; the write was not repeated",
     );
   }
 }

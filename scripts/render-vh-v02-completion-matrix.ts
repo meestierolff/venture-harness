@@ -1,5 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import {
+  assertFinalEvidenceSource,
+  finalEvidenceOutputPaths,
+  validateFinalEvidenceLedger,
+} from "./lib/final-evidence-source.mjs";
 import {
   validateAndApplyRequirementProofs,
   type CommandEvidenceRecord,
@@ -407,6 +412,7 @@ const winnerPartial = new Set([
     ["QUAL-017", "Opus claims verification"],
     ["QUAL-018", "stubs and dead-code audit"],
     ["QUAL-019", "product-truth and public-claim alignment"],
+    ["QUAL-020", "vh verify live"],
   ] satisfies Array<[string, string]>
 ).forEach(([id, requirement]) =>
   add(id, "H. Verification and evidence", id === "QUAL-019" ? "P0" : "P2", requirement, "MISSING"),
@@ -515,26 +521,38 @@ const priorities = Object.fromEntries(
 
 const proofCatalogPath = resolve("reports/audit/requirement-proofs.json");
 const commandsRunPath = resolve("reports/audit/commands-run.json");
+const jsonPath = resolve("reports/audit/vh-v0.2-codex-requirement-matrix.json");
+const markdownPath = resolve("docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md");
+const winnerMarkdownPath = resolve("docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md");
 const proofCatalog = JSON.parse(readFileSync(proofCatalogPath, "utf8")) as RequirementProofCatalog;
 const commandLedger = JSON.parse(readFileSync(commandsRunPath, "utf8")) as {
   schemaVersion: number;
   branch: string;
+  sourceSha: string;
+  sourceTree: string;
+  sourceClean: boolean;
+  initializedAt: string;
   records: CommandEvidenceRecord[];
 };
-if (
-  ![1, 2].includes(commandLedger.schemaVersion) ||
-  commandLedger.branch !== "sol/vh-core-v0.2-winner-loop" ||
-  !Array.isArray(commandLedger.records)
-) {
-  throw new Error("commands-run evidence is absent, malformed, or bound to another branch");
-}
+validateFinalEvidenceLedger(commandLedger);
+const repositoryRoot = realpathSync(process.cwd());
+const allowedEvidencePaths = finalEvidenceOutputPaths(commandLedger, [
+  "reports/audit/vh-v0.2-codex-requirement-matrix.json",
+  "docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md",
+  "docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md",
+]);
+assertFinalEvidenceSource({
+  root: repositoryRoot,
+  expected: commandLedger,
+  allowedPaths: allowedEvidencePaths,
+});
 
 const validatedRows = validateAndApplyRequirementProofs({
-  root: process.cwd(),
+  root: repositoryRoot,
   baselines: rows,
   catalog: proofCatalog,
   commands: commandLedger.records,
-  expectedBranch: "sol/vh-core-v0.2-winner-loop",
+  expectedBranch: commandLedger.branch,
 });
 rows.splice(0, rows.length, ...(validatedRows as Requirement[]));
 const prohibitedFinalStatuses = new Set<Status>([
@@ -558,13 +576,13 @@ const counts = Object.fromEntries(
 );
 
 const artifact = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   phase: "FINAL_VERIFICATION",
-  generatedAt: "2026-08-09",
-  branch: "sol/vh-core-v0.2-winner-loop",
-  startingSha: "1ba4a22f08f356a510e0611b9081f5d16eaa2823",
-  backupRef: "refs/heads/backup/opus-vh-core-v0.2-1ba4a22",
-  originMain: "de69705a5b1b4404771c66cf169a6cbcf885fb3a",
+  generatedAt: new Date().toISOString(),
+  branch: commandLedger.branch,
+  sourceSha: commandLedger.sourceSha,
+  sourceTree: commandLedger.sourceTree,
+  sourceClean: commandLedger.sourceClean,
   proofCatalog: "reports/audit/requirement-proofs.json",
   commandEvidence: "reports/audit/commands-run.json",
   allowedStatuses,
@@ -574,8 +592,6 @@ const artifact = {
   requirements: rows,
 };
 
-const jsonPath = resolve("reports/audit/vh-v0.2-codex-requirement-matrix.json");
-const markdownPath = resolve("docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md");
 mkdirSync(dirname(jsonPath), { recursive: true });
 mkdirSync(dirname(markdownPath), { recursive: true });
 writeFileSync(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
@@ -584,9 +600,10 @@ const lines = [
   "# Venture Harness v0.2 Codex completion matrix",
   "",
   "- Phase: `FINAL_VERIFICATION`",
-  "- Branch: `sol/vh-core-v0.2-winner-loop`",
-  "- Starting SHA: `1ba4a22f08f356a510e0611b9081f5d16eaa2823`",
-  "- Backup reference: `backup/opus-vh-core-v0.2-1ba4a22`",
+  `- Branch: \`${commandLedger.branch}\``,
+  `- Source SHA: \`${commandLedger.sourceSha}\``,
+  `- Source tree: \`${commandLedger.sourceTree}\``,
+  "- Source state: `clean at evidence initialization`",
   "- Machine-readable source: `reports/audit/vh-v0.2-codex-requirement-matrix.json`",
   "- Reviewed proof catalog: `reports/audit/requirement-proofs.json`",
   "",
@@ -652,7 +669,9 @@ const winnerLines = [
   "# Venture Harness v0.2 + Winner Loop completion matrix",
   "",
   "- Phase: `FINAL_VERIFICATION`",
-  "- Branch: `sol/vh-core-v0.2-winner-loop`",
+  `- Branch: \`${commandLedger.branch}\``,
+  `- Source SHA: \`${commandLedger.sourceSha}\``,
+  `- Source tree: \`${commandLedger.sourceTree}\``,
   "- Authoritative full matrix: `docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md`",
   "- Machine-readable source: `reports/audit/vh-v0.2-codex-requirement-matrix.json`",
   "- Reviewed proof catalog: `reports/audit/requirement-proofs.json`",
@@ -685,11 +704,13 @@ const winnerLines = [
   "No provider was contacted, no organic post was published, no advertising spend occurred, and no customer was charged. Live provider rows are terminal as implemented contracts with explicit live verification pending, not as live passes.",
   "",
 ];
-writeFileSync(
-  resolve("docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md"),
-  `${winnerLines.join("\n").trimEnd()}\n`,
-  "utf8",
-);
+writeFileSync(winnerMarkdownPath, `${winnerLines.join("\n").trimEnd()}\n`, "utf8");
+
+assertFinalEvidenceSource({
+  root: repositoryRoot,
+  expected: commandLedger,
+  allowedPaths: allowedEvidencePaths,
+});
 
 console.log(
   `OK rendered ${rows.length} terminal requirements (${JSON.stringify(counts)}); Winner Loop ${JSON.stringify(winnerCounts)}`,

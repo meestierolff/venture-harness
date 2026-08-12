@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
@@ -230,9 +231,42 @@ async function invokeRootCli(input: {
     }
   }
   if (exitCode !== 0) {
+    let workflowDiagnostic: string | null = null;
+    try {
+      const response = record(value, "failed founder CLI response");
+      const childRoot = stringValue(response.childRoot, "failed founder child root");
+      const runId = stringValue(response.runId, "failed founder run id");
+      const state = new FileWorkflowStore({ rootDir: resolve(childRoot, ".venture/runs") }).load(
+        runId,
+      );
+      workflowDiagnostic = Object.entries(state.nodes)
+        .filter(([, node]) => node.state !== "succeeded")
+        .map(
+          ([id, node]) =>
+            `${id}=${node.state}${node.error ? ` (${node.error.code}: ${node.error.message})` : ""}`,
+        )
+        .join(", ");
+      const failedEvidence = Object.entries(state.nodes)
+        .filter(([, node]) => node.error)
+        .flatMap(([id, node]) => {
+          try {
+            const evidenceReference =
+              node.evidenceArtifact ?? `reports/launch/${runId}/product/${id}.json`;
+            const evidence = readFileSync(resolve(childRoot, evidenceReference), "utf8");
+            return [`${id} evidence: ${evidence.slice(-4_000)}`];
+          } catch {
+            return [];
+          }
+        })
+        .join("\n");
+      if (failedEvidence) workflowDiagnostic += `\n${failedEvidence}`;
+    } catch {
+      // The original CLI output remains authoritative when no workflow state exists.
+    }
     throw new Error(
       [
         `root vh ${input.args.join(" ")} exited ${exitCode}`,
+        workflowDiagnostic ? `Workflow diagnostic: ${workflowDiagnostic}` : null,
         ...stderr,
         stdout.length > 0 ? stdout.join("\n") : null,
       ]
@@ -268,6 +302,7 @@ async function credentialBrokerFor(connection: FounderStackConnection): Promise<
       expiresAt: selected.expiresAt,
       testedAt: NOW.toISOString(),
       testStatus: "passed",
+      ...(provider === "stripe" ? { providerMode: "test" as const } : {}),
       value,
     });
   }
@@ -325,6 +360,7 @@ function providerFactoriesFor(
     rootDir: context.rootDir,
     brief: context.brief,
     definition: context.definition,
+    ...(context.launchContract ? { launchContract: context.launchContract } : {}),
     lifecycleStore: new FileProviderLifecycleStore(
       resolve(context.rootDir, ".venture/provider-lifecycle.json"),
     ),
@@ -351,7 +387,10 @@ export async function runSyntheticFounderGoldenPath(
 
   const connection = parseFounderStackConnection(JSON.parse(readFileSync(STACK_FIXTURE, "utf8")));
   const { broker, fixtureSecrets } = await credentialBrokerFor(connection);
-  const childRoot = resolve(rootDir, CHILD_OUTPUT);
+  // Production containment resolves the configured ventures root through the
+  // filesystem before returning a child path. Mirror that contract here so
+  // macOS' /var -> /private/var alias cannot create a false Golden Path drift.
+  const childRoot = resolve(realpathSync(rootDir), CHILD_OUTPUT);
   const providerFixtureRoot = resolve(rootDir, ".fixture-provider-state");
   const transportFixture = new FounderGoldenPathOfficialTransportFixture({
     fixtureRoot: providerFixtureRoot,

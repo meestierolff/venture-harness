@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import {
   authorizationCheckpointEvidenceSchema,
@@ -15,6 +15,8 @@ export interface RepositoryCheckpointEvidenceOptions {
   redactor?: Redactor;
   maxBytes?: number;
 }
+
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
 
 function inside(rootDir: string, artifact: string): string {
   const root = realpathSync(rootDir);
@@ -49,22 +51,45 @@ export function loadRepositoryCheckpointEvidence(
   if (!reference.startsWith(prefix) || !reference.endsWith(".json")) {
     throw new Error(`Checkpoint evidence must be a JSON file under ${prefix}.`);
   }
-  const lexicalTarget = resolve(options.rootDir, reference);
-  if (!existsSync(lexicalTarget)) {
-    throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
+  let target: string;
+  try {
+    target = inside(options.rootDir, reference);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
+    }
+    throw error;
   }
-  const target = inside(options.rootDir, reference);
-  const stat = lstatSync(target);
+
   const maxBytes = options.maxBytes ?? 1_000_000;
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
+  let descriptor: number;
+  try {
+    descriptor = openSync(target, constants.O_RDONLY | NO_FOLLOW);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
+    }
+    if (code === "ELOOP") {
+      throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
+    }
+    throw error;
   }
-  if (stat.size === 0 || stat.size > maxBytes) {
-    throw new Error(
-      `Checkpoint evidence size must be between 1 and ${maxBytes} bytes: ${reference}.`,
-    );
+  let raw: string;
+  try {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) {
+      throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
+    }
+    if (stat.size === 0 || stat.size > maxBytes) {
+      throw new Error(
+        `Checkpoint evidence size must be between 1 and ${maxBytes} bytes: ${reference}.`,
+      );
+    }
+    raw = readFileSync(descriptor, "utf8");
+  } finally {
+    closeSync(descriptor);
   }
-  const raw = readFileSync(target, "utf8");
   const redactor = options.redactor ?? new Redactor();
   if (redactor.redactText(raw) !== raw) {
     throw new Error("Checkpoint evidence contains registered credential material.");

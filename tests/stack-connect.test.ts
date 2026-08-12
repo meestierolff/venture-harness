@@ -13,6 +13,13 @@ import {
 const sessions: DetectedSession[] = [
   { provider: "github", authenticated: true, account: "founder" },
   { provider: "vercel", authenticated: true, account: "founder-team" },
+  {
+    provider: "stripe",
+    installed: true,
+    authenticated: true,
+    account: "acct_test_founder",
+    mode: "test",
+  },
 ];
 
 function collected(overrides: Partial<Record<string, CollectedRole>> = {}): CollectedRole[] {
@@ -124,6 +131,18 @@ describe("founder stack connect planning", () => {
     const github = blockingActions(plan).find((action) => action.provider === "github");
     expect(github?.command).toBe("gh auth login");
     expect(plan.resolved).not.toContain("source.repository");
+  });
+
+  it("allows the restricted test API-key fallback when Stripe CLI is unavailable", () => {
+    const plan = planFounderStackConnection({
+      profileId: "founder-default",
+      ownerOrganizationId: "founder-org",
+      sessions: sessions.filter((session) => session.provider !== "stripe"),
+      collected: collected(),
+    });
+
+    expect(blockingActions(plan).find((action) => action.provider === "stripe")).toBeUndefined();
+    expect(plan.resolved).toContain("commerce.web");
   });
 
   it("blocks the launch when a required identifier is missing and names it exactly", () => {

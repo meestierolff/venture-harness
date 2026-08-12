@@ -90,7 +90,7 @@ describe("root platform command adapters", () => {
     );
     const status = await runtime.execute("status", { providerId: "github" }, handlerContext);
 
-    expect(login).toMatchObject({ status: "authenticated", effect: "applied" });
+    expect(login).toMatchObject({ status: "credential_stored_not_tested", effect: "applied" });
     expect(tested).toMatchObject({ status: "test_completed", effect: "applied" });
     expect(status).toMatchObject({ status: "available", effect: "none" });
     expect(JSON.stringify({ login, tested, status })).not.toContain("fixture-secret-never-return");

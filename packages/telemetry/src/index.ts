@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { TenantRef } from "@venture-harness/core";
-import { stableJson, tenantKey, type JsonObject } from "@venture-harness/core";
+import { initializeSqliteWal, stableJson, tenantKey, type JsonObject } from "@venture-harness/core";
 
 export interface MeteringRecord {
   /** Deterministic key for replay-safe command completion metering. */
@@ -44,6 +44,7 @@ export class InMemoryMeteringSink implements MeteringSink {
 }
 
 interface SqliteStatement {
+  get(...values: unknown[]): unknown;
   all(...values: unknown[]): unknown[];
   run(...values: unknown[]): unknown;
 }
@@ -79,8 +80,7 @@ export class SqliteMeteringSink implements MeteringSink {
     }
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#database = sqliteDatabase(path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    this.#database.exec("PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "durable metering sink" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS command_metering (
         record_id INTEGER PRIMARY KEY AUTOINCREMENT,

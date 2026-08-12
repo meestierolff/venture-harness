@@ -17,6 +17,7 @@ import {
   createOfficialProviderContext,
   createProviderWorkflowBindings,
   FileProviderIdempotencyLedger,
+  inspectProviderPlanCheckpoint,
 } from "@/lib/runtime";
 import {
   FileWorkflowStore,
@@ -612,6 +613,7 @@ describe("provider workflow bindings", () => {
       resourceRefs: [
         "repository=example/runtime-fixture",
         "url=https://github.com/example/runtime-fixture",
+        "visibility=private",
       ],
     });
     expect(transport.calls).toHaveLength(1);
@@ -1084,6 +1086,30 @@ describe("provider workflow bindings", () => {
       code: "provider_pending",
     });
     expect(checkpoint).toBeDefined();
+    expect(inspectProviderPlanCheckpoint(checkpoint)).toMatchObject({
+      schemaVersion: 2,
+      kind: "provider_plan",
+      provider: "github",
+      snapshot: {
+        plan: {
+          provider: "github",
+          environment: "preview",
+          dryRun: false,
+          operations: [
+            expect.objectContaining({
+              provider: "github",
+              capability: "repository",
+              action: "repository.create_from_source",
+            }),
+          ],
+        },
+      },
+    });
+    const invalidCheckpoint = structuredClone(checkpoint!) as Record<string, JsonValue>;
+    const invalidSnapshot = invalidCheckpoint.snapshot as Record<string, JsonValue>;
+    const invalidPlan = invalidSnapshot.plan as Record<string, JsonValue>;
+    invalidPlan.id = "plan.github.tampered";
+    expect(inspectProviderPlanCheckpoint(invalidCheckpoint)).toBeNull();
     currentEnvelope = issueAuthorizationEnvelope({
       runId,
       profile: "standard-launch",

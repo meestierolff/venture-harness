@@ -5,8 +5,10 @@ import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   VH_BUILD_PROVENANCE_PATH,
+  assertReviewedCoreSourceState,
   buildVhExecutable,
   createVhBuildProvenance,
+  isAllowedPostSourceArtifact,
   loadVhBuildProvenance,
   verifyVhExecutableBuildParity,
   writeVhBuildProvenance,
@@ -109,6 +111,62 @@ describe("vh generated executable parity", () => {
     await expect(verifyVhExecutableBuildParity({ rootDirectory: root })).rejects.toThrow(
       /scripts\/vh-bundle\.ts.*Commit the source changes/,
     );
+  });
+
+  it("rejects post-review changes to the requirement-proof control input", () => {
+    const { root, sourceCommit } = createCoreFixture();
+    mkdirSync(resolve(root, "reports/audit"), { recursive: true });
+    writeFileSync(
+      resolve(root, "reports/audit/requirement-proofs.json"),
+      '{"proofs":[{"status":"VERIFIED_RUNTIME"}]}\n',
+    );
+
+    expect(() => assertReviewedCoreSourceState({ rootDirectory: root, sourceCommit })).toThrow(
+      /reports\/audit\/requirement-proofs\.json.*Commit the source changes/,
+    );
+  });
+
+  it("allows only well-formed logs scoped to the reviewed or artifact commit", () => {
+    const reviewed = "a".repeat(40);
+    const artifact = "b".repeat(40);
+    expect(
+      isAllowedPostSourceArtifact(
+        `reports/audit/command-logs/${artifact}/final-verify.attempt-2.log`,
+        [reviewed, artifact],
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedPostSourceArtifact("reports/audit/command-logs/legacy.log", [reviewed, artifact]),
+    ).toBe(false);
+    expect(
+      isAllowedPostSourceArtifact(
+        `reports/audit/command-logs/${"c".repeat(40)}/final-verify.attempt-2.log`,
+        [reviewed, artifact],
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedPostSourceArtifact(
+        `reports/audit/command-logs/${artifact}/../requirement-proofs.json`,
+        [reviewed, artifact],
+      ),
+    ).toBe(false);
+  });
+
+  it("allows generated final reports but keeps their reviewed controls source-bound", () => {
+    const sourceCommit = "a".repeat(40);
+    for (const path of [
+      "reports/audit/founder-alpha-evidence.json",
+      "reports/audit/github-readback.json",
+    ]) {
+      expect(isAllowedPostSourceArtifact(path, [sourceCommit])).toBe(true);
+    }
+    for (const path of [
+      "reports/audit/founder-alpha-requirements.json",
+      "reports/audit/founder-alpha-evidence.control.json",
+      "reports/audit/github-readback-policy.json",
+    ]) {
+      expect(isAllowedPostSourceArtifact(path, [sourceCommit])).toBe(false);
+    }
   });
 
   it("rejects a binary that no longer matches its immutable sidecar hash", async () => {

@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { JsonObject, TenantRef } from "@venture-harness/core";
-import { stableJson, tenantKey } from "@venture-harness/core";
+import { initializeSqliteWal, stableJson, tenantKey } from "@venture-harness/core";
 
 export interface AuditInput {
   /** Deterministic key for replay-safe completion artifacts. */
@@ -116,8 +116,7 @@ export class SqliteAuditChain implements AuditSink {
     }
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#database = sqliteDatabase(path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    this.#database.exec("PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "durable audit sink" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS command_audit (
         tenant_key TEXT NOT NULL,

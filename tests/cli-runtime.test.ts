@@ -106,6 +106,260 @@ describe("vh CLI", () => {
     expect(JSON.parse(stdout[0])).toEqual({ mode: "dry-run", effects: [], manualActions: [] });
   });
 
+  it("persists the credential-free Stack draft before reporting doctor actions", async () => {
+    const { io, stdout, store } = context();
+    let received: unknown;
+
+    const result = await runCli(["stack", "connect", "founder-default", "--json"], {
+      io,
+      store,
+      stackSessions: [
+        {
+          provider: "github",
+          installed: true,
+          authenticated: true,
+          account: "fixture-founder",
+        },
+        {
+          provider: "vercel",
+          installed: true,
+          authenticated: true,
+          account: "fixture-team",
+        },
+        {
+          provider: "stripe",
+          installed: true,
+          authenticated: true,
+          account: "acct_fixture_test",
+          mode: "test",
+        },
+      ],
+      services: {
+        stack: (request) => {
+          received = request;
+          return {
+            schemaVersion: 1,
+            status: "attention_required",
+            launchReady: false,
+            unresolvedActions: [
+              {
+                role: "database.postgres",
+                providerId: "neon",
+                why: "neon is unconfigured.",
+                command: "vh auth login neon --ref cred://neon/founder-default",
+                blocksLaunch: true,
+              },
+            ],
+          };
+        },
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(received).toMatchObject({
+      action: "connect",
+      profileId: "founder-default",
+      credentialWrites: [],
+      updatedRoles: ["source.repository", "hosting.web"],
+      replaceOptionalRoles: false,
+      updateWritableCredentialBackend: false,
+      connection: {
+        ownerOrganizationId: "fixture-founder",
+        selectedOptionalRoles: [
+          "email.transactional",
+          "growth.google",
+          "search.bing",
+          "dns.records",
+        ],
+        inspectedCliSessions: {
+          github: { accountId: "fixture-founder", authenticated: true },
+          vercel: { accountId: "fixture-team", authenticated: true },
+          stripe: { accountId: "acct_fixture_test", authenticated: true, mode: "test" },
+        },
+        roles: {
+          "source.repository": { credentialRef: "cred://github/founder-default" },
+          "hosting.web": { credentialRef: "cred://vercel/founder-default" },
+          "commerce.web": { verification: { status: "unverified" } },
+        },
+      },
+    });
+    expect(JSON.parse(stdout[0])).toMatchObject({
+      command: "stack.connect",
+      saved: true,
+      status: "attention_required",
+      launchReady: false,
+      unresolvedActions: [
+        expect.objectContaining({
+          role: "database.postgres",
+          command: "vh auth login neon --ref cred://neon/founder-default",
+        }),
+      ],
+    });
+  });
+
+  it("collects guided Stack secrets only through deferred hidden broker writes", async () => {
+    const { io, stdout, store } = context();
+    const visible = ["no", "no", "no", "fixture-neon-org", "aws-eu-central-1"];
+    const hidden = ["fixture-neon-hidden", "fixture-stripe-hidden"];
+    const stored: Array<{ provider: string; value: string }> = [];
+    let received: unknown;
+
+    const result = await runCli(
+      ["stack", "connect", "founder-default", "--credential-backend", "macos_keychain"],
+      {
+        io,
+        store,
+        stackSessions: [
+          { provider: "github", installed: true, authenticated: true, account: "fixture-founder" },
+          { provider: "vercel", installed: true, authenticated: true, account: "fixture-team" },
+          {
+            provider: "stripe",
+            installed: true,
+            authenticated: true,
+            account: "acct_fixture_test",
+            mode: "test",
+          },
+        ],
+        stackPrompt: {
+          isTty: true,
+          write: () => undefined,
+          readVisible: async () => visible.shift() ?? "",
+          readCredential: async () => hidden.shift() ?? "",
+        },
+        services: {
+          stack: async (request) => {
+            received = request;
+            for (const pending of request.credentialWrites ?? []) {
+              stored.push({ provider: pending.provider, value: await pending.readValue() });
+            }
+            return {
+              schemaVersion: 1,
+              status: "attention_required",
+              launchReady: false,
+              unresolvedActions: [],
+            };
+          },
+        },
+      },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(received).toMatchObject({
+      updatedRoles: ["source.repository", "hosting.web", "database.postgres", "commerce.web"],
+      replaceOptionalRoles: true,
+      connection: { selectedOptionalRoles: ["dns.records"] },
+      credentialWrites: [
+        expect.objectContaining({ provider: "neon", backend: "macos_keychain" }),
+        expect.objectContaining({ provider: "stripe", backend: "macos_keychain" }),
+      ],
+    });
+    expect(stored).toEqual([
+      { provider: "neon", value: "fixture-neon-hidden" },
+      { provider: "stripe", value: "fixture-stripe-hidden" },
+    ]);
+    expect(JSON.stringify({ received, stdout })).not.toContain("fixture-neon-hidden");
+  });
+
+  it("keeps non-interactive auth credential-free and rejects credential-shaped argv", async () => {
+    const { io, stdout, stderr, store } = context();
+    let received: unknown;
+    const result = await runCli(
+      [
+        "auth",
+        "login",
+        "stripe",
+        "--backend",
+        "onepassword",
+        "--ref",
+        "cred://stripe/founder-default",
+        "--json",
+      ],
+      {
+        io,
+        store,
+        stackPrompt: {
+          isTty: true,
+          write: () => undefined,
+          readVisible: async () => {
+            throw new Error("visible prompt must not run");
+          },
+          readCredential: async () => {
+            throw new Error("hidden prompt must not run");
+          },
+        },
+        services: {
+          auth: (request) => {
+            received = request;
+            return { status: "hidden_input_required", valuesExposed: false };
+          },
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(received).toMatchObject({
+      action: "login",
+      provider: "stripe",
+      backend: "onepassword",
+      kind: "restricted_api_key",
+    });
+    expect(received).not.toHaveProperty("readValue");
+    expect(JSON.parse(stdout[0])).toMatchObject({
+      status: "hidden_input_required",
+      valuesExposed: false,
+    });
+
+    const refused = await runCli(["auth", "login", "stripe", "sk_test_fixture_argv"], {
+      io,
+      store,
+      services: { auth: () => ({}) },
+    });
+    expect(refused.exitCode).toBe(2);
+    expect(stderr.at(-1)).toContain("never accepts a credential value as an argument");
+  });
+
+  it("returns nonzero when a remote credential test does not pass", async () => {
+    const { io, stdout, store } = context();
+    const failed = await runCli(["auth", "test", "stripe", "--json"], {
+      io,
+      store,
+      services: {
+        auth: () => ({
+          tested: [
+            {
+              ref: "cred://stripe/founder-default",
+              mode: "remote_tester",
+              result: { ok: false, message: "stripe credential did not prove test mode" },
+            },
+          ],
+          allPassed: false,
+          valuesExposed: false,
+        }),
+      },
+    });
+
+    expect(failed.exitCode).toBe(1);
+    expect(JSON.parse(stdout[0])).toMatchObject({ allPassed: false, valuesExposed: false });
+
+    const passed = await runCli(["auth", "test", "stripe", "--json"], {
+      io,
+      store,
+      services: {
+        auth: () => ({
+          tested: [
+            {
+              ref: "cred://stripe/founder-default",
+              mode: "remote_tester",
+              result: { ok: true, providerMode: "test" },
+            },
+          ],
+          allPassed: true,
+          valuesExposed: false,
+        }),
+      },
+    });
+    expect(passed.exitCode).toBe(0);
+  });
+
   it("reads durable status and explains a node without loading integrations", async () => {
     const { io, stdout, store } = context();
     const executor = new WorkflowExecutor({ store });

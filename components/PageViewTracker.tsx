@@ -43,9 +43,6 @@ export function PageViewTracker() {
       track("route_change", { from_route: previous.current, to_route: pathname });
     }
     track("page_view", { route: pathname });
-    if (pathname === "/pricing") {
-      track("pricing_page_view", { route: pathname, referrer_domain: referrerDomain() });
-    }
     previous.current = pathname;
   }, [pathname]);
 

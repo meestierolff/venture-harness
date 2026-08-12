@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -186,6 +187,10 @@ describe("Codex CLI build-agent host", () => {
           JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
           JSON.stringify({
             type: "item.completed",
+            item: { type: "command_execution", command: "pnpm test", exit_code: 0 },
+          }),
+          JSON.stringify({
+            type: "item.completed",
             item: { type: "agent_message", text: JSON.stringify(finalResult) },
           }),
           JSON.stringify({
@@ -196,7 +201,11 @@ describe("Codex CLI build-agent host", () => {
         stderr: "",
       },
     ]);
-    const host = new CodexCliBuildAgentHost({ rootDir: root, runner });
+    const host = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner,
+      model: "gpt-test-fixed",
+    });
 
     const result = await host.run({
       runId: "launch-one",
@@ -211,7 +220,13 @@ describe("Codex CLI build-agent host", () => {
       changedFiles: ["app/page.tsx"],
       completion: { outcome: "changed" },
       eventTypes: ["item.completed", "thread.started", "turn.completed"],
-      usage: { inputTokens: 12, cachedInputTokens: 3, outputTokens: 7 },
+      usage: {
+        inputTokens: 12,
+        cachedInputTokens: 3,
+        outputTokens: 7,
+        toolCalls: 1,
+        failedCommands: 0,
+      },
     });
     expect(runner.calls[0]).toMatchObject({ command: "codex", args: ["--version"], cwd: root });
     expect(runner.calls[1]).toMatchObject({
@@ -228,6 +243,8 @@ describe("Codex CLI build-agent host", () => {
         "--ephemeral",
         "--ignore-user-config",
         "--json",
+        "--model",
+        "gpt-test-fixed",
         "-C",
         root,
         "-",
@@ -410,17 +427,48 @@ describe("default launch product bindings", () => {
         summary: `Completed ${request.nodeId} without persisting ${secret}.`,
         limitations: [],
         eventTypes: ["item.completed", "turn.completed"],
+        usage: {
+          inputTokens: 120,
+          cachedInputTokens: 20,
+          outputTokens: 30,
+          toolCalls: 4,
+          failedCommands: 0,
+        },
       };
       if (request.nodeId === "prepare-repository") {
         writeFileSync(join(root, "app/scaffold.tsx"), "export const scaffold = true;\n");
+        writeFileSync(
+          join(root, "docs/brand/DESIGN.md"),
+          "# Design\n\nDistinct responsive thesis and accessibility constraints.\n",
+        );
+        writeFileSync(join(root, "app/globals.css"), ":root { --accent: #123456; }\n");
+        writeFileSync(
+          join(root, "app/page.tsx"),
+          "export default function Page() { return <main>Core journey</main>; }\n",
+        );
+        writeFileSync(
+          join(root, "tests/core-journey.test.ts"),
+          "// core journey assertions passed\n",
+        );
+        writeFileSync(
+          join(root, "lib/analytics/event-instrumentation.ts"),
+          "export const eventPack = ['core_journey_completed'];\n",
+        );
         return {
           ...common,
-          changedFiles: ["app/scaffold.tsx"],
+          changedFiles: [
+            "app/scaffold.tsx",
+            "docs/brand/DESIGN.md",
+            "app/globals.css",
+            "app/page.tsx",
+            "tests/core-journey.test.ts",
+            "lib/analytics/event-instrumentation.ts",
+          ],
           checks: [
             {
-              command: "pnpm test tests/scaffold.test.ts",
+              command: "pnpm test tests/core-journey.test.ts",
               status: "passed",
-              evidence: "scaffold contract passed",
+              evidence: "combined product journey passed",
             },
           ],
           completion: {
@@ -428,8 +476,43 @@ describe("default launch product bindings", () => {
             artifacts: [
               { path: "app/scaffold.tsx", role: "repository_scaffold" },
               { path: "harness.lock", role: "managed_manifest" },
+              { path: "docs/brand/DESIGN.md", role: "design_record" },
+              { path: "app/globals.css", role: "design_implementation" },
+              { path: "app/page.tsx", role: "core_journey" },
+              { path: "tests/core-journey.test.ts", role: "affected_test" },
+              { path: "config/analytics.yaml", role: "event_contract" },
+              {
+                path: "lib/analytics/event-instrumentation.ts",
+                role: "event_instrumentation",
+              },
             ],
-            validator: { checkCommand: "pnpm test tests/scaffold.test.ts" },
+            validator: { checkCommand: "pnpm test tests/core-journey.test.ts" },
+          },
+        };
+      }
+      if (request.nodeId === "review-product") {
+        return {
+          ...common,
+          changedFiles: [],
+          checks: [
+            {
+              command: "pnpm test tests/core-journey.test.ts",
+              status: "passed",
+              evidence: "independent journey and responsive review passed",
+            },
+          ],
+          completion: {
+            outcome: "already_compliant",
+            artifacts: [
+              { path: "app/globals.css", role: "design_implementation" },
+              { path: "app/page.tsx", role: "core_journey" },
+              { path: "tests/core-journey.test.ts", role: "affected_test" },
+              {
+                path: "lib/analytics/event-instrumentation.ts",
+                role: "event_instrumentation",
+              },
+            ],
+            validator: { checkCommand: "pnpm test tests/core-journey.test.ts" },
           },
         };
       }
@@ -539,34 +622,65 @@ describe("default launch product bindings", () => {
 
     const agentHandlers = [
       ["prepare-repository", "launch.prepareRepository"],
-      ["design-direction", "launch.designDirection"],
-      ["build-core-journey", "launch.buildCoreJourney"],
-      ["configure-event-pack", "launch.configureEventPack"],
+      ["review-product", "launch.reviewProduct"],
     ] as const;
+    const agentResults = [];
     for (const [nodeId, handler] of agentHandlers) {
-      const result = await bindings.handlers![handler](
-        handlerContext("launch-product", nodeId, handler),
-      );
+      const context = handlerContext("launch-product", nodeId, handler);
+      context.node.cost = { amount: 1, unit: "tasks" };
+      context.node.budgetCategory = "launch.build_agent_tasks";
+      const result = await bindings.handlers![handler](context);
+      agentResults.push(result);
       expect(result.effectVerified).toBe(true);
       expect(JSON.stringify(result.output)).not.toContain(secret);
       expect(result.evidenceArtifact).toBe(`reports/launch/launch-product/product/${nodeId}.json`);
     }
 
+    expect(agentResults[0]?.costs).toEqual([
+      expect.objectContaining({
+        kind: "model",
+        category: "launch.build_agent_tasks",
+        amount: 1,
+        unit: "tasks",
+        budgeted: true,
+      }),
+      expect.objectContaining({
+        kind: "model",
+        category: "launch.observed_model_tokens",
+        amount: 150,
+        unit: "tokens",
+        budgeted: false,
+        inputTokens: 120,
+        outputTokens: 30,
+        tool: "fake_build_agent",
+        metadata: expect.objectContaining({
+          cachedInputTokens: 20,
+          contextFileCount: expect.any(Number),
+          contextEstimatedTokens: expect.any(Number),
+          contextTokenCap: 32_000,
+          contextSelectionTruncated: false,
+          toolCalls: 4,
+          failedCommands: 0,
+        }),
+      }),
+    ]);
+
     await bindings.handlers!["launch.verifyLocal"](
       handlerContext("launch-product", "verify-local", "launch.verifyLocal", "none"),
     );
-    await bindings.handlers!["launch.verifyMvp"](
-      handlerContext("launch-product", "verify-launch", "launch.verifyMvp", "none"),
-    );
+    await expect(
+      bindings.handlers!["launch.verifyMvp"](
+        handlerContext("launch-product", "verify-launch", "launch.verifyMvp", "none"),
+      ),
+    ).rejects.toMatchObject({ code: "PRIMARY_JOURNEY_CONTRACT_MISSING" });
 
-    expect(host.requests).toHaveLength(4);
+    expect(host.requests).toHaveLength(2);
     expect(qualityRunner.calls.map(({ command, args }) => [command, ...args])).toEqual([
       ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
       ["pnpm", "verify:fast"],
-      ["pnpm", "verify:mvp"],
     ]);
     const evidence = readFileSync(
-      join(root, "reports/launch/launch-product/product/build-core-journey.json"),
+      join(root, "reports/launch/launch-product/product/review-product.json"),
       "utf8",
     );
     expect(evidence).not.toContain(secret);
@@ -575,25 +689,14 @@ describe("default launch product bindings", () => {
       host: "fake_build_agent",
       rawPromptPersisted: false,
       rawJsonlPersisted: false,
-      verifiedChangedFiles: [
-        {
-          path: "app/page.tsx",
-          beforeSha256: expect.any(String),
-          afterSha256: expect.any(String),
-        },
-        {
-          path: "tests/core-journey.test.ts",
-          beforeSha256: expect.any(String),
-          afterSha256: expect.any(String),
-        },
-      ],
+      verifiedChangedFiles: [],
       completionValidator: {
         checkCommand: "pnpm test tests/core-journey.test.ts",
-        evidence: "core journey test passed",
+        evidence: "independent journey and responsive review passed",
       },
     });
     expect(existsSync(join(root, "reports/launch/launch-product/product/verify-launch.json"))).toBe(
-      true,
+      false,
     );
     expect(
       JSON.parse(
@@ -661,6 +764,55 @@ describe("default launch product bindings", () => {
         ),
       ),
     ).toMatchObject({ exitCode: 1, frozenLockfile: true });
+  });
+
+  it("refuses symlinked dependency inputs before invoking pnpm", async () => {
+    const root = temporaryRoot();
+    const packageTarget = join(root, "package-target.json");
+    writeFileSync(packageTarget, "{}\n");
+    symlinkSync(packageTarget, join(root, "package.json"));
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    const runner = new FakeRunner([]);
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+
+    await expect(
+      bindings.handlers!["launch.installDependencies"](
+        handlerContext(
+          "launch-symlinked-dependency",
+          "install-dependencies",
+          "launch.installDependencies",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "DEPENDENCY_INSTALL_FAILED" });
+    expect(runner.calls).toHaveLength(0);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(
+            root,
+            "reports/launch/launch-symlinked-dependency/product/install-dependencies.json",
+          ),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({
+      exitCode: null,
+      invocationError: expect.stringMatching(/package\.json.*regular file/),
+    });
   });
 
   it("reconciles a failed dependency attempt and resumes the same run without starting descendants early", async () => {
@@ -964,7 +1116,7 @@ describe("default launch product bindings", () => {
     expect(calls).toBe(2);
   });
 
-  it("runs read-only browser checks against the exact URL from production read-back", async () => {
+  it("refuses generic browser smoke as production journey proof without a Launch Contract", async () => {
     const root = temporaryRoot();
     const runner = new FakeRunner([{ exitCode: 0, stdout: "2 passed\n", stderr: "" }]);
     const bindings = createLaunchProductBindings({
@@ -998,25 +1150,10 @@ describe("default launch product bindings", () => {
       },
     };
 
-    const result = await bindings.handlers!["launch.verifyProduction"](context);
-
-    expect(result.output).toMatchObject({
-      deploymentUrl: "https://venture-example.vercel.app",
-      verified: true,
+    await expect(bindings.handlers!["launch.verifyProduction"](context)).rejects.toMatchObject({
+      code: "PRIMARY_JOURNEY_CONTRACT_MISSING",
     });
-    expect(runner.calls).toEqual([
-      expect.objectContaining({
-        command: "pnpm",
-        args: ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts"],
-        env: {
-          PLAYWRIGHT_BASE_URL: "https://venture-example.vercel.app",
-          EXPECTED_PUBLIC_ORIGIN: "https://example.com",
-        },
-      }),
-    ]);
-    expect(result.evidenceArtifact).toBe(
-      "reports/launch/launch-production-check/product/verify-production.json",
-    );
+    expect(runner.calls).toEqual([]);
   });
 
   it("rejects a completed product node with no typed artifacts, changes, or direct check", async () => {

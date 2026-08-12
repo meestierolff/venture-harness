@@ -20,6 +20,12 @@ function publicReference(input: RegisterCredentialInput): CredentialReference {
       "invalid_reference",
     );
   }
+  if (input.providerMode !== undefined && input.testStatus !== "passed") {
+    throw new CredentialError(
+      `Credential provider mode requires passed remote-test evidence: ${input.ref}`,
+      "invalid_reference",
+    );
+  }
   for (const [field, value] of [
     ["testedAt", input.testedAt],
     ["revokedAt", input.revokedAt],
@@ -42,6 +48,7 @@ function publicReference(input: RegisterCredentialInput): CredentialReference {
     expiresAt: input.expiresAt,
     testedAt: input.testedAt,
     testStatus: input.testStatus,
+    providerMode: input.providerMode,
     revokedAt: input.revokedAt,
   };
 }
@@ -164,6 +171,7 @@ export class CredentialBroker {
       ...current,
       testedAt,
       testStatus: result.ok ? "passed" : "failed",
+      providerMode: result.ok ? result.providerMode : undefined,
       accountId: result.ok ? (result.accountId ?? current.accountId) : current.accountId,
       scopes: result.ok && result.scopes ? [...result.scopes] : current.scopes,
       expiresAt: result.ok ? (result.expiresAt ?? current.expiresAt) : current.expiresAt,

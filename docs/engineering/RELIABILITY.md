@@ -43,10 +43,13 @@ Live checks that cannot run are skips with a reason and exact proof required,
 not silent passes.
 
 The local web gate uses `pnpm test:e2e` against a production build in desktop
-and mobile Chromium. It covers the public/pricing journey, strict consent,
-visible private-write failure, semantic landmarks, keyboard focus, horizontal
-overflow, and attached review screenshots. It does not replace a child
-venture's live multi-browser or assistive-technology review.
+and mobile Chromium. Its wrapper reserves an ephemeral loopback port, passes
+the resulting origin explicitly to Playwright, and awaits bounded server
+shutdown so parallel or repeated runs do not inherit a fixed-port collision.
+It covers the public journey, strict consent, visible private-write failure,
+semantic landmarks, keyboard focus, horizontal overflow, and attached review
+screenshots. It does not replace a child venture's live multi-browser or
+assistive-technology review.
 
 After an authorized production deployment, `verify-production` extracts one
 safe HTTPS origin from the provider's verified read-back output and runs the

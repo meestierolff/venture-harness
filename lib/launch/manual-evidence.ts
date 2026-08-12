@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -24,6 +24,8 @@ const propagationCheckSchema = z
     status: z.literal("matched"),
   })
   .strict();
+
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
 
 export const manualDnsOutputSchema = z
   .object({
@@ -243,23 +245,44 @@ export function createRepositoryInterruptEvidenceVerifier(options: {
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
-    if (!existsSync(path))
-      return { ok: false, message: `Evidence file does not exist: ${expected}.` };
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink() || !stat.isFile()) {
-      return { ok: false, message: `Evidence must be a regular non-symlink file: ${expected}.` };
+    let raw: string;
+    let descriptor: number;
+    try {
+      descriptor = openSync(path, constants.O_RDONLY | NO_FOLLOW);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        return { ok: false, message: `Evidence file does not exist: ${expected}.` };
+      }
+      if (code === "ELOOP") {
+        return {
+          ok: false,
+          message: `Evidence must be a regular non-symlink file: ${expected}.`,
+        };
+      }
+      throw error;
     }
-    if (stat.size === 0 || stat.size > maxBytes) {
-      return {
-        ok: false,
-        message: `Evidence size must be between 1 and ${maxBytes} bytes: ${expected}.`,
-      };
+    try {
+      const stat = fstatSync(descriptor);
+      if (!stat.isFile()) {
+        return {
+          ok: false,
+          message: `Evidence must be a regular non-symlink file: ${expected}.`,
+        };
+      }
+      if (stat.size === 0 || stat.size > maxBytes) {
+        return {
+          ok: false,
+          message: `Evidence size must be between 1 and ${maxBytes} bytes: ${expected}.`,
+        };
+      }
+      raw = readFileSync(descriptor, "utf8");
+    } finally {
+      closeSync(descriptor);
     }
 
-    let raw: string;
     let artifact: z.infer<typeof manualEvidenceArtifactSchema>;
     try {
-      raw = readFileSync(path, "utf8");
       artifact = manualEvidenceArtifactSchema.parse(JSON.parse(raw));
     } catch (error) {
       return {

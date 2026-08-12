@@ -2,7 +2,7 @@
 
 - Status: FOUNDER ALPHA — first real dogfood launch pending
 - Owner: harness maintainers
-- Last updated: 2026-08-09
+- Last updated: 2026-08-12
 
 ## Purpose
 
@@ -21,10 +21,27 @@ web rail.
 4. Keep the definitive Exception Desk Golden Path on the real CLI, child graph,
    provider SDK/transports, migrations, seed runtime, source publication path,
    primary journey, report, and Core upgrade.
-5. Run the frozen release gate, repair P0/P1/P2 failures, push the branch, and
+5. Repeat the current-tree Golden Path after source settles, then run the frozen
+   release gate and repair every implementable P0/P1/P2 failure.
+6. Push the branch and
    leave a draft PR unmerged.
-6. Publish no stable tag until one narrow real founder venture reaches a
+7. Publish no stable tag until one narrow real founder venture reaches a
    provider-backed production URL with sanitized read-back evidence.
+
+## Current local checkpoint
+
+- The typed Launch Contract, bounded sharpener, capability-scoped context
+  manifest and conservative local Launch Receipt are implemented and covered by
+  local tests. This is `PROTOTYPE` evidence only.
+- The focused ordinary web seed passed the clean closure twice in separately
+  materialized children: offline frozen install, typecheck, production build,
+  zero-retry Chromium journey and child tests, with no model or provider call.
+- One isolated current-tree run of all three Golden Path slices passed outside
+  the loopback-restricted sandbox. Repeated final-tree runs, the complete
+  release profile and hosted CI evidence remain pending.
+- A real dogfood launch, real child upgrade and comparable blank-repository
+  model benchmark have not run. No token, cost, speed or quality saving is
+  claimed.
 
 ## First dogfood gate
 

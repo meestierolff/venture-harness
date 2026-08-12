@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -98,6 +98,28 @@ describe("manual launch evidence", () => {
       "waiting_for_manual_action",
     );
     expect(store.load("manual-proof-run").nodes["dns-records"].effectVerified).toBe(false);
+  });
+
+  it("refuses a symlinked manual evidence file", async () => {
+    const { rootDir, store, executor, definition } = harness();
+    await executor.start(definition, { runId: "manual-proof-run" });
+    const artifact = "reports/launch/manual-proof-run/manual/dns-records.json";
+    const path = join(rootDir, artifact);
+    const target = join(rootDir, "manual-evidence-target.json");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(target, "{}\n");
+    symlinkSync(target, path);
+
+    await expect(
+      executor.completeManualAction("manual-proof-run", "dns-records", {
+        approvedBy: "founder",
+        output,
+        evidenceArtifact: artifact,
+      }),
+    ).rejects.toThrow(/regular non-symlink/);
+    expect(store.load("manual-proof-run").nodes["dns-records"].state).toBe(
+      "waiting_for_manual_action",
+    );
   });
 
   it("validates typed output and matching repository evidence before recording the effect", async () => {

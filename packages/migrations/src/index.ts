@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { assertNonEmpty, tenantKey, type JsonObject, type JsonValue } from "@venture-harness/core";
+import {
+  assertNonEmpty,
+  initializeSqliteWal,
+  tenantKey,
+  type JsonObject,
+  type JsonValue,
+} from "@venture-harness/core";
 
 /**
  * Compatibility primitive for packages that only need a deterministic JSON
@@ -564,8 +570,7 @@ export class SqliteMigrationRunner {
     const { DatabaseSync } = loadSqlite();
     this.#database = new DatabaseSync(path);
     this.#now = options.now ?? (() => new Date());
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    execWithBusyRetry(this.#database, "PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "migration runner" });
     execWithBusyRetry(
       this.#database,
       `

@@ -2,7 +2,7 @@
 
 - Status: FOUNDER ALPHA — local and fixture evidence only
 - Owner: harness maintainers
-- Last updated: 2026-08-09
+- Last updated: 2026-08-12
 
 ## Purpose
 
@@ -24,34 +24,35 @@ Verified and fixture-verified rows both map to `PROTOTYPE` in
 [Product Truth](PRODUCT_TRUTH.md). This central repository has no `LIVE`
 capability row.
 
-The prior 2026-08-09 source state completed all three Golden Path tests. On the
-current final tree, the product and runtime slices pass; the root slice reached
-the standalone child server check and was blocked when this local sandbox
-denied loopback listening with `EPERM`. Its socket-capable CI refresh is pending,
-not passed.
+One isolated current-tree run completed all three Golden Path slices on
+2026-08-12 outside the loopback-restricted sandbox. Repeated final-tree runs and
+hosted CI evidence are still pending; one local pass is not a release claim.
 
 ## Primary founder web rail
 
-| Surface                                           | Status           | Evidence boundary                                                                                    | Remaining real-world proof                                     |
-| ------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Root `vh` founder command routing                 | Verified (local) | Public root dispatch tests preserve exact arguments and exit codes                                   | Packed/install invocation in the final release gate            |
-| Markdown idea compiler                            | Verified (local) | Typed brief, explicit assumptions, exact price, secret rejection                                     | Founder review of the first real compiled brief                |
-| Launch mode, web rail, Stripe/no-commerce routing | Verified (local) | Router/compiler tests                                                                                | Whether the selected route fits the first real idea            |
-| `founder-default` persistence                     | Verified (local) | Strict credential-free JSON, atomic local state, fixed nine roles                                    | First real account/team/organization metadata set              |
-| `founder-default` doctor                          | Verified (local) | Read-only credential/account probes plus declared-scope, expiry, default and writable-target checks  | First real probe for every required non-CLI account            |
-| Production dry run                                | Verified (local) | Repository/resources/env names/migrations/domain/setup/effects/blockers/final command                | Comparison against the first real accounts and provider limits |
-| Immutable Launch Grant                            | Verified (local) | Identity, seed, stack, destinations, effects, budgets, permissions, expiry                           | First grant used against authorized founder accounts           |
-| Atomic local child staging                        | Verified (local) | Matching journal/no-run resumes; mismatched child or interrupted staging fails closed                | Recovery experience in the first interrupted real launch       |
-| Frozen independent child install                  | Fixture verified | Exact lockfile, no parent workspace or lifecycle scripts, required tooling read-back, bounded resume | First clean install from a public package/store                |
-| Founder operation/model budget truth              | Verified (local) | Exact provider-action direct estimates and build-task policy; recurring plans/tokens are not claimed | Comparison with first real provider invoices and model session |
-| Definitive root-CLI Golden Path                   | Fixture verified | Prior-source three-slice run plus standalone `verified_fixture`; current product/runtime pass        | Socket-capable final-tree rerun, then live accounts and URL    |
-| Standalone ordinary Next.js seed                  | Fixture verified | Independent package, migrations, build, HTTP journey, no Core source runtime dependency              | First founder-specific production deployment                   |
-| Founder-specific product/design evidence boundary | Fixture verified | Required artifact roles, hashes and direct checks; desktop/mobile fixture review                     | Human design/product acceptance for the first real idea        |
-| Child provider configuration                      | Fixture verified | Stack roles render exact account/resource/env references without values                              | Provider-by-provider live configuration/read-back              |
-| Source commit and push                            | Fixture verified | Real command transport against a local bare Git remote                                               | New repository and remote commit read-back in GitHub           |
-| Production deployment and custom domain           | Fixture verified | Production-shaped Vercel mocks/fixtures, stable URL and domain/manual-DNS branches                   | Reachable Vercel URL plus domain read-back if requested        |
-| Primary journey and launch report                 | Fixture verified | Synthetic HTTP/product journey and sanitized JSON/Markdown report                                    | Live journey against the deployed URL and provider evidence    |
-| Core upgrade and unique-file survival             | Fixture verified | v2 ownership, migrations, checks, rollback, lock-last behavior                                       | Upgrade of the first real child repository                     |
+| Surface                                           | Status           | Evidence boundary                                                                                         | Remaining real-world proof                                     |
+| ------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Root `vh` founder command routing                 | Verified (local) | Public root dispatch tests preserve exact arguments and exit codes                                        | Packed/install invocation in the final release gate            |
+| Markdown idea compiler                            | Verified (local) | Typed brief, explicit assumptions, exact price, secret rejection                                          | Founder review of the first real compiled brief                |
+| Bounded idea sharpening                           | Verified (local) | Valid contracts use zero model calls; rough prose is limited to one primary and one repair call           | First explicitly approved real founder idea/model run          |
+| Typed Launch Contract                             | Verified (local) | Schema, safety boundary, deterministic brief/decision projection, canonical rendering and digest          | Founder review of the first real contract                      |
+| Launch mode, web rail, Stripe/no-commerce routing | Verified (local) | Router/compiler tests                                                                                     | Whether the selected route fits the first real idea            |
+| `founder-default` persistence                     | Verified (local) | Strict credential-free JSON, atomic local state, fixed nine roles                                         | First real account/team/organization metadata set              |
+| `founder-default` doctor                          | Verified (local) | Read-only credential/account probes plus declared-scope, expiry, default and writable-target checks       | First real probe for every required non-CLI account            |
+| Production dry run                                | Verified (local) | Repository/resources/env names/migrations/domain/setup/effects/blockers/final command                     | Comparison against the first real accounts and provider limits |
+| Immutable Launch Grant                            | Verified (local) | Identity, seed, stack, destinations, effects, budgets, permissions, expiry                                | First grant used against authorized founder accounts           |
+| Atomic local child staging                        | Verified (local) | Matching journal/no-run resumes; mismatched child or interrupted staging fails closed                     | Recovery experience in the first interrupted real launch       |
+| Frozen independent child install                  | Fixture verified | Two clean local children passed offline frozen install, typecheck, build, zero-retry journey and test     | First clean install from a public package/store                |
+| Founder operation/model budget truth              | Verified (local) | Exact provider-action direct estimates and build-task policy; recurring plans/tokens are not claimed      | Comparison with first real provider invoices and model session |
+| Capability-scoped build context manifest          | Verified (local) | Canonical contract/product inputs, optional-pack exclusions, symlink guards and estimated 32k cap         | First approved real build-host run; no savings inferred        |
+| Definitive root-CLI Golden Path                   | Fixture verified | One isolated current-tree three-slice run passed with no provider effect                                  | Repeated final-tree/CI runs, then live accounts and URL        |
+| Standalone focused Next.js seed                   | Fixture verified | Independent package, production build and journey; optional advanced runtime and invented defaults absent | First founder-specific production deployment                   |
+| Founder-specific product/design evidence boundary | Fixture verified | Required artifact roles, hashes and direct checks; desktop/mobile fixture review                          | Human design/product acceptance for the first real idea        |
+| Child provider configuration                      | Fixture verified | Stack roles render exact account/resource/env references without values                                   | Provider-by-provider live configuration/read-back              |
+| Source commit, push and local Git handoff         | Fixture verified | Source publication/read-back against a local bare remote, then exact clean child origin/branch/commit     | New repository and remote commit read-back in GitHub           |
+| Production deployment and custom domain           | Fixture verified | Production-shaped Vercel mocks/fixtures, stable URL and domain/manual-DNS branches                        | Reachable Vercel URL plus domain read-back if requested        |
+| Primary journey, launch report and Launch Receipt | Fixture verified | Product-specific fixture journey plus sanitized local report/receipt; generic smoke stays unverified      | Live journey against the deployed URL and provider evidence    |
+| Core upgrade and unique-file survival             | Fixture verified | v2 ownership, migrations, checks, rollback, lock-last behavior                                            | Upgrade of the first real child repository                     |
 
 ## Founder-default providers
 
@@ -110,7 +111,8 @@ not passed.
 
 The implementation and test paths for every public claim are registered in
 [PRODUCT_TRUTH.md](PRODUCT_TRUTH.md). Fixture results cannot upgrade a provider
-row to live.
+row to live. Usage accounting is locally tested, but no completed comparable
+benchmark supports a token-, cost-, speed- or quality-savings claim.
 
 ## Assumptions
 

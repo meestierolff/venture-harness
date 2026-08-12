@@ -44,7 +44,17 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
   },
   "provider.stripe-commerce": {
     provider: "stripe",
-    capabilities: ["product", "price", "webhook", "billing_portal"],
+    capabilities: ["product", "price"],
+    environment: "sandbox",
+  },
+  "provider.stripe-callbacks": {
+    provider: "stripe",
+    capabilities: ["webhook", "billing_portal"],
+    environment: "sandbox",
+  },
+  "provider.stripe-domain-callbacks": {
+    provider: "stripe",
+    capabilities: ["webhook", "billing_portal"],
     environment: "sandbox",
   },
   "provider.google-analytics-property": {
@@ -85,27 +95,37 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
   "provider.vercel-database-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.vercel-stripe-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.vercel-stripe-webhook-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
+  },
+  "provider.vercel-stripe-price-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "production",
+  },
+  "provider.vercel-stripe-price-lookup-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "production",
   },
   "provider.vercel-brevo-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.vercel-ga-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.revenuecat-entitlements": {
     provider: "revenuecat",
@@ -128,6 +148,21 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
     environment: "testflight",
   },
   "provider.production-deploy": {
+    provider: "vercel",
+    capabilities: ["deployment"],
+    environment: "production",
+  },
+  "provider.initial-production-deploy": {
+    provider: "vercel",
+    capabilities: ["deployment"],
+    environment: "production",
+  },
+  "provider.analytics-production-redeploy": {
+    provider: "vercel",
+    capabilities: ["deployment"],
+    environment: "production",
+  },
+  "provider.email-production-redeploy": {
     provider: "vercel",
     capabilities: ["deployment"],
     environment: "production",

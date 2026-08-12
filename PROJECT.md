@@ -2,7 +2,7 @@
 
 - Status: FOUNDER ALPHA — local/fixture web rail; first real launch pending
 - Owner: harness maintainers
-- Last updated: 2026-08-09
+- Last updated: 2026-08-12
 
 ## Purpose
 
@@ -30,17 +30,16 @@ The exact apply command is:
 vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
 ```
 
-Prior-source fixture evidence covers the complete Exception Desk root-CLI
-Golden Path: idea compilation, Stack persistence/doctor, Launch Grant binding,
-materialization, workflow, provider transports, local source push, standalone
-web journey, reporting, replay and upgrade preservation all crossed their
-labeled synthetic boundaries. On the current final tree, the product and
-runtime slices pass; the root slice reached the standalone child server check
-and still needs a socket-capable CI refresh after this local sandbox denied
-loopback listening. No provider has been live verified from this template. No
-founder-owned child repository, external deployment, DNS record, payment
-resource, email delivery, indexed site, customer, sale or scheduled external
-job is recorded as created.
+One isolated current-tree run of the complete Exception Desk root-CLI Golden
+Path passed on 2026-08-12 outside the loopback-restricted sandbox: idea
+compilation, Stack persistence/doctor, Launch Grant binding, materialization,
+workflow, provider transports, local source push, standalone web journey,
+reporting, replay and upgrade preservation all crossed their labeled synthetic
+boundaries. Required repetitions, a source-bound final report, and hosted CI
+remain pending, so this is not a release pass. No provider has been live
+verified from this template. No founder-owned child repository, external
+deployment, DNS record, payment resource, email delivery, indexed site,
+customer, sale or scheduled external job is recorded as created.
 
 ## Start a child venture
 

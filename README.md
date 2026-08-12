@@ -2,45 +2,59 @@
 
 **AI can build your app locally. Venture Harness gets it into the real world.**
 
-Venture Harness is an open-source, agent-native app launch factory. It turns one
-sharpened founder idea into an independent, production-ready application in
-accounts **you** own — repository, hosting, database, commerce, email, analytics
-and search — and it verifies each of those against the provider rather than
-assuming them.
+> From rough idea to the smallest credible live and measurable business in your
+> own stack.
 
-You stay the owner. Venture Harness never holds your accounts, never guarantees
-demand, and never spends money on advertising.
+Venture Harness is an open-source, founder-operated launch framework for
+technical founders and indie hackers. It sharpens a rough idea into a reviewed
+contract, builds the smallest useful product in an independent repository, and
+coordinates explicitly authorized work in accounts **you** own. It records
+provider read-backs and unresolved actions instead of turning a request into a
+success claim.
 
-Four routes into this document:
-
-1. [What it is](#what-it-is)
-2. [Five-minute local setup](#five-minute-conceptual-quickstart)
-3. [Turn an idea into an app](#turn-an-idea-into-an-app)
-4. [Current verification status](#evidence-and-release-status)
+This is a founder alpha, not a stable release. The implementation is locally and
+fixture verified; this repository has not yet completed or verified a real
+founder launch. See [the current evidence](#evidence-and-release-status).
 
 ## What it is
 
 ```text
-connect stack once
-→ write or generate idea.md
-→ dry run
-→ one apply command
-→ independent live app
+rough idea
+→ vh idea sharpen
+→ review the Launch Contract
+→ vh stack connect founder-default
+→ production dry run
+→ explicit apply command
+→ verified provider state or one exact waiting action
+→ local Launch Receipt
 ```
 
 - **Open source and founder-operated.** You run it on your machine, against your
   own provider accounts.
 - **Independent repositories.** Each venture is its own product with its own Git
   history, materialized outside the Venture Harness checkout.
-- **One opinionated stack.** GitHub, Vercel, Neon Postgres, Stripe for web
-  commerce, Brevo, Google Analytics, Google Search Console, Bing Webmaster, and
-  a custom domain when you have one. The stable Vercel production URL is a valid
-  starting origin, so missing DNS never stops a first launch.
-- **One-time connection, one-prompt launch.** `vh stack connect founder-default`
-  once; `vh launch --idea idea.md …` per venture.
+- **One boring default Stack.** GitHub, Vercel, Neon Postgres and Stripe test
+  mode are the default web roles. Brevo, Google Analytics/Search Console, Bing
+  Webmaster and DNS are supported optional roles. The stable Vercel production
+  URL is a valid starting origin when no custom domain is ready.
+- **A reviewable founder contract.** `vh idea sharpen` records one user, painful
+  job, outcome, core feature, commitment surface, initial channel, success
+  signal, review date, stop rules and explicit no-gos in a typed Launch Contract.
+- **One-time connection, bounded launch.** `vh stack connect founder-default`
+  saves credential-free Stack metadata; a dry run precedes the explicit apply
+  command for each venture.
+- **A local receipt, not a victory label.** The Launch Receipt records observed
+  build usage, verification states, limitations and next actions. A waiting
+  provider remains waiting.
 - **Honest alpha.** A provider effect is only ever reported as done when the
   provider has been read back. See
   [current verification status](#evidence-and-release-status).
+- **Optional packs stay optional.** Delegated services, Agent Surfaces, Winner
+  Loop, iOS and Fleet work do not enter the ordinary web rail unless selected.
+- **Founder ownership, no phone home.** The child repository and provider
+  resources remain yours. The sanitized Launch Receipt stays local; Venture
+  Harness does not upload it or phone it home. Authorized launch commands can
+  still contact only the reviewed provider destinations.
 
 ### Who it is for
 
@@ -51,10 +65,10 @@ connect stack once
 - developers who want each venture in its own repository and provider stack,
   with upgrades that preserve product-owned work.
 
-The founder rail coordinates repository creation, a focused Next.js app,
-database migrations, hosting, test-mode web commerce, transactional email,
-analytics, search, a domain plan, quality checks, a primary journey, a launch
-report, and later Core upgrades.
+The founder rail can coordinate repository creation, a focused Next.js app,
+database migrations, hosting, selected provider roles, quality checks, a
+primary journey, a Launch Receipt, and later Core upgrades. The Launch Contract
+keeps capabilities that the venture does not need out of scope.
 
 Venture Harness is not a guarantee of demand, a no-code page generator, a
 hosted owner of your cloud accounts, an automatic ad-spend system, or a
@@ -88,22 +102,40 @@ never materialized inside the Venture Harness checkout:
 vh config set ventures-root ~/Projects/ventures
 ```
 
-Then connect the default Stack once. The wizard reads back the GitHub and Vercel
-CLI sessions you already have, collects the remaining provider credentials at a
-hidden prompt, stores them in your Keychain or 1Password, and keeps only
-`cred://` references in Venture Harness:
+Write the rough idea in plain language, then sharpen it:
+
+```bash
+vh idea sharpen --input ./rough-idea.md --output ./idea.md --json
+```
+
+The command writes a credential-free `idea.md`,
+`idea.launch-contract.yaml`, `idea.product-constitution.md`, and a sanitized
+`idea.usage.json`; it does not create a repository, deployment, or launch-provider
+effect. Structured input takes a deterministic zero-model-call path. Rough prose
+may use the authenticated Codex CLI host for one bounded pass and, only if the
+first result misses the schema, one repair pass.
+
+Review the Launch Contract before continuing. It is the scope and decision
+surface: one user, painful job, useful outcome, core feature, commitment event,
+first distribution channel, primary success signal, review date, explicit
+not-building list, and `continue`, `change`, or `stop` rules. It is not evidence
+of demand. The [founder principles](docs/product/FOUNDER_PRINCIPLES.md) explain
+why those constraints exist.
+
+Then connect the default Stack once. The command inspects supported official CLI
+sessions, saves credential-free account metadata and registered `cred://`
+references, and runs a no-effect readiness doctor:
 
 ```bash
 vh stack connect founder-default
 ```
 
-It prints exactly what is still unresolved and the one command that fixes each
-item. Only GitHub, Vercel, Neon and Stripe block a launch; Brevo, Google, Bing
-and DNS can follow later without holding up your first live app.
-
-Write `idea.md` with the initial user, problem, outcome, primary journey,
-success signal, rail, required capabilities, and—when using Stripe—one exact
-monthly or annual displayed price. A domain is optional.
+It prints what is unresolved, whether each item blocks launch, and the next
+command for that item. Register non-CLI credential references through the
+lower-level `vh auth login` commands below; credential values stay behind the
+selected Keychain or 1Password backend. GitHub, Vercel, Neon and Stripe are the
+current required web Stack roles. Brevo, Google, Bing and DNS are optional Stack
+roles, and a domain is optional for the first Vercel production URL.
 
 <details>
 <summary>Explicit commands for automation and advanced users</summary>
@@ -164,6 +196,19 @@ its exact authorization from the Launch Grant. A provider or domain boundary
 can return a waiting run with one exact `vh resume <run-id>` action. Waiting and
 provider request acceptance are not launch success.
 
+Every persisted launch run writes a sanitized Launch Receipt inside the child:
+
+```text
+reports/launch/<run-id>/receipt.json
+reports/launch/<run-id>/receipt.md
+```
+
+It records the selected outcome and review date, build agent and observed token
+usage, tool calls, retries, files changed, Stack and verification states,
+limitations, and exact manual actions. Unknown accounting stays unknown, and a
+fixture or waiting state is labeled as such. The receipt is written and read
+back locally; Venture Harness has no receipt upload or phone-home step.
+
 Before product work, provider changes, source push, or deployment, Core installs
 the independent child's exact `pnpm-lock.yaml` with a frozen, parent-workspace-
 isolated command, lifecycle scripts disabled, and development tooling included.
@@ -187,6 +232,18 @@ budget scope; it does not expand the Launch Grant.
 Inside this source checkout, replace `vh` with `pnpm vh --` and leave the
 remaining arguments unchanged.
 
+## Token-efficiency objective
+
+Venture Harness aims to complete the same reviewed scope and acceptance criteria
+with fewer model tokens, repeated context reads, agent tasks, tool calls,
+retries, and manual provider steps. That is an optimization objective, not a
+promise of savings and never a reason to weaken the product or quality gate.
+
+The sharpener writes sanitized call and token counts to `idea.usage.json`. The
+Launch Receipt records the available build counts and leaves unavailable values
+unset. Compare like-for-like runs before removing work; do not infer savings
+from a smaller scope or a fixture.
+
 ## Founder-default Stack
 
 The founder selects account/team/organization IDs once. The saved connection is
@@ -207,9 +264,11 @@ credential-free metadata plus `cred://...` references.
 Capability interfaces remain provider-neutral, but v0.2 does not pretend that
 multiple production alternatives are complete.
 
-The automatic preparation reports `setup.analytics = google_analytics`.
-Vercel Web Analytics is an optional, separately reviewed/manual integration;
-it is deliberately outside the founder-default apply-once plan.
+When the Launch Contract selects analytics, automatic preparation reports
+`setup.analytics = google_analytics`. Without that capability it reports
+`not_requested`. Vercel Web Analytics is an optional, separately
+reviewed/manual integration; it is deliberately outside the founder-default
+apply-once plan.
 
 ## Turn an idea into an app
 
@@ -219,7 +278,8 @@ Paste this into your agent, fill in the idea, and let it run.
 /goal
 
 Use Venture Harness to sharpen and launch the following idea as an independent,
-production-ready application.
+production-targeted application. Treat live state as unverified until every
+required provider and public journey has been read back.
 
 IDEA
 
@@ -254,17 +314,17 @@ First sharpen the idea:
 Then execute the real Venture Harness path:
 
 1. produce the final credential-free `idea.md`;
-2. run the production dry run;
-3. inspect blockers and exact provider destinations;
-4. invoke the one-prompt apply command;
-5. create the independent repository;
-6. build a unique, accessible product and design;
-7. configure the database, commerce, email, analytics and search;
-8. push the source;
-9. deploy production;
+2. review the generated Launch Contract;
+3. run the production dry run;
+4. inspect blockers and exact provider destinations;
+5. invoke the one-prompt apply command;
+6. create the independent repository;
+7. build a focused, accessible product and design;
+8. configure only the provider roles selected by the contract;
+9. push the source and request the production deployment;
 10. verify the primary journey;
 11. read provider state back;
-12. generate the final launch report.
+12. generate the final launch report and local Launch Receipt.
 
 Only add a ServiceBlueprint, customer Connection Hub and venture-specific
 API/CLI/MCP/SDK when this business sells an orchestrated customer service.
@@ -298,20 +358,21 @@ anything as done. No advertising spend.
 
 ```text
 idea.md
-  -> typed brief + launch mode/rail/commerce selection
+  -> reviewed Launch Contract + launch mode/rail/commerce selection
   -> founder-default resolution + immutable Launch Grant
   -> staged independent venture from a versioned seed
   -> founder-specific product/design work with direct evidence checks
-  -> GitHub + Vercel + Neon + Stripe/RevenueCat + Brevo + Google/Bing + DNS
+  -> selected GitHub/Vercel/Neon/commerce/email/search/DNS roles
   -> source push + production deployment + smoke/primary-journey checks
-  -> provider read-backs + honest final report
+  -> provider read-backs + honest report + local Launch Receipt
   -> bounded learning schedule when requested
 ```
 
 The default web venture is a standalone Next.js application, not an app nested
 inside this Core repository and not a runtime dependency on the Core source
-tree. It receives its own package identity, migrations, provider config,
-deployment, design/product files, `venture.manifest.json`, and `harness.lock`.
+tree. It receives its own package identity, provider config, deployment,
+design/product files, `venture.manifest.json`, and `harness.lock`, plus
+migrations when the selected product needs persistence.
 
 The generated product is not accepted merely because files exist. Product
 nodes require hash-verified changes, required artifact roles, and a relevant
@@ -332,8 +393,10 @@ sale or market result is claimed. Every real provider effect stays
 
 What is verified today, and how:
 
-- `pnpm verify:release` — the founder-alpha code and fixture gate. It contains
-  no live provider read-back and is expected to pass with nothing connected.
+- `pnpm verify:mvp && pnpm verify:release` — the complete local founder-alpha
+  code and fixture gate. Both staged profiles must pass; neither command alone
+  establishes code readiness. The pair contains no live provider read-back and
+  is expected to pass with nothing connected.
 - `pnpm verify:live` — real provider read-back only. It honestly reports
   `INCOMPLETE` before a real launch, naming the missing prerequisite, the exact
   command and the expected evidence for each gap.
@@ -342,8 +405,9 @@ What is verified today, and how:
 
 | Surface                                                                   | Status                                            | What remains                                                                        |
 | ------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Idea compiler, launch routing, Launch Grant, Stack persistence/doctor     | Verified locally                                  | First real founder account set                                                      |
-| Independent ordinary web seed, migrations, production build, HTTP journey | Fixture verified                                  | First real generated product review and deploy                                      |
+| Idea sharpener, Launch Contract, routing and Launch Receipt               | Verified locally                                  | First real founder-reviewed contract and receipt                                    |
+| Launch Grant and Stack persistence/doctor                                 | Verified locally                                  | First real founder account set                                                      |
+| Independent ordinary web seed, selected migrations, build, HTTP journey   | Fixture verified                                  | First real generated product review and deploy                                      |
 | Definitive founder Golden Path                                            | Fixture verified through the public root CLI      | Live provider accounts and a public production URL                                  |
 | GitHub/Vercel/Neon/Stripe/Brevo/Google/Bing provider plans and read-backs | Fixture verified through labeled transports/mocks | Authorized provider-by-provider read-back                                           |
 | DNS                                                                       | Fixture/manual-plan verified                      | Registrar action and authoritative propagation evidence                             |
@@ -373,13 +437,11 @@ pnpm exec vitest run --no-file-parallelism \
   tests/founder-golden-path.test.ts --reporter=verbose
 ```
 
-A prior 2026-08-09 source state passed all three tests. On the current final
-tree, the product and runtime slices pass; the root slice reached the
-standalone child server check and was blocked when this local sandbox denied
-loopback listening with `EPERM`. A full current-tree refresh remains pending in
-socket-capable CI; that pending check is not a pass. The prior run exercised the
-public root dispatcher and exact founder command semantics, then kept every
-provider below the real transport boundary on labeled fixtures. See the
+One isolated current-tree run completed all three slices on 2026-08-12 outside
+the loopback-restricted sandbox. It exercised the public root dispatcher and
+exact founder command semantics while keeping every provider below the real
+transport boundary on labeled fixtures. Repeated final-commit runs and hosted
+CI evidence remain pending and are not yet a pass. See the
 [synthetic proof contract](docs/public/SYNTHETIC_GOLDEN_PATH.md),
 [idea](fixtures/ideas/synthetic-founder-web.md), and
 [fixture-only Stack](fixtures/founder-stack/founder-default.json).
@@ -389,7 +451,10 @@ provider below the real transport boundary on labeled fixtures. See the
 The founder owns the child repository and connected company accounts. Created
 resources stay with the recorded owner; Venture Harness receives bounded
 delegated authority for the run. Credential values stay behind local references
-and are not copied into the child repository.
+and are not copied into the child repository. Venture Harness has no hosted
+control plane for the child and does not upload or phone home the sanitized
+Launch Receipt. Explicitly authorized provider commands still make the reviewed
+external requests needed for the launch.
 
 Every managed file has one upgrade class:
 
@@ -418,8 +483,8 @@ fetches and executes an unreviewed remote manifest. See
 - Run the production dry run before apply; it is the authoritative account,
   resource, migration, domain, setup, and blocker preview.
 - Inspect `vh status <run-id>` and
-  `reports/launch/<run-id>/final.{json,md}` inside the child. Resume the same run;
-  do not edit its state or blindly repeat an ambiguous write.
+  `reports/launch/<run-id>/{final,receipt}.{json,md}` inside the child. Resume the
+  same run; do not edit its state or blindly repeat an ambiguous write.
 - If the exact intended child exists with a matching
   `.venture/founder-launch.json` transaction journal but no run, rerun the same
   one-prompt command; it resumes child launch instead of rematerializing.
@@ -455,6 +520,7 @@ human-approved Spend Grant and is never authorized by a founder Launch Grant.
 - [Provider operations](docs/operations/README.md)
 - [Feature status](docs/product/FEATURE_STATUS.md)
 - [Product Truth](docs/product/PRODUCT_TRUTH.md)
+- [Founder principles](docs/product/FOUNDER_PRINCIPLES.md)
 - [Roadmap](docs/product/ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md) and [threat model](docs/security/THREAT_MODEL.md)

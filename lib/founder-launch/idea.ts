@@ -2,16 +2,23 @@ import { createHash } from "node:crypto";
 import { parse as parseYaml } from "yaml";
 import { findCredentialMaterial } from "../../packages/core/src/index";
 import { founderBriefSchema, type FounderBrief } from "../launch";
+import {
+  founderBriefFromLaunchContract,
+  parseLaunchContractSource,
+  type LaunchContract,
+} from "./launch-contract";
 
 export interface CompiledFounderIdea {
   brief: FounderBrief;
   sourceHash: string;
-  sourceKind: "structured_brief" | "markdown_idea";
+  sourceKind: "launch_contract" | "structured_brief" | "markdown_idea";
+  launchContract: LaunchContract | null;
   assumptionsAdded: readonly string[];
   commercialTerms: {
     currency: string;
     monthlyPrice: number | null;
     annualPrice: number | null;
+    oneTimePrice: number | null;
   };
 }
 
@@ -74,13 +81,23 @@ function commercialTerms(
 ): CompiledFounderIdea["commercialTerms"] {
   const monthlyPrice = moneyLine(source, ["Monthly price", "Price per month"]);
   const annualPrice = moneyLine(source, ["Annual price", "Price per year"]);
+  const oneTimePrice = moneyLine(source, ["One-time price", "Service price"]);
   const generalPrice = moneyLine(source, ["Price"]);
   const generalInterval = textLine(source, ["Billing", "Billing interval"])?.toLowerCase();
   return Object.freeze({
     currency: brief.currency ?? "EUR",
+    oneTimePrice:
+      oneTimePrice ??
+      (generalPrice !== null &&
+      (brief.monetization_model === "one_time" || brief.monetization_model === "services")
+        ? generalPrice
+        : null),
     monthlyPrice:
       monthlyPrice ??
-      (generalPrice !== null && generalInterval !== "annual" && generalInterval !== "yearly"
+      (generalPrice !== null &&
+      brief.monetization_model === "subscription" &&
+      generalInterval !== "annual" &&
+      generalInterval !== "yearly"
         ? generalPrice
         : null),
     annualPrice:
@@ -151,7 +168,7 @@ function markdownBrief(source: string): { brief: FounderBrief; assumptionsAdded:
     return fallback;
   };
   const commerce = (
-    textLine(source, ["Commerce", "Monetization", "Revenue model"]) ?? "subscription"
+    textLine(source, ["Commerce", "Monetization", "Revenue model"]) ?? "none"
   ).toLowerCase();
   const appKindRaw = (textLine(source, ["Rail", "App", "App kind"]) ?? "web").toLowerCase();
   const appKind = appKindRaw.includes("hybrid")
@@ -232,15 +249,15 @@ function markdownBrief(source: string): { brief: FounderBrief; assumptionsAdded:
       on_device_requirements: "low",
     },
     needs: {
-      authenticated_product: booleanLine(source, ["Auth", "Authentication"], true),
-      database: booleanLine(source, ["Database"], true),
+      authenticated_product: booleanLine(source, ["Auth", "Authentication"], false),
+      database: booleanLine(source, ["Database"], false),
       file_storage: booleanLine(source, ["File storage"], false),
-      transactional_email: booleanLine(source, ["Email", "Transactional email"], true),
+      transactional_email: booleanLine(source, ["Email", "Transactional email"], false),
       lifecycle_email: booleanLine(source, ["Lifecycle email"], false),
-      feedback: booleanLine(source, ["Feedback"], true),
-      analytics: booleanLine(source, ["Analytics"], true),
-      search_discovery: booleanLine(source, ["Search", "SEO", "Discovery"], true),
-      scheduled_learning: booleanLine(source, ["Learning", "Scheduled learning"], true),
+      feedback: booleanLine(source, ["Feedback"], false),
+      analytics: booleanLine(source, ["Analytics"], false),
+      search_discovery: booleanLine(source, ["Search", "SEO", "Discovery"], false),
+      scheduled_learning: booleanLine(source, ["Learning", "Scheduled learning"], false),
     },
     preferred_dns_provider:
       (textLine(source, ["DNS", "DNS provider"]) ?? "manual").toLowerCase() === "mijndomein"
@@ -257,12 +274,38 @@ function markdownBrief(source: string): { brief: FounderBrief; assumptionsAdded:
 export function compileFounderIdea(source: string): CompiledFounderIdea {
   assertSafeIdea(source);
   const hash = createHash("sha256").update(source).digest("hex");
+  const launchContract = parseLaunchContractSource(source);
+  if (launchContract) {
+    const brief = founderBriefFromLaunchContract(launchContract);
+    const monthlyPrice =
+      launchContract.business.model === "subscription"
+        ? launchContract.business.priceHypothesis
+        : null;
+    return Object.freeze({
+      brief,
+      sourceHash: hash,
+      sourceKind: "launch_contract",
+      launchContract,
+      assumptionsAdded: Object.freeze([]),
+      commercialTerms: Object.freeze({
+        currency: launchContract.business.currency,
+        monthlyPrice,
+        annualPrice: null,
+        oneTimePrice:
+          launchContract.business.model === "one_time" ||
+          launchContract.business.model === "service"
+            ? launchContract.business.priceHypothesis
+            : null,
+      }),
+    });
+  }
   const structured = structuredBrief(source);
   if (structured) {
     return Object.freeze({
       brief: structured,
       sourceHash: hash,
       sourceKind: "structured_brief",
+      launchContract: null,
       assumptionsAdded: Object.freeze([]),
       commercialTerms: commercialTerms(source, structured),
     });
@@ -272,6 +315,7 @@ export function compileFounderIdea(source: string): CompiledFounderIdea {
     brief: compiled.brief,
     sourceHash: hash,
     sourceKind: "markdown_idea",
+    launchContract: null,
     assumptionsAdded: Object.freeze([...compiled.assumptionsAdded]),
     commercialTerms: commercialTerms(source, compiled.brief),
   });

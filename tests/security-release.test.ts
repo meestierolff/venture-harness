@@ -124,6 +124,34 @@ describe("release supply-chain configuration", () => {
     expect(security).toContain("gitleaks/gitleaks-action@");
     expect(security).toContain("fetch-depth: 0");
     expect(security).toContain("pnpm audit --prod --audit-level=high");
+
+    const publicRelease = readFileSync(join(ROOT, ".github/workflows/public-release.yml"), "utf8");
+    expect(publicRelease).toContain("fetch-depth: 0");
+    expect(publicRelease).toContain("GITLEAKS_VERSION: 8.30.1");
+    expect(publicRelease).toContain("GITLEAKS_ENABLE_COMMENTS: false");
+    expect(publicRelease).toContain("pnpm seed:fetch agentic-web-saas");
+    expect(publicRelease).toContain("pnpm audit --prod --audit-level=high");
+    expect(publicRelease).toContain("pnpm verify:mvp");
+    expect(publicRelease.indexOf("pnpm install --frozen-lockfile")).toBeLessThan(
+      publicRelease.indexOf("pnpm seed:fetch agentic-web-saas"),
+    );
+    expect(publicRelease.indexOf("pnpm seed:fetch agentic-web-saas")).toBeLessThan(
+      publicRelease.indexOf("pnpm verify:release"),
+    );
+  });
+
+  it("does not mask a failing critical browser journey with retries", () => {
+    const playwright = readFileSync(join(ROOT, "playwright.config.ts"), "utf8");
+    const runner = readFileSync(join(ROOT, "scripts/run-local-e2e.mjs"), "utf8");
+    expect(playwright).toMatch(/retries:\s*0/u);
+    expect(playwright).not.toMatch(/retries:\s*process\.env\.CI/u);
+    expect(playwright).not.toMatch(/43127|3210/u);
+    expect(runner).toContain("startOwnedProductionServer");
+    expect(runner).toContain("await stopProductionServer(owned.server)");
+    expect(readFileSync(join(ROOT, "scripts/lib/local-production-server.mjs"), "utf8")).toContain(
+      "waitForOwnedHttpReady",
+    );
+    expect(runner).toContain('if (forwarded[0] === "--") forwarded.shift()');
   });
 
   it("ships the public community and security contracts", () => {

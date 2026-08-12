@@ -13,13 +13,12 @@ experiment variant of it). Copy uses customer language from
 
 ## Copy blocks
 
-| Block id           | Surface  | Text | PRODUCT_TRUTH ids referenced |
-| ------------------ | -------- | ---- | ---------------------------- |
-| hero.headline      | /        | —    | —                            |
-| hero.subheadline   | /        | —    | —                            |
-| hero.cta_primary   | /        | —    | —                            |
-| pricing.plan_names | /pricing | —    | —                            |
-| consent.banner     | all      | —    | —                            |
+| Block id         | Surface | Text | PRODUCT_TRUTH ids referenced |
+| ---------------- | ------- | ---- | ---------------------------- |
+| hero.headline    | /       | —    | —                            |
+| hero.subheadline | /       | —    | —                            |
+| hero.cta_primary | /       | —    | —                            |
+| consent.banner   | all     | —    | —                            |
 
 ## Experiment variants
 

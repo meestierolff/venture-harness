@@ -5,6 +5,7 @@ import {
   MockProviderTransport,
   providerIds,
   providerRegistry,
+  STRIPE_API_VERSION,
   type ProviderExecutionContext,
 } from "@/lib/providers";
 import { providerPlanFixtures } from "./fixtures/provider/requests";
@@ -89,6 +90,17 @@ describe("provider adapter contract", () => {
       expect.arrayContaining([
         { path: "commitOid", operator: "equals", expected: "{result.commitOid}" },
         { path: "treeOid", operator: "equals", expected: "{result.treeOid}" },
+        {
+          path: "workingRepository.branch",
+          operator: "equals",
+          expected: "{result.branch}",
+        },
+        {
+          path: "workingRepository.head",
+          operator: "equals",
+          expected: "{result.commitOid}",
+        },
+        { path: "workingRepository.clean", operator: "equals", expected: true },
       ]),
     );
     expect(github.operations[1].command?.stdinCredentialRef).toBe(
@@ -218,7 +230,43 @@ describe("provider adapter contract", () => {
     }
 
     const stripe = getProviderAdapter("stripe").plan(providerPlanFixtures.stripe);
+    expect(STRIPE_API_VERSION).toBe("2026-07-29.dahlia");
+    for (const operation of stripe.operations) {
+      expect(operation.http?.headers).toMatchObject({
+        "Stripe-Version": STRIPE_API_VERSION,
+      });
+      expect(operation.existingResource?.http?.headers).toMatchObject({
+        "Stripe-Version": STRIPE_API_VERSION,
+      });
+      expect(operation.readBack?.http?.headers).toMatchObject({
+        "Stripe-Version": STRIPE_API_VERSION,
+      });
+    }
     expect(stripe.operations.every(({ http }) => http?.nativeIdempotency)).toBe(true);
+    expect(
+      stripe.operations.every(({ http }) =>
+        http?.credentialPreflight?.requests.some(
+          ({ url, assertions }) =>
+            url === "https://api.stripe.com/v1/account" &&
+            assertions.some(
+              ({ path, operator, expected }) =>
+                path === "id" && operator === "equals" && expected === "acct_venture_example",
+            ),
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      stripe.operations.every(({ http }) =>
+        http?.credentialPreflight?.requests.some(
+          ({ url, assertions }) =>
+            url === "https://api.stripe.com/v1/balance" &&
+            assertions.some(
+              ({ path, operator, expected }) =>
+                path === "livemode" && operator === "equals" && expected === false,
+            ),
+        ),
+      ),
+    ).toBe(true);
     expect(stripe.operations.map(({ http }) => http?.url)).toEqual([
       "https://api.stripe.com/v1/products",
       "https://api.stripe.com/v1/prices",
@@ -232,6 +280,47 @@ describe("provider adapter contract", () => {
         credentialRef: "cred://stripe/webhook-secret",
         outputPath: "secret",
       },
+    });
+    expect(stripe.operations.every(({ existingResource }) => existingResource)).toBe(true);
+    expect(stripe.operations.map(({ existingResource }) => existingResource?.http?.method)).toEqual(
+      ["GET", "GET", "GET", "GET"],
+    );
+    expect(stripe.operations[0].http?.body).toMatchObject({
+      metadata: {
+        venture_harness_venture: "venture-example",
+        venture_harness_resource: "product",
+        venture_harness_lookup_key: "vh:venture-example:product:v1",
+      },
+    });
+    expect(stripe.operations[1].http?.body).toMatchObject({
+      lookup_key: "vh_venture_example_eur_1900_month",
+      currency: "eur",
+      unit_amount: 1900,
+    });
+    expect(stripe.operations[1].existingResource?.stateAssertions).toEqual(
+      expect.arrayContaining([
+        { path: "type", operator: "equals", expected: "recurring" },
+        { path: "recurring.interval", operator: "equals", expected: "month" },
+      ]),
+    );
+    expect(stripe.operations[1].readBack?.assertions).toEqual(
+      expect.arrayContaining([
+        { path: "type", operator: "equals", expected: "recurring" },
+        { path: "recurring.interval", operator: "equals", expected: "month" },
+      ]),
+    );
+    expect(
+      stripe.operations.flatMap(({ action, capability }) => [action, capability]).join(" "),
+    ).not.toMatch(/charge|capture|payment_intent|checkout_session/iu);
+    expect(stripe.operations[3].existingResource?.stateAssertions).toContainEqual({
+      path: "livemode",
+      operator: "equals",
+      expected: false,
+    });
+    expect(stripe.operations[3].readBack?.assertions).toContainEqual({
+      path: "livemode",
+      operator: "equals",
+      expected: false,
     });
 
     const bing = getProviderAdapter("bing").plan(providerPlanFixtures.bing);

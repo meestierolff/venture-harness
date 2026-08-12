@@ -26,9 +26,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Link href="/" className="wordmark">
             venture-harness
           </Link>
-          <nav aria-label="Main">
-            <Link href="/pricing">Pricing</Link>
-          </nav>
         </header>
         <main>{children}</main>
         <footer className="site-footer">

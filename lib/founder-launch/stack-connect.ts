@@ -26,7 +26,7 @@ export interface StackRolePlan {
   readonly role: FounderStackRole;
   readonly provider: string;
   /** How the founder proves identity for this role. */
-  readonly authStyle: "cli_session" | "api_key";
+  readonly authStyle: "cli_session" | "cli_session_with_api_key" | "api_key" | "manual";
   /** Roles outside the default web rail are optional in v0.2. */
   readonly required: boolean;
   readonly identifiers: readonly string[];
@@ -60,13 +60,13 @@ export const FOUNDER_STACK_PLAN: readonly StackRolePlan[] = [
     provider: "neon",
     authStyle: "api_key",
     required: true,
-    identifiers: ["accountId", "organizationId"],
+    identifiers: ["organizationId"],
     scopes: [],
   },
   {
     role: "commerce.web",
     provider: "stripe",
-    authStyle: "api_key",
+    authStyle: "cli_session_with_api_key",
     required: true,
     identifiers: ["accountId"],
     scopes: [],
@@ -76,7 +76,7 @@ export const FOUNDER_STACK_PLAN: readonly StackRolePlan[] = [
     provider: "brevo",
     authStyle: "api_key",
     required: false,
-    identifiers: ["accountId"],
+    identifiers: [],
     scopes: [],
   },
   {
@@ -84,7 +84,7 @@ export const FOUNDER_STACK_PLAN: readonly StackRolePlan[] = [
     provider: "google",
     authStyle: "api_key",
     required: false,
-    identifiers: ["accountId", "organizationId"],
+    identifiers: ["accountId"],
     scopes: [],
   },
   {
@@ -92,7 +92,7 @@ export const FOUNDER_STACK_PLAN: readonly StackRolePlan[] = [
     provider: "bing",
     authStyle: "api_key",
     required: false,
-    identifiers: ["accountId"],
+    identifiers: [],
     scopes: [],
   },
   {
@@ -106,7 +106,7 @@ export const FOUNDER_STACK_PLAN: readonly StackRolePlan[] = [
   {
     role: "dns.records",
     provider: "dns",
-    authStyle: "api_key",
+    authStyle: "manual",
     required: false,
     identifiers: [],
     scopes: [],
@@ -115,16 +115,19 @@ export const FOUNDER_STACK_PLAN: readonly StackRolePlan[] = [
 
 export interface DetectedSession {
   readonly provider: string;
+  readonly installed?: boolean;
   readonly authenticated: boolean;
   /** Login or account handle read back from the CLI, never a token. */
   readonly account?: string;
+  /** Stripe is accepted only when its official CLI proves test mode. */
+  readonly mode?: "test";
   readonly detail?: string;
 }
 
 export interface CollectedRole {
   readonly role: FounderStackRole;
   /** Only a reference; the value lives in the credential backend. */
-  readonly credentialRef: string;
+  readonly credentialRef?: string;
   readonly identifiers: Readonly<Record<string, string>>;
 }
 
@@ -165,8 +168,8 @@ export function assertNoSecretsInArgv(argv: readonly string[]): void {
       /^--(?:token|secret|api-key|password)=/.test(argument)
     ) {
       throw new Error(
-        "vh stack connect never accepts a credential value as an argument, because arguments are visible to other processes and land in shell history. " +
-          "Next: rerun vh stack connect founder-default and paste the value at the hidden prompt.",
+        "Venture Harness never accepts a credential value as an argument, because arguments are visible to other processes and land in shell history. " +
+          "Next: rerun the credential command without the value and paste it only at the hidden prompt.",
       );
     }
   }
@@ -177,6 +180,8 @@ export interface ConnectionPlanInput {
   readonly ownerOrganizationId: string;
   readonly sessions: readonly DetectedSession[];
   readonly collected: readonly CollectedRole[];
+  /** Optional roles selected for this Stack. RevenueCat is never selected implicitly. */
+  readonly selectedOptionalRoles?: readonly FounderStackRole[];
 }
 
 export interface ConnectionPlan {
@@ -189,17 +194,44 @@ export interface ConnectionPlan {
 const CLI_LOGIN_COMMAND: Readonly<Record<string, string>> = {
   github: "gh auth login",
   vercel: "vercel login",
+  stripe: "stripe login",
 };
 
 const API_KEY_HINT: Readonly<Record<string, string>> = {
   neon: "Create a Neon API key at https://console.neon.tech/app/settings/api-keys",
-  stripe: "Copy the Stripe test-mode secret key from https://dashboard.stripe.com/test/apikeys",
   brevo: "Create a Brevo API key at https://app.brevo.com/settings/keys/api",
   google: "Create a Google service credential with Analytics and Search Console access",
   bing: "Create a Bing Webmaster API key at https://www.bing.com/webmasters/apikeys",
   revenuecat: "Create a RevenueCat secret API key in project settings",
-  dns: "Provide DNS adapter credentials, or leave DNS manual",
 };
+
+export const DEFAULT_SELECTED_FOUNDER_STACK_OPTIONAL_ROLES = [
+  "email.transactional",
+  "growth.google",
+  "search.bing",
+  "dns.records",
+] as const satisfies readonly FounderStackRole[];
+
+function roleSelected(
+  plan: StackRolePlan,
+  input: ConnectionPlanInput,
+  collectedByRole: ReadonlyMap<FounderStackRole, CollectedRole>,
+): boolean {
+  if (plan.required) return true;
+  if (collectedByRole.has(plan.role)) return true;
+  const selected = input.selectedOptionalRoles ?? DEFAULT_SELECTED_FOUNDER_STACK_OPTIONAL_ROLES;
+  return selected.includes(plan.role);
+}
+
+function unresolvedCommand(plan: StackRolePlan): string {
+  if (plan.authStyle === "cli_session" || plan.authStyle === "cli_session_with_api_key") {
+    return CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login`;
+  }
+  if (plan.authStyle === "manual") {
+    return "vh stack connect founder-default --role dns.records";
+  }
+  return `vh stack connect founder-default --role ${plan.role}  # ${API_KEY_HINT[plan.provider] ?? "store the provider credential at the hidden prompt"}`;
+}
 
 /**
  * Decide what is connected and what still needs a founder action.
@@ -216,15 +248,25 @@ export function planFounderStackConnection(input: ConnectionPlanInput): Connecti
   const unresolved: UnresolvedAction[] = [];
 
   for (const plan of FOUNDER_STACK_PLAN) {
+    if (!roleSelected(plan, input, collectedByRole)) continue;
     const collected = collectedByRole.get(plan.role);
     const session = sessionByProvider.get(plan.provider);
 
-    if (plan.authStyle === "cli_session" && !session?.authenticated) {
+    const hasUsableCliSession = Boolean(
+      session?.authenticated && (plan.provider !== "stripe" || session.mode === "test"),
+    );
+    const requiresCliSession = plan.authStyle === "cli_session";
+    const hybridHasNoFallback = plan.authStyle === "cli_session_with_api_key" && !collected;
+
+    if ((requiresCliSession || hybridHasNoFallback) && !hasUsableCliSession) {
       unresolved.push({
         role: plan.role,
         provider: plan.provider,
-        why: `No authenticated ${plan.provider} CLI session was found.`,
-        command: CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login`,
+        why:
+          plan.provider === "stripe"
+            ? "No authenticated Stripe CLI session proved test mode."
+            : `No authenticated ${plan.provider} CLI session was found.`,
+        command: unresolvedCommand(plan),
         blocksLaunch: plan.required,
       });
       continue;
@@ -236,22 +278,34 @@ export function planFounderStackConnection(input: ConnectionPlanInput): Connecti
         provider: plan.provider,
         why: `No credential reference is recorded for ${plan.role}.`,
         command:
-          plan.authStyle === "cli_session"
-            ? (CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login`)
-            : `vh stack connect founder-default  (${API_KEY_HINT[plan.provider] ?? "provide the provider credential"})`,
+          plan.authStyle === "cli_session_with_api_key"
+            ? "vh stack connect founder-default --role commerce.web"
+            : unresolvedCommand(plan),
         blocksLaunch: plan.required,
       });
       continue;
     }
 
-    assertReferenceOnly(collected.credentialRef, `${plan.role} credentialRef`);
+    if (plan.authStyle !== "manual") {
+      if (!collected.credentialRef) {
+        unresolved.push({
+          role: plan.role,
+          provider: plan.provider,
+          why: `No credential reference is recorded for ${plan.role}.`,
+          command: unresolvedCommand(plan),
+          blocksLaunch: plan.required,
+        });
+        continue;
+      }
+      assertReferenceOnly(collected.credentialRef, `${plan.role} credentialRef`);
+    }
     const missing = plan.identifiers.filter((name) => !collected.identifiers[name]?.trim());
     if (missing.length > 0) {
       unresolved.push({
         role: plan.role,
         provider: plan.provider,
         why: `${plan.role} is missing ${missing.join(" and ")}.`,
-        command: `vh stack connect founder-default  (supply the exact ${plan.provider} ${missing.join(" and ")})`,
+        command: `vh stack connect founder-default --role ${plan.role}`,
         blocksLaunch: plan.required,
       });
       continue;

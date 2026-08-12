@@ -23,17 +23,23 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_ENABLE_COMMENTS: false
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:fetch agentic-web-saas
       - name: Inspect public repository and package contents
         run: pnpm release:check
       - name: Reject high-severity production dependency advisories
         run: pnpm audit --prod --audit-level=high
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Capability-aware MVP gate
+        run: pnpm verify:mvp
       - name: Capability-aware release gate
         run: pnpm verify:release
       - name: Human checklist reminder

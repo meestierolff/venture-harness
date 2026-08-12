@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "branch": "sol/vh-core-v0.2-winner-loop",
+  "branch": "sol/vh-v0.2-launch-dogfood",
   "evidenceCeiling": "LOCAL_RUNTIME_AND_SYNTHETIC_FIXTURES",
   "commandContracts": {
     "final-e2e": {
@@ -28,8 +28,13 @@
       "cwd": ".",
       "artifacts": []
     },
+    "final-prod-audit": {
+      "command": "pnpm audit --prod --audit-level=high",
+      "cwd": ".",
+      "artifacts": []
+    },
     "final-raw-html": {
-      "command": "pnpm verify:raw-html",
+      "command": "pnpm verify:raw-html:local",
       "cwd": ".",
       "artifacts": []
     },
@@ -38,23 +43,13 @@
       "cwd": ".",
       "artifacts": []
     },
-    "final-synthetic-launch": {
-      "command": "pnpm fixture:venture-launch -- --idea fixtures/ideas/synthetic-payout-rank.md --output /tmp/vh-synthetic-launch-final-proof-v2 --json",
-      "cwd": ".",
-      "artifacts": []
-    },
     "final-test-controls": {
       "command": "pnpm audit:test-controls",
       "cwd": ".",
       "artifacts": []
     },
-    "final-unit-tests": {
-      "command": "pnpm test",
-      "cwd": ".",
-      "artifacts": []
-    },
     "final-verify": {
-      "command": "pnpm verify",
+      "command": "pnpm verify -- --delegate \"pnpm test\" --delegate \"pnpm typecheck\"",
       "cwd": ".",
       "artifacts": []
     },
@@ -71,20 +66,15 @@
     "final-verify-release": {
       "command": "pnpm verify:release -- --report reports/audit/quality-release.json",
       "cwd": ".",
-      "artifacts": ["reports/audit/quality-release.json"]
+      "artifacts": ["reports/audit/quality-release.json", "reports/audit/seed-closure.json"]
     },
-    "final-workspace-build": {
-      "command": "pnpm workspace:build",
+    "final-verify-live": {
+      "command": "pnpm verify:live -- --report reports/audit/quality-live.json",
       "cwd": ".",
-      "artifacts": []
+      "artifacts": ["reports/audit/quality-live.json"]
     },
     "final-workspace-check": {
       "command": "pnpm workspace:check",
-      "cwd": ".",
-      "artifacts": []
-    },
-    "final-workspace-pack-consumer": {
-      "command": "pnpm test:workspace",
       "cwd": ".",
       "artifacts": []
     }
@@ -107,7 +97,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -129,7 +119,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -147,7 +137,7 @@
         {
           "kind": "test",
           "path": "tests/config-schemas.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -165,7 +155,7 @@
         {
           "kind": "test",
           "path": "tests/command-surfaces-parity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -183,7 +173,7 @@
         {
           "kind": "test",
           "path": "tests/command-surfaces-parity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -201,7 +191,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -219,7 +209,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-fixture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -237,7 +227,7 @@
         {
           "kind": "test",
           "path": "tests/credentials-broker.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -255,7 +245,7 @@
         {
           "kind": "test",
           "path": "tests/authorization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -273,7 +263,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -291,7 +281,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -309,7 +299,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -327,7 +317,7 @@
         {
           "kind": "test",
           "path": "tests/providers-execution.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -349,7 +339,7 @@
         {
           "kind": "test",
           "path": "tests/provider-stack-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -367,7 +357,7 @@
         {
           "kind": "test",
           "path": "tests/workflow-durable-recovery.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -385,7 +375,7 @@
         {
           "kind": "test",
           "path": "tests/operating-loop-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -403,7 +393,7 @@
         {
           "kind": "test",
           "path": "tests/cli-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -421,7 +411,7 @@
         {
           "kind": "test",
           "path": "tests/command-surfaces-parity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -439,7 +429,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -457,7 +447,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -479,7 +469,7 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -501,7 +491,7 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -519,7 +509,7 @@
         {
           "kind": "test",
           "path": "tests/migrations.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -537,7 +527,7 @@
         {
           "kind": "test",
           "path": "tests/command-surfaces-parity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -555,7 +545,7 @@
         {
           "kind": "test",
           "path": "tests/command-surfaces-parity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -573,7 +563,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -597,7 +587,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -615,7 +605,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -633,7 +623,7 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -655,11 +645,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -677,11 +667,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -703,7 +693,7 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -726,7 +716,7 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -744,11 +734,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -769,11 +759,11 @@
         {
           "kind": "test",
           "path": "tests/providers-github-source.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -797,11 +787,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -819,11 +809,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -841,11 +831,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -863,11 +853,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -889,11 +879,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -911,11 +901,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -933,11 +923,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -955,11 +945,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -977,11 +967,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1008,11 +998,11 @@
         {
           "kind": "test",
           "path": "tests/providers-github-source.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1036,11 +1026,11 @@
         {
           "kind": "test",
           "path": "tests/launch-fixtures.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1064,11 +1054,11 @@
         {
           "kind": "test",
           "path": "tests/launch-fixtures.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1092,11 +1082,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1114,11 +1104,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1136,11 +1126,11 @@
         {
           "kind": "test",
           "path": "tests/migrations.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1158,7 +1148,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1176,7 +1166,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1194,7 +1184,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1212,7 +1202,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1230,7 +1220,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1248,7 +1238,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1266,7 +1256,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1284,7 +1274,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1307,7 +1297,7 @@
         {
           "kind": "test",
           "path": "tests/recursive-command-surfaces.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1325,7 +1315,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1343,7 +1333,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1361,7 +1351,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1379,7 +1369,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1401,7 +1391,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1425,12 +1415,12 @@
         {
           "kind": "test",
           "path": "tests/recursive-command-surfaces.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1453,12 +1443,12 @@
         {
           "kind": "test",
           "path": "tests/recursive-command-surfaces.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1484,17 +1474,17 @@
         {
           "kind": "test",
           "path": "tests/operating-loop-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1512,7 +1502,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1534,7 +1524,7 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1561,17 +1551,17 @@
         {
           "kind": "test",
           "path": "tests/provider-stack-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/stack-profile-command-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/command-surfaces-parity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1595,7 +1585,7 @@
         {
           "kind": "test",
           "path": "tests/providers-contract.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1617,7 +1607,7 @@
         {
           "kind": "test",
           "path": "tests/credentials-auth-lifecycle.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1644,7 +1634,7 @@
         {
           "kind": "test",
           "path": "tests/runtime-provider-lifecycle.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1662,7 +1652,7 @@
         {
           "kind": "test",
           "path": "tests/providers-execution.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1686,7 +1676,7 @@
         {
           "kind": "test",
           "path": "tests/provider-idempotency-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1704,7 +1694,7 @@
         {
           "kind": "test",
           "path": "tests/providers-contract.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1722,7 +1712,7 @@
         {
           "kind": "test",
           "path": "tests/provider-idempotency-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1743,7 +1733,7 @@
         {
           "kind": "test",
           "path": "tests/provider-idempotency-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1761,7 +1751,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1779,7 +1769,7 @@
         {
           "kind": "test",
           "path": "tests/providers-contract.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1802,7 +1792,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1820,7 +1810,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1842,7 +1832,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1865,7 +1855,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1888,7 +1878,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1910,7 +1900,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1934,12 +1924,12 @@
         {
           "kind": "test",
           "path": "tests/migrations.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1957,7 +1947,7 @@
         {
           "kind": "test",
           "path": "tests/upgrade-operational.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -1982,7 +1972,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2006,7 +1996,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2030,7 +2020,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2054,7 +2044,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2078,7 +2068,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2101,7 +2091,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2126,7 +2116,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2150,7 +2140,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2174,7 +2164,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2199,7 +2189,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2222,7 +2212,7 @@
         {
           "kind": "test",
           "path": "tests/config-schemas.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2240,7 +2230,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2263,7 +2253,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-creative-persistence.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2281,7 +2271,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-creative-ledger.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2302,7 +2292,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-creative-ledger.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2320,7 +2310,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2338,7 +2328,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2364,7 +2354,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -2373,7 +2363,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2408,7 +2398,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -2417,12 +2407,12 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-organic-policy.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2453,12 +2443,12 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-organic-policy.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2481,12 +2471,12 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-metrics.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2509,7 +2499,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2527,7 +2517,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2545,7 +2535,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2563,7 +2553,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2581,7 +2571,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-spend-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2599,7 +2589,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-spend-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2621,7 +2611,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-provider-pause.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2652,7 +2642,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -2661,22 +2651,22 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-spend-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-provider-pause.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2700,7 +2690,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2722,7 +2712,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-provider-pause.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2740,7 +2730,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2761,7 +2751,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-attribution-cohorts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2784,7 +2774,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-attribution-cohorts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2806,7 +2796,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-attribution-cohorts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2828,7 +2818,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-attribution-cohorts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2846,7 +2836,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2867,7 +2857,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-integrations.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2893,7 +2883,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -2902,7 +2892,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2936,7 +2926,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -2945,12 +2935,12 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-organic-policy.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -2987,7 +2977,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -2996,22 +2986,22 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-spend-safety.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-provider-pause.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3045,7 +3035,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3054,12 +3044,12 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-attribution-cohorts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3094,7 +3084,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-contracts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3103,12 +3093,12 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-live-provider-commands.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-attribution-cohorts.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3136,7 +3126,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-integrations.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3163,7 +3153,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-fixture-d.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3172,7 +3162,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-fixture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "artifact",
@@ -3208,7 +3198,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-fixture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3240,7 +3230,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-fixture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3269,7 +3259,7 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3300,22 +3290,22 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-legacy-adoption-contract.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-legacy-adoption.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-creative-persistence.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/winner-loop-evaluator.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3336,7 +3326,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-creative-ledger.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3358,7 +3348,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-provider-pause.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3376,7 +3366,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-metrics.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3394,7 +3384,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-metrics.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3412,7 +3402,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-paid-gate.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3434,7 +3424,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-provider-pause.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3452,7 +3442,7 @@
         {
           "kind": "test",
           "path": "tests/runtime-build-agent-host.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3470,7 +3460,7 @@
         {
           "kind": "test",
           "path": "tests/security-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3488,7 +3478,7 @@
         {
           "kind": "test",
           "path": "tests/security-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3506,7 +3496,7 @@
         {
           "kind": "test",
           "path": "tests/security-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3524,7 +3514,7 @@
         {
           "kind": "test",
           "path": "tests/security-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3542,7 +3532,7 @@
         {
           "kind": "test",
           "path": "tests/runtime-provider-transports.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3564,7 +3554,7 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3590,7 +3580,7 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3598,7 +3588,7 @@
       "liveVerification": {
         "attempted": false,
         "reason": "CodeQL is configured, but hosted GitHub Actions had not run on a pushed pull request during the local audit.",
-        "command": "gh run list --branch sol/vh-core-v0.2-winner-loop --workflow codeql.yml --limit 1",
+        "command": "gh run list --branch sol/vh-v0.2-launch-dogfood --workflow codeql.yml --limit 1",
         "evidenceRequired": "GitHub workflow run identifier, completed state/conclusion, repository ownership, head SHA, analyzed language, and hosted read-back."
       }
     },
@@ -3611,6 +3601,8 @@
       "evidence": [
         ".github/workflows/dependency-review.yml",
         ".github/dependabot.yml",
+        "package.json",
+        "pnpm-lock.yaml",
         "tests/security-release.test.ts"
       ],
       "result": "The cited implementation and deterministic controls cover \u201cdependency review and Dependabot\u201d; authenticated provider or hosted-CI read-back remains pending and is not reported as a live pass.",
@@ -3618,7 +3610,11 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
+        },
+        {
+          "kind": "command",
+          "commandId": "final-prod-audit"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3626,7 +3622,7 @@
       "liveVerification": {
         "attempted": false,
         "reason": "Dependency review and Dependabot are configured, but hosted pull-request checks require a pushed draft PR.",
-        "command": "gh run list --branch sol/vh-core-v0.2-winner-loop --workflow dependency-review.yml --limit 1",
+        "command": "gh run list --branch sol/vh-v0.2-launch-dogfood --workflow dependency-review.yml --limit 1",
         "evidenceRequired": "GitHub workflow run identifier, completed state/conclusion, repository ownership, head SHA, Dependabot configuration, and hosted read-back."
       }
     },
@@ -3642,7 +3638,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3660,7 +3656,7 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3682,7 +3678,7 @@
         {
           "kind": "test",
           "path": "tests/security-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3718,21 +3714,21 @@
         "tests/workspace-boundaries.test.ts",
         "tests/quality-profiles.test.ts"
       ],
-      "result": "The workspace builder compiles package dependencies in topological order into atomic staging directories, emits declarations plus ESM/CommonJS targets, installs only complete builds, removes stale artifacts, and bundles the distributable CLI. The contract check then verifies all 30 packages and five apps, explicit export targets, dependency declarations/direction, built entrypoints, allowlisted package contents, and zero dependency cycles; the MVP and release profiles run build before this check in separate phases.",
+      "result": "The workspace builder compiles package dependencies in topological order into atomic staging directories, emits declarations plus ESM/CommonJS targets, installs only complete builds, removes stale artifacts, and bundles the distributable CLI. The contract check then verifies all 30 packages and five apps, explicit export targets, dependency declarations/direction, built entrypoints, allowlisted package contents, and zero dependency cycles; MVP owns this core build before its dependent checks, while release gets its build only through the package-distribution owner.",
       "verification": [
         {
           "kind": "test",
           "path": "tests/workspace-boundaries.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/quality-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-workspace-build"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3753,12 +3749,12 @@
         "scripts/workspace-pack.mjs",
         "tests/workspace-pack.test.ts"
       ],
-      "result": "The release pack phase rebuilds and checks the workspace, produces 31 allowlisted tarballs, installs them into an offline clean consumer, and invokes the packaged `vh` CLI without a source or `tsx` fallback. The phase is ordered after workspace build and contract validation.",
+      "result": "The release package-distribution owner builds and checks the workspace, produces 31 allowlisted tarballs, installs them into an offline clean consumer, and invokes the packaged `vh` CLI without a source or `tsx` fallback. It is the release tier's only workspace-build path.",
       "verification": [
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3780,7 +3776,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3802,7 +3798,7 @@
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3824,11 +3820,11 @@
         {
           "kind": "test",
           "path": "tests/materialization.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
-          "commandId": "final-synthetic-launch"
+          "commandId": "final-verify-release"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3850,7 +3846,7 @@
         {
           "kind": "test",
           "path": "tests/venture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3879,7 +3875,7 @@
         {
           "kind": "test",
           "path": "tests/winner-loop-fixture-runtime.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3915,7 +3911,7 @@
         {
           "kind": "test",
           "path": "tests/fleet-controller.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -3936,7 +3932,7 @@
         {
           "kind": "test",
           "path": "tests/requirement-matrix-integrity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3958,7 +3954,7 @@
         {
           "kind": "test",
           "path": "tests/quality-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -3980,7 +3976,7 @@
         {
           "kind": "test",
           "path": "tests/quality-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -4007,22 +4003,22 @@
         "tests/workspace-pack.test.ts",
         "reports/audit/quality-release.json"
       ],
-      "result": "The release profile runs every deterministic release check and reaches PASS with no live provider connected. Live provider read-back moved to the separate live profile (QUAL-020), so a code-complete founder alpha is no longer reported as blocked by an unconnected account.",
+      "result": "After MVP owns the core build, typecheck, full unit/integration suite, and focused core checks, the release profile runs only deterministic package, security, rollback/resume, analytics-contract, and Golden Path checks and reaches PASS with no live provider connected. Live provider freshness and read-back remain in the live/stable tiers (QUAL-020).",
       "verification": [
         {
           "kind": "test",
           "path": "tests/quality-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/packaged-quality-command.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "test",
           "path": "tests/workspace-pack.test.ts",
-          "commandId": "final-workspace-pack-consumer"
+          "commandId": "final-verify-release"
         },
         {
           "kind": "artifact",
@@ -4051,7 +4047,7 @@
         {
           "kind": "test",
           "path": "tests/quality-profiles.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -4073,7 +4069,7 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -4095,16 +4091,18 @@
       "evidenceCeiling": "LOCAL_INTEGRATION",
       "evidence": [
         "scripts/run-audit-command.mjs",
+        "scripts/initialize-final-evidence.mjs",
+        "scripts/lib/final-evidence-source.mjs",
         "scripts/lib/requirement-proofs.ts",
         "reports/audit/commands-run.json",
         "tests/requirement-matrix-integrity.test.ts"
       ],
-      "result": "Schema-v2 audit records bind the exact reviewed command to a dedicated sanitized log hash, byte length, execution interval, and declared artifact hashes. Legacy schema-v1 rows remain append-only history but cannot satisfy a proof until that command is rerun; deterministic controls reject package.json as fake command evidence and reject changed logs or artifacts.",
+      "result": "Schema-v3 audit records bind every exact reviewed command, sanitized log, and declared artifact to one clean Git source SHA, tree, and branch. Initialization rejects a dirty checkout; every command and matrix render re-checks HEAD and rejects non-evidence drift. Legacy unbound ledgers cannot satisfy or accept new proof commands.",
       "verification": [
         {
           "kind": "test",
           "path": "tests/requirement-matrix-integrity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -4129,7 +4127,7 @@
         {
           "kind": "test",
           "path": "tests/requirement-matrix-integrity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -4150,7 +4148,7 @@
         {
           "kind": "test",
           "path": "tests/requirement-matrix-integrity.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         }
       ],
       "reviewedAt": "2026-08-09",
@@ -4172,7 +4170,7 @@
         {
           "kind": "test",
           "path": "tests/security-release.test.ts",
-          "commandId": "final-unit-tests"
+          "commandId": "final-verify-mvp"
         },
         {
           "kind": "command",
@@ -4181,6 +4179,44 @@
       ],
       "reviewedAt": "2026-08-09",
       "reviewedBy": "codex-independent-audit"
+    },
+    {
+      "id": "QUAL-020",
+      "priority": "P2",
+      "requirement": "vh verify live",
+      "status": "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      "evidenceCeiling": "IMPLEMENTATION_ONLY",
+      "evidence": [
+        "config/quality.yaml",
+        "scripts/run-quality-profile.ts",
+        "tests/quality-profiles.test.ts",
+        "reports/audit/quality-live.json"
+      ],
+      "result": "Final evidence runs the live profile and records its exact sanitized report. With no authorized founder Stack or analytics destination, the only accepted non-pass is INCOMPLETE with the two reviewed provider read-back SKIPs; any executed failure, added SKIP, malformed gap, or missing report fails the evidence workflow.",
+      "verification": [
+        {
+          "kind": "test",
+          "path": "tests/quality-profiles.test.ts",
+          "commandId": "final-verify-mvp"
+        },
+        {
+          "kind": "expected_incomplete_quality_profile",
+          "path": "reports/audit/quality-live.json",
+          "commandId": "final-verify-live",
+          "profile": "live",
+          "expectedStatus": "INCOMPLETE",
+          "allowedSkipIds": ["live_stack_readback"]
+        }
+      ],
+      "liveVerification": {
+        "attempted": false,
+        "profileAttempted": true,
+        "reason": "The final-evidence profile was attempted without an authorized founder Stack or analytics destination, so no external provider read-back could execute.",
+        "command": "pnpm vh stack connect founder-default && pnpm vh launch --stack founder-default --production --apply && pnpm verify:live",
+        "evidenceRequired": "Provider deployment or analytics resource identifier, final state, founder account ownership, and sanitized provider read-back bound to the evidence run."
+      },
+      "reviewedAt": "2026-08-12",
+      "reviewedBy": "opus-v0.2-launch-cut"
     }
   ]
 }

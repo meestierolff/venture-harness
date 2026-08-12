@@ -1,13 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:43127";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL;
+if (!baseURL) {
+  throw new Error(
+    "PLAYWRIGHT_BASE_URL is required. Run `pnpm test:e2e` to start an ephemeral local production server.",
+  );
+}
 
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
   expect: { timeout: 7_500 },
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // A flaky critical journey is a release defect; CI must not hide it with a retry.
+  retries: 0,
   workers: process.env.CI ? 2 : undefined,
   reporter: "line",
   outputDir: ".venture/test-results",
@@ -17,16 +23,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  webServer: process.env.PLAYWRIGHT_BASE_URL
-    ? undefined
-    : {
-        command: "pnpm exec next start -H 127.0.0.1 -p 43127",
-        url: baseURL,
-        reuseExistingServer: false,
-        timeout: 120_000,
-        stdout: "pipe",
-        stderr: "pipe",
-      },
+  webServer: undefined,
   projects: [
     {
       name: "desktop-chromium",

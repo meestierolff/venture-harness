@@ -8,18 +8,18 @@ import {
   resolveVenturesRoot,
   saveFounderConfig,
 } from "../founder-launch/founder-config";
+import { assertNoSecretsInArgv, type DetectedSession } from "../founder-launch/stack-connect";
 import {
-  assertNoSecretsInArgv,
-  blockingActions,
-  credentialRefFor,
-  planFounderStackConnection,
-  type CollectedRole,
-} from "../founder-launch/stack-connect";
-import {
+  collectFounderStackWizard,
+  collectedCliSessionRoles,
   detectSessions,
-  discoverGitHubOwner,
-  discoverVercelScope,
+  founderStackConnectionDraftRoles,
+  safeCliSessionMetadata,
+  systemFounderStackWizardPrompt,
+  type FounderStackWizardPrompt,
+  type GuidedFounderStackRole,
 } from "../founder-launch/stack-connect-shell";
+import { createFounderStackConnectionDraft } from "../founder-launch/stack";
 import type { CliIo, CliLaunchRequest, CliResult, CliServices } from "./types";
 
 export * from "./types";
@@ -29,6 +29,10 @@ export interface RunCliOptions {
   io?: CliIo;
   services?: CliServices;
   store?: WorkflowStore;
+  /** Deterministic seam for the credential-free Stack wizard session inspection. */
+  stackSessions?: readonly DetectedSession[];
+  /** Deterministic hidden/visible prompt seam for guided Stack connection tests. */
+  stackPrompt?: FounderStackWizardPrompt;
 }
 
 const HELP = `Venture Harness CLI
@@ -49,6 +53,8 @@ Usage:
   vh config set ventures-root <absolute-path>
                                   Choose where independent ventures are materialized
   vh doctor                       Inspect local launch prerequisites
+  vh idea sharpen --input <idea.md|-> --output <idea.md>
+                                  Produce one bounded Launch Contract and Product Constitution
   vh create --brief <file>        Validate and persist one progressive-commitment brief
   vh plan [--brief <file>]        Compile a launch plan without side effects
   vh launch --dry-run             Show nodes, effects, approvals, cost, and manual work
@@ -94,6 +100,7 @@ function positional(args: string[]): string[] {
       if (
         [
           "--brief",
+          "--input",
           "--idea",
           "--stack",
           "--output",
@@ -114,6 +121,8 @@ function positional(args: string[]): string[] {
           "--scopes",
           "--file",
           "--release",
+          "--role",
+          "--credential-backend",
         ].includes(args[index])
       )
         index += 1;
@@ -139,6 +148,11 @@ function founderLaunchExitCode(value: unknown, mode: "dry-run" | "apply"): 0 | 1
   if (mode === "dry-run" || !value || typeof value !== "object" || Array.isArray(value)) return 0;
   const status = (value as { status?: unknown }).status;
   return status === "blocked" || status === "failed" ? 1 : 0;
+}
+
+function authTestExitCode(value: unknown): 0 | 1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 1;
+  return (value as { allPassed?: unknown }).allPassed === true ? 0 : 1;
 }
 
 function unsupported(io: CliIo, command: string, nextAction: string): CliResult {
@@ -169,6 +183,39 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
   }
 
   try {
+    if (command === "idea") {
+      const usage = "Usage: vh idea sharpen --input <rough-idea.md|-> --output <idea.md>";
+      const values = positional(rest);
+      const unknownFlag = rest.find(
+        (value) =>
+          value.startsWith("-") &&
+          value !== "-" &&
+          !["--input", "--output", "--json"].includes(value),
+      );
+      const input = flagValue(rest, "--input");
+      const output = flagValue(rest, "--output");
+      if (
+        unknownFlag ||
+        values.length !== 1 ||
+        values[0] !== "sharpen" ||
+        !input ||
+        !output ||
+        !output.toLowerCase().endsWith(".md")
+      ) {
+        io.stderr(usage);
+        return { exitCode: 2 };
+      }
+      if (!services.ideaSharpen) {
+        return unsupported(
+          io,
+          "vh idea sharpen",
+          "install and authenticate the Codex CLI, then rerun the same command",
+        );
+      }
+      emit(io, await services.ideaSharpen({ input, output, json }), json);
+      return { exitCode: 0 };
+    }
+
     if (command === "create") {
       const brief = flagValue(rest, "--brief");
       if (!brief) {
@@ -209,57 +256,138 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
         return { exitCode: 2 };
       }
       const values = positional(rest);
-      if (values.length !== 2 || values[1] !== "founder-default") {
-        io.stderr("Usage: vh stack connect founder-default");
+      const unknownStackFlag = rest.find(
+        (value) =>
+          value.startsWith("-") && !["--role", "--credential-backend", "--json"].includes(value),
+      );
+      const missingStackFlagValue = ["--role", "--credential-backend"].find((flag) => {
+        const value = flagValue(rest, flag);
+        return rest.includes(flag) && (!value || value.startsWith("-"));
+      });
+      if (
+        values.length !== 2 ||
+        values[1] !== "founder-default" ||
+        unknownStackFlag ||
+        missingStackFlagValue
+      ) {
+        io.stderr(
+          "Usage: vh stack connect founder-default [--role database.postgres|commerce.web|email.transactional|growth.google|search.bing|dns.records] [--credential-backend macos_keychain|onepassword]",
+        );
         return { exitCode: 2 };
       }
-      const sessions = detectSessions();
-      const collected: CollectedRole[] = [];
-      const githubOwner = discoverGitHubOwner();
-      const vercelScope = discoverVercelScope();
-      if (githubOwner) {
-        collected.push({
-          role: "source.repository",
-          credentialRef: credentialRefFor("github", "founder-default"),
-          identifiers: { accountId: githubOwner, organizationId: githubOwner },
-        });
+      const sessions = [...(options.stackSessions ?? detectSessions())];
+      const collected = [...collectedCliSessionRoles(sessions, "founder-default")];
+      const prompt = options.stackPrompt ?? systemFounderStackWizardPrompt();
+      const requestedRole = flagValue(rest, "--role") as GuidedFounderStackRole | undefined;
+      const allowedRoles = new Set<GuidedFounderStackRole>([
+        "database.postgres",
+        "commerce.web",
+        "email.transactional",
+        "growth.google",
+        "search.bing",
+        "dns.records",
+      ]);
+      if (requestedRole && !allowedRoles.has(requestedRole)) {
+        io.stderr(
+          "--role must be database.postgres, commerce.web, email.transactional, growth.google, search.bing, or dns.records",
+        );
+        return { exitCode: 2 };
       }
-      if (vercelScope) {
-        collected.push({
-          role: "hosting.web",
-          credentialRef: credentialRefFor("vercel", "founder-default"),
-          identifiers: { accountId: vercelScope, teamId: vercelScope },
-        });
+      const requestedBackend = flagValue(rest, "--credential-backend");
+      const backend =
+        requestedBackend ?? (process.platform === "darwin" ? "macos_keychain" : "onepassword");
+      if (backend !== "macos_keychain" && backend !== "onepassword") {
+        io.stderr("--credential-backend must be macos_keychain or onepassword");
+        return { exitCode: 2 };
       }
-      const plan = planFounderStackConnection({
-        profileId: "founder-default",
+      const credentialWrites: NonNullable<
+        Parameters<NonNullable<CliServices["stack"]>>[0]["credentialWrites"]
+      >[number][] = [];
+      let selectedOptionalRoles: Parameters<
+        typeof createFounderStackConnectionDraft
+      >[0]["selectedOptionalRoles"] = [
+        "email.transactional",
+        "growth.google",
+        "search.bing",
+        "dns.records",
+      ];
+      let launchDefaults: Parameters<typeof createFounderStackConnectionDraft>[0]["launchDefaults"];
+      let writableCredentialBackend: Parameters<
+        typeof createFounderStackConnectionDraft
+      >[0]["writableCredentialBackend"] = { mode: "shared", backend };
+      if (prompt.isTty && !json) {
+        const guided = await collectFounderStackWizard({
+          profileId: "founder-default",
+          sessions,
+          prompt,
+          backend,
+          ...(requestedRole ? { onlyRole: requestedRole } : {}),
+          writer: {
+            backendId: backend,
+            async store(request) {
+              credentialWrites.push(request);
+            },
+          },
+        });
+        collected.push(...guided.collected);
+        selectedOptionalRoles = guided.selectedOptionalRoles;
+        launchDefaults = guided.launchDefaults;
+        writableCredentialBackend = guided.writableCredentialBackend;
+      }
+      const githubOwner = sessions.find(
+        ({ provider, authenticated, account }) => provider === "github" && authenticated && account,
+      )?.account;
+      const connection = createFounderStackConnectionDraft({
         ownerOrganizationId: githubOwner ?? "founder",
-        sessions,
-        collected,
+        roles: founderStackConnectionDraftRoles(collected, sessions),
+        inspectedCliSessions: safeCliSessionMetadata(sessions),
+        selectedOptionalRoles,
+        writableCredentialBackend,
+        launchDefaults,
       });
+      const updatedRoles = [...new Set(collected.map(({ role }) => role))];
       const venturesRoot = loadFounderConfig().venturesRoot ?? null;
-      const blocking = blockingActions(plan);
+      if (!services.stack) {
+        return unsupported(
+          io,
+          "vh stack connect founder-default",
+          "configure the founder Stack metadata store and credential broker",
+        );
+      }
+      const diagnosed = await services.stack({
+        action: "connect",
+        profileId: "founder-default",
+        connection,
+        credentialWrites,
+        updatedRoles,
+        replaceOptionalRoles: prompt.isTty && !json && requestedRole === undefined,
+        updateWritableCredentialBackend:
+          prompt.isTty &&
+          !json &&
+          (requestedRole === undefined ||
+            requestedRole === "database.postgres" ||
+            requestedRole === "commerce.web" ||
+            requestedRole === "growth.google"),
+      });
+      const doctor =
+        diagnosed && typeof diagnosed === "object" && !Array.isArray(diagnosed)
+          ? diagnosed
+          : { status: "attention_required", launchReady: false, unresolvedActions: [] };
+      const providerActions = Array.isArray(doctor.unresolvedActions)
+        ? doctor.unresolvedActions
+        : [];
+      const launchReady = doctor.launchReady === true && venturesRoot !== null;
       emit(
         io,
         {
           command: "stack.connect",
           profileId: "founder-default",
-          sessions: sessions.map(({ provider, authenticated, account }) => ({
-            provider,
-            authenticated,
-            ...(account ? { account } : {}),
-          })),
-          resolved: plan.resolved,
+          saved: true,
+          ...doctor,
           venturesRoot,
-          launchReady: plan.launchReady && venturesRoot !== null,
+          launchReady,
           unresolvedActions: [
-            ...plan.unresolved.map((action) => ({
-              role: action.role,
-              provider: action.provider,
-              why: action.why,
-              command: action.command,
-              blocksLaunch: action.blocksLaunch,
-            })),
+            ...providerActions,
             ...(venturesRoot
               ? []
               : [
@@ -275,7 +403,7 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
         },
         json,
       );
-      return { exitCode: blocking.length === 0 && venturesRoot ? 0 : 1 };
+      return { exitCode: launchReady ? 0 : 1 };
     }
 
     if (command === "stack") {
@@ -582,11 +710,29 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
     }
 
     if (command === "auth") {
-      const [action, provider] = positional(rest) as [
-        "login" | "status" | "test" | "revoke",
-        string?,
-      ];
-      if (!(["login", "status", "test", "revoke"] as string[]).includes(action)) {
+      try {
+        assertNoSecretsInArgv(rest);
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 2 };
+      }
+      const authValues = positional(rest);
+      const [action, provider] = authValues as ["login" | "status" | "test" | "revoke", string?];
+      const unknownAuthFlag = rest.find(
+        (value) =>
+          value.startsWith("-") &&
+          !["--ref", "--backend", "--kind", "--scopes", "--json"].includes(value),
+      );
+      const missingAuthFlagValue = ["--ref", "--backend", "--kind", "--scopes"].find((flag) => {
+        const value = flagValue(rest, flag);
+        return rest.includes(flag) && (!value || value.startsWith("-"));
+      });
+      if (
+        authValues.length > 2 ||
+        unknownAuthFlag ||
+        missingAuthFlagValue ||
+        !(["login", "status", "test", "revoke"] as string[]).includes(action)
+      ) {
         io.stderr("Usage: vh auth login [provider] | status | test [provider] | revoke <provider>");
         return { exitCode: 2 };
       }
@@ -600,22 +746,55 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
           `vh auth ${action}`,
           "configure the credential broker/provider adapter; credential values must never enter Git",
         );
-      emit(
-        io,
-        await services.auth({
-          action,
-          provider,
-          ref: flagValue(rest, "--ref"),
-          backend: flagValue(rest, "--backend"),
-          kind: flagValue(rest, "--kind"),
-          scopes: flagValue(rest, "--scopes")
-            ?.split(",")
-            .map((scope) => scope.trim())
-            .filter(Boolean),
-        }),
-        json,
-      );
-      return { exitCode: 0 };
+      const requestedBackend = flagValue(rest, "--backend");
+      const backend =
+        action === "login" && provider
+          ? (requestedBackend ??
+            (["github", "vercel", "eas"].includes(provider)
+              ? "cli_session"
+              : process.platform === "darwin"
+                ? "macos_keychain"
+                : "onepassword"))
+          : requestedBackend;
+      const prompt = options.stackPrompt ?? systemFounderStackWizardPrompt();
+      const readValue =
+        action === "login" &&
+        provider !== undefined &&
+        (backend === "macos_keychain" || backend === "onepassword") &&
+        prompt.isTty &&
+        !json
+          ? async () => {
+              const value = await prompt.readCredential(
+                `${provider} credential (input hidden; never argv or output): `,
+              );
+              if (!value) {
+                throw new Error(
+                  `No credential value was entered for ${provider}; rerun the same auth login command.`,
+                );
+              }
+              return value;
+            }
+          : undefined;
+      const result = await services.auth({
+        action,
+        provider,
+        ref: flagValue(rest, "--ref"),
+        backend,
+        kind:
+          flagValue(rest, "--kind") ??
+          (action === "login" && provider === "stripe"
+            ? "restricted_api_key"
+            : action === "login" && provider === "google"
+              ? "oauth"
+              : undefined),
+        scopes: flagValue(rest, "--scopes")
+          ?.split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean),
+        ...(readValue ? { readValue } : {}),
+      });
+      emit(io, result, json);
+      return { exitCode: action === "test" ? authTestExitCode(result) : 0 };
     }
 
     if (command === "data" && positional(rest)[0] === "sync") {

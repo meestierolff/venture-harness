@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { JsonObject, TenantRef } from "@venture-harness/core";
-import { stableJson, tenantKey } from "@venture-harness/core";
+import { initializeSqliteWal, stableJson, tenantKey } from "@venture-harness/core";
 
 export interface DomainEvent {
   eventId: string;
@@ -37,6 +37,7 @@ export class InMemoryEventLog implements EventSink {
 }
 
 interface SqliteStatement {
+  get(...values: unknown[]): unknown;
   all(...values: unknown[]): unknown[];
   run(...values: unknown[]): unknown;
 }
@@ -72,8 +73,7 @@ export class SqliteEventLog implements EventSink {
     }
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#database = sqliteDatabase(path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    this.#database.exec("PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "durable event sink" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS command_events (
         event_id TEXT PRIMARY KEY,

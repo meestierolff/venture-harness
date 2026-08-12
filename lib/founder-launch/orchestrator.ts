@@ -22,6 +22,8 @@ import {
   type VentureMaterializationPlan,
 } from "../materialization";
 import { compileFounderIdea, type CompiledFounderIdea } from "./idea";
+import { resolveVentureOutputWithinRoot } from "./founder-config";
+import { launchContractDigest, launchDecisionFromContract } from "./launch-contract";
 import {
   FOUNDER_STACK_PROFILE_ID,
   founderStackDnsDestinationId,
@@ -86,6 +88,11 @@ export interface FounderLaunchBlocker {
   readonly nextAction: string;
 }
 
+export interface FounderLaunchGap extends FounderLaunchBlocker {
+  readonly state: "waiting_for_auth" | "waiting_for_external_action";
+  readonly blocksLaunch: false;
+}
+
 export interface FounderLaunchPreparation {
   readonly schemaVersion: 1;
   readonly status: "ready" | "blocked";
@@ -146,6 +153,7 @@ export interface FounderLaunchPreparation {
   readonly materialization: VentureMaterializationPlan;
   readonly graphDryRun: LaunchDryRun;
   readonly blockers: readonly FounderLaunchBlocker[];
+  readonly launchGaps: readonly FounderLaunchGap[];
   readonly exactFinalCommand: string;
 }
 
@@ -153,7 +161,16 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function seedFor(brief: FounderBrief): SeedId {
+export function founderSeedFor(
+  brief: FounderBrief,
+  launchContract: CompiledFounderIdea["launchContract"],
+): SeedId {
+  if (
+    launchContract?.agentNative.customerAgentSurfaceRequired ||
+    launchContract?.agentNative.serviceBlueprintRequired
+  ) {
+    return "hybrid-agentic-service";
+  }
   if (brief.app_kind === "web") return "agentic-web-saas";
   if (brief.app_kind === "mobile_ios" || brief.app_kind === "mobile_cross_platform") {
     return "agentic-ios-subscription";
@@ -161,13 +178,15 @@ function seedFor(brief: FounderBrief): SeedId {
   return "hybrid-agentic-service";
 }
 
-function requiredRoles(brief: FounderBrief): readonly FounderStackRole[] {
+function requiredRoles(
+  brief: FounderBrief,
+  paymentProvider: LaunchDryRun["decision"]["payment"]["provider"],
+): readonly FounderStackRole[] {
   const roles = new Set<FounderStackRole>(["source.repository"]);
   if (brief.app_kind === "web" || brief.app_kind === "hybrid") roles.add("hosting.web");
   if (brief.needs.database) roles.add("database.postgres");
-  if (brief.monetization_model !== "none") {
-    roles.add(brief.native_digital_goods ? "commerce.native" : "commerce.web");
-  }
+  if (paymentProvider === "stripe") roles.add("commerce.web");
+  if (paymentProvider === "revenuecat") roles.add("commerce.native");
   if (brief.needs.transactional_email) roles.add("email.transactional");
   if (brief.needs.analytics || brief.needs.search_discovery) roles.add("growth.google");
   if (brief.needs.search_discovery) roles.add("search.bing");
@@ -232,7 +251,10 @@ function providerAccounts(
   return accounts;
 }
 
-function effectsFor(brief: FounderBrief): readonly LaunchEffect[] {
+function effectsFor(
+  brief: FounderBrief,
+  paymentProvider: LaunchDryRun["decision"]["payment"]["provider"],
+): readonly LaunchEffect[] {
   const effects = new Set<LaunchEffect>([
     "repository.create",
     "company_stack.provision",
@@ -241,23 +263,21 @@ function effectsFor(brief: FounderBrief): readonly LaunchEffect[] {
     "production.deploy",
   ]);
   if (brief.domain) effects.add("domain.configure");
-  if (brief.monetization_model !== "none") effects.add("commerce.configure");
+  if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
 }
 
 function containedOutput(baseDir: string, requested: string | undefined, slug: string): string {
   const root = resolve(baseDir);
-  const relativeOutput = requested ?? `ventures/${slug}`;
+  // baseDir is already the explicitly configured ventures root. Nesting a
+  // second `ventures/` directory made the public default surprising and broke
+  // the promised one-sibling-per-venture layout.
+  const relativeOutput = requested ?? slug;
   if (!relativeOutput || isAbsolute(relativeOutput)) {
     throw new Error("Founder launch --output must be a non-empty project-relative path");
   }
-  const target = resolve(root, relativeOutput);
-  const child = relative(root, target);
-  if (child === "" || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
-    throw new Error("Founder launch --output escapes the selected workspace");
-  }
-  return target;
+  return resolveVentureOutputWithinRoot(root, relativeOutput);
 }
 
 export function loadFounderIdeaFile(file: string, baseDir = process.cwd()): string {
@@ -315,14 +335,51 @@ function quoteCli(value: string): string {
   return /^[A-Za-z0-9_./-]+$/u.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function blockersFor(
+function providerForRole(role: FounderStackRole): string {
+  return role === "source.repository"
+    ? "github"
+    : role === "hosting.web"
+      ? "vercel"
+      : role === "database.postgres"
+        ? "neon"
+        : role === "commerce.web"
+          ? "stripe"
+          : role === "commerce.native"
+            ? "revenuecat"
+            : role === "email.transactional"
+              ? "brevo"
+              : role === "growth.google"
+                ? "google"
+                : role === "search.bing"
+                  ? "bing"
+                  : "dns";
+}
+
+function readinessFor(
   compiled: CompiledFounderIdea,
+  paymentProvider: LaunchDryRun["decision"]["payment"]["provider"],
   connection: FounderStackConnection,
   roles: readonly FounderStackRole[],
   doctor: FounderStackDoctorResult | undefined,
   allowFixtureStack: boolean,
-): FounderLaunchBlocker[] {
+): { blockers: FounderLaunchBlocker[]; launchGaps: FounderLaunchGap[] } {
   const blockers: FounderLaunchBlocker[] = [];
+  const launchGaps: FounderLaunchGap[] = [];
+  const blockingRoles = new Set<FounderStackRole>(["source.repository"]);
+  if (roles.includes("hosting.web")) blockingRoles.add("hosting.web");
+  if (roles.includes("database.postgres")) blockingRoles.add("database.postgres");
+  if (paymentProvider === "stripe") blockingRoles.add("commerce.web");
+  const addRoleIssue = (
+    issue: FounderLaunchBlocker,
+    state: FounderLaunchGap["state"],
+    forceBlock = false,
+  ) => {
+    if (forceBlock || (issue.role !== undefined && blockingRoles.has(issue.role))) {
+      blockers.push(issue);
+    } else {
+      launchGaps.push({ ...issue, state, blocksLaunch: false });
+    }
+  };
   if (doctor?.writableCredentialTargets.fixtureOnly && !allowFixtureStack) {
     blockers.push({
       code: "stack_role_not_ready",
@@ -343,20 +400,27 @@ function blockersFor(
         "Update founder-default source.repository with an accountId, teamId, or organizationId, then rerun stack doctor.",
     });
   }
-  if (
-    compiled.brief.monetization_model !== "none" &&
-    !compiled.brief.native_digital_goods &&
-    Number(compiled.commercialTerms.monthlyPrice !== null) +
-      Number(compiled.commercialTerms.annualPrice !== null) !==
-      1
-  ) {
+  const expectedStripePrices =
+    compiled.brief.monetization_model === "subscription"
+      ? Number(compiled.commercialTerms.monthlyPrice !== null) +
+        Number(compiled.commercialTerms.annualPrice !== null)
+      : compiled.brief.monetization_model === "one_time" ||
+          compiled.brief.monetization_model === "services"
+        ? Number(compiled.commercialTerms.oneTimePrice !== null)
+        : 0;
+  if (paymentProvider === "stripe" && expectedStripePrices !== 1) {
     blockers.push({
       code: "exact_price_missing",
       role: "commerce.web",
       provider: "stripe",
-      message: "Stripe planning requires exactly one reviewed monthly or annual displayed price.",
+      message:
+        compiled.brief.monetization_model === "subscription"
+          ? "Stripe planning requires exactly one reviewed monthly or annual displayed price."
+          : "Stripe planning requires exactly one reviewed one-time displayed price.",
       nextAction:
-        "Add exactly one of `Monthly price:` or `Annual price:` to the founder idea and rerun dry-run.",
+        compiled.brief.monetization_model === "subscription"
+          ? "Add exactly one of `Monthly price:` or `Annual price:` to the founder idea and rerun dry-run."
+          : "Add one reviewed one-time price to the Launch Contract and rerun dry-run.",
     });
   }
   // A custom domain is not a precondition for being live. Vercel issues a
@@ -365,80 +429,92 @@ function blockersFor(
   // a blocker. Treating it as a blocker meant a founder could not ship a first
   // app at all until DNS existed.
   for (const role of roles) {
-    const definitionProvider =
-      role === "source.repository"
-        ? "github"
-        : role === "hosting.web"
-          ? "vercel"
-          : role === "database.postgres"
-            ? "neon"
-            : role === "commerce.web"
-              ? "stripe"
-              : role === "commerce.native"
-                ? "revenuecat"
-                : role === "email.transactional"
-                  ? "brevo"
-                  : role === "growth.google"
-                    ? "google"
-                    : role === "search.bing"
-                      ? "bing"
-                      : "dns";
+    const definitionProvider = providerForRole(role);
     const accountId = accountIdFor(connection, role);
+    const credentialReady = role === "dns.records" || Boolean(connection.roles[role].credentialRef);
     const dnsAdapterReady =
       role !== "dns.records" || connection.launchDefaults.dns.adapter !== null;
     if (!accountId) {
-      blockers.push({
-        code: "provider_account_missing",
-        role,
-        provider: definitionProvider,
-        message: `The Founder Stack does not bind ${role} to an exact external account.`,
-        nextAction: `Update founder-default ${role} account metadata and rerun stack doctor.`,
-      });
+      addRoleIssue(
+        {
+          code: "provider_account_missing",
+          role,
+          provider: definitionProvider,
+          message: `The Founder Stack does not bind ${role} to an exact external account.`,
+          nextAction: `Update founder-default ${role} account metadata and rerun stack doctor.`,
+        },
+        "waiting_for_auth",
+      );
+    }
+    if (!credentialReady) {
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: `The Founder Stack does not bind ${role} to a registered credential reference.`,
+          nextAction: `Run vh auth login ${definitionProvider}, update founder-default ${role}, then rerun stack doctor.`,
+        },
+        "waiting_for_auth",
+      );
     }
     if (!dnsAdapterReady) {
-      blockers.push({
-        code: "stack_role_not_ready",
-        role,
-        provider: definitionProvider,
-        message:
-          "The Founder Stack does not select an exact supported manual DNS adapter for this domain.",
-        nextAction:
-          "Set founder-default launchDefaults.dns.adapter to manual_generic or mijndomein_manual, then rerun stack doctor.",
-      });
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message:
+            "The Founder Stack does not select an exact supported manual DNS adapter for this domain.",
+          nextAction:
+            "Set founder-default launchDefaults.dns.adapter to manual_generic or mijndomein_manual, then rerun stack doctor.",
+        },
+        "waiting_for_external_action",
+      );
     }
     const diagnostic = doctor?.roles.find((candidate) => candidate.role === role);
     if (!diagnostic) {
-      blockers.push({
-        code: "stack_role_not_ready",
-        role,
-        provider: definitionProvider,
-        message: `Founder Stack role ${role} has not been checked by the read-only doctor.`,
-        nextAction: "Run vh stack doctor founder-default, then rerun the launch dry-run.",
-      });
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: `Founder Stack role ${role} has not been checked by the read-only doctor.`,
+          nextAction: "Run vh stack doctor founder-default, then rerun the launch dry-run.",
+        },
+        "waiting_for_auth",
+      );
     } else if (
       accountId &&
+      credentialReady &&
       dnsAdapterReady &&
       diagnostic.status !== "ready" &&
       !(role === "dns.records" && diagnostic.status === "manual_only")
     ) {
-      blockers.push({
-        code: "stack_role_not_ready",
-        role,
-        provider: definitionProvider,
-        message: `Founder Stack role ${role} is ${diagnostic.status}; no provider effect is authorized.`,
-        nextAction: diagnostic.nextCommand,
-      });
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: `Founder Stack role ${role} is ${diagnostic.status}; no provider effect is authorized.`,
+          nextAction: diagnostic.nextCommand,
+        },
+        "waiting_for_auth",
+        diagnostic.blocksLaunch && blockingRoles.has(role),
+      );
     }
   }
-  return blockers.filter(
-    (item, index, all) =>
-      all.findIndex(
-        (candidate) =>
-          candidate.code === item.code &&
-          candidate.role === item.role &&
-          candidate.message === item.message,
-      ) === index,
-  );
+  const unique = <T extends FounderLaunchBlocker>(items: readonly T[]): T[] =>
+    items.filter(
+      (item, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.code === item.code &&
+            candidate.role === item.role &&
+            candidate.message === item.message,
+        ) === index,
+    );
+  return { blockers: unique(blockers), launchGaps: unique(launchGaps) };
 }
 
 export function compileFounderLaunchPreparation(
@@ -452,20 +528,23 @@ export function compileFounderLaunchPreparation(
   }
   const connection = parseFounderStackConnection(input.stack);
   const idea = compileFounderIdea(input.ideaSource);
-  const roles = requiredRoles(idea.brief);
-  const dryRun = compileLaunchDryRun(idea.brief);
+  const decision = idea.launchContract
+    ? launchDecisionFromContract(idea.launchContract)
+    : undefined;
+  const dryRun = compileLaunchDryRun(idea.brief, decision);
+  const roles = requiredRoles(idea.brief, dryRun.decision.payment.provider);
   const outputDirectory = containedOutput(input.baseDir, input.output, idea.brief.id);
   const repositoryOwner =
     accountIdFor(connection, "source.repository") ?? connection.ownerOrganizationId;
-  const allowedExternalEffects = effectsFor(idea.brief);
+  const allowedExternalEffects = effectsFor(idea.brief, dryRun.decision.payment.provider);
   const maxBuildAgentTasks = launchBuildAgentTaskCount(dryRun.graph);
   const maxProviderOperations = Math.max(1, launchProviderOperationCeiling(dryRun.graph));
   const grant = createLaunchGrant({
     ownerOrganizationId: connection.ownerOrganizationId,
     ventureName: idea.brief.name,
     ventureSlug: idea.brief.id,
-    ideaDigest: idea.sourceHash,
-    seed: { id: seedFor(idea.brief), version: CORE_VERSION },
+    ideaDigest: idea.launchContract ? launchContractDigest(idea.launchContract) : idea.sourceHash,
+    seed: { id: founderSeedFor(idea.brief, idea.launchContract), version: CORE_VERSION },
     stackProfile: { id: connection.profileId, version: STACK_VERSION },
     repository: {
       owner: repositoryOwner,
@@ -498,7 +577,7 @@ export function compileFounderLaunchPreparation(
     permissions: {
       productionDeployment: input.production,
       domainConfiguration: input.production && Boolean(idea.brief.domain),
-      liveCommerceConfiguration: input.production && idea.brief.monetization_model !== "none",
+      liveCommerceConfiguration: input.production && dryRun.decision.payment.provider !== "none",
     },
     createdAt: input.at.toISOString(),
     expiresAt: new Date(input.at.getTime() + 24 * 60 * 60 * 1_000).toISOString(),
@@ -517,8 +596,9 @@ export function compileFounderLaunchPreparation(
     ventureSlug: idea.brief.id,
     domain: idea.brief.domain,
   });
-  const blockers = blockersFor(
+  const { blockers, launchGaps } = readinessFor(
     idea,
+    dryRun.decision.payment.provider,
     connection,
     roles,
     input.stackDoctor,
@@ -637,6 +717,7 @@ export function compileFounderLaunchPreparation(
     materialization,
     graphDryRun: dryRun,
     blockers,
+    launchGaps,
     exactFinalCommand: `vh launch --idea ${ideaArgument} --stack founder-default --production --apply --non-interactive`,
   });
 }

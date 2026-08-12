@@ -121,6 +121,9 @@ describe("founder Golden Path official transport fixture", () => {
         credentialRef: "cred://stripe/founder-default",
         capabilities: ["product", "price", "webhook", "billing_portal"],
         inputs: {
+          ventureSlug: "exception-desk",
+          stripeAccountId: "fixture-stripe-account",
+          stripeMode: "test",
           productName: "Exception Desk fixture plan",
           productDescription: "Synthetic fixture; no offer is public.",
           productId: "{dependency.product.id}",
@@ -131,6 +134,7 @@ describe("founder Golden Path official transport fixture", () => {
           enabledEvents: ["checkout.session.completed"],
           webhookSecretCredentialRef: "cred://stripe/exception-desk-webhook",
           headline: "Manage Exception Desk fixture plan",
+          portalReturnUrl: "https://exception-desk.example.test/account",
         },
         dryRun: false,
       },

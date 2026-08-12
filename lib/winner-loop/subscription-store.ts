@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { initializeSqliteWal } from "@venture-harness/core";
 import type { IngestEnvironment, SubscriptionEvent } from "./subscriptions";
 import {
   LEGACY_UNSCOPED_ORGANIZATION_ID,
@@ -330,9 +331,7 @@ export function createSqliteSubscriptionEventStore(
 ): SubscriptionEventStore {
   const { DatabaseSync } = loadSqlite();
   const db = new DatabaseSync(filename);
-  db.exec("PRAGMA busy_timeout = 5000");
-  const journal = db.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
-  if (journal.journal_mode.toLowerCase() !== "wal") db.exec("PRAGMA journal_mode = WAL");
+  initializeSqliteWal(db, { label: "subscription event store" });
   try {
     migrateSubscriptionScope(db, options);
   } catch (error) {

@@ -19,11 +19,18 @@ import { loopsSchema } from "@/lib/config/loop-schema";
 import { analyticsSchema } from "@/lib/config/schemas";
 import { ventureSchema } from "@/lib/config/venture-schema";
 import { CredentialBroker, MemoryCredentialBackend, Redactor } from "@/lib/credentials";
-import { MockProviderTransport } from "@/lib/providers";
+import {
+  launchContractDigest,
+  renderFounderIdea,
+  renderLaunchContractYaml,
+  renderProductConstitution,
+} from "@/lib/founder-launch";
+import { MockProviderTransport, type ProviderOperation } from "@/lib/providers";
 import { expectedDnsRecordsFromDependencies } from "@/lib/launch";
 import { createOfficialProviderContext, FileProviderIdempotencyLedger } from "@/lib/runtime";
 import { FileWorkflowStore, type WorkflowBindings } from "@/lib/workflow";
 import { syntheticProviderPlanFactories } from "./fixtures/provider/launch-runtime";
+import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
 
 const temporaryDirectories: string[] = [];
 
@@ -77,38 +84,64 @@ function harness(
     : undefined;
   const redactor = new Redactor();
   redactor.addSecret("synthetic-cli-secret-never-persist");
-  const providerOutput = (operation: { capability: string }) => ({
-    fixture: true,
-    ...(operation.capability === "domain"
-      ? {
-          verification: [
-            {
-              type: "CNAME",
-              domain: "www.fixture.example.test",
-              value: "fixture.vercel-dns.test",
-              ttl: 300,
-            },
-          ],
-        }
-      : {}),
-    ...(operation.capability === "sending_domain"
-      ? {
-          domain_name: "fixture.example.test",
-          dns_records: {
-            brevo_code: {
-              type: "TXT",
-              host_name: "@",
-              value: "brevo-code=fixture-public-value",
-              status: false,
-            },
+  const providerOutput = (operation: ProviderOperation): Record<string, unknown> => {
+    if (operation.action.endsWith(".search_before_create")) {
+      return { data: [], has_more: false };
+    }
+    const body = operation.http?.body;
+    const bodyRecord =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : null;
+    const output: Record<string, unknown> = {
+      fixture: true,
+      id: `fixture-${operation.provider}-${operation.capability}`,
+      ...(bodyRecord ?? {}),
+    };
+    if (operation.capability === "domain") {
+      output.verification = [
+        {
+          type: "CNAME",
+          domain: "www.fixture.example.test",
+          value: "fixture.vercel-dns.test",
+          ttl: 300,
+        },
+      ];
+    }
+    if (operation.capability === "sending_domain") {
+      Object.assign(output, {
+        domain_name: "fixture.example.test",
+        dns_records: {
+          brevo_code: {
+            type: "TXT",
+            host_name: "@",
+            value: "brevo-code=fixture-public-value",
+            status: false,
           },
-        }
-      : {}),
-    ...(operation.capability === "site_verification_token"
-      ? { method: "DNS_TXT", token: "google-site-verification=fixture-public-value" }
-      : {}),
-    ...(operation.capability === "analytics_property" ? { name: "properties/987654" } : {}),
-  });
+        },
+      });
+    }
+    if (operation.capability === "site_verification_token") {
+      Object.assign(output, {
+        method: "DNS_TXT",
+        token: "google-site-verification=fixture-public-value",
+      });
+    }
+    if (operation.capability === "analytics_property") output.name = "properties/987654";
+    if (operation.capability === "analytics_web_stream") {
+      const webStreamData =
+        bodyRecord?.webStreamData &&
+        typeof bodyRecord.webStreamData === "object" &&
+        !Array.isArray(bodyRecord.webStreamData)
+          ? (bodyRecord.webStreamData as Record<string, unknown>)
+          : {};
+      Object.assign(output, {
+        name: "properties/987654/dataStreams/fixture",
+        webStreamData: { ...webStreamData, measurementId: "G-FIXTURE123" },
+      });
+    }
+    return output;
+  };
   const cliTransport = new MockProviderTransport("cli", async (operation) => ({
     status: "succeeded",
     message: "Synthetic CLI provider apply completed",
@@ -128,6 +161,20 @@ function harness(
     kind: "connection_string",
     backend: "memory",
     label: "Synthetic writable Neon capture target",
+  });
+  credentialBroker.register({
+    ref: "cred://stripe/webhook-secret",
+    provider: "stripe",
+    kind: "ci_secret",
+    backend: "memory",
+    label: "Synthetic writable Stripe webhook capture target",
+  });
+  credentialBroker.register({
+    ref: "cred://google/measurement-id",
+    provider: "google",
+    kind: "ci_secret",
+    backend: "memory",
+    label: "Synthetic writable Google measurement capture target",
   });
   const services = createDefaultCliServices({
     rootDir: root,
@@ -336,6 +383,86 @@ describe("default vh launch services", () => {
     });
   });
 
+  it("rejects project and launch metadata whose stored brief diverges from its Launch Contract", async () => {
+    const { root, services, store, io, stderr } = harness();
+    const ideaPath = join(root, "idea.md");
+    writeFileSync(ideaPath, renderFounderIdea(launchReceiptContract()));
+    expect((await runCli(["create", "--brief", ideaPath], { services, store, io })).exitCode).toBe(
+      0,
+    );
+
+    const projectPath = join(root, ".venture/project.json");
+    const project = JSON.parse(readFileSync(projectPath, "utf8"));
+    expect(project.launchContractDigest).toBe(launchContractDigest(launchReceiptContract()));
+    expect(readFileSync(join(root, "config/launch-contract.yaml"), "utf8")).toBe(
+      renderLaunchContractYaml(launchReceiptContract()),
+    );
+    expect(readFileSync(join(root, "docs/product/PRODUCT_CONSTITUTION.md"), "utf8")).toBe(
+      renderProductConstitution(launchReceiptContract()),
+    );
+
+    const diskContractPath = join(root, "config/launch-contract.yaml");
+    writeFileSync(
+      diskContractPath,
+      renderLaunchContractYaml({
+        ...launchReceiptContract(),
+        venture: {
+          ...launchReceiptContract().venture,
+          differentiation: "A tampered non-projected differentiator",
+        },
+      }),
+    );
+    expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("on-disk Launch Contract");
+    writeFileSync(diskContractPath, renderLaunchContractYaml(launchReceiptContract()));
+
+    const constitutionPath = join(root, "docs/product/PRODUCT_CONSTITUTION.md");
+    writeFileSync(constitutionPath, "# Replaced constitution\n");
+    expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("Product Constitution");
+    writeFileSync(constitutionPath, renderProductConstitution(launchReceiptContract()));
+
+    const manifestPath = join(root, "venture.manifest.json");
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({
+        launchContractPath: "config/launch-contract.yaml",
+        launchContractDigest: "0".repeat(64),
+      })}\n`,
+    );
+    expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("Venture Manifest");
+    rmSync(manifestPath);
+
+    writeFileSync(
+      projectPath,
+      `${JSON.stringify({ ...project, brief: { ...project.brief, name: "Tampered name" } }, null, 2)}\n`,
+    );
+    expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("Launch Contract does not match");
+
+    writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
+    const runId = "launch-contract-binding";
+    expect(
+      (
+        await runCli(["launch", "--apply", "--authorization", "build-local", "--run-id", runId], {
+          services,
+          store,
+          io,
+        })
+      ).exitCode,
+    ).toBe(0);
+    const metadataPath = join(root, `.venture/launches/${runId}.json`);
+    const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+    writeFileSync(
+      metadataPath,
+      `${JSON.stringify({ ...metadata, brief: { ...metadata.brief, name: "Tampered name" } }, null, 2)}\n`,
+    );
+
+    expect((await runCli(["cancel", runId], { services, store, io })).exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("Launch Contract does not match");
+  });
+
   it("runs build-local without creating provider or manual-action nodes", async () => {
     const { services, store, io, stdout, providerCalls } = harness();
     await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
@@ -473,7 +600,7 @@ describe("default vh launch services", () => {
     expect(JSON.parse(stdout.pop()!).status).toBe("waiting");
     expect(store.load("launch-synthetic-web").nodes["production-deploy"].state).toBe("succeeded");
     expect(store.load("launch-synthetic-web").nodes["verify-production"].state).toBe("succeeded");
-    expect(store.load("launch-synthetic-web").nodes["launch-report"].state).toBe("pending");
+    expect(store.load("launch-synthetic-web").nodes["launch-report"].state).toBe("succeeded");
     const waitingReportPath = join(root, "reports/launch/launch-synthetic-web/final.json");
     expect(existsSync(waitingReportPath)).toBe(true);
     expect(JSON.parse(readFileSync(waitingReportPath, "utf8"))).toMatchObject({
@@ -494,9 +621,9 @@ describe("default vh launch services", () => {
       remainingManualActions: [{ nodeId: "dns-records" }],
       sections: {
         checksRun: expect.arrayContaining([
-          expect.stringContaining("mvp/typecheck: PASS"),
-          expect.stringContaining("mvp/live_readback: SKIP"),
-          expect.stringContaining("run pnpm vh doctor"),
+          expect.stringContaining("verify-local: succeeded"),
+          expect.stringContaining("verify-launch: succeeded"),
+          expect.stringContaining("verify-production: succeeded"),
         ]),
         scheduledLoops: expect.arrayContaining([
           expect.stringContaining("daily_early_signal: enabled"),
@@ -586,7 +713,7 @@ describe("default vh launch services", () => {
     expect(existsSync(join(root, "reports/launch/launch-synthetic-web/providers"))).toBe(true);
   });
 
-  it("uses lazy built-in factories and fails the run before a provider call when config is incomplete", async () => {
+  it("preserves missing provider auth as a durable wait before any provider call", async () => {
     const { root, services, store, io, stdout, providerCalls } = harness(true, false);
     await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
       services,
@@ -604,11 +731,12 @@ describe("default vh launch services", () => {
       ],
       { services, store, io },
     );
-    expect(result.exitCode).toBe(1);
-    expect(JSON.parse(stdout.pop()!)).toMatchObject({ status: "failed" });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(stdout.pop()!)).toMatchObject({ status: "waiting" });
     const state = store.load("launch-no-runtime");
-    expect(state.nodes["github-repository"].error).toMatchObject({
-      code: "provider_plan_factory_failed",
+    expect(state.nodes["github-repository"]).toMatchObject({
+      state: "waiting_for_auth",
+      error: { code: "AUTH_REQUIRED" },
     });
     expect(state.nodes["github-repository"].error?.message).toContain(
       "config/providers.yaml providers.github.credential_ref",
@@ -617,7 +745,7 @@ describe("default vh launch services", () => {
     expect(providerCalls.http).toHaveLength(0);
     expect(existsSync(join(root, "reports/launch/launch-no-runtime/final.json"))).toBe(true);
     expect((await runCli(["resume", "launch-no-runtime"], { services, store, io })).exitCode).toBe(
-      1,
+      0,
     );
   });
 });

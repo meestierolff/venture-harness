@@ -60,12 +60,7 @@ describe("synthetic founder Golden Path", () => {
       "ventures/exception-desk",
       "--json",
     ]);
-    expect(result.proof.productTasks).toEqual([
-      "prepare-repository",
-      "design-direction",
-      "build-core-journey",
-      "configure-event-pack",
-    ]);
+    expect(result.proof.productTasks).toEqual(["prepare-repository", "review-product"]);
     expect(result.proof.productCommands).toEqual(
       expect.arrayContaining([
         [...CHILD_DEPENDENCY_INSTALL_ARGS],

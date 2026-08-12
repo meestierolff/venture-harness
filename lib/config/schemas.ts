@@ -68,6 +68,7 @@ export const offerSchema = z
         currency: z.string(),
         monthly_price: z.number().nullable(),
         annual_price: z.number().nullable(),
+        one_time_price: z.number().nullable(),
         implementation_fee: z.number().nullable(),
       })
       .passthrough(),
@@ -75,7 +76,7 @@ export const offerSchema = z
       .object({
         cac_assumption: z.number().nullable(),
         delivery_cost_monthly: z.number().nullable(),
-        payback_target_days: z.number(),
+        payback_target_days: z.number().nullable(),
       })
       .passthrough(),
   })
@@ -157,10 +158,16 @@ export const analyticsSchema = z
 
 const qualityGapSchema = z
   .object({
+    origin: z.enum(["external", "implementation"]).optional(),
     why: z.string().min(10),
     missing: z.string().min(10),
     exact_command: z.string().min(3),
     expected_evidence: z.string().min(10),
+    provider: z.string().min(2).optional(),
+    account_scope: z.string().min(10).optional(),
+    impact: z.string().min(10).optional(),
+    vercel_url_availability: z.string().min(10).optional(),
+    resume_command: z.string().min(3).optional(),
   })
   .strict();
 
@@ -182,6 +189,14 @@ const qualityCheckSchema = z
     when_paths: z.array(z.string().min(1)).min(1).optional(),
     provider: z.string().min(1).optional(),
     gap: qualityGapSchema.optional(),
+    readback: z
+      .object({
+        bundle_manifest: z.string().min(1),
+        required_providers: z.array(z.string().min(1)).min(1),
+        required_receipt_states: z.array(z.string().min(1)).min(1),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -198,6 +213,37 @@ const qualityCheckSchema = z
         path: ["provider"],
         message: "provider_readback checks require a provider",
       });
+    }
+    if (value.kind === "provider_readback") {
+      if (value.gap?.origin !== "external") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["gap", "origin"],
+          message: "provider_readback gaps must explicitly identify an external origin",
+        });
+      }
+      if (!value.readback) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["readback"],
+          message: "provider_readback checks require a sanitized artifact parser contract",
+        });
+      }
+      for (const field of [
+        "provider",
+        "account_scope",
+        "impact",
+        "vercel_url_availability",
+        "resume_command",
+      ] as const) {
+        if (!value.gap?.[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["gap", field],
+            message: `provider_readback gaps require ${field}`,
+          });
+        }
+      }
     }
   });
 

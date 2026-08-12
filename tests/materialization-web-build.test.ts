@@ -213,8 +213,12 @@ describe("materialized standalone web venture", () => {
       expect(packageJson.scripts).toMatchObject({
         test: "node --test tests/*.test.mjs",
         "verify:fast": "pnpm typecheck && pnpm test",
-        "verify:mvp": "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly",
-        "test:e2e:readonly": "playwright test tests/e2e/post-deploy-readonly.spec.ts",
+        "verify:mvp":
+          "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly && pnpm test:e2e:primary-journey",
+        "test:e2e:readonly":
+          "tsx scripts/run-local-browser-check.ts tests/e2e/post-deploy-readonly.spec.ts",
+        "test:e2e:primary-journey":
+          "tsx scripts/run-local-browser-check.ts tests/e2e/primary-journey.spec.ts",
       });
 
       const storeDirectory = installedRootStore();

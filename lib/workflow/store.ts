@@ -1,7 +1,9 @@
 import {
   appendFileSync,
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -17,6 +19,33 @@ import { sanitizeJson } from "./redaction";
 import type { WorkflowEvent, WorkflowRunState, WorkflowWorkspaceContext } from "./types";
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+
+function openRegularFile(path: string, flags: number, label: string): number {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, flags | NO_FOLLOW);
+    if (!fstatSync(descriptor).isFile()) {
+      throw new Error(`${label} must be a regular non-symlink file.`);
+    }
+    return descriptor;
+  } catch (error) {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+      throw new Error(`${label} must be a regular non-symlink file.`);
+    }
+    throw error;
+  }
+}
+
+function readRegularFile(path: string, label: string): string {
+  const descriptor = openRegularFile(path, constants.O_RDONLY, label);
+  try {
+    return readFileSync(descriptor, "utf8");
+  } finally {
+    closeSync(descriptor);
+  }
+}
 
 export interface WorkflowStore {
   create(state: WorkflowRunState): void;
@@ -72,8 +101,16 @@ export class FileWorkflowStore implements WorkflowStore {
   load(runId: string): WorkflowRunState {
     this.assertRunId(runId);
     const path = this.statePath(runId);
-    if (!existsSync(path)) throw new WorkflowRunNotFoundError(runId);
-    const state = JSON.parse(readFileSync(path, "utf8")) as WorkflowRunState;
+    let raw: string;
+    try {
+      raw = readRegularFile(path, `Workflow state for run "${runId}"`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new WorkflowRunNotFoundError(runId);
+      }
+      throw error;
+    }
+    const state = JSON.parse(raw) as WorkflowRunState;
     if (state.pendingEvent) {
       const pending = state.pendingEvent;
       const existing = this.readEvents(runId).find(({ sequence }) => sequence === pending.sequence);
@@ -97,7 +134,6 @@ export class FileWorkflowStore implements WorkflowStore {
   appendEvent(event: WorkflowEvent): void {
     this.assertRunId(event.runId);
     const path = this.eventsPath(event.runId);
-    if (!existsSync(path)) throw new WorkflowRunNotFoundError(event.runId);
     const expectedSequence = this.lastSequence(event.runId) + 1;
     if (event.sequence !== expectedSequence) {
       throw new Error(
@@ -105,7 +141,19 @@ export class FileWorkflowStore implements WorkflowStore {
       );
     }
     const sanitized = sanitizeJson(event, this.secrets);
-    const descriptor = openSync(path, "a", 0o600);
+    let descriptor: number;
+    try {
+      descriptor = openRegularFile(
+        path,
+        constants.O_WRONLY | constants.O_APPEND,
+        `Workflow event log for run "${event.runId}"`,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new WorkflowRunNotFoundError(event.runId);
+      }
+      throw error;
+    }
     try {
       appendFileSync(descriptor, `${JSON.stringify(sanitized)}\n`, { encoding: "utf8" });
       fsyncSync(descriptor);
@@ -138,8 +186,16 @@ export class FileWorkflowStore implements WorkflowStore {
   readEvents(runId: string): WorkflowEvent[] {
     this.assertRunId(runId);
     const path = this.eventsPath(runId);
-    if (!existsSync(path)) throw new WorkflowRunNotFoundError(runId);
-    const events = readFileSync(path, "utf8")
+    let raw: string;
+    try {
+      raw = readRegularFile(path, `Workflow event log for run "${runId}"`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new WorkflowRunNotFoundError(runId);
+      }
+      throw error;
+    }
+    const events = raw
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as WorkflowEvent);

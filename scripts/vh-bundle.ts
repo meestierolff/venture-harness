@@ -48,6 +48,7 @@ export const FOUNDER_CORE_DOMAINS = new Set([
   "create",
   "data",
   "doctor",
+  "idea",
   "launch",
   "learn",
   "plan",

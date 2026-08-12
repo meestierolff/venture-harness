@@ -29,6 +29,14 @@ function reportInput(secret: string): LaunchReportInput {
       entitlementSource: "stripe",
       activeEventPacks: ["core_product", "subscription", "reliability"],
       consentMode: "strict",
+      firstValidationAction: {
+        action: "Ask five relevant founders to complete the primary journey",
+        channel: "Warm founder outreach",
+        userHabitat: "Independent founder communities",
+        state: "planned",
+        execution: "human_gated",
+        evidenceRequired: "Founder-reviewed outreach log; no response is inferred",
+      },
     },
     authorization: {
       profile: "standard_launch",
@@ -288,6 +296,7 @@ describe("sanitized launch report", () => {
     expect(report.markdown).toContain("## Provider resources");
     expect(report.markdown).toContain("Payment / entitlement source: stripe / stripe");
     expect(report.markdown).toContain("core_product, reliability, subscription / strict");
+    expect(report.markdown).toContain("planned; human_gated");
     expect(report.markdown).toContain("account fixture-account");
     expect(report.markdown).toContain("## Active credential references");
     expect(report.markdown).toContain("## Scheduled loops");

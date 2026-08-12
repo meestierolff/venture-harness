@@ -31,35 +31,13 @@ jobs:
           QUALITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         run: pnpm verify:fast -- --base "$QUALITY_BASE"
       - name: Upload fast quality report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quality-fast
           path: .venture/reports/quality/
           if-no-files-found: warn
           retention-days: 30
-
-  workspace-distribution:
-    if: github.event_name == 'pull_request'
-    needs: fast
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # Workspace packages publish only from an uncommitted dist/, so the
-      # boundary and parity suites cannot resolve @venture-harness/* without a
-      # build. --skip-cli keeps the reviewed-source provenance assertion out of
-      # a job that only exercises the packed distribution.
-      - run: pnpm workspace:build -- --skip-cli
-      - name: Packed workspace distribution
-        run: pnpm test:workspace
 
   mvp:
     needs: fast
@@ -84,7 +62,7 @@ jobs:
       - name: Capability-aware MVP profile
         run: pnpm verify:mvp
       - name: Upload MVP quality report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quality-mvp
@@ -93,7 +71,6 @@ jobs:
           retention-days: 30
 
   release:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: mvp
     runs-on: ubuntu-latest
     steps:
@@ -120,10 +97,12 @@ jobs:
       # provider mark a code-complete alpha red. An executed live check that
       # actually FAILS still fails the job.
       - name: Live provider read-back state
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set +e
           pnpm verify:live -- --report .venture/reports/quality/live-latest.json
+          command_exit=$?
           set -e
           status="$(node -e '
             const { readFileSync } = require("node:fs");
@@ -145,12 +124,12 @@ jobs:
               echo "command and expected read-back evidence per unresolved provider."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-          case "$status" in
-            PASS|INCOMPLETE) exit 0 ;;
-            *) echo "::error title=Live verification failed::Status was ${status}."; exit 1 ;;
+          case "${command_exit}:${status}" in
+            0:PASS|1:INCOMPLETE) exit 0 ;;
+            *) echo "::error title=Live verification failed::Command/report pair was ${command_exit}:${status}."; exit 1 ;;
           esac
       - name: Upload release quality report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quality-release

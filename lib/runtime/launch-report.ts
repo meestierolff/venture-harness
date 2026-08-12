@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { z } from "zod";
+import { looksLikeCredentialValue } from "../config/contracts";
 import { Redactor, assertCredentialRef } from "../credentials";
 import { launchManualActionContracts, type LaunchManualNodeId } from "../launch/manual-evidence";
 import type {
@@ -69,6 +71,15 @@ export interface LaunchReportSections {
   nextReviews?: readonly string[];
 }
 
+export interface LaunchReportFirstValidationAction {
+  action: string;
+  channel: string;
+  userHabitat: string;
+  state: "planned";
+  execution: "human_gated";
+  evidenceRequired: string;
+}
+
 export interface LaunchReportInput {
   generatedAt: string;
   run: { id: string; status: WorkflowRunStatus };
@@ -80,6 +91,7 @@ export interface LaunchReportInput {
     entitlementSource?: string;
     activeEventPacks?: readonly string[];
     consentMode?: string;
+    firstValidationAction?: LaunchReportFirstValidationAction;
   };
   authorization?: {
     profile: string;
@@ -113,6 +125,182 @@ export interface LaunchReportDocument {
   limitations: string[];
   nextCommands: string[];
   sections: Required<LaunchReportSections>;
+}
+
+function rejectUnredactedCredentialStrings(value: unknown, context: z.RefinementCtx): void {
+  const visit = (candidate: unknown, path: (string | number)[]) => {
+    if (typeof candidate === "string") {
+      const withoutRedactionMarkers = candidate
+        .replaceAll("[REDACTED]", "redacted")
+        .replaceAll("[REDACTED PII]", "redacted-pii");
+      if (looksLikeCredentialValue(withoutRedactionMarkers)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path,
+          message: "unredacted credential material is forbidden in a Launch Report",
+        });
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item, index) => visit(item, [...path, index]));
+      return;
+    }
+    if (!candidate || typeof candidate !== "object") return;
+    for (const [key, item] of Object.entries(candidate)) visit(item, [...path, key]);
+  };
+  visit(value, []);
+}
+
+const boundedText = z.string().max(4_000);
+const boundedTextArray = z.array(boundedText).max(1_000);
+const workflowRunStatusSchema = z.enum([
+  "created",
+  "queued",
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "superseded",
+]);
+const workflowNodeStateSchema = z.enum([
+  "pending",
+  "ready",
+  "running",
+  "waiting_for_auth",
+  "waiting_for_external_action",
+  "waiting_for_approval",
+  "waiting_for_manual_action",
+  "succeeded",
+  "failed_retryable",
+  "failed_terminal",
+  "skipped",
+  "compensated",
+  "cancelled",
+]);
+const launchReportNodeOutcomeSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    capability: z.string().min(1).max(500),
+    state: workflowNodeStateSchema,
+    provider: z.string().min(1).max(100).optional(),
+    evidenceRef: z.string().min(1).max(1_000).optional(),
+    effectVerified: z.boolean(),
+    errorCode: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+const launchReportProviderOutcomeSchema = z
+  .object({
+    provider: z.string().min(1).max(100),
+    capability: z.string().min(1).max(1_000),
+    lifecycleState: z.string().min(1).max(100),
+    environment: z.string().min(1).max(200).optional(),
+    accountId: z.string().min(1).max(500).optional(),
+    teamId: z.string().min(1).max(500).optional(),
+    region: z.string().min(1).max(500).optional(),
+    resourceRefs: z.array(z.string().min(1).max(1_000)).max(100).optional(),
+    evidenceRef: z.string().min(1).max(1_000).optional(),
+    verified: z.boolean(),
+  })
+  .strict();
+const launchReportManualActionSchema = z
+  .object({
+    nodeId: z.string().min(1).max(128),
+    resolved: z.boolean(),
+    action: boundedText,
+    requiredFields: boundedTextArray,
+    risk: z.string().min(1).max(100),
+    evidenceNeeded: boundedTextArray,
+    resumeCommand: boundedText,
+  })
+  .strict();
+const launchReportCredentialReferenceSchema = z
+  .object({
+    ref: z.string().regex(/^cred:\/\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u),
+    provider: z.string().min(1).max(100),
+    status: z.string().min(1).max(100),
+    scopes: z.array(z.string().min(1).max(300)).max(100),
+    expiresAt: z.string().datetime({ offset: true }).optional(),
+    accountId: z.string().min(1).max(500).optional(),
+  })
+  .strict();
+const launchReportSectionsSchema = z
+  .object({
+    whatBuilt: boundedTextArray,
+    repository: boundedTextArray,
+    deploymentsAndBuilds: boundedTextArray,
+    commerce: boundedTextArray,
+    email: boundedTextArray,
+    analyticsAndSearch: boundedTextArray,
+    asoAndTestflight: boundedTextArray,
+    checksRun: boundedTextArray,
+    scheduledLoops: boundedTextArray,
+    nextReviews: boundedTextArray,
+  })
+  .strict();
+
+/** Canonical strict parser used by local persistence and imported live-evidence verification. */
+export const launchReportDocumentSchema: z.ZodType<LaunchReportDocument> = z
+  .object({
+    schemaVersion: z.literal(1),
+    generatedAt: z.string().datetime({ offset: true }),
+    run: z.object({ id: z.string().min(1).max(128), status: workflowRunStatusSchema }).strict(),
+    brief: z
+      .object({
+        id: z.string().min(1).max(100),
+        name: z.string().min(1).max(200),
+        synthetic: z.boolean(),
+      })
+      .strict(),
+    launch: z
+      .object({
+        mode: z.string().min(1).max(100),
+        rail: z.string().min(1).max(100),
+        paymentProvider: z.string().min(1).max(100).optional(),
+        entitlementSource: z.string().min(1).max(100).optional(),
+        activeEventPacks: z.array(z.string().min(1).max(200)).max(100).optional(),
+        consentMode: z.string().min(1).max(100).optional(),
+        firstValidationAction: z
+          .object({
+            action: boundedText,
+            channel: boundedText,
+            userHabitat: boundedText,
+            state: z.literal("planned"),
+            execution: z.literal("human_gated"),
+            evidenceRequired: boundedText,
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    authorization: z
+      .object({
+        profile: z.string().min(1).max(100),
+        approvalRef: z.string().min(1).max(300),
+        expiresAt: z.string().datetime({ offset: true }),
+        spendCeiling: z
+          .object({ amount: z.number().nonnegative(), currency: z.string().regex(/^[A-Z]{3}$/u) })
+          .strict(),
+        spendScope: z.literal("reviewed_direct_provider_operations_only").optional(),
+      })
+      .strict()
+      .nullable(),
+    overallState: z.enum(["succeeded", "waiting", "degraded", "failed"]),
+    nodes: z.array(launchReportNodeOutcomeSchema).max(1_000),
+    providers: z.array(launchReportProviderOutcomeSchema).max(1_000),
+    evidenceRefs: z.array(z.string().min(1).max(1_000)).max(2_000),
+    remainingManualActions: z.array(launchReportManualActionSchema).max(1_000),
+    credentialReferences: z.array(launchReportCredentialReferenceSchema).max(1_000),
+    limitations: boundedTextArray,
+    nextCommands: boundedTextArray,
+    sections: launchReportSectionsSchema,
+  })
+  .strict()
+  .superRefine(rejectUnredactedCredentialStrings);
+
+export function parseLaunchReportDocument(input: unknown): LaunchReportDocument {
+  return launchReportDocumentSchema.parse(input);
 }
 
 export interface RenderedLaunchReport {
@@ -327,15 +515,7 @@ export function createLaunchReportInputFromRun(input: LaunchRunReportInput): Lau
         ? failedNodes.map(({ id }) => `vh explain ${input.state.runId} ${id}`)
         : [`vh status ${input.state.runId}`];
   const records = input.state.nodes;
-  const productIds = [
-    "prepare-repository",
-    "define-validation-gate",
-    "prepare-concierge-operations",
-    "design-direction",
-    "build-core-journey",
-    "configure-event-pack",
-    "define-usage-proof",
-  ];
+  const productIds = ["prepare-repository", "review-product"];
   const generatedSections: LaunchReportSections = {
     whatBuilt: productIds.filter((id) => records[id]).map((id) => productOutcomeLine(records[id])),
     repository: providers.filter(({ provider }) => provider === "github").map(providerOutcomeLine),
@@ -351,9 +531,7 @@ export function createLaunchReportInputFromRun(input: LaunchRunReportInput): Lau
     email: providers.filter(({ provider }) => provider === "brevo").map(providerOutcomeLine),
     analyticsAndSearch: [
       `Event packs ${input.launch.activeEventPacks?.join(", ") || "not recorded"}; consent ${input.launch.consentMode ?? "not recorded"}.`,
-      ...(records["configure-event-pack"]
-        ? [productOutcomeLine(records["configure-event-pack"])]
-        : []),
+      ...(records["prepare-repository"] ? [productOutcomeLine(records["prepare-repository"])] : []),
       ...providers
         .filter(({ provider }) => ["google", "bing"].includes(provider))
         .map(providerOutcomeLine),
@@ -508,6 +686,7 @@ function renderMarkdown(document: LaunchReportDocument): string {
 - Launch mode / rail: ${document.launch.mode} / ${document.launch.rail}
 - Payment / entitlement source: ${document.launch.paymentProvider ?? "none recorded"} / ${document.launch.entitlementSource ?? "none recorded"}
 - Event packs / consent: ${document.launch.activeEventPacks?.join(", ") || "none recorded"} / ${document.launch.consentMode ?? "not recorded"}
+- First validation action: ${document.launch.firstValidationAction ? `${document.launch.firstValidationAction.action}; channel ${document.launch.firstValidationAction.channel}; habitat ${document.launch.firstValidationAction.userHabitat}; ${document.launch.firstValidationAction.state}; ${document.launch.firstValidationAction.execution}; evidence required ${document.launch.firstValidationAction.evidenceRequired}` : "not recorded"}
 - Authorization: ${authorization}
 - Overall state: ${document.overallState}
 - Brief: ${document.brief.id}${document.brief.synthetic ? " (synthetic fixture)" : ""}
@@ -632,7 +811,7 @@ export function renderLaunchReport(
         approvalRef: sanitizeText(input.authorization.approvalRef, redactor),
       }
     : null;
-  const document: LaunchReportDocument = {
+  const document = parseLaunchReportDocument({
     schemaVersion: 1,
     generatedAt: input.generatedAt,
     run: { id: sanitizeText(input.run.id, redactor), status: input.run.status },
@@ -654,6 +833,19 @@ export function renderLaunchReport(
       consentMode: input.launch.consentMode
         ? sanitizeText(input.launch.consentMode, redactor)
         : undefined,
+      firstValidationAction: input.launch.firstValidationAction
+        ? {
+            action: sanitizeText(input.launch.firstValidationAction.action, redactor),
+            channel: sanitizeText(input.launch.firstValidationAction.channel, redactor),
+            userHabitat: sanitizeText(input.launch.firstValidationAction.userHabitat, redactor),
+            state: "planned",
+            execution: "human_gated",
+            evidenceRequired: sanitizeText(
+              input.launch.firstValidationAction.evidenceRequired,
+              redactor,
+            ),
+          }
+        : undefined,
     },
     authorization,
     overallState: overallState(input),
@@ -673,7 +865,7 @@ export function renderLaunchReport(
     limitations: sortedUnique(input.limitations, redactor),
     nextCommands: sortedUnique(input.nextCommands, redactor),
     sections: normalizeSections(input.sections, redactor),
-  };
+  });
   const json = `${JSON.stringify(document, null, 2)}\n`;
   return { document, json, markdown: renderMarkdown(document) };
 }

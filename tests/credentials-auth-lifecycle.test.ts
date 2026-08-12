@@ -6,6 +6,7 @@ import { createDefaultCliServices } from "@/lib/cli/default-services";
 import {
   CredentialBroker,
   EnvironmentCredentialBackend,
+  MemoryCredentialBackend,
   loadCredentialCatalog,
   type CommandRunner,
 } from "@/lib/credentials";
@@ -19,6 +20,50 @@ afterEach(() => {
 });
 
 describe("default credential auth lifecycle", () => {
+  it("stores writable-backend login input immediately without exposing the value", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "vh-auth-hidden-store-"));
+    directories.push(rootDir);
+    mkdirSync(join(rootDir, "config"), { recursive: true });
+    for (const file of ["providers.yaml", "venture.yaml", "mobile.yaml", "offer.yaml"]) {
+      copyFileSync(join("config", file), join(rootDir, "config", file));
+    }
+    const catalogPath = join(rootDir, ".venture", "credentials.json");
+    const backend = new MemoryCredentialBackend("onepassword");
+    const broker = new CredentialBroker([backend]);
+    const services = createDefaultCliServices({
+      rootDir,
+      credentialCatalogPath: catalogPath,
+      credentialBroker: broker,
+    });
+    const fixtureValue = "fixture-hidden-auth-value";
+
+    const response = await services.auth!({
+      action: "login",
+      provider: "stripe",
+      ref: "cred://stripe/founder-default",
+      backend: "onepassword",
+      kind: "restricted_api_key",
+      readValue: async () => fixtureValue,
+    });
+
+    expect(response).toMatchObject({
+      status: "credential_stored_not_tested",
+      valuesExposed: false,
+      reference: { ref: "cred://stripe/founder-default", status: "available" },
+    });
+    expect(JSON.stringify(response)).not.toContain(fixtureValue);
+    expect(loadCredentialCatalog(catalogPath).references).toEqual([
+      expect.objectContaining({
+        ref: "cred://stripe/founder-default",
+        backend: "onepassword",
+        kind: "restricted_api_key",
+      }),
+    ]);
+    await expect(
+      broker.withSecret("cred://stripe/founder-default", async (value) => value),
+    ).resolves.toBe(fixtureValue);
+  });
+
   it("persists successful remote-test evidence and preserves a failed-removal ref disabled", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "vh-auth-lifecycle-"));
     directories.push(rootDir);

@@ -1550,6 +1550,7 @@ export class WorkflowExecutor {
       category: string;
       amount: number;
       unit: string;
+      budgeted?: boolean;
       inputTokens?: number;
       outputTokens?: number;
       tool?: string;
@@ -1560,6 +1561,7 @@ export class WorkflowExecutor {
     if (
       !charge.category.trim() ||
       !charge.unit.trim() ||
+      (charge.budgeted !== undefined && typeof charge.budgeted !== "boolean") ||
       !Number.isFinite(charge.amount) ||
       charge.amount < 0 ||
       (charge.inputTokens !== undefined &&
@@ -1572,7 +1574,13 @@ export class WorkflowExecutor {
         `Node "${record.definition.id}" produced an invalid cost record.`,
       );
     }
-    if (charge.amount === 0 && !charge.inputTokens && !charge.outputTokens) return;
+    if (
+      charge.amount === 0 &&
+      charge.inputTokens === undefined &&
+      charge.outputTokens === undefined
+    ) {
+      return;
+    }
     state.costs ??= [];
     record.costEntries ??= [];
     const entryId = `${record.definition.id}:${record.attempts}:${record.loopIterations ?? 0}:${state.costs.length + 1}`;
@@ -1587,6 +1595,7 @@ export class WorkflowExecutor {
       loopIteration: (record.loopIterations ?? 0) + 1,
       recordedAt: this.timestamp(),
     };
+    if (charge.budgeted !== undefined) cost.budgeted = charge.budgeted;
     if (charge.inputTokens !== undefined) cost.inputTokens = charge.inputTokens;
     if (charge.outputTokens !== undefined) cost.outputTokens = charge.outputTokens;
     if (charge.tool !== undefined) cost.tool = charge.tool;
@@ -1599,6 +1608,10 @@ export class WorkflowExecutor {
     }
     state.costs.push(cost);
     record.costEntries.push(entryId);
+    if (charge.budgeted === false) {
+      this.record(state, "node_cost_recorded", record.definition.id, cost);
+      return;
+    }
     record.cost += charge.amount;
     state.budget.consumed[charge.category] =
       (state.budget.consumed[charge.category] ?? 0) + charge.amount;

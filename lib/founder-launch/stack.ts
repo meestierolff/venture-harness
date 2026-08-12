@@ -77,6 +77,23 @@ export type FounderStackRole = keyof typeof founderStackRoleDefinitions;
 export type FounderStackProviderId =
   (typeof founderStackRoleDefinitions)[FounderStackRole]["providerId"];
 
+export const founderStackRequiredRoles = [
+  "source.repository",
+  "hosting.web",
+  "database.postgres",
+  "commerce.web",
+] as const satisfies readonly FounderStackRole[];
+
+export const founderStackOptionalRoles = [
+  "commerce.native",
+  "email.transactional",
+  "growth.google",
+  "search.bing",
+  "dns.records",
+] as const satisfies readonly FounderStackRole[];
+
+const founderStackOptionalRoleSchema = z.enum(founderStackOptionalRoles);
+
 const canonicalIdentifierSchema = z
   .string()
   .min(1)
@@ -107,6 +124,51 @@ const founderStackVerificationSchema = z.discriminatedUnion("status", [
     })
     .strict(),
 ]);
+
+const founderStackCliSessionSchema = z
+  .object({
+    installed: z.boolean(),
+    authenticated: z.boolean(),
+    accountId: safeMetadataSchema.nullable(),
+    mode: z.literal("test").nullable(),
+    verifiedAt: z.string().datetime({ offset: true }).nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.authenticated && (!value.accountId || !value.verifiedAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "an authenticated CLI session requires safe account metadata and verification time",
+      });
+    }
+  });
+
+const founderStackCliSessionsSchema = z
+  .object({
+    github: founderStackCliSessionSchema.nullable(),
+    vercel: founderStackCliSessionSchema.nullable(),
+    stripe: founderStackCliSessionSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    for (const provider of ["github", "vercel"] as const) {
+      if (value[provider] && value[provider].mode !== null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [provider, "mode"],
+          message: `${provider} CLI metadata must not claim a commerce mode`,
+        });
+      }
+    }
+    if (value.stripe?.authenticated && value.stripe.mode !== "test") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stripe", "mode"],
+        message: "an authenticated Stripe CLI session must prove test mode",
+      });
+    }
+  });
 
 const founderStackRoleConnectionSchema = z
   .object({
@@ -197,6 +259,16 @@ const founderStackConnectionSchema = z
     schemaVersion: z.literal(FOUNDER_STACK_SCHEMA_VERSION),
     profileId: z.literal(FOUNDER_STACK_PROFILE_ID),
     ownerOrganizationId: canonicalIdentifierSchema,
+    selectedOptionalRoles: z
+      .array(founderStackOptionalRoleSchema)
+      .max(founderStackOptionalRoles.length)
+      .refine((values) => new Set(values).size === values.length)
+      .default(["email.transactional", "growth.google", "search.bing", "dns.records"]),
+    inspectedCliSessions: founderStackCliSessionsSchema.default({
+      github: null,
+      vercel: null,
+      stripe: null,
+    }),
     roles: founderStackRolesSchema,
     writableCredentialBackend: writableCredentialBackendSchema,
     launchDefaults: founderStackLaunchDefaultsSchema,
@@ -247,6 +319,167 @@ const founderStackConnectionSchema = z
 
 export type FounderStackRoleConnection = z.infer<typeof founderStackRoleConnectionSchema>;
 export type FounderStackConnection = z.infer<typeof founderStackConnectionSchema>;
+
+export interface FounderStackConnectionDraftRole {
+  readonly role: FounderStackRole;
+  readonly credentialRef?: string;
+  readonly accountId?: string;
+  readonly teamId?: string;
+  readonly organizationId?: string;
+  readonly scopes?: readonly string[];
+  readonly expiresAt?: string;
+  readonly verifiedBy?: "official_cli" | "official_api" | "manual_read_back";
+}
+
+export interface FounderStackConnectionDraftInput {
+  readonly ownerOrganizationId: string;
+  readonly roles: readonly FounderStackConnectionDraftRole[];
+  readonly inspectedCliSessions?: {
+    readonly github?: z.input<typeof founderStackCliSessionSchema> | null;
+    readonly vercel?: z.input<typeof founderStackCliSessionSchema> | null;
+    readonly stripe?: z.input<typeof founderStackCliSessionSchema> | null;
+  };
+  readonly selectedOptionalRoles?: readonly (typeof founderStackOptionalRoles)[number][];
+  readonly writableCredentialBackend?:
+    | { readonly mode: "shared"; readonly backend: "macos_keychain" | "onepassword" }
+    | {
+        readonly mode: "per_template";
+        readonly backends: {
+          readonly neonDatabaseUri: "macos_keychain" | "onepassword";
+          readonly stripeWebhookSigning: "macos_keychain" | "onepassword";
+          readonly googleAnalyticsMeasurementId: "macos_keychain" | "onepassword";
+        };
+      };
+  readonly launchDefaults?: {
+    readonly neonRegion?: string | null;
+    readonly brevo?: {
+      readonly senderName?: string | null;
+      readonly senderEmail?: string | null;
+      readonly templateName?: string | null;
+      readonly templateSubject?: string | null;
+      readonly templateHtml?: string | null;
+    };
+    readonly googleAnalyticsAccountId?: string | null;
+    readonly bingAuthMode?: "api_key" | "oauth" | null;
+    readonly dns?: {
+      readonly adapter?: "manual_generic" | "mijndomein_manual" | null;
+      readonly registrarAccountId?: string | null;
+      readonly zoneId?: string | null;
+    };
+  };
+  readonly verifiedAt?: string;
+}
+
+/** Build a strict, credential-value-free profile from wizard-safe metadata. */
+export function createFounderStackConnectionDraft(
+  input: FounderStackConnectionDraftInput,
+): FounderStackConnection {
+  const verifiedAt = input.verifiedAt ?? new Date().toISOString();
+  const byRole = new Map(input.roles.map((role) => [role.role, role]));
+  const roles = Object.fromEntries(
+    (Object.keys(founderStackRoleDefinitions) as FounderStackRole[]).map((role) => {
+      const collected = byRole.get(role);
+      return [
+        role,
+        {
+          ...(collected?.credentialRef ? { credentialRef: collected.credentialRef } : {}),
+          ...(collected?.accountId ? { accountId: collected.accountId } : {}),
+          ...(collected?.teamId ? { teamId: collected.teamId } : {}),
+          ...(collected?.organizationId ? { organizationId: collected.organizationId } : {}),
+          scopes: [...(collected?.scopes ?? [])],
+          ...(collected?.expiresAt ? { expiresAt: collected.expiresAt } : {}),
+          verification:
+            collected?.verifiedBy && collected.credentialRef
+              ? { status: "verified", verifiedAt, source: collected.verifiedBy }
+              : { status: "unverified" },
+        },
+      ];
+    }),
+  );
+  const defaults = input.launchDefaults;
+  const brevo = defaults?.brevo;
+  const dns = defaults?.dns;
+  return parseFounderStackConnection({
+    schemaVersion: FOUNDER_STACK_SCHEMA_VERSION,
+    profileId: FOUNDER_STACK_PROFILE_ID,
+    ownerOrganizationId: input.ownerOrganizationId,
+    selectedOptionalRoles: input.selectedOptionalRoles ?? [
+      "email.transactional",
+      "growth.google",
+      "search.bing",
+      "dns.records",
+    ],
+    inspectedCliSessions: {
+      github: input.inspectedCliSessions?.github ?? null,
+      vercel: input.inspectedCliSessions?.vercel ?? null,
+      stripe: input.inspectedCliSessions?.stripe ?? null,
+    },
+    roles,
+    writableCredentialBackend: input.writableCredentialBackend ?? {
+      mode: "shared",
+      backend: "macos_keychain",
+    },
+    launchDefaults: {
+      neon: { region: defaults?.neonRegion ?? null },
+      stripe: { mode: "test" },
+      brevo: {
+        senderName: brevo?.senderName ?? null,
+        senderEmail: brevo?.senderEmail ?? null,
+        templateName: brevo?.templateName ?? null,
+        templateSubject: brevo?.templateSubject ?? null,
+        templateHtml: brevo?.templateHtml ?? null,
+      },
+      google: { analyticsAccountId: defaults?.googleAnalyticsAccountId ?? null },
+      bing: { authMode: defaults?.bingAuthMode ?? null },
+      dns: {
+        providerId: "dns",
+        adapter: dns?.adapter ?? null,
+        registrarAccountId: dns?.registrarAccountId ?? null,
+        zoneId: dns?.zoneId ?? null,
+      },
+    },
+    writableRefs: {
+      neonDatabaseUriTemplate: "cred://neon/{ventureSlug}-database",
+      stripeWebhookSigningTemplate: "cred://stripe/{ventureSlug}-webhook",
+      googleAnalyticsMeasurementIdTemplate: "cred://google/{ventureSlug}-measurement-id",
+    },
+  });
+}
+
+export function founderStackCliSessionCredentialRegistrations(
+  connection: FounderStackConnection,
+): RegisterCredentialInput[] {
+  const parsed = parseFounderStackConnection(connection);
+  return (
+    Object.entries(founderStackRoleDefinitions) as Array<
+      [FounderStackRole, (typeof founderStackRoleDefinitions)[FounderStackRole]]
+    >
+  ).flatMap(([role, definition]) => {
+    const metadata = parsed.roles[role];
+    if (
+      (definition.providerId !== "github" && definition.providerId !== "vercel") ||
+      !metadata.credentialRef ||
+      metadata.verification.status !== "verified" ||
+      metadata.verification.source !== "official_cli"
+    ) {
+      return [];
+    }
+    return [
+      {
+        ref: metadata.credentialRef,
+        provider: definition.providerId,
+        kind: "cli_session" as const,
+        backend: "cli_session",
+        label: `${definition.providerId} official CLI session`,
+        scopes: [...metadata.scopes],
+        ...(metadata.accountId ? { accountId: metadata.accountId } : {}),
+        ...(metadata.expiresAt ? { expiresAt: metadata.expiresAt } : {}),
+        testedAt: metadata.verification.verifiedAt,
+        testStatus: "passed" as const,
+      },
+    ];
+  });
+}
 
 export function founderStackDnsDestinationId(
   connection: FounderStackConnection | null,
@@ -441,6 +674,7 @@ export type FounderStackDoctorRoleStatus =
 export interface FounderStackDoctorRoleResult {
   readonly role: FounderStackRole;
   readonly providerId: FounderStackProviderId;
+  readonly blocksLaunch: boolean;
   readonly status: FounderStackDoctorRoleStatus;
   readonly credentialRef: string | null;
   readonly accountId: string | null;
@@ -460,8 +694,18 @@ export interface FounderStackDoctorResult {
   readonly schemaVersion: 1;
   readonly profileId: typeof FOUNDER_STACK_PROFILE_ID;
   readonly ownerOrganizationId: string | null;
+  /** Present for persisted Stack profiles; optional for older in-memory doctor fixtures. */
+  readonly inspectedCliSessions?: FounderStackConnection["inspectedCliSessions"];
   readonly status: "ready" | "attention_required";
+  readonly launchReady: boolean;
   readonly roles: readonly FounderStackDoctorRoleResult[];
+  readonly unresolvedActions: readonly {
+    role: FounderStackRole;
+    providerId: FounderStackProviderId;
+    why: string;
+    command: string;
+    blocksLaunch: boolean;
+  }[];
   readonly writableCredentialTargets: FounderStackWritableCredentialPreflight;
   readonly externalEffects: false;
   readonly launchGrantRequired: false;
@@ -474,7 +718,17 @@ function defaultRoleConnection(): FounderStackRoleConnection {
 }
 
 function loginCommand(providerId: FounderStackProviderId): string {
-  return `vh auth login ${providerId} --ref cred://${providerId}/founder-default`;
+  if (providerId === "github" || providerId === "vercel") {
+    return `vh auth login ${providerId} --ref cred://${providerId}/founder-default`;
+  }
+  const role = (
+    Object.entries(founderStackRoleDefinitions) as Array<
+      [FounderStackRole, (typeof founderStackRoleDefinitions)[FounderStackRole]]
+    >
+  ).find(([, definition]) => definition.providerId === providerId)?.[0];
+  return role && providerId !== "revenuecat"
+    ? `vh stack connect founder-default --role ${role}`
+    : `vh auth login ${providerId} --ref cred://${providerId}/founder-default`;
 }
 
 function includesScopes(actual: readonly string[], required: readonly string[]): boolean {
@@ -486,6 +740,32 @@ const writableCaptureRoles = new Set<FounderStackRole>([
   "commerce.web",
   "growth.google",
 ]);
+
+const defaultSelectedOptionalRoles = new Set<FounderStackRole>([
+  "email.transactional",
+  "growth.google",
+  "search.bing",
+  "dns.records",
+]);
+
+function activeFounderStackRoles(connection: FounderStackConnection | null): FounderStackRole[] {
+  const selected = new Set<FounderStackRole>(
+    connection?.selectedOptionalRoles ?? defaultSelectedOptionalRoles,
+  );
+  return (Object.keys(founderStackRoleDefinitions) as FounderStackRole[]).filter((role) => {
+    if (founderStackRequiredRoles.includes(role as (typeof founderStackRequiredRoles)[number])) {
+      return true;
+    }
+    if (selected.has(role)) return true;
+    const configured = connection?.roles[role];
+    return Boolean(
+      configured?.credentialRef ||
+      configured?.accountId ||
+      configured?.teamId ||
+      configured?.organizationId,
+    );
+  });
+}
 
 function missingLaunchDefaults(
   connection: FounderStackConnection | null,
@@ -521,6 +801,48 @@ function missingLaunchDefaults(
     ];
   }
   return [];
+}
+
+function exactRoleRepairCommand(
+  role: FounderStackRole,
+  providerId: FounderStackProviderId,
+  status: FounderStackDoctorRoleStatus,
+  credentialRef: string | undefined,
+  credentialTestStatus: "passed" | "failed" | null,
+  missingDefaults: readonly string[],
+  writableCredentialTargets: FounderStackWritableCredentialPreflight,
+): string {
+  if (status === "ready" || status === "manual_only") return "vh launch --dry-run";
+  if (role === "source.repository" || role === "hosting.web") {
+    return loginCommand(providerId);
+  }
+  if (status === "auth_required" && credentialRef) {
+    if (
+      credentialTestStatus === "failed" &&
+      (role === "database.postgres" ||
+        role === "commerce.web" ||
+        role === "email.transactional" ||
+        role === "growth.google" ||
+        role === "search.bing")
+    ) {
+      return `vh stack connect founder-default --role ${role}`;
+    }
+    return `vh auth test ${providerId} --ref ${credentialRef}`;
+  }
+  if (
+    role === "database.postgres" ||
+    role === "commerce.web" ||
+    role === "email.transactional" ||
+    role === "growth.google" ||
+    role === "search.bing" ||
+    role === "dns.records"
+  ) {
+    return `vh stack connect founder-default --role ${role}`;
+  }
+  if (missingDefaults.length > 0 || writableCredentialTargets.status !== "ready") {
+    return "vh stack create founder-default --file <connection.json>";
+  }
+  return loginCommand(providerId);
 }
 
 export async function doctorFounderStackConnection(options: {
@@ -563,12 +885,15 @@ export async function doctorFounderStackConnection(options: {
         status: "unconfigured",
         fixtureOnly: options.connection.writableCredentialBackend.mode === "fixture",
         targets: [],
-        nextCommand: "vh stack create founder-default --file <connection.json>",
+        nextCommand:
+          options.connection.writableCredentialBackend.mode === "shared"
+            ? `vh stack connect founder-default --role database.postgres --credential-backend ${options.connection.writableCredentialBackend.backend}`
+            : "vh stack connect founder-default --role database.postgres",
       };
     }
   }
   const roles = await Promise.all(
-    (Object.keys(founderStackRoleDefinitions) as FounderStackRole[]).map(async (role) => {
+    activeFounderStackRoles(options.connection).map(async (role) => {
       const definition = founderStackRoleDefinitions[role];
       const connection = options.connection?.roles[role] ?? defaultRoleConnection();
       const missingDefaults = missingLaunchDefaults(options.connection, role);
@@ -583,19 +908,25 @@ export async function doctorFounderStackConnection(options: {
       const manualOnly = adapter.descriptor.transports.every((transport) => transport === "manual");
       let authenticated = false;
       let metadataMatches = true;
+      let credentialTestStatus: "passed" | "failed" | null = null;
       if (connection.credentialRef && context.credentials) {
         try {
           const inspection = await context.credentials.inspect(connection.credentialRef);
           const reference = context.credentials.getReference(connection.credentialRef);
+          credentialTestStatus = inspection.testStatus ?? null;
           authenticated =
             inspection.status === "available" &&
             ((inspection.kind === "cli_session" && inspection.backend === "cli_session") ||
-              (inspection.testStatus === "passed" && inspection.testedAt !== undefined));
+              (inspection.testStatus === "passed" &&
+                inspection.testedAt !== undefined &&
+                (definition.providerId !== "stripe" || inspection.providerMode === "test")));
           metadataMatches =
             reference?.provider === definition.providerId &&
-            (!connection.accountId ||
-              !reference.accountId ||
-              connection.accountId === reference.accountId) &&
+            (definition.providerId === "stripe"
+              ? Boolean(connection.accountId && reference.accountId === connection.accountId)
+              : !connection.accountId ||
+                !reference.accountId ||
+                connection.accountId === reference.accountId) &&
             includesScopes(reference.scopes, connection.scopes) &&
             (!connection.expiresAt || Date.parse(connection.expiresAt) > now().getTime());
         } catch {
@@ -620,19 +951,21 @@ export async function doctorFounderStackConnection(options: {
         status = "unconfigured";
       }
       if (missingDefaults.length > 0) status = "unconfigured";
-      const nextCommand =
-        status === "ready" || status === "manual_only"
-          ? "vh launch --dry-run"
-          : status === "unconfigured" && missingDefaults.length > 0
-            ? "vh stack create founder-default --file <connection.json>"
-            : status === "unconfigured" && writableCaptureRoles.has(role)
-              ? writableCredentialTargets.nextCommand
-              : status === "unconfigured"
-                ? loginCommand(definition.providerId)
-                : `vh auth test ${definition.providerId} --ref ${connection.credentialRef}`;
+      const nextCommand = exactRoleRepairCommand(
+        role,
+        definition.providerId,
+        status,
+        connection.credentialRef,
+        credentialTestStatus,
+        missingDefaults,
+        writableCredentialTargets,
+      );
       return {
         role,
         providerId: definition.providerId,
+        blocksLaunch: founderStackRequiredRoles.includes(
+          role as (typeof founderStackRequiredRoles)[number],
+        ),
         status,
         credentialRef: connection.credentialRef ?? null,
         accountId: connection.accountId ?? null,
@@ -649,14 +982,48 @@ export async function doctorFounderStackConnection(options: {
       };
     }),
   );
+  const launchReady = roles
+    .filter(({ blocksLaunch }) => blocksLaunch)
+    .every(({ status }) => status === "ready" || status === "manual_only");
+  const unresolvedActions = roles
+    .filter(({ status }) => status !== "ready" && status !== "manual_only")
+    .map(
+      ({
+        role,
+        providerId,
+        status,
+        issueCodes,
+        missingLaunchDefaults,
+        nextCommand,
+        blocksLaunch,
+      }) => ({
+        role,
+        providerId,
+        why:
+          missingLaunchDefaults.length > 0
+            ? `Missing ${missingLaunchDefaults.join(", ")}.`
+            : issueCodes.length > 0
+              ? `${providerId} doctor reported ${issueCodes.join(", ")} (${status}).`
+              : `${providerId} is ${status}.`,
+        command: nextCommand,
+        blocksLaunch,
+      }),
+    );
   return {
     schemaVersion: 1,
     profileId: FOUNDER_STACK_PROFILE_ID,
     ownerOrganizationId: options.connection?.ownerOrganizationId ?? null,
+    inspectedCliSessions: options.connection?.inspectedCliSessions ?? {
+      github: null,
+      vercel: null,
+      stripe: null,
+    },
     status: roles.every(({ status }) => status === "ready" || status === "manual_only")
       ? "ready"
       : "attention_required",
+    launchReady,
     roles,
+    unresolvedActions,
     writableCredentialTargets,
     externalEffects: false,
     launchGrantRequired: false,
@@ -900,10 +1267,7 @@ export async function registerFounderStackWritableCredentialRefs(
       });
     }
     const inspection = await broker.inspect(registration.ref);
-    const backendReady =
-      inspection.writable &&
-      inspection.status !== "unavailable" &&
-      (registration.backend !== "onepassword" || inspection.status === "available");
+    const backendReady = inspection.writable && inspection.status !== "unavailable";
     if (!backendReady) {
       throw new Error(`Writable credential backend is unavailable for ${registration.purpose}`);
     }

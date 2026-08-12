@@ -51,6 +51,10 @@ export interface CommandEvidenceRecord {
   evidenceSha256?: string;
   evidenceBytes?: number;
   artifacts?: CommandArtifactEvidence[];
+  outputTruncated?: boolean;
+  sourceBranch?: string;
+  sourceSha?: string;
+  sourceTree?: string;
 }
 
 export interface CommandArtifactEvidence {
@@ -114,6 +118,7 @@ export interface RequirementProof {
   reviewedBy: (typeof REVIEWED_BY_IDENTITIES)[number];
   liveVerification?: {
     attempted: false;
+    profileAttempted?: true;
     reason: string;
     command: string;
     evidenceRequired: string;
@@ -179,7 +184,7 @@ const CANONICAL_EXPECTED_INCOMPLETE_PROOFS = {
     profile: "live",
     status: "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
     evidenceCeiling: "IMPLEMENTATION_ONLY",
-    allowedSkipIds: ["live_analytics_readback", "live_stack_readback"],
+    allowedSkipIds: ["live_stack_readback"],
   },
 } as const;
 
@@ -286,6 +291,9 @@ function assertIntegrityRecord(
       `command ${record.id} uses legacy evidence without integrity metadata; rerun it with scripts/run-audit-command.mjs`,
     );
   }
+  if (record.outputTruncated === true) {
+    throw new Error(`command ${record.id} audit log is truncated and cannot prove a requirement`);
+  }
   const recordedCwd = canonicalRepositoryRelativeCwd(record.cwd, `command ${record.id} cwd`);
   if (record.cwd !== recordedCwd) {
     throw new Error(`command ${record.id} cwd is not canonical: ${record.cwd}`);
@@ -309,7 +317,10 @@ function assertIntegrityRecord(
   ) {
     throw new Error(`command ${record.id} has an invalid execution interval`);
   }
-  const expectedEvidencePath = `reports/audit/command-logs/${record.id}.attempt-${record.attempt}.log`;
+  if (typeof record.sourceSha !== "string" || !/^[a-f0-9]{40,64}$/u.test(record.sourceSha)) {
+    throw new Error(`command ${record.id} does not identify its immutable source SHA`);
+  }
+  const expectedEvidencePath = `reports/audit/command-logs/${record.sourceSha}/${record.id}.attempt-${record.attempt}.log`;
   if (record.evidencePath !== expectedEvidencePath) {
     throw new Error(
       `command ${record.id} evidence must be its dedicated audit log: ${expectedEvidencePath}`,
@@ -418,6 +429,12 @@ function commandCoversTest(command: string, testPath: string): boolean {
   return (
     normalized.includes(testPath) ||
     /(?:^|\s)pnpm\s+(?:run\s+)?test(?:\s|$)/u.test(normalized) ||
+    // The MVP profile is the reviewed owner of the complete unit/integration
+    // suite. Final evidence records that one staged command instead of running
+    // a second standalone `pnpm test` solely to give every test proof an ID.
+    /(?:^|\s)pnpm\s+(?:run\s+)?verify:mvp(?:\s|$)/u.test(normalized) ||
+    (/(?:^|\s)pnpm\s+(?:run\s+)?verify:release(?:\s|$)/u.test(normalized) &&
+      workspaceSuite.has(testPath)) ||
     (/(?:^|\s)pnpm\s+(?:run\s+)?test:workspace(?:\s|$)/u.test(normalized) &&
       workspaceSuite.has(testPath)) ||
     (/vitest\s+run(?:\s|$)/u.test(normalized) && !normalized.includes("tests/"))
@@ -441,6 +458,11 @@ interface QualityGap {
   missing: string;
   exact_command: string;
   expected_evidence: string;
+  provider?: string;
+  account_scope?: string;
+  impact?: string;
+  vercel_url_availability?: string;
+  resume_command?: string;
 }
 
 interface QualityResultEvidence {
@@ -486,6 +508,9 @@ function validateExpectedIncompleteQualityProfile(options: {
     throw new Error(
       `${proof.id} expected-incomplete live proof requires ${canonical.status} status and ${canonical.evidenceCeiling} ceiling`,
     );
+  }
+  if (proof.liveVerification?.profileAttempted !== true) {
+    throw new Error(`${proof.id} must record that the live quality profile was attempted`);
   }
   if (command.status !== "FAILED" || command.exitCode !== 1 || command.skipped) {
     throw new Error(
@@ -569,9 +594,21 @@ function validateExpectedIncompleteQualityProfile(options: {
       typeof gap.exact_command !== "string" ||
       !gap.exact_command.trim() ||
       typeof gap.expected_evidence !== "string" ||
-      !gap.expected_evidence.trim()
+      !gap.expected_evidence.trim() ||
+      typeof gap.provider !== "string" ||
+      !gap.provider.trim() ||
+      typeof gap.account_scope !== "string" ||
+      !gap.account_scope.trim() ||
+      typeof gap.impact !== "string" ||
+      !gap.impact.trim() ||
+      typeof gap.vercel_url_availability !== "string" ||
+      !gap.vercel_url_availability.trim() ||
+      typeof gap.resume_command !== "string" ||
+      !gap.resume_command.trim()
     ) {
-      throw new Error(`${proof.id} skipped check ${result.id} lacks the four required gap fields`);
+      throw new Error(
+        `${proof.id} skipped check ${result.id} lacks the required actionable provider-gap fields`,
+      );
     }
   }
   for (const status of ["PASS", "FAIL", "SKIP", "NOT_APPLICABLE"] as const) {

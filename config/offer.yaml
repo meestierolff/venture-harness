@@ -18,6 +18,7 @@ pricing:
   currency: EUR
   monthly_price: null # number
   annual_price: null # number (yearly total)
+  one_time_price: null # one-time or service price
   implementation_fee: null # one-time setup fee, waived on annual if desired
   annual_waives_implementation_fee: false
   usage_price: null # metered component, or null

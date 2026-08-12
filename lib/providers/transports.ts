@@ -482,6 +482,25 @@ function encodeBody(spec: ProviderHttpSpec): {
   return { body: JSON.stringify(spec.body), contentType: "application/json" };
 }
 
+function credentialPreflightHasSafeOrigins(spec: ProviderHttpSpec): boolean {
+  if (!spec.credentialPreflight) return true;
+  try {
+    const target = new URL(spec.url);
+    if (target.protocol !== "https:" || target.username || target.password) return false;
+    return spec.credentialPreflight.requests.every(({ url }) => {
+      const preflight = new URL(url);
+      return (
+        preflight.protocol === "https:" &&
+        !preflight.username &&
+        !preflight.password &&
+        preflight.origin === target.origin
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
 export class HttpProviderTransport implements ProviderTransport {
   readonly kind = "http" as const;
 
@@ -589,6 +608,80 @@ export class HttpProviderTransport implements ProviderTransport {
           url = parsed.toString();
         }
       }
+      if (spec.credentialPreflight) {
+        if (
+          !spec.auth ||
+          secret === undefined ||
+          spec.credentialPreflight.requests.length === 0 ||
+          spec.credentialPreflight.requests.length > 4 ||
+          spec.credentialPreflight.requests.some(({ assertions }) => assertions.length === 0) ||
+          !credentialPreflightHasSafeOrigins(spec)
+        ) {
+          return {
+            status: "failed",
+            providerCode: "credential_preflight_invalid",
+            message: "Credential preflight is incomplete; the provider mutation was not sent",
+            retryable: false,
+            effectOutcome: "confirmed_no_write",
+          };
+        }
+        for (const preflight of spec.credentialPreflight.requests) {
+          let preflightUrl = preflight.url;
+          if (spec.auth.scheme === "api_key_query") {
+            const parsed = new URL(preflightUrl);
+            parsed.searchParams.set(spec.auth.name ?? "apikey", secret);
+            preflightUrl = parsed.toString();
+          }
+          let response: HttpResponse;
+          try {
+            response = await this.fetcher.fetch({
+              method: "GET",
+              url: preflightUrl,
+              headers: { ...headers },
+              sensitiveHeaders: [...sensitiveHeaders],
+              sensitiveUrl: spec.auth.scheme === "api_key_query",
+              signal: context.signal,
+            });
+          } catch (error) {
+            const decision = classifyProviderFailure({ networkError: true });
+            return {
+              status: "failed",
+              providerCode: decision.classification,
+              message: context.redactor.redactText(
+                error instanceof Error
+                  ? `Credential preflight was unavailable: ${error.message}`
+                  : "Credential preflight was unavailable",
+              ),
+              retryable: decision.retryable,
+              effectOutcome: "confirmed_no_write",
+            };
+          }
+          if (response.status < 200 || response.status >= 300) {
+            const decision = classifyProviderFailure({
+              statusCode: response.status,
+              retryAfter: response.headers?.["retry-after"],
+            });
+            return {
+              status: "failed",
+              statusCode: response.status,
+              providerCode: decision.classification,
+              message: `Credential preflight returned HTTP ${response.status}; the provider mutation was not sent`,
+              retryable: decision.retryable,
+              effectOutcome: "confirmed_no_write",
+            };
+          }
+          if (!assertionsMatch(response.body, preflight.assertions)) {
+            return {
+              status: "failed",
+              providerCode: "credential_preflight_mismatch",
+              message:
+                "Credential preflight did not match the exact provider account and mode; the provider mutation was not sent",
+              retryable: false,
+              effectOutcome: "confirmed_no_write",
+            };
+          }
+        }
+      }
       if (spec.nativeIdempotency) {
         headers["Idempotency-Key"] = operation.idempotencyKey;
       }
@@ -670,9 +763,13 @@ export class HttpProviderTransport implements ProviderTransport {
         return {
           status: "succeeded",
           statusCode: response.status,
-          message: `${operation.action} returned HTTP ${response.status}; read-back is still required`,
+          message:
+            operation.effectClass === "read"
+              ? `${operation.action} returned HTTP ${response.status}; no provider write was requested`
+              : `${operation.action} returned HTTP ${response.status}; read-back is still required`,
           output,
-          effectOutcome: "confirmed_write",
+          effectOutcome:
+            operation.effectClass === "read" ? "confirmed_no_write" : "confirmed_write",
         };
       }
       const output = context.redactor.redact(response.body);

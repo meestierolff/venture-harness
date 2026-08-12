@@ -57,7 +57,9 @@ export const launchProviderCapabilitiesByNode: Readonly<Record<string, readonly 
   "brevo-sending-domain": ["sending_domain"],
   "brevo-domain-verification": ["sending_domain_verification"],
   "brevo-email": ["sender", "template", "webhook"],
-  "stripe-commerce": ["product", "price", "webhook", "billing_portal"],
+  "stripe-commerce": ["product", "price"],
+  "stripe-callbacks": ["webhook", "billing_portal"],
+  "stripe-domain-callbacks": ["webhook", "billing_portal"],
   "google-analytics-property": ["analytics_property"],
   "google-analytics-stream": ["analytics_web_stream"],
   "google-site-dns-record": ["site_verification_token"],
@@ -68,6 +70,8 @@ export const launchProviderCapabilitiesByNode: Readonly<Record<string, readonly 
   "vercel-database-environment": ["environment_variable"],
   "vercel-stripe-environment": ["environment_variable"],
   "vercel-stripe-webhook-environment": ["environment_variable"],
+  "vercel-stripe-price-environment": ["environment_variable"],
+  "vercel-stripe-price-lookup-environment": ["environment_variable"],
   "vercel-brevo-environment": ["environment_variable"],
   "vercel-ga-environment": ["environment_variable"],
   "dns-records": ["record"],
@@ -76,6 +80,9 @@ export const launchProviderCapabilitiesByNode: Readonly<Record<string, readonly 
   "eas-submit": ["app_store_connection", "ios_submit"],
   "testflight-state": ["build_processing", "testflight_group", "build_group_assignment"],
   "production-deploy": ["deployment"],
+  "initial-production-deploy": ["deployment"],
+  "analytics-production-redeploy": ["deployment"],
+  "email-production-redeploy": ["deployment"],
 };
 
 export const launchProviderByNode = {
@@ -85,6 +92,8 @@ export const launchProviderByNode = {
   "brevo-domain-verification": "brevo",
   "brevo-email": "brevo",
   "stripe-commerce": "stripe",
+  "stripe-callbacks": "stripe",
+  "stripe-domain-callbacks": "stripe",
   "google-analytics-property": "google",
   "google-analytics-stream": "google",
   "google-site-dns-record": "google",
@@ -95,9 +104,14 @@ export const launchProviderByNode = {
   "vercel-database-environment": "vercel",
   "vercel-stripe-environment": "vercel",
   "vercel-stripe-webhook-environment": "vercel",
+  "vercel-stripe-price-environment": "vercel",
+  "vercel-stripe-price-lookup-environment": "vercel",
   "vercel-brevo-environment": "vercel",
   "vercel-ga-environment": "vercel",
   "production-deploy": "vercel",
+  "initial-production-deploy": "vercel",
+  "analytics-production-redeploy": "vercel",
+  "email-production-redeploy": "vercel",
   "dns-records": "dns",
   "revenuecat-entitlements": "revenuecat",
   "apple-first-app-record": "app_store_connect",
@@ -105,6 +119,31 @@ export const launchProviderByNode = {
   "eas-submit": "eas",
   "testflight-state": "app_store_connect",
 } as const satisfies Readonly<Record<string, string>>;
+
+/**
+ * Integrations in this set may remain waiting without preventing the minimum
+ * repository + production deployment + product-journey rail from completing.
+ * They still stay in the graph so their exact auth/manual gap is durable and
+ * resumable; the set only controls Grant materialization and dependency
+ * placement, never authorization of an effect.
+ */
+export const launchOptionalProviderNodeIds: ReadonlySet<string> = new Set([
+  "brevo-sending-domain",
+  "brevo-domain-verification",
+  "brevo-email",
+  "google-analytics-property",
+  "google-analytics-stream",
+  "google-site-dns-record",
+  "google-site-verification",
+  "google-search-console",
+  "bing-discovery",
+  "dns-records",
+  "vercel-brevo-environment",
+  "vercel-ga-environment",
+  "analytics-production-redeploy",
+  "email-production-redeploy",
+  "stripe-domain-callbacks",
+]);
 
 /** Conservative upper bound: every authorized provider capability may compile
  * to at most one provider operation for that immutable graph node. */
@@ -116,17 +155,12 @@ export function launchProviderOperationCeiling(definition: WorkflowDefinition): 
 
 export const launchBuildAgentHandlers = new Set([
   "launch.prepareRepository",
-  "launch.designDirection",
-  "launch.buildCoreJourney",
-  "launch.configureEventPack",
-  "launch.defineValidationGate",
-  "launch.prepareConciergeOperations",
-  "launch.defineUsageProof",
+  "launch.reviewProduct",
 ]);
 
 export function launchBuildAgentTaskCount(definition: WorkflowDefinition): number {
   return definition.nodes.filter(
-    (node) => node.handler && launchBuildAgentHandlers.has(node.handler),
+    (node) => node.kind === "model" && node.handler && launchBuildAgentHandlers.has(node.handler),
   ).length;
 }
 
@@ -209,86 +243,6 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     monetizationModel: brief.monetization_model,
     leadJourney: ["lead_generation", "services"].includes(brief.monetization_model),
   });
-  const repositoryReadyNodeId =
-    decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
-  const modePreparationNodes: WorkflowNodeDefinition[] = [];
-  if (decision.mode.selectedMode === "validate_first") {
-    modePreparationNodes.push(
-      workflowNode("define-validation-gate", {
-        purpose:
-          "Define the smallest honest demand test, its primary signal, decision threshold, stop rule, and optional 30/60/90-day gates before product scope expands.",
-        kind: "model",
-        capability: "validation.strategy",
-        dependencies: [repositoryReadyNodeId],
-        transport: "model",
-        handler: "launch.defineValidationGate",
-        model: { tier: "capable" },
-        effect: "local_write",
-        idempotencyKey: `launch:${brief.id}:validation-gate`,
-        concurrencyGroup: "strategy",
-        evidence: {
-          required: true,
-          artifact: "reports/launch/validation-gate.json",
-        },
-        completion: {
-          description:
-            "The validation hypothesis, threshold, stop rule, assumptions, and optional timed gates are explicit.",
-        },
-      }),
-    );
-  }
-  if (decision.mode.selectedMode === "concierge_first") {
-    modePreparationNodes.push(
-      workflowNode("prepare-concierge-operations", {
-        purpose:
-          "Define the bounded human-delivery workflow, service limits, disclosures, evidence capture, and handoff before automating the outcome.",
-        kind: "model",
-        capability: "concierge.operations",
-        dependencies: [repositoryReadyNodeId],
-        transport: "model",
-        handler: "launch.prepareConciergeOperations",
-        model: { tier: "capable" },
-        effect: "local_write",
-        idempotencyKey: `launch:${brief.id}:concierge-operations`,
-        concurrencyGroup: "strategy",
-        evidence: {
-          required: true,
-          artifact: "reports/launch/concierge-operations.json",
-        },
-        completion: {
-          description:
-            "The concierge journey is deliverable without deception and has capacity, privacy, escalation, and evidence limits.",
-        },
-      }),
-    );
-  }
-  const designDependencies =
-    modePreparationNodes.length > 0
-      ? modePreparationNodes.map(({ id }) => id)
-      : [repositoryReadyNodeId];
-  const postBuildModeNodes: WorkflowNodeDefinition[] =
-    decision.mode.selectedMode === "product_first"
-      ? [
-          workflowNode("define-usage-proof", {
-            purpose:
-              "Define how real product use will demonstrate the promised value, including activation, retention, quality, and deletion or failure signals.",
-            kind: "model",
-            capability: "product.usage_proof",
-            dependencies: ["build-core-journey", "configure-event-pack"],
-            transport: "model",
-            handler: "launch.defineUsageProof",
-            model: { tier: "capable" },
-            effect: "local_write",
-            idempotencyKey: `launch:${brief.id}:usage-proof`,
-            concurrencyGroup: "strategy",
-            evidence: { required: true, artifact: "reports/launch/usage-proof.json" },
-            completion: {
-              description:
-                "Activation, usage, retention, failure, and deletion evidence are connected to the core journey without collecting private content.",
-            },
-          }),
-        ]
-      : [];
   const dependencyBootstrapNodes: WorkflowNodeDefinition[] =
     decision.rail.appKind === "web"
       ? [
@@ -356,81 +310,62 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           }),
         ]
       : [];
+  const repositoryReadyNodeId =
+    decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
   const nodes: WorkflowNodeDefinition[] = [
     ...dependencyBootstrapNodes,
     workflowNode("prepare-repository", {
-      purpose: "Create the venture-owned local scaffold and managed-file manifest.",
-      capability: "harness.create",
-      dependencies: dependencyBootstrapNodes.map(({ id }) => id),
-      effect: "local_write",
-      handler: "launch.prepareRepository",
-      idempotencyKey: `launch:${brief.id}:prepare`,
-      concurrencyGroup: "local",
-      evidence: { required: true, artifact: "reports/launch/local-scaffold.json" },
-    }),
-    ...dependencyFinalizationNodes,
-    ...modePreparationNodes,
-    workflowNode("design-direction", {
       purpose:
-        "Create a distinct, accessible visual direction and responsive composition for the smallest core journey.",
-      kind: "model",
-      capability: "design.system",
-      dependencies: designDependencies,
-      transport: "model",
-      handler: "launch.designDirection",
-      model: { tier: "capable" },
-      effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:design-direction`,
-      concurrencyGroup: "product-build",
-      evidence: { required: true, artifact: "reports/launch/design-direction.json" },
-      completion: {
-        description:
-          "Design thesis, tokens, responsive composition, accessibility constraints, and anti-template audit are recorded.",
-      },
-    }),
-    workflowNode("build-core-journey", {
-      purpose: `Build and test the smallest useful ${decision.rail.appKind} journey: ${brief.smallest_core_journey}`,
-      kind: "model",
+        decision.rail.appKind === "web"
+          ? `In one bounded build call, refine the proposition, create the venture-specific design, and implement and test the smallest useful journey: ${brief.smallest_core_journey}`
+          : "Create the venture-owned native scaffold and managed-file manifest before product review.",
+      kind: decision.rail.appKind === "web" ? "model" : "code",
       capability:
         decision.rail.appKind === "web"
           ? "product.web"
           : decision.rail.mobileStack === "swiftui"
             ? "product.swiftui"
             : "product.expo",
-      dependencies: ["design-direction"],
-      transport: "model",
-      handler: "launch.buildCoreJourney",
-      model: { tier: "capable" },
+      dependencies: dependencyBootstrapNodes.map(({ id }) => id),
+      transport: decision.rail.appKind === "web" ? "model" : "code",
       effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:build-core-journey`,
-      timeoutMs: 900_000,
+      handler: "launch.prepareRepository",
+      ...(decision.rail.appKind === "web" ? { model: { tier: "capable" as const } } : {}),
+      idempotencyKey: `launch:${brief.id}:prepare`,
+      timeoutMs: decision.rail.appKind === "web" ? 900_000 : 120_000,
       concurrencyGroup: "product-build",
-      evidence: { required: true, artifact: "reports/launch/core-journey.json" },
+      evidence: { required: true, artifact: "reports/launch/local-scaffold.json" },
       completion: {
         description:
-          "The declared core journey exists, uses labeled sample data where needed, and has affected tests.",
+          decision.rail.appKind === "web"
+            ? "The venture scaffold, proposition, original responsive design, core journey, affected tests, and minimum privacy-safe event instrumentation are complete in one coherent product build. Mode-specific validation, concierge, or usage proof is included only when selected."
+            : "The selected native scaffold and managed manifest are complete.",
       },
     }),
-    workflowNode("configure-event-pack", {
+    ...dependencyFinalizationNodes,
+    workflowNode("review-product", {
       purpose:
-        "Enable the minimum capability-driven analytics event pack without personal or free-form data.",
-      capability: "analytics.event_pack",
-      dependencies: ["build-core-journey"],
-      handler: "launch.configureEventPack",
+        "Independently review the proposition, venture-specific design, primary journey, tests, truth, accessibility, responsive behavior, analytics privacy, and selected-mode evidence; make only focused repairs and verify them.",
+      kind: "model",
+      capability: "product.review_repair",
+      dependencies: [repositoryReadyNodeId],
+      transport: "model",
+      handler: "launch.reviewProduct",
+      model: { tier: "capable" },
       effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:event-pack`,
-      concurrencyGroup: "analytics",
-      evidence: { required: true, artifact: "reports/launch/event-pack.json" },
+      idempotencyKey: `launch:${brief.id}:review-product`,
+      timeoutMs: 900_000,
+      concurrencyGroup: "product-build",
+      evidence: { required: true, artifact: "reports/launch/product-review.json" },
+      completion: {
+        description:
+          "An independent pass has exercised the primary journey and directly checked the affected product; defects are repaired or recorded as exact blockers without broadening scope.",
+      },
     }),
-    ...postBuildModeNodes,
     workflowNode("verify-local", {
       purpose: "Run affected local tests, schemas, secrets, PII, truth, and core journey checks.",
       capability: "quality.fast",
-      dependencies: [
-        "build-core-journey",
-        "configure-event-pack",
-        ...postBuildModeNodes.map(({ id }) => id),
-      ],
+      dependencies: ["review-product"],
       handler: "launch.verifyLocal",
       idempotencyKey: `launch:${brief.id}:verify-local`,
       concurrencyGroup: "quality",
@@ -480,7 +415,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     nodes.push(
       providerNode(
         "stripe-commerce",
-        "Create and verify test-mode product, exact prices, checkout, portal, and webhook.",
+        "Create and verify the test-mode product and one exact immutable price before any deployment callback is configured.",
         "stripe",
         [repositoryReadyNodeId],
         "api",
@@ -498,16 +433,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         [repositoryReadyNodeId],
         "api",
       ),
-      providerNode(
-        "google-analytics-stream",
-        "Create or locate the GA4 web stream from the same-run property identifier and read its measurement identifier back.",
-        "google_discovery",
-        ["google-analytics-property"],
-        "api",
-      ),
     );
-    completionDependencies.add("google-analytics-stream");
-    preDeployDependencies.add("google-analytics-stream");
   }
   if (needsGsc) {
     nodes.push(
@@ -531,7 +457,6 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "api",
       ),
     );
-    completionDependencies.add("bing-discovery");
   }
 
   nodes.push(
@@ -539,7 +464,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
       "vercel-project",
       "Create or link the explicitly scoped Vercel project, configure its domain when declared, deploy preview, and read project and deployment state back.",
       "public_website",
-      [...preDeployDependencies].sort(),
+      [...preDeployDependencies].filter((id) => id !== "stripe-commerce").sort(),
     ),
   );
   completionDependencies.add("vercel-project");
@@ -568,6 +493,18 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "vercel-stripe-webhook-environment",
         "Bind the captured Stripe webhook signing secret reference to STRIPE_WEBHOOK_SECRET in Vercel production without persisting the value.",
         "public_website",
+        ["stripe-callbacks", "vercel-project"],
+      ),
+      providerNode(
+        "vercel-stripe-price-environment",
+        "Bind the same-run read-back Stripe price ID as a typed non-secret production application variable.",
+        "public_website",
+        ["stripe-commerce", "vercel-project"],
+      ),
+      providerNode(
+        "vercel-stripe-price-lookup-environment",
+        "Bind the deterministic immutable Stripe price lookup key as a typed non-secret production application variable.",
+        "public_website",
         ["stripe-commerce", "vercel-project"],
       ),
     );
@@ -578,7 +515,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "vercel-brevo-environment",
         "Bind the restricted Brevo credential reference to BREVO_API_KEY in Vercel production without reading its value back.",
         "public_website",
-        ["brevo-sending-domain", "vercel-project"],
+        ["brevo-email", "vercel-project"],
       ),
     );
   }
@@ -592,14 +529,22 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
       ),
     );
   }
-  nodes.push(...environmentNodes);
-  for (const node of environmentNodes) {
-    completionDependencies.add(node.id);
+  const criticalPreOriginEnvironmentNodes = environmentNodes.filter(
+    ({ id }) => id === "vercel-database-environment",
+  );
+  const stripeEnvironmentNodes = environmentNodes.filter(({ id }) =>
+    id.startsWith("vercel-stripe-"),
+  );
+  const optionalIntegrationEnvironmentNodes = environmentNodes.filter(
+    ({ id }) => id === "vercel-brevo-environment" || id === "vercel-ga-environment",
+  );
+  nodes.push(...criticalPreOriginEnvironmentNodes);
+  for (const node of criticalPreOriginEnvironmentNodes) {
     preDeployDependencies.add(node.id);
+    completionDependencies.add(node.id);
   }
 
-  const needsDnsRecords =
-    Boolean(brief.domain) || has("stripe") || needsBrevo || needsGa4 || needsGsc;
+  const needsDnsRecords = Boolean(brief.domain) || needsBrevo || needsGsc;
   if (needsDnsRecords) {
     if (
       brief.preferred_dns_provider === "mijndomein" ||
@@ -624,7 +569,6 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         ),
       );
     }
-    completionDependencies.add("dns-records");
   }
 
   if (needsBrevo) {
@@ -644,7 +588,6 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "api",
       ),
     );
-    completionDependencies.add("brevo-email");
   }
 
   if (needsGsc) {
@@ -664,7 +607,6 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "api",
       ),
     );
-    completionDependencies.add("google-search-console");
   }
 
   if (decision.rail.appKind !== "web") {
@@ -696,7 +638,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           "eas-build",
           "Configure EAS project/build profiles and produce a reproducible iOS build.",
           "eas",
-          ["build-core-journey", "verify-local"],
+          ["review-product", "verify-local"],
           "cli",
           "mobile_testflight",
         ),
@@ -733,23 +675,170 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
       concurrencyGroup: "quality",
       evidence: { required: true, artifact: "reports/quality/launch-mvp.json" },
     }),
+  );
+  const needsInitialProductionOrigin = has("stripe");
+  if (needsInitialProductionOrigin) {
+    nodes.push(
+      providerNode(
+        "initial-production-deploy",
+        "Create and read back one initial production deployment so origin-dependent integrations bind to a real production URL, never a preview URL.",
+        "public_website",
+        ["verify-launch"],
+      ),
+    );
+    completionDependencies.add("initial-production-deploy");
+  }
+  if (has("stripe")) {
+    nodes.push(
+      providerNode(
+        "stripe-callbacks",
+        "Create and verify the Stripe test-mode webhook and billing portal against the exact same-run production deployment origin; a merely declared custom domain is never selected.",
+        "stripe",
+        ["initial-production-deploy", "stripe-commerce", "vercel-project"],
+        "api",
+      ),
+      ...stripeEnvironmentNodes.map((node) => ({
+        ...node,
+        dependencies: [
+          ...new Set([...node.dependencies, "initial-production-deploy", "stripe-callbacks"]),
+        ].sort(),
+      })),
+    );
+    completionDependencies.add("stripe-callbacks");
+    for (const node of stripeEnvironmentNodes) completionDependencies.add(node.id);
+  } else {
+    nodes.push(...stripeEnvironmentNodes);
+  }
+  nodes.push(
+    ...optionalIntegrationEnvironmentNodes.filter(({ id }) => id === "vercel-brevo-environment"),
+  );
+  if (needsGa4) {
+    const analyticsOriginDependency = has("stripe")
+      ? "initial-production-deploy"
+      : "production-deploy";
+    nodes.push(
+      providerNode(
+        "google-analytics-stream",
+        "Create and verify the GA4 web stream from the same-run property id and exact production origin; a preview URL is never accepted.",
+        "google_discovery",
+        ["google-analytics-property", analyticsOriginDependency],
+        "api",
+      ),
+      ...optionalIntegrationEnvironmentNodes.filter(({ id }) => id === "vercel-ga-environment"),
+    );
+  }
+  const finalProductionDependencies = has("stripe")
+    ? stripeEnvironmentNodes.map(({ id }) => id)
+    : ["verify-launch"];
+  nodes.push(
     providerNode(
       "production-deploy",
-      "Deploy the verified web surface to production and read the immutable deployment and domain state back.",
+      "Deploy the final verified web surface with all typed application bindings, then read the immutable production deployment and domain state back.",
       "public_website",
-      ["verify-launch"],
+      finalProductionDependencies,
     ),
+    ...(needsGa4
+      ? [
+          providerNode(
+            "analytics-production-redeploy",
+            "Redeploy production only after the verified public GA4 measurement identifier is bound.",
+            "public_website",
+            ["production-deploy", "vercel-ga-environment"],
+          ),
+        ]
+      : []),
+    ...(needsBrevo
+      ? [
+          providerNode(
+            "email-production-redeploy",
+            "Redeploy production only after the verified Brevo application credential binding is ready.",
+            "public_website",
+            ["production-deploy", "vercel-brevo-environment"],
+          ),
+        ]
+      : []),
     workflowNode("verify-production", {
       purpose:
-        "Run read-only HTTPS smoke plus desktop and mobile critical-surface journeys against the exact production URL returned by deployment read-back.",
-      capability: "quality.post_deploy",
+        "Run the generic read-only deployment-surface check, then the exact Launch Contract primary journey under a labeled test identity with bounded reversible writes and verified cleanup against the exact production URL returned by deployment read-back.",
+      capability: "product.primary_journey.verify",
       dependencies: ["production-deploy"],
       handler: "launch.verifyProduction",
-      effect: "read",
+      effect: "external_reversible",
+      risk: "high",
+      authorization: {
+        required: true,
+        profile: "standard_launch",
+        scopes: ["product.primary_journey.verify"],
+      },
       idempotencyKey: `launch:${brief.id}:verify-production`,
+      retry: {
+        maxAttempts: 1,
+        retryableCodes: [],
+        backoff: { strategy: "none", initialMs: 0, maxMs: 0, multiplier: 1 },
+      },
+      reconciliation: {
+        handler: "launch.verifyProduction",
+        pollIntervalMs: 0,
+        maxPollAttempts: 3,
+      },
       concurrencyGroup: "quality",
       evidence: { required: true, artifact: "reports/quality/post-deploy.json" },
+      completion: {
+        description:
+          "The generic deployment surface passed separately; the exact product journey passed under one labeled test identity, produced run-bound evidence, and verified cleanup of every reversible test write without charging, publishing, configuring providers, deleting unrelated data, or sending outside the authorized test recipient.",
+      },
     }),
+    ...(brief.domain
+      ? [
+          workflowNode("verify-custom-domain", {
+            purpose:
+              "After same-run Vercel attachment and DNS propagation read-back, rerun the generic surface and exact Launch Contract journey against the exact custom-domain HTTPS origin; never fall back after this origin is selected.",
+            capability: "product.primary_journey.verify",
+            dependencies: [
+              "production-deploy",
+              "vercel-project",
+              "dns-records",
+              "verify-production",
+            ],
+            handler: "launch.verifyProduction",
+            effect: "external_reversible",
+            risk: "high",
+            authorization: {
+              required: true,
+              profile: "standard_launch",
+              scopes: ["product.primary_journey.verify"],
+            },
+            idempotencyKey: `launch:${brief.id}:verify-custom-domain`,
+            retry: {
+              maxAttempts: 1,
+              retryableCodes: [],
+              backoff: { strategy: "none", initialMs: 0, maxMs: 0, multiplier: 1 },
+            },
+            reconciliation: {
+              handler: "launch.verifyProduction",
+              pollIntervalMs: 0,
+              maxPollAttempts: 3,
+            },
+            concurrencyGroup: "quality",
+            evidence: { required: true, artifact: "reports/quality/custom-domain.json" },
+            completion: {
+              description:
+                "The exact verified custom-domain origin passed the generic surface and immutable product journey, and every labeled test write was cleaned up with read-back.",
+            },
+          }),
+        ]
+      : []),
+    ...(brief.domain && has("stripe")
+      ? [
+          providerNode(
+            "stripe-domain-callbacks",
+            "After the custom origin has same-run Vercel attachment, authoritative DNS, and product-journey verification, rebind Stripe callbacks to that exact verified HTTPS origin.",
+            "stripe",
+            ["dns-records", "stripe-callbacks", "vercel-project", "verify-custom-domain"],
+            "api",
+          ),
+        ]
+      : []),
     workflowNode("launch-report", {
       purpose: "Write sanitized human and JSON launch reports with only genuine remaining actions.",
       capability: "launch.report",
@@ -816,9 +905,15 @@ function criticalPath(graph: WorkflowDefinition): string[] {
   );
 }
 
-export function compileLaunchDryRun(briefInput: FounderBrief): LaunchDryRun {
+export function compileLaunchDryRun(
+  briefInput: FounderBrief,
+  decisionInput?: LaunchDecision,
+): LaunchDryRun {
   const brief = founderBriefSchema.parse(briefInput);
-  const decision = routeLaunch(brief);
+  const decision = decisionInput ?? routeLaunch(brief);
+  if (decision.briefId !== brief.id) {
+    throw new Error(`Launch decision for ${decision.briefId} cannot compile brief ${brief.id}`);
+  }
   const graph = compileLaunchGraph(brief, decision);
   const eventPacks = resolveActiveEventPacks({
     capabilities: decision.capabilities,

@@ -36,6 +36,8 @@ export interface SeedFetchResult {
   readonly lockfileSha256: string;
   readonly storeDir: string;
   readonly fetched: boolean;
+  readonly preparationMode: "online";
+  readonly attempts: number;
 }
 
 function sha256(value: string): string {
@@ -117,6 +119,7 @@ export function fetchSeedDependencies(options: {
   seed: SeedId;
   root: string;
   storeDir?: string;
+  maxAttempts?: number;
 }): SeedFetchResult {
   const { packageManifest, lockfile } = seedDependencyFiles(options.seed);
   const storeDir = options.storeDir ?? rootStoreDirectory(options.root);
@@ -127,21 +130,66 @@ export function fetchSeedDependencies(options: {
   try {
     writeFileSync(join(workspace, "package.json"), packageManifest);
     writeFileSync(join(workspace, "pnpm-lock.yaml"), lockfile);
+    const isolatedHome = join(workspace, ".home");
+    mkdirSync(isolatedHome, { recursive: true, mode: 0o700 });
     mkdirSync(storeDir, { recursive: true });
-    const fetched = spawnSync("pnpm", ["fetch", "--store-dir", storeDir], {
-      cwd: workspace,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 600_000,
-    });
-    if (fetched.status !== 0) {
-      throw new Error(
-        `Seed dependency preparation failed for ${options.seed} (pnpm fetch exited ${fetched.status ?? "on timeout"}).\n` +
-          `${fetched.stdout ?? ""}\n${fetched.stderr ?? ""}\n` +
-          `Next: run pnpm seed:fetch ${options.seed} with network access, then rerun the child install.`,
-      );
+    const maxAttempts = options.maxAttempts ?? 2;
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 2) {
+      throw new Error("Seed dependency preparation maxAttempts must be 1 or 2.");
     }
-    return { seed: options.seed, lockfileSha256, storeDir, fetched: true };
+    let lastFailure = "";
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const fetched = spawnSync("pnpm", ["fetch", "--store-dir", storeDir], {
+        cwd: workspace,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 600_000,
+        env: {
+          // The child verification contract includes dev tooling (typecheck,
+          // build, and journey tests), so preparation must not inherit a
+          // production-only dependency filter from the parent environment.
+          NODE_ENV: "development",
+          PATH: process.env.PATH,
+          TMPDIR: process.env.TMPDIR,
+          TMP: process.env.TMP,
+          TEMP: process.env.TEMP,
+          LANG: process.env.LANG,
+          LC_ALL: process.env.LC_ALL,
+          CI: process.env.CI ?? "1",
+          SystemRoot: process.env.SystemRoot,
+          PATHEXT: process.env.PATHEXT,
+          HOME: isolatedHome,
+          USERPROFILE: isolatedHome,
+          XDG_CONFIG_HOME: join(isolatedHome, ".config"),
+          npm_config_userconfig: join(isolatedHome, ".npmrc"),
+          NPM_CONFIG_USERCONFIG: join(isolatedHome, ".npmrc"),
+          npm_config_update_notifier: "false",
+        },
+      });
+      if (fetched.status === 0 && !fetched.error) {
+        return {
+          seed: options.seed,
+          lockfileSha256,
+          storeDir,
+          fetched: true,
+          preparationMode: "online",
+          attempts: attempt,
+        };
+      }
+      lastFailure = [
+        `pnpm fetch exited ${fetched.status ?? "on timeout"}`,
+        fetched.error?.message,
+        fetched.stdout,
+        fetched.stderr,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+    throw new Error(
+      `Seed dependency preparation failed for ${options.seed} after ${maxAttempts} bounded attempt(s).\n` +
+        `${lastFailure}\n` +
+        `Next: run pnpm seed:fetch ${options.seed} with network access, then rerun the child install.`,
+    );
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

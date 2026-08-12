@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
 
 permissions:
+  checks: read
   contents: read
+  pull-requests: read
+  security-events: read
 
 concurrency:
   group: founder-alpha-final-evidence-${{ github.ref }}
@@ -14,6 +17,11 @@ jobs:
   final-evidence:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    environment:
+      name: founder-alpha-final-evidence
+    env:
+      VH_EVIDENCE_SOURCE_SHA: ${{ github.sha }}
+      VH_EVIDENCE_SOURCE_BRANCH: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -24,10 +32,18 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Bind evidence to the clean checked-out source
+        run: node scripts/initialize-final-evidence.mjs
+
       - name: Frozen install
         run: >-
           node scripts/run-audit-command.mjs --id final-frozen-install --
           pnpm install --frozen-lockfile
+
+      - name: Synchronize canonical agent surfaces
+        run: >-
+          node scripts/run-audit-command.mjs --id final-agent-sync --
+          pnpm agents:sync
 
       - name: Install Chromium for socket-capable browser checks
         run: pnpm exec playwright install --with-deps chromium
@@ -50,51 +66,78 @@ jobs:
       - name: Prepare child seed dependency closure
         run: pnpm seed:fetch agentic-web-saas
 
-      - name: Workspace build
-        run: >-
-          node scripts/run-audit-command.mjs --id final-workspace-build --
-          pnpm workspace:build
-
       - name: Fast verification profile
         run: >-
           node scripts/run-audit-command.mjs --id final-verify-fast --
           pnpm verify:fast
 
+      # The local founder-alpha code gate is the ordered pair
+      # `pnpm verify:mvp && pnpm verify:release`. Both audited steps must pass;
+      # neither profile alone establishes code readiness.
       - name: MVP verification profile
         run: >-
           node scripts/run-audit-command.mjs --id final-verify-mvp --
           pnpm verify:mvp
 
-      # The founder-alpha release gate proves code, package, security, and
-      # deterministic Golden Paths. It must reach PASS with no live provider
-      # connected, so it is asserted as a normal passing check.
+      # This is the second half of the local founder-alpha gate. It proves the
+      # release/package/security and deterministic Golden Path layers and must
+      # reach PASS with no live provider connected.
       - name: Release verification profile
+        env:
+          VH_SEED_CLOSURE_REPORT: reports/audit/seed-closure.json
         run: >-
           node scripts/run-audit-command.mjs
           --id final-verify-release
           --artifact reports/audit/quality-release.json
+          --artifact reports/audit/seed-closure.json
           -- pnpm verify:release -- --report reports/audit/quality-release.json
 
-      # Live provider read-back runs in the quality workflow's release job. It
-      # is deliberately not recorded here yet: adding an audit command to this
-      # workflow also requires a reviewed proof row, and a proof row can only be
-      # rendered by a completed run of this workflow. See
-      # docs/plans/active/004-vh-v02-launch-dogfood.md for the exact ordering.
+      # A missing provider is an honest INCOMPLETE, not a release failure and
+      # not a fabricated PASS. An executed live read-back that fails, a missing
+      # report, or any unexpected exit/status still fails this workflow.
+      - name: Live provider verification attempt
+        shell: bash
+        run: |
+          set +e
+          node scripts/run-audit-command.mjs \
+            --id final-verify-live \
+            --artifact reports/audit/quality-live.json \
+            -- pnpm verify:live -- --report reports/audit/quality-live.json
+          command_exit="$?"
+          set -e
+          report_status="$(node -e '
+            const { readFileSync } = require("node:fs");
+            try {
+              process.stdout.write(String(JSON.parse(readFileSync("reports/audit/quality-live.json", "utf8")).status));
+            } catch {
+              process.stdout.write("missing");
+            }
+          ')"
+          echo "Live verification status: ${report_status}"
+          case "${command_exit}:${report_status}" in
+            0:PASS|1:INCOMPLETE) ;;
+            *) echo "::error title=Live verification failed::exit=${command_exit}, status=${report_status}"; exit 1 ;;
+          esac
 
       - name: Framework verification
         run: >-
           node scripts/run-audit-command.mjs --id final-verify --
-          pnpm verify
+          pnpm verify -- --delegate "pnpm test" --delegate "pnpm typecheck"
 
       - name: Public release inspection
         run: >-
           node scripts/run-audit-command.mjs --id final-release-check --
           pnpm release:check
 
+      - name: Production dependency audit
+        run: >-
+          node scripts/run-audit-command.mjs --id final-prod-audit --
+          pnpm audit --prod --audit-level=high
+
       - name: Raw HTML verification
         run: >-
           node scripts/run-audit-command.mjs --id final-raw-html --
-          pnpm verify:raw-html
+          pnpm verify:raw-html:local
 
       - name: Browser journeys
         run: >-
@@ -105,27 +148,6 @@ jobs:
         run: >-
           node scripts/run-audit-command.mjs --id final-gitleaks-history --
           gitleaks git . --config .gitleaks.toml --redact --no-banner --exit-code 1
-
-      - name: Current-tree credential scan
-        run: >-
-          node scripts/run-audit-command.mjs --id final-gitleaks-tree --
-          gitleaks dir . --config .gitleaks.toml --redact --no-banner --exit-code 1
-
-      - name: Synthetic launch fixture
-        run: >-
-          node scripts/run-audit-command.mjs --id final-synthetic-launch --
-          pnpm fixture:venture-launch -- --idea fixtures/ideas/synthetic-payout-rank.md
-          --output /tmp/vh-synthetic-launch-final-proof-v2 --json
-
-      - name: Packed clean-consumer verification
-        run: >-
-          node scripts/run-audit-command.mjs --id final-workspace-pack-consumer --
-          pnpm test:workspace
-
-      - name: Complete unit and integration suite
-        run: >-
-          node scripts/run-audit-command.mjs --id final-unit-tests --
-          pnpm test
 
       - name: Winner Loop Fixture D
         run: >-
@@ -144,21 +166,58 @@ jobs:
           node scripts/run-audit-command.mjs --id final-workspace-check --
           pnpm workspace:check
 
+      - name: Source-bound GitHub repository, PR, checks, and ruleset read-back
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_SECURITY_READ_TOKEN: ${{ secrets.VH_GITHUB_SECURITY_READ_TOKEN }}
+        run: >-
+          node scripts/run-audit-command.mjs
+          --id final-github-readback
+          --artifact reports/audit/github-readback.json
+          -- node scripts/verify-final-github-readback.mjs
+          --output reports/audit/github-readback.json
+
+      # This audited scan covers every ledger producer. The exact portable
+      # payload is assembled, scanned again, and only then uploaded below.
+      - name: Current-tree and completed-evidence credential scan
+        id: credential-scan
+        run: >-
+          node scripts/run-audit-command.mjs --id final-gitleaks-tree --
+          gitleaks dir . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
       - name: Render the evidence-backed completion matrix
+        id: render-evidence
         run: pnpm exec tsx scripts/render-vh-v02-completion-matrix.ts
 
+      - name: Render founder-alpha assignment evidence
+        id: render-founder-alpha-evidence
+        run: pnpm exec tsx scripts/render-founder-alpha-evidence.ts
+
+      - name: Stage the exact portable evidence payload
+        id: stage-evidence
+        env:
+          PORTABLE_EVIDENCE_ROOT: ${{ runner.temp }}/founder-alpha-final-evidence-${{ github.run_id }}
+        run: node scripts/stage-final-evidence-upload.mjs --output "${PORTABLE_EVIDENCE_ROOT}"
+
+      - name: Scan the exact portable evidence payload
+        id: scan-portable-evidence
+        env:
+          PORTABLE_EVIDENCE_ROOT: ${{ runner.temp }}/founder-alpha-final-evidence-${{ github.run_id }}
+        run: >-
+          gitleaks dir "${PORTABLE_EVIDENCE_ROOT}"
+          --config .gitleaks.toml --redact --no-banner --exit-code 1
+
       - name: Upload portable final evidence
-        if: always()
+        if: >-
+          ${{ always() &&
+          steps.credential-scan.outcome == 'success' &&
+          steps.render-evidence.outcome == 'success' &&
+          steps.render-founder-alpha-evidence.outcome == 'success' &&
+          steps.stage-evidence.outcome == 'success' &&
+          steps.scan-portable-evidence.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: founder-alpha-final-evidence-${{ github.run_id }}
-          path: |
-            reports/audit/commands-run.json
-            reports/audit/command-logs/
-            reports/audit/quality-release.json
-            reports/audit/winner-loop-creative-trace.json
-            reports/audit/vh-v0.2-codex-requirement-matrix.json
-            docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md
-            docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/founder-alpha-final-evidence-${{ github.run_id }}/
+          if-no-files-found: error
           retention-days: 90

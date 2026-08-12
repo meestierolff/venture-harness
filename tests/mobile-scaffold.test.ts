@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -310,6 +311,28 @@ describe("repo-native mobile scaffold generation", () => {
     }
     expect(symlinkError).toMatchObject({ code: "unsafe_path" });
     expect(existsSync(join(outside, ".venture-scaffold.json"))).toBe(false);
+  });
+
+  it("refuses a symlinked scaffold file even when its target has the expected content", () => {
+    const root = temporaryRoot();
+    generateMobileScaffold(root, {
+      stack: "expo_react_native",
+      ventureId: "safe-app",
+      displayName: "Safe App",
+    });
+    const appPath = join(root, "mobile/expo/App.tsx");
+    const target = join(root, "linked-app-target.tsx");
+    writeFileSync(target, readFileSync(appPath));
+    unlinkSync(appPath);
+    symlinkSync(target, appPath);
+
+    expect(() =>
+      generateMobileScaffold(root, {
+        stack: "expo_react_native",
+        ventureId: "safe-app",
+        displayName: "Safe App",
+      }),
+    ).toThrowError(/non-file scaffold target/);
   });
 
   it.each([

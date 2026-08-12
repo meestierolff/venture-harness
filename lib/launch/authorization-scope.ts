@@ -4,6 +4,7 @@ import { defineWorkflow, type WorkflowDefinition } from "../workflow";
 type LaunchEnvironment = "local" | "test" | "preview" | "production";
 
 const PREVIEW_PROVIDER_NODES = new Set(["github-repository", "vercel-project"]);
+const PRODUCTION_JOURNEY_NODES = new Set(["verify-production", "verify-custom-domain"]);
 
 function canonicalProfile(profile: string): AuthorizationProfileId {
   const canonical = profile.replaceAll("-", "_") as AuthorizationProfileId;
@@ -61,14 +62,15 @@ export function scopeLaunchGraphForAuthorization(
         (node.kind !== "provider" &&
           node.kind !== "manual_action" &&
           node.id !== "verify-launch" &&
-          node.id !== "verify-production")
+          !PRODUCTION_JOURNEY_NODES.has(node.id))
       );
     }
     if (profile === "preview_launch") {
       return (
         node.id === "launch-report" ||
         node.id === "verify-launch" ||
-        ((node.kind === "code" || node.kind === "model") && node.id !== "verify-production") ||
+        ((node.kind === "code" || node.kind === "model") &&
+          !PRODUCTION_JOURNEY_NODES.has(node.id)) ||
         PREVIEW_PROVIDER_NODES.has(node.id)
       );
     }
@@ -106,7 +108,16 @@ export function scopeLaunchGraphForAuthorization(
 }
 
 function nodeEnvironment(nodeId: string): LaunchEnvironment {
-  if (["stripe-commerce", "revenuecat-entitlements"].includes(nodeId)) return "test";
+  if (
+    [
+      "stripe-commerce",
+      "stripe-callbacks",
+      "stripe-domain-callbacks",
+      "revenuecat-entitlements",
+    ].includes(nodeId)
+  ) {
+    return "test";
+  }
   if (
     [
       "dns-records",
@@ -114,8 +125,12 @@ function nodeEnvironment(nodeId: string): LaunchEnvironment {
       "eas-build",
       "eas-submit",
       "testflight-state",
+      "initial-production-deploy",
+      "analytics-production-redeploy",
+      "email-production-redeploy",
       "production-deploy",
-    ].includes(nodeId)
+    ].includes(nodeId) ||
+    (nodeId.startsWith("vercel-") && nodeId.endsWith("-environment"))
   ) {
     return "production";
   }
@@ -140,7 +155,7 @@ export function requiredCapabilitiesForLaunch(definition: WorkflowDefinition): s
   return [
     ...new Set(
       definition.nodes
-        .filter((node) => node.kind === "provider")
+        .filter((node) => node.authorization.required)
         .flatMap((node) => node.authorization.scopes),
     ),
   ].sort();

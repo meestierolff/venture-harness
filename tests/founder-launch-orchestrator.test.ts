@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,10 +15,13 @@ import {
   founderStackRoleDefinitions,
   materializeFounderVenture,
   parseFounderStackConnection,
+  renderFounderIdea,
+  launchContractDigest,
   type FounderStackConnection,
   type FounderStackDoctorResult,
   type FounderStackRole,
 } from "@/lib/founder-launch";
+import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
 
 const NOW = new Date("2026-08-09T12:00:00.000Z");
 const WORKFLOW_SHA = "a".repeat(40);
@@ -48,6 +59,7 @@ function readyDoctor(connection: FounderStackConnection): FounderStackDoctorResu
       missingLaunchDefaults: [],
       nextCommand: "vh launch --dry-run",
       liveProviderState: "not_checked" as const,
+      blocksLaunch: false,
     };
   });
   return {
@@ -66,6 +78,8 @@ function readyDoctor(connection: FounderStackConnection): FounderStackDoctorResu
     launchGrantRequired: false,
     verificationScope: "credential_and_transport_readiness_only",
     liveProviderState: "not_checked",
+    launchReady: true,
+    unresolvedActions: [],
   };
 }
 
@@ -95,6 +109,43 @@ afterEach(() => {
 });
 
 describe("one-prompt founder launch preparation", () => {
+  it("places the default child directly under the configured ventures root", () => {
+    const baseDir = temporaryDirectory();
+    const result = prepare({ baseDir });
+
+    expect(result.repository.localDirectory).toBe(join(realpathSync(baseDir), "exception-desk"));
+  });
+
+  it("rejects a new output whose existing parent is a symlink outside the ventures root", () => {
+    const baseDir = temporaryDirectory();
+    const outside = temporaryDirectory();
+    symlinkSync(outside, join(baseDir, "linked"));
+
+    expect(() => prepare({ baseDir, output: "linked/exception-desk" })).toThrow(
+      /must not traverse a symbolic link/,
+    );
+    expect(existsSync(join(outside, "exception-desk"))).toBe(false);
+  });
+
+  it("rejects an existing child that is a symlink outside the ventures root", () => {
+    const baseDir = temporaryDirectory();
+    const outside = temporaryDirectory();
+    mkdirSync(join(outside, "existing"));
+    symlinkSync(join(outside, "existing"), join(baseDir, "exception-desk"));
+
+    expect(() => prepare({ baseDir })).toThrow(/must not traverse a symbolic link/);
+  });
+
+  it("rejects a dangling child symlink without creating its outside target", () => {
+    const baseDir = temporaryDirectory();
+    const outside = temporaryDirectory();
+    const outsideTarget = join(outside, "not-created");
+    symlinkSync(outsideTarget, join(baseDir, "exception-desk"));
+
+    expect(() => prepare({ baseDir })).toThrow(/must not traverse a symbolic link/);
+    expect(existsSync(outsideTarget)).toBe(false);
+  });
+
   it("renders a complete effect-free production dry-run with exact targets and command", () => {
     const result = prepare();
 
@@ -133,7 +184,9 @@ describe("one-prompt founder launch preparation", () => {
       "BREVO_API_KEY",
       "NEXT_PUBLIC_GA_MEASUREMENT_ID",
     ]);
-    expect(result.migrations).toEqual(["migrations/sql/001_core_evidence.up.sql"]);
+    // The ordinary web seed has no universal evidence database. A migration is
+    // selected only when the reviewed journey needs persistence.
+    expect(result.migrations).toEqual([]);
     expect(result.materialization.effects).toEqual([]);
     expect(result.resources).toEqual(
       expect.arrayContaining([
@@ -148,7 +201,7 @@ describe("one-prompt founder launch preparation", () => {
     expect(result.launchGrant).toMatchObject({
       modelExecutionPolicy: {
         mode: "fixture_no_model_execution",
-        maxBuildAgentTasks: 4,
+        maxBuildAgentTasks: 2,
         usageAccounting: "none",
       },
       providerOperationBudget: {
@@ -221,19 +274,49 @@ describe("one-prompt founder launch preparation", () => {
 
   it("uses a bounded non-metered ChatGPT policy for a non-synthetic founder launch", () => {
     const ideaSource = readFileSync("fixtures/ideas/synthetic-founder-web.md", "utf8").replace(
-      /^Synthetic: yes\n/mu,
+      /^synthetic: true\n/mu,
       "",
     );
     const result = prepare({ ideaSource });
 
     expect(result.launchGrant.modelExecutionPolicy).toMatchObject({
       mode: "chatgpt_subscription_non_metered",
-      maxBuildAgentTasks: 4,
+      maxBuildAgentTasks: 2,
       attestation: "codex_login_status_chatgpt_subscription",
       usageAccounting: "observational",
     });
     expect(result.launchGrant).not.toHaveProperty("modelBudget");
     expect(result.launchGrant).not.toHaveProperty("externalResourceBudget");
+  });
+
+  it("selects the optional service seed without activating a mobile rail", () => {
+    const contract = launchReceiptContract();
+    const result = prepare({
+      ideaSource: renderFounderIdea({
+        ...contract,
+        agentNative: {
+          customerAgentSurfaceRequired: true,
+          serviceBlueprintRequired: true,
+          outcomeCommands: ["publish_verified_receipt"],
+        },
+      }),
+    });
+
+    expect(result.selectedVentureType).toMatchObject({
+      rail: "web",
+      seed: { id: "hybrid-agentic-service" },
+    });
+    expect(result.launchGrant.ideaDigest).toBe(
+      launchContractDigest({
+        ...contract,
+        agentNative: {
+          customerAgentSurfaceRequired: true,
+          serviceBlueprintRequired: true,
+          outcomeCommands: ["publish_verified_receipt"],
+        },
+      }),
+    );
+    expect(result.graphDryRun.decision.capabilities).not.toContain("app_store_connect");
   });
 
   it("ships a domainless venture on the provider production URL instead of blocking it", () => {
@@ -267,7 +350,7 @@ describe("one-prompt founder launch preparation", () => {
     });
   });
 
-  it("withholds the Launch Grant until a domain has one exact manual DNS binding", async () => {
+  it("carries missing optional DNS setup as a typed launch gap without withholding the core Grant", async () => {
     const base = JSON.parse(readFileSync("fixtures/founder-stack/founder-default.json", "utf8"));
     const missingAdapter = parseFounderStackConnection({
       ...base,
@@ -282,28 +365,127 @@ describe("one-prompt founder launch preparation", () => {
     const adapterBlocked = prepare({ stack: missingAdapter, executionMode: "apply" });
     const destinationBlocked = prepare({ stack: missingDestination, executionMode: "apply" });
 
-    expect(adapterBlocked.blockers).toContainEqual(
+    expect(adapterBlocked.launchGaps).toContainEqual(
       expect.objectContaining({
         code: "stack_role_not_ready",
         role: "dns.records",
+        state: "waiting_for_external_action",
+        blocksLaunch: false,
         message: expect.stringContaining("manual DNS adapter"),
       }),
     );
-    expect(destinationBlocked.blockers).toContainEqual(
+    expect(destinationBlocked.launchGaps).toContainEqual(
       expect.objectContaining({
         code: "provider_account_missing",
         role: "dns.records",
         provider: "dns",
+        state: "waiting_for_auth",
+        blocksLaunch: false,
       }),
     );
-    await expect(materializeFounderVenture(adapterBlocked)).rejects.toThrow(
-      /blocked founder launch/,
+    expect(adapterBlocked).toMatchObject({ status: "ready", grantDisposition: "issued_for_apply" });
+    expect(destinationBlocked).toMatchObject({
+      status: "ready",
+      grantDisposition: "issued_for_apply",
+    });
+    await expect(materializeFounderVenture(adapterBlocked)).resolves.toMatchObject({
+      status: "materialized",
+    });
+    await expect(materializeFounderVenture(destinationBlocked)).resolves.toMatchObject({
+      status: "materialized",
+    });
+  });
+
+  it("grants a domainless core launch when Brevo, Google, and Bing auth are absent", () => {
+    const base = JSON.parse(readFileSync("fixtures/founder-stack/founder-default.json", "utf8"));
+    for (const role of ["email.transactional", "growth.google", "search.bing"] as const) {
+      delete base.roles[role].credentialRef;
+      delete base.roles[role].accountId;
+      delete base.roles[role].organizationId;
+      delete base.roles[role].teamId;
+    }
+    const connection = parseFounderStackConnection(base);
+    const result = prepare({
+      stack: connection,
+      executionMode: "apply",
+      ideaSource: [
+        "# Domainless optional integrations",
+        "Audience: small teams",
+        "Problem: reviews scatter",
+        "Outcome: one decision record",
+        "Commerce: subscription",
+        "Monthly price: 24.50",
+        "Currency: EUR",
+        "Transactional email: yes",
+        "Analytics: yes",
+        "Search: yes",
+      ].join("\n"),
+    });
+
+    expect(result).toMatchObject({ status: "ready", grantDisposition: "issued_for_apply" });
+    expect(result.blockers).toEqual([]);
+    expect(result.launchGaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "email.transactional", state: "waiting_for_auth" }),
+        expect.objectContaining({ role: "growth.google", state: "waiting_for_auth" }),
+        expect.objectContaining({ role: "search.bing", state: "waiting_for_auth" }),
+      ]),
     );
-    await expect(materializeFounderVenture(destinationBlocked)).rejects.toThrow(
-      /blocked founder launch/,
+    expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).toEqual(
+      expect.arrayContaining(["github", "vercel", "stripe"]),
     );
-    expect(existsSync(adapterBlocked.repository.localDirectory)).toBe(false);
-    expect(existsSync(destinationBlocked.repository.localDirectory)).toBe(false);
+    expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
+      "brevo",
+    );
+    expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
+      "bing",
+    );
+    const graph = result.graphDryRun.graph;
+    const ancestors = (nodeId: string, seen = new Set<string>()): Set<string> => {
+      const node = graph.nodes.find(({ id }) => id === nodeId);
+      for (const dependency of node?.dependencies ?? []) {
+        if (!seen.has(dependency)) {
+          seen.add(dependency);
+          ancestors(dependency, seen);
+        }
+      }
+      return seen;
+    };
+    expect([...ancestors("production-deploy")]).not.toEqual(
+      expect.arrayContaining([
+        "brevo-email",
+        "google-analytics-property",
+        "google-analytics-stream",
+        "google-search-console",
+        "bing-discovery",
+      ]),
+    );
+    expect(graph.nodes.find(({ id }) => id === "google-analytics-stream")?.dependencies).toEqual([
+      "google-analytics-property",
+      "initial-production-deploy",
+    ]);
+    expect(graph.nodes.find(({ id }) => id === "verify-production")?.dependencies).toEqual([
+      "production-deploy",
+    ]);
+  });
+
+  it("still withholds the Grant when required Neon and Stripe destinations are absent", () => {
+    const base = JSON.parse(readFileSync("fixtures/founder-stack/founder-default.json", "utf8"));
+    for (const role of ["database.postgres", "commerce.web"] as const) {
+      delete base.roles[role].accountId;
+      delete base.roles[role].organizationId;
+      delete base.roles[role].teamId;
+    }
+    const connection = parseFounderStackConnection(base);
+    const result = prepare({ stack: connection, executionMode: "apply" });
+
+    expect(result).toMatchObject({ status: "blocked", grantDisposition: "withheld_blocked" });
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "database.postgres", provider: "neon" }),
+        expect.objectContaining({ role: "commerce.web", provider: "stripe" }),
+      ]),
+    );
   });
 
   it("keeps a valid no-domain launch independent of DNS Stack configuration", () => {

@@ -21,6 +21,8 @@ export const publicProviderIdentifierSchema = z
       "property_id",
       "stream_id",
       "measurement_id",
+      "product_id",
+      "price_id",
       "build_id",
       "submission_id",
       "app_id",
@@ -224,6 +226,12 @@ export function collectProviderPublicOutputs(input: {
           identifier(identifiers, "stream_id", name, (value) => value.split("/").at(-1)!);
         }
         identifier(identifiers, "measurement_id", object.measurementId);
+      }
+      if (operation.operation.capability === "product") {
+        identifier(identifiers, "product_id", object.id);
+      }
+      if (operation.operation.capability === "price") {
+        identifier(identifiers, "price_id", object.id);
       }
       if (operation.operation.capability === "ios_build") {
         identifier(identifiers, "build_id", object.id);

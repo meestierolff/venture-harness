@@ -60,6 +60,22 @@ function authorization(runId = "provider-lifecycle-run") {
   });
 }
 
+function providerAuthorization(
+  runId: string,
+  provider: "stripe" | "vercel",
+  environment: "test" | "preview",
+) {
+  return issueAuthorizationEnvelope({
+    runId,
+    profile: "live-commerce-launch",
+    providers: [provider],
+    environments: [environment],
+    policies,
+    approvalRef: `test:provider-lifecycle:${provider}`,
+    now,
+  });
+}
+
 describe("verified provider lifecycle persistence", () => {
   it("stores and replaces only typed state within one provider/environment/capability scope", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-provider-lifecycle-store-"));
@@ -219,6 +235,10 @@ describe("verified provider lifecycle persistence", () => {
       verified: true,
       output: {
         nameWithOwner: "founder/lifecycle-venture",
+        branch: "main",
+        commitOid: "a".repeat(40),
+        treeOid: "b".repeat(40),
+        visibility: "private",
         url: "https://example.test/deploy?trace=arbitrary-body",
         productId: secret,
         providerBody: { arbitrary: "must-not-persist" },
@@ -266,7 +286,14 @@ describe("verified provider lifecycle persistence", () => {
     expect(result).toMatchObject({
       effectVerified: true,
       output: {
-        resourceRefs: ["repository=founder/lifecycle-venture", "url=https://example.test/deploy"],
+        resourceRefs: [
+          "branch=main",
+          `commit_oid=${"a".repeat(40)}`,
+          "repository=founder/lifecycle-venture",
+          `tree_oid=${"b".repeat(40)}`,
+          "url=https://example.test/deploy",
+          "visibility=private",
+        ],
       },
     });
     expect(await new FileProviderLifecycleStore(lifecyclePath).list()).toEqual([
@@ -276,8 +303,12 @@ describe("verified provider lifecycle persistence", () => {
         capability: "repository",
         state: "verified",
         resourceRefs: [
+          { type: "branch", value: "main" },
+          { type: "commit_oid", value: "a".repeat(40) },
           { type: "repository", value: "founder/lifecycle-venture" },
+          { type: "tree_oid", value: "b".repeat(40) },
           { type: "url", value: "https://example.test/deploy" },
+          { type: "visibility", value: "private" },
         ],
       }),
     ]);
@@ -288,6 +319,144 @@ describe("verified provider lifecycle persistence", () => {
       expect(persisted).not.toContain("templateRepository");
       expect(persisted).not.toContain("cred://github/primary");
     }
+  });
+
+  it("preserves exact safe Stripe price and Vercel deployment read-back identifiers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vh-provider-lifecycle-public-refs-"));
+    const stripeRunId = "provider-lifecycle-stripe-refs";
+    const lookupKey = "vh_lifecycle_fixture_eur_2450_month";
+    const stripeTransport = new MockProviderTransport("http", async (operation) =>
+      operation.action.endsWith(".search_before_create")
+        ? {
+            status: "succeeded",
+            message: "no existing price",
+            output: { data: [], has_more: false },
+            effectOutcome: "confirmed_no_write",
+          }
+        : {
+            status: "succeeded",
+            message: "fixture price created",
+            verified: true,
+            output: {
+              id: "price_fixture_exact",
+              product: "prod_fixture_exact",
+              currency: "eur",
+              unit_amount: 2450,
+              lookup_key: lookupKey,
+              livemode: false,
+            },
+          },
+    );
+    const stripe = createProviderWorkflowBindings({
+      planFactories: {
+        "provider.stripe": () => ({
+          provider: "stripe",
+          request: {
+            environment: "sandbox",
+            capabilities: ["price"],
+            dryRun: false,
+            credentialRef: "cred://stripe/primary",
+            inputs: {
+              ventureSlug: "lifecycle-fixture",
+              stripeAccountId: "acct_lifecycle_fixture",
+              stripeMode: "test",
+              productId: "prod_fixture_exact",
+              currency: "eur",
+              unitAmount: 2450,
+              recurringInterval: "month",
+            },
+          },
+        }),
+      },
+      policies,
+      authorization: providerAuthorization(stripeRunId, "stripe", "test"),
+      context: {
+        transports: { http: stripeTransport },
+        redactor: new Redactor(),
+        idempotencyLedger: new FileProviderIdempotencyLedger(join(directory, "stripe-ledger.json")),
+      },
+      now: () => now,
+    });
+    const stripeContext = context(stripeRunId);
+    stripeContext.node = workflowNode("stripe-provider", {
+      kind: "provider",
+      capability: "stripe",
+      transport: "api",
+      handler: "provider.stripe",
+      effect: "external_reversible",
+      authorization: {
+        required: true,
+        profile: "live_commerce_launch",
+        scopes: ["price"],
+      },
+    });
+    await expect(stripe.handlers!["provider.stripe"](stripeContext)).resolves.toMatchObject({
+      output: {
+        resourceRefs: expect.arrayContaining([
+          "amount_minor=2450",
+          "currency=eur",
+          "livemode=false",
+          `lookup_key=${lookupKey}`,
+          "price_id=price_fixture_exact",
+        ]),
+      },
+    });
+
+    const vercelRunId = "provider-lifecycle-vercel-refs";
+    const vercel = createProviderWorkflowBindings({
+      planFactories: {
+        "provider.vercel": () => ({
+          provider: "vercel",
+          request: {
+            environment: "preview",
+            capabilities: ["deployment"],
+            dryRun: false,
+            credentialRef: "cred://vercel/primary",
+            inputs: { project: "lifecycle-fixture", scope: "team_fixture" },
+          },
+        }),
+      },
+      policies,
+      authorization: providerAuthorization(vercelRunId, "vercel", "preview"),
+      context: {
+        transports: {
+          cli: new MockProviderTransport("cli", async () => ({
+            status: "succeeded",
+            message: "fixture deployment created",
+            verified: true,
+            output: {
+              id: "dpl_fixture_exact",
+              url: "https://lifecycle-fixture.vercel.app",
+              readyState: "READY",
+            },
+          })),
+        },
+        redactor: new Redactor(),
+        idempotencyLedger: new FileProviderIdempotencyLedger(join(directory, "vercel-ledger.json")),
+      },
+      now: () => now,
+    });
+    const vercelContext = context(vercelRunId);
+    vercelContext.node = workflowNode("vercel-provider", {
+      kind: "provider",
+      capability: "public_website",
+      transport: "cli",
+      handler: "provider.vercel",
+      effect: "external_reversible",
+      authorization: {
+        required: true,
+        profile: "live_commerce_launch",
+        scopes: ["deployment"],
+      },
+    });
+    await expect(vercel.handlers!["provider.vercel"](vercelContext)).resolves.toMatchObject({
+      output: {
+        resourceRefs: expect.arrayContaining([
+          "deployment_id=dpl_fixture_exact",
+          "url=https://lifecycle-fixture.vercel.app/",
+        ]),
+      },
+    });
   });
 
   it("fails the workflow after verification when lifecycle state is corrupt", async () => {

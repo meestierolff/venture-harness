@@ -74,7 +74,6 @@ for (const [name, ev] of Object.entries(analytics.events)) {
 if (taxonomyClean) r.ok("taxonomy consent semantics coherent");
 
 // 3. Code gating -------------------------------------------------------------
-const GA_HOST = "googletagmanager.com";
 const codeFiles = ["app", "components", "lib"]
   .filter((d) => existsSync(join(ROOT, d)))
   .flatMap((d) => walk(join(ROOT, d)))
@@ -82,10 +81,7 @@ const codeFiles = ["app", "components", "lib"]
 // Match the host at a URL or attribute boundary rather than anywhere in the
 // text: a bare substring also matches a lookalike such as
 // "googletagmanager.com.example.test", which is a different origin.
-const GA_HOST_REFERENCE = new RegExp(
-  `(?:^|[/@."'\`])${GA_HOST.replace(/[.]/g, "\\.")}(?:[/:"'\`]|$)`,
-  "m",
-);
+const GA_HOST_REFERENCE = /(?:^|[/@."'`])googletagmanager\.com(?:[/:"'`]|$)/m;
 const gaFiles = codeFiles.filter((f) => GA_HOST_REFERENCE.test(readText(f)));
 if (gaFiles.length === 1 && gaFiles[0] === "components/AnalyticsScripts.tsx") {
   const src = readText(gaFiles[0]);

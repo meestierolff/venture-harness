@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { CommandInvocation, CommandResult, CommandRunner } from "@/lib/credentials";
 import {
+  ensureVerifiedGitHubWorkingRepository,
   getProviderAdapter,
+  type GitHubWorkingRepositoryCloner,
   type HttpFetcher,
   type HttpRequest,
   type HttpResponse,
@@ -375,6 +377,28 @@ function readBackOutput(operation: ProviderOperation, execution: unknown): unkno
   return root;
 }
 
+function credentialPreflightOutput(
+  operation: ProviderOperation,
+  assertions: NonNullable<
+    NonNullable<ProviderOperation["http"]>["credentialPreflight"]
+  >["requests"][number]["assertions"],
+): unknown {
+  let root: unknown = {};
+  for (const assertion of assertions) {
+    const expected =
+      assertion.operator === "exists"
+        ? `fixture-${digest(`${operation.id}:${assertion.path}`).slice(0, 8)}`
+        : assertion.expected;
+    if (assertion.path === "") {
+      if (expected !== undefined) root = expected;
+      continue;
+    }
+    if (!root || Array.isArray(root) || typeof root !== "object") root = {};
+    setPath(root as Record<string, unknown>, assertion.path, expected);
+  }
+  return root;
+}
+
 function registration(
   operation: ProviderOperation,
   phase: FixturePhase,
@@ -524,6 +548,31 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
     }
     if (operation.http) {
       const execution = applyOutput(operation);
+      if (operation.existingResource?.http) {
+        const lookup = operation.existingResource.http;
+        const lookupRequest = {
+          method: lookup.method,
+          url: lookup.url,
+          body: undefined,
+        };
+        const lookupKey = httpKey(lookupRequest);
+        this.#addHttp(lookupKey, { data: [], has_more: false }, registration(operation, "apply"));
+        this.#httpTemplates.push({ key: lookupKey, ...lookupRequest });
+      }
+      for (const preflight of operation.http.credentialPreflight?.requests ?? []) {
+        const preflightRequest = {
+          method: "GET",
+          url: preflight.url,
+          body: undefined,
+        };
+        const preflightKey = httpKey(preflightRequest);
+        this.#addHttp(
+          preflightKey,
+          credentialPreflightOutput(operation, preflight.assertions),
+          registration(operation, "apply"),
+        );
+        this.#httpTemplates.push({ key: preflightKey, ...preflightRequest });
+      }
       const applyRequest = {
         method: operation.http.method,
         url: operation.http.url,
@@ -636,7 +685,12 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
   #addCommand(key: string, output: unknown, item: OfficialTransportFixtureRegistration): void {
     const current = this.#commands.get(key);
     this.#commands.set(key, {
-      output: deepMerge(current?.output, output),
+      // Provider plans are registered immediately before execution. Multiple
+      // Vercel deployment phases intentionally use the same direct CLI argv,
+      // but each invocation returns a new deployment id and URL. Keep the most
+      // recently registered response instead of merging those scalar values
+      // into an impossible synthetic response.
+      output: structuredClone(output),
       registrations: [...(current?.registrations ?? []), item],
     });
   }
@@ -657,7 +711,7 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
     );
   }
 
-  #runGitPublish(invocation: CommandInvocation): CommandResult {
+  async #runGitPublish(invocation: CommandInvocation): Promise<CommandResult> {
     const key = commandKey(invocation);
     const repository = this.#argument(invocation.args, "--repository");
     const phase = invocation.args.includes("verify") ? "read_back" : "apply";
@@ -683,19 +737,46 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
     mkdirSync(resolve(remote, ".."), { recursive: true });
 
     if (invocation.args.includes("apply")) {
-      if (!existsSync(resolve(cwd, ".git"))) {
-        this.#git(cwd, ["init", "--initial-branch", "main"]);
-        this.#git(cwd, ["config", "user.name", "Venture Harness Fixture"]);
-        this.#git(cwd, ["config", "user.email", "fixture@venture-harness.invalid"]);
+      if (!existsSync(remote)) {
+        if (existsSync(resolve(cwd, ".git"))) {
+          throw new Error(
+            "Git publication fixture must not pre-create child Git before verified remote read-back",
+          );
+        }
+        const temporaryRoot = mkdtempSync(join(this.#fixtureRoot, "source-publication-"));
+        const isolatedGit = join(temporaryRoot, "source.git");
+        try {
+          this.#git(cwd, ["init", "--bare", "--object-format=sha1", isolatedGit]);
+          const isolated = [`--git-dir=${isolatedGit}`, `--work-tree=${cwd}`];
+          // Mirror GitLocalSourceSnapshotLoader exactly: the child's reviewed
+          // .gitignore owns private-state exclusion. Adding ignored paths as
+          // explicit negative pathspecs makes Git fail before publication.
+          this.#git(cwd, [...isolated, "add", "-A", "--", "."]);
+          const tree = this.#git(cwd, [...isolated, "write-tree"]).trim();
+          const commit = this.#git(
+            cwd,
+            [...isolated, "commit-tree", tree, "-m", "fixture: publish verified source"],
+            {
+              GIT_AUTHOR_NAME: "Venture Harness Fixture",
+              GIT_AUTHOR_EMAIL: "fixture@venture-harness.invalid",
+              GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+              GIT_COMMITTER_NAME: "Venture Harness Fixture",
+              GIT_COMMITTER_EMAIL: "fixture@venture-harness.invalid",
+              GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+            },
+          ).trim();
+          this.#git(this.#fixtureRoot, ["init", "--bare", remote]);
+          this.#git(cwd, [`--git-dir=${isolatedGit}`, "push", remote, `${commit}:refs/heads/main`]);
+          this.#git(this.#fixtureRoot, [
+            `--git-dir=${remote}`,
+            "symbolic-ref",
+            "HEAD",
+            "refs/heads/main",
+          ]);
+        } finally {
+          rmSync(temporaryRoot, { recursive: true, force: true });
+        }
       }
-      this.#git(cwd, ["add", "--all"]);
-      const status = this.#git(cwd, ["status", "--porcelain"]);
-      if (status.trim()) this.#git(cwd, ["commit", "-m", "fixture: publish verified source"]);
-      if (!existsSync(remote)) this.#git(this.#fixtureRoot, ["init", "--bare", remote]);
-      const remotes = this.#git(cwd, ["remote"]).split("\n").filter(Boolean);
-      if (remotes.includes("origin")) this.#git(cwd, ["remote", "set-url", "origin", remote]);
-      else this.#git(cwd, ["remote", "add", "origin", remote]);
-      this.#git(cwd, ["push", "--set-upstream", "origin", "main"]);
     }
 
     const branch = "main";
@@ -715,6 +796,24 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
     const expectedTree = invocation.args.includes("verify")
       ? this.#argument(invocation.args, "--tree")
       : treeOid;
+    const cloner: GitHubWorkingRepositoryCloner = {
+      clone: async ({ repository: target, branch: targetBranch, destination }) => {
+        this.#git(this.#fixtureRoot, [
+          "clone",
+          "--no-checkout",
+          "--single-branch",
+          "--branch",
+          targetBranch,
+          remote,
+          destination,
+        ]);
+        this.#git(destination, ["remote", "set-url", "origin", `https://github.com/${target}.git`]);
+      },
+    };
+    const workingRepository = await ensureVerifiedGitHubWorkingRepository(
+      { repository, rootDir: cwd, branch, commitOid },
+      { cloner },
+    );
     const output = {
       fixture: true,
       fixtureProvenance: "official_command_transport_local_bare_git_remote",
@@ -725,6 +824,7 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
       commitOid,
       treeOid,
       remoteKind: "local_bare_fixture",
+      workingRepository,
     };
     this.invocations.push({
       transport: "cli",
@@ -742,11 +842,11 @@ export class FounderGoldenPathOfficialTransportFixture implements CommandRunner,
     return value;
   }
 
-  #git(cwd: string, args: string[]): string {
+  #git(cwd: string, args: string[], extraEnv: Readonly<Record<string, string>> = {}): string {
     const result = spawnSync("git", args, {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...extraEnv },
       timeout: 30_000,
     });
     if (result.error || result.status !== 0) {

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
+import { initializeSqliteWal } from "@venture-harness/core";
 import { z } from "zod";
 import { OrganicPolicyError } from "../winner-loop/organic-policy";
 import type {
@@ -839,8 +840,7 @@ export class SqliteWinnerLiveProviderOperationStore implements WinnerLiveProvide
     }
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#database = winnerLiveSqliteDatabase(path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    this.#database.exec("PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "Winner provider operation store" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS winner_live_provider_operations (
         organization_id TEXT NOT NULL,

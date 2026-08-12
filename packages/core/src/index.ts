@@ -205,3 +205,102 @@ export function assertCredentialFree(
   if (finding)
     throw new Error(`credential-like material is forbidden at ${path}${finding.path.slice(1)}`);
 }
+
+interface SqliteJournalModeStatement {
+  get(...values: unknown[]): unknown;
+}
+
+/** Minimal SQLite surface needed to configure a durable connection for WAL. */
+export interface SqliteWalDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): SqliteJournalModeStatement;
+}
+
+export interface SqliteWalInitializationOptions {
+  readonly label?: string;
+  /** SQLite's own wait bound for each busy operation. */
+  readonly busyTimeoutMs?: number;
+  /** Overall retry bound for a concurrent journal-mode transition. */
+  readonly retryTimeoutMs?: number;
+}
+
+function sqliteBusy(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const candidate = error as Error & { code?: string; errcode?: number };
+  return (
+    candidate.code === "ERR_SQLITE_BUSY" ||
+    candidate.code === "ERR_SQLITE_LOCKED" ||
+    candidate.errcode === 5 ||
+    candidate.errcode === 6 ||
+    /(?:database is (?:busy|locked)|SQLITE_BUSY|SQLITE_LOCKED)/iu.test(candidate.message)
+  );
+}
+
+function sqliteJournalMode(database: SqliteWalDatabase, label: string): string {
+  const row = database.prepare("PRAGMA journal_mode").get();
+  const mode =
+    row && typeof row === "object" && "journal_mode" in row
+      ? (row as { journal_mode?: unknown }).journal_mode
+      : undefined;
+  if (typeof mode !== "string" || !mode.trim()) {
+    throw new Error(`${label} journal_mode read-back returned no mode`);
+  }
+  return mode.toLowerCase();
+}
+
+function positiveSqliteTimeout(value: number | undefined, fallback: number, field: string): number {
+  const timeout = value ?? fallback;
+  if (!Number.isSafeInteger(timeout) || timeout < 1) {
+    throw new Error(`${field} must be a positive safe integer`);
+  }
+  return timeout;
+}
+
+/**
+ * Configure WAL without racing another process opening the same database.
+ * A busy journal switch is accepted only after an explicit `wal` read-back.
+ */
+export function initializeSqliteWal(
+  database: SqliteWalDatabase,
+  options: SqliteWalInitializationOptions = {},
+): void {
+  const label = options.label?.trim() || "SQLite database";
+  const busyTimeoutMs = positiveSqliteTimeout(options.busyTimeoutMs, 5_000, "SQLite busyTimeoutMs");
+  const retryTimeoutMs = positiveSqliteTimeout(
+    options.retryTimeoutMs,
+    5_000,
+    "SQLite retryTimeoutMs",
+  );
+  database.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+  const retrySignal = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + retryTimeoutMs;
+  let delayMs = 5;
+
+  for (;;) {
+    try {
+      if (sqliteJournalMode(database, label) === "wal") return;
+      database.exec("PRAGMA journal_mode = WAL");
+      const observed = sqliteJournalMode(database, label);
+      if (observed === "wal") return;
+      throw new Error(`${label} journal_mode read back as ${observed}, expected wal`);
+    } catch (error) {
+      if (!sqliteBusy(error)) throw error;
+
+      try {
+        if (sqliteJournalMode(database, label) === "wal") return;
+      } catch (readBackError) {
+        if (!sqliteBusy(readBackError)) throw readBackError;
+      }
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error(
+          `${label} WAL initialization remained busy and journal_mode did not read back as wal`,
+          { cause: error },
+        );
+      }
+      Atomics.wait(retrySignal, 0, 0, Math.min(delayMs, remainingMs));
+      delayMs = Math.min(delayMs * 2, 100);
+    }
+  }
+}

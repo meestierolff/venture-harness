@@ -127,12 +127,7 @@ describe("founder Golden Path product fixture", () => {
       installedModulesReadBack: true,
     });
 
-    for (const nodeId of [
-      "prepare-repository",
-      "design-direction",
-      "build-core-journey",
-      "configure-event-pack",
-    ]) {
+    for (const nodeId of ["prepare-repository", "review-product"]) {
       const response = await host.run({
         runId: "fixture-founder-run",
         nodeId,
@@ -140,18 +135,18 @@ describe("founder Golden Path product fixture", () => {
         instructions: "Execute the bounded local fixture task.",
         context: {},
       });
-      expect(response).toMatchObject({ status: "completed", completion: { outcome: "changed" } });
+      expect(response).toMatchObject({
+        status: "completed",
+        completion: {
+          outcome: nodeId === "prepare-repository" ? "changed" : "already_compliant",
+        },
+      });
       expect(response.checks).toEqual([
         expect.objectContaining({ status: "passed", evidence: expect.stringContaining("pass") }),
       ]);
     }
 
-    expect(host.invocations).toEqual([
-      "prepare-repository",
-      "design-direction",
-      "build-core-journey",
-      "configure-event-pack",
-    ]);
+    expect(host.invocations).toEqual(["prepare-repository", "review-product"]);
     expect(readFileSync(join(childRoot, "app/page.tsx"), "utf8")).toContain("ExceptionDeskClient");
     expect(readFileSync(join(childRoot, "src/product/founder-contract.json"), "utf8")).toContain(
       '"fixture": true',
@@ -165,7 +160,7 @@ describe("founder Golden Path product fixture", () => {
     const build = await commands.run({ command: "pnpm", args: ["build"], cwd: childRoot });
     const deployed = await commands.run({
       command: "pnpm",
-      args: ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts"],
+      args: ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts", "--retries=0"],
       cwd: childRoot,
       env: {
         PLAYWRIGHT_BASE_URL: "https://exception-desk-abc.fixture.vercel.app",
@@ -181,7 +176,13 @@ describe("founder Golden Path product fixture", () => {
       expect.objectContaining({ args: ["verify:fast"], deploymentUrl: null }),
       expect.objectContaining({ args: ["build"], deploymentUrl: null }),
       expect.objectContaining({
-        args: ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts"],
+        args: [
+          "exec",
+          "playwright",
+          "test",
+          "tests/e2e/post-deploy-readonly.spec.ts",
+          "--retries=0",
+        ],
         deploymentUrl: "https://exception-desk-abc.fixture.vercel.app",
       }),
     ]);

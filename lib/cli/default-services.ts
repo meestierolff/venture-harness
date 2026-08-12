@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isIP } from "node:net";
 import { isDeepStrictEqual } from "node:util";
 import { parse, stringify } from "yaml";
 import {
@@ -53,21 +62,42 @@ import {
 } from "../data";
 import {
   FileFounderStackStore,
+  CodexCliIdeaSharpenerHost,
+  IdeaSharpenError,
+  compileFounderIdea,
   compileFounderLaunchPreparation,
   defaultFounderStackStateRoot,
   doctorFounderStackConnection,
+  founderStackRoleDefinitions,
+  founderBriefFromLaunchContract,
+  founderSeedFor,
   loadFounderStackConnectionFile,
   loadFounderIdeaFile,
   materializeFounderVenture,
   registerFounderStackWritableCredentialRefs,
+  renderFounderIdea,
   renderFounderStackProviderConfigOverrides,
+  renderLaunchContractYaml,
+  renderProductConstitution,
+  launchContractSchema,
+  launchContractDigest,
+  launchDecisionFromContract,
   resolveFounderWorkflowRefSha,
+  sharpenIdea,
+  founderStackCliSessionCredentialRegistrations,
+  parseFounderStackConnection,
+  ideaSharpenerEnvironment,
   type FounderLaunchPreparation,
+  type FounderLaunchGap,
   type FounderStackConnection,
+  type FounderStackRole,
+  type IdeaSharpenerHost,
+  type LaunchContract,
 } from "../founder-launch";
 import {
   VENTURES_ROOT_UNSET_MESSAGE,
   configuredVenturesRoot,
+  resolveVentureOutputWithinRoot,
 } from "../founder-launch/founder-config";
 import {
   compileLaunchDryRun,
@@ -78,6 +108,7 @@ import {
   launchBuildAgentHandlers,
   launchBuildAgentTaskCount,
   launchProviderByNode,
+  launchOptionalProviderNodeIds,
   launchProviderOperationCeiling,
   requiredCapabilitiesForLaunch,
   requiredEnvironmentsForLaunch,
@@ -98,6 +129,7 @@ import {
 } from "../materialization";
 import {
   providerRegistry,
+  publicIdentifier,
   type HttpFetcher,
   type ProviderExecutionContext,
   type ProviderId,
@@ -109,6 +141,7 @@ import {
   codexBuildAgentEnvironment,
   createRepositoryCheckpointEvidenceVerifier,
   createLaunchProductBindings,
+  createLaunchReceipt,
   createLaunchReportInputFromRun,
   createLaunchReportWorkflowBinding,
   createOfficialProviderContext,
@@ -118,8 +151,10 @@ import {
   NativeHttpFetcher,
   loadRepositoryCheckpointEvidence,
   persistLaunchReport,
+  persistLaunchReceipt,
   productCommandEnvironment,
   renderLaunchReport,
+  sameRunLaunchReceiptVerification,
   type BuildAgentHost,
   type ProviderRuntimeContext,
   type ProviderWorkflowPlanRequest,
@@ -130,6 +165,7 @@ import {
   locateLocalHarnessRelease,
   type HarnessRelease,
 } from "../upgrade";
+import { OwnerPathLock } from "../security/owner-path-lock";
 import {
   FileWorkflowStore,
   WorkflowExecutor,
@@ -140,11 +176,13 @@ import {
   type WorkflowRunState,
   type WorkflowStore,
 } from "../workflow";
-import type { CliServices } from "./types";
+import type { CliServices, CliStackRequest } from "./types";
 import { createDefaultFounderCredentialTesters } from "./default-credential-testers";
 import {
   createDefaultProviderPlanFactories,
   inspectDefaultProviderDoctor,
+  loadDefaultProviderConfig,
+  type DefaultProviderConfigSnapshot,
 } from "./default-provider-runtime";
 import { createDefaultLearningRuntime } from "./default-learning-runtime";
 
@@ -157,6 +195,8 @@ interface ProjectState {
   decision: LaunchDecision;
   activeEventPacks: EventPackId[];
   routerVersion: typeof LAUNCH_ROUTER_VERSION;
+  launchContract?: LaunchContract;
+  launchContractDigest?: string;
 }
 
 interface LaunchState {
@@ -168,6 +208,9 @@ interface LaunchState {
   definition: WorkflowDefinition;
   authorization: AuthorizationEnvelope;
   launchGrant?: LaunchGrant;
+  launchContract?: LaunchContract;
+  launchContractDigest?: string;
+  founderLaunchGaps?: readonly FounderLaunchGap[];
 }
 
 interface FounderLaunchTransaction {
@@ -188,6 +231,8 @@ export interface LaunchBindingContext {
   brief: FounderBrief;
   definition: WorkflowDefinition;
   authorization: AuthorizationEnvelope;
+  /** Canonical founder decisions captured before any model task or provider factory runs. */
+  launchContract?: LaunchContract;
 }
 
 export interface DefaultCliServicesOptions {
@@ -205,6 +250,8 @@ export interface DefaultCliServicesOptions {
   launchBindings?: (context: LaunchBindingContext) => Promise<WorkflowBindings> | WorkflowBindings;
   /** Agent-neutral host used by the default product handlers when launchBindings is not injected. */
   buildAgentHost?: BuildAgentHost;
+  /** Bounded no-provider host for `vh idea sharpen`; injectable for deterministic tests. */
+  ideaSharpenerHost?: IdeaSharpenerHost;
   /** Direct runner for deterministic launch quality commands; useful for isolated tests. */
   productCommandRunner?: CommandRunner;
   /** Direct runner for provider CLI sessions and doctor checks; useful for isolated tests. */
@@ -229,6 +276,8 @@ export interface DefaultCliServicesOptions {
   /** Override the global metadata-only credential catalog (useful for tests and portable hosts). */
   credentialCatalogPath?: string;
   credentialTesters?: Partial<Record<string, CredentialTester>>;
+  /** Hard bound for each Stack/auth read-only credential test. */
+  credentialTestTimeoutMs?: number;
   interactiveCliLogin?: (provider: string) => Promise<void>;
   providerRegistry?: ProviderRegistry;
   providerContext?: ProviderExecutionContext;
@@ -236,6 +285,8 @@ export interface DefaultCliServicesOptions {
   dataRequirements?: DataSourceRequirement[];
   release?: HarnessRelease;
   now?: () => Date;
+  /** Deterministic local race-injection hook used only by security regressions. */
+  pathSecurityHook?: (event: string, path: string) => void;
 }
 
 const PROVIDER_BY_NODE: Readonly<Record<string, ProviderId>> = launchProviderByNode;
@@ -260,6 +311,7 @@ function mergeBindings(...bindings: readonly WorkflowBindings[]): WorkflowBindin
     validators: Object.assign({}, ...bindings.map((binding) => binding.validators ?? {})),
     conditions: Object.assign({}, ...bindings.map((binding) => binding.conditions ?? {})),
     compensators: Object.assign({}, ...bindings.map((binding) => binding.compensators ?? {})),
+    reconcilers: Object.assign({}, ...bindings.map((binding) => binding.reconcilers ?? {})),
     interruptEvidenceVerifier,
     checkpointEvidenceVerifier,
     secrets: [...new Set(bindings.flatMap((binding) => binding.secrets ?? []))],
@@ -274,10 +326,15 @@ function providerHandlerNames(definition: WorkflowDefinition): string[] {
 }
 
 function productHandlerNames(definition: WorkflowDefinition): string[] {
-  return definition.nodes
-    .filter((node) => node.handler && node.kind !== "provider" && node.handler !== "launch.report")
-    .map((node) => node.handler!)
-    .sort();
+  return [
+    ...new Set(
+      definition.nodes
+        .filter(
+          (node) => node.handler && node.kind !== "provider" && node.handler !== "launch.report",
+        )
+        .map((node) => node.handler!),
+    ),
+  ].sort();
 }
 
 function inside(root: string, path: string): string {
@@ -311,6 +368,44 @@ function writeTextAtomic(path: string, content: string): void {
 
 function writeYamlAtomic(path: string, value: unknown): void {
   writeTextAtomic(path, stringify(value, { lineWidth: 100 }));
+}
+
+function safeIdeaOutputPath(root: string, requested: string, boundary: OwnerPathLock): string {
+  if (!requested || isAbsolute(requested) || !requested.toLowerCase().endsWith(".md")) {
+    throw new Error("vh idea sharpen --output must be a project-relative Markdown path");
+  }
+  const canonicalRoot = realpathSync(root);
+  const lexicalTarget = resolve(canonicalRoot, requested);
+  const child = relative(canonicalRoot, lexicalTarget);
+  if (child === "" || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+    throw new Error("vh idea sharpen --output escapes the working directory");
+  }
+  const lexicalParent = dirname(lexicalTarget);
+  const parentRelative = relative(canonicalRoot, lexicalParent);
+  if (parentRelative) {
+    resolveVentureOutputWithinRoot(canonicalRoot, parentRelative);
+  }
+  const parentIdentity = boundary.ensureDirectory(
+    lexicalParent,
+    "vh idea sharpen output directory",
+  );
+  const canonicalParent = realpathSync(lexicalParent);
+  const parentChild = relative(canonicalRoot, canonicalParent);
+  if (parentChild === ".." || parentChild.startsWith(`..${sep}`) || isAbsolute(parentChild)) {
+    throw new Error("vh idea sharpen --output resolves through a directory outside the workspace");
+  }
+  const target = resolve(canonicalParent, lexicalTarget.slice(dirname(lexicalTarget).length + 1));
+  if (existsSync(target)) {
+    const metadata = lstatSync(target);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error("vh idea sharpen --output must be a regular non-symlink Markdown file");
+    }
+  }
+  if (lexicalTarget !== target) {
+    throw new Error("vh idea sharpen --output resolves through an unexpected path");
+  }
+  boundary.assertDirectory(canonicalParent, parentIdentity, "vh idea sharpen output directory");
+  return target;
 }
 
 function readStructured(path: string): unknown {
@@ -461,7 +556,10 @@ function validateFounderLaunchContinuation(input: {
     transaction.createdAt !== grant.createdAt ||
     founderInput.sourceHash !== transaction.sourceHash ||
     founderInput.stackProfile !== transaction.stackProfile ||
-    grant.ideaDigest !== transaction.sourceHash ||
+    grant.ideaDigest !==
+      (input.preparation.idea.launchContract
+        ? launchContractDigest(input.preparation.idea.launchContract)
+        : input.preparation.idea.sourceHash) ||
     grant.ventureSlug !== input.preparation.idea.brief.id ||
     grant.ventureName !== input.preparation.idea.brief.name ||
     grant.repository.owner !== input.preparation.repository.owner ||
@@ -782,6 +880,101 @@ function launchPath(root: string, runId: string): string {
   return inside(root, `.venture/launches/${runId}.json`);
 }
 
+const CANONICAL_LAUNCH_CONTRACT_PATH = "config/launch-contract.yaml" as const;
+const CANONICAL_PRODUCT_CONSTITUTION_PATH = "docs/product/PRODUCT_CONSTITUTION.md" as const;
+const CANONICAL_FOUNDER_IDEA_PATH = "docs/product/idea.md" as const;
+
+function readRegularBoundFile(root: string, reference: string, label: string): string {
+  const canonicalRoot = realpathSync(root);
+  const target = inside(canonicalRoot, reference);
+  const relation = relative(canonicalRoot, target);
+  let cursor = canonicalRoot;
+  for (const component of relation.split(sep).filter(Boolean)) {
+    cursor = resolve(cursor, component);
+    if (!existsSync(cursor)) throw new Error(`${label} is missing at ${reference}`);
+    const metadata = lstatSync(cursor);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
+    }
+    if (cursor === target) {
+      if (!metadata.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
+      const content = readFileSync(cursor, "utf8");
+      const after = lstatSync(cursor);
+      if (after.isSymbolicLink() || after.dev !== metadata.dev || after.ino !== metadata.ino) {
+        throw new Error(`${label} changed while it was being read: ${reference}`);
+      }
+      return content;
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(`${label} has a non-directory path component: ${reference}`);
+    }
+  }
+  throw new Error(`${label} is missing at ${reference}`);
+}
+
+function persistCanonicalLaunchContract(root: string, contract: LaunchContract): string[] {
+  writeTextAtomic(inside(root, CANONICAL_LAUNCH_CONTRACT_PATH), renderLaunchContractYaml(contract));
+  writeTextAtomic(
+    inside(root, CANONICAL_PRODUCT_CONSTITUTION_PATH),
+    renderProductConstitution(contract),
+  );
+  writeTextAtomic(inside(root, CANONICAL_FOUNDER_IDEA_PATH), renderFounderIdea(contract));
+  return [
+    CANONICAL_LAUNCH_CONTRACT_PATH,
+    CANONICAL_PRODUCT_CONSTITUTION_PATH,
+    CANONICAL_FOUNDER_IDEA_PATH,
+  ];
+}
+
+function assertCanonicalLaunchContractBinding(
+  root: string,
+  embedded: LaunchContract,
+  storedDigest: string | undefined,
+): string {
+  const expectedDigest = launchContractDigest(embedded);
+  if (storedDigest !== expectedDigest) {
+    throw new Error(
+      "Persisted Launch Contract digest does not match the embedded project or launch contract",
+    );
+  }
+  const diskContract = launchContractSchema.parse(
+    parse(readRegularBoundFile(root, CANONICAL_LAUNCH_CONTRACT_PATH, "Canonical Launch Contract")),
+  );
+  if (
+    launchContractDigest(diskContract) !== expectedDigest ||
+    !isDeepStrictEqual(diskContract, embedded)
+  ) {
+    throw new Error("Canonical on-disk Launch Contract does not match persisted launch state");
+  }
+  const constitution = readRegularBoundFile(
+    root,
+    CANONICAL_PRODUCT_CONSTITUTION_PATH,
+    "Product Constitution",
+  );
+  if (constitution !== renderProductConstitution(embedded)) {
+    throw new Error("Product Constitution does not match the canonical Launch Contract");
+  }
+  const idea = compileFounderIdea(
+    readRegularBoundFile(root, CANONICAL_FOUNDER_IDEA_PATH, "Canonical founder idea"),
+  );
+  if (!idea.launchContract || !isDeepStrictEqual(idea.launchContract, embedded)) {
+    throw new Error("Canonical founder idea does not contain the persisted Launch Contract");
+  }
+  const manifestPath = inside(root, "venture.manifest.json");
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(
+      readRegularBoundFile(root, "venture.manifest.json", "Venture Manifest"),
+    ) as Record<string, unknown>;
+    if (
+      manifest.launchContractPath !== CANONICAL_LAUNCH_CONTRACT_PATH ||
+      manifest.launchContractDigest !== expectedDigest
+    ) {
+      throw new Error("Venture Manifest does not bind the canonical Launch Contract digest");
+    }
+  }
+  return expectedDigest;
+}
+
 function loadProject(root: string): ProjectState {
   const path = projectPath(root);
   if (!existsSync(path)) {
@@ -793,7 +986,23 @@ function loadProject(root: string): ProjectState {
     throw new Error("Unsupported .venture/project.json version.");
   }
   const brief = founderBriefSchema.parse(value.brief);
-  const canonicalDecision = routeLaunch(brief);
+  const launchContract =
+    value.schemaVersion === 2 && value.launchContract
+      ? launchContractSchema.parse(value.launchContract)
+      : undefined;
+  const contractDigest = launchContract
+    ? assertCanonicalLaunchContractBinding(
+        root,
+        launchContract,
+        value.schemaVersion === 2 ? value.launchContractDigest : undefined,
+      )
+    : undefined;
+  if (launchContract && !isDeepStrictEqual(brief, founderBriefFromLaunchContract(launchContract))) {
+    throw new Error("Project Launch Contract does not match its selected founder brief");
+  }
+  const canonicalDecision = launchContract
+    ? launchDecisionFromContract(launchContract)
+    : routeLaunch(brief);
   const canonicalPacks = eventPacksFor(brief, canonicalDecision);
   if (value.schemaVersion === 1) {
     return {
@@ -818,7 +1027,14 @@ function loadProject(root: string): ProjectState {
       "Project routing snapshot does not match its selected brief and router version; restore or recreate the project state before launch.",
     );
   }
-  return { ...value, brief, decision: value.decision, activeEventPacks: canonicalPacks };
+  return {
+    ...value,
+    brief,
+    decision: value.decision,
+    activeEventPacks: canonicalPacks,
+    ...(launchContract ? { launchContract } : {}),
+    ...(contractDigest ? { launchContractDigest: contractDigest } : {}),
+  };
 }
 
 function loadLaunch(root: string, runId: string): LaunchState {
@@ -844,7 +1060,23 @@ function loadLaunch(root: string, runId: string): LaunchState {
   const launchGrant =
     "launchGrant" in value && value.launchGrant ? parseLaunchGrant(value.launchGrant) : undefined;
   validateWorkflow(value.definition);
-  const canonicalDecision = routeLaunch(brief);
+  const launchContract =
+    value.schemaVersion === 2 && value.launchContract
+      ? launchContractSchema.parse(value.launchContract)
+      : undefined;
+  const contractDigest = launchContract
+    ? assertCanonicalLaunchContractBinding(
+        root,
+        launchContract,
+        value.schemaVersion === 2 ? value.launchContractDigest : undefined,
+      )
+    : undefined;
+  if (launchContract && !isDeepStrictEqual(brief, founderBriefFromLaunchContract(launchContract))) {
+    throw new Error(`Launch ${runId} Launch Contract does not match its selected founder brief`);
+  }
+  const canonicalDecision = launchContract
+    ? launchDecisionFromContract(launchContract)
+    : routeLaunch(brief);
   const canonicalPacks = eventPacksFor(brief, canonicalDecision);
   if (value.schemaVersion === 1) {
     return {
@@ -867,7 +1099,15 @@ function loadLaunch(root: string, runId: string): LaunchState {
       `Launch ${runId} has an invalid or unsupported routing snapshot; restore the persisted launch metadata before resuming.`,
     );
   }
-  return { ...value, brief, authorization, launchGrant, activeEventPacks: canonicalPacks };
+  return {
+    ...value,
+    brief,
+    authorization,
+    launchGrant,
+    activeEventPacks: canonicalPacks,
+    ...(launchContract ? { launchContract } : {}),
+    ...(contractDigest ? { launchContractDigest: contractDigest } : {}),
+  };
 }
 
 function providerIds(definition: WorkflowDefinition): ProviderId[] {
@@ -880,7 +1120,10 @@ function providerIds(definition: WorkflowDefinition): ProviderId[] {
   ];
 }
 
-function requiredLaunchGrantEffects(brief: FounderBrief): LaunchEffect[] {
+function requiredLaunchGrantEffects(
+  brief: FounderBrief,
+  paymentProvider: LaunchDecision["payment"]["provider"],
+): LaunchEffect[] {
   const effects = new Set<LaunchEffect>([
     "repository.create",
     "company_stack.provision",
@@ -889,7 +1132,7 @@ function requiredLaunchGrantEffects(brief: FounderBrief): LaunchEffect[] {
     "production.deploy",
   ]);
   if (brief.domain) effects.add("domain.configure");
-  if (brief.monetization_model !== "none") effects.add("commerce.configure");
+  if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
 }
@@ -984,6 +1227,7 @@ function requiredGrantDestinations(
     for (const capability of node.authorization.scopes) {
       const externalAccountId = configuredProviderDestination(providers, provider, capability);
       if (!externalAccountId) {
+        if (launchOptionalProviderNodeIds.has(node.id)) continue;
         throw new Error(
           `Launch Grant cannot bind ${provider}/${capability} without an exact configured account, team, organization, or registrar destination`,
         );
@@ -1011,6 +1255,8 @@ function providerDestinationKey(input: {
 function assertLaunchGrantBindsGraph(input: {
   grant: LaunchGrant;
   brief: FounderBrief;
+  decision: LaunchDecision;
+  launchContract?: LaunchContract;
   definition: WorkflowDefinition;
   providers: ProvidersConfig;
   at: Date;
@@ -1026,12 +1272,10 @@ function assertLaunchGrantBindsGraph(input: {
   if (grant.ventureSlug !== input.brief.id || grant.ventureName !== input.brief.name) {
     throw new Error("Launch Grant venture identity does not match the selected founder brief");
   }
-  const expectedSeed =
-    input.brief.app_kind === "web"
-      ? "agentic-web-saas"
-      : input.brief.app_kind === "hybrid"
-        ? "hybrid-agentic-service"
-        : "agentic-ios-subscription";
+  if (input.launchContract && grant.ideaDigest !== launchContractDigest(input.launchContract)) {
+    throw new Error("Launch Grant idea digest does not match the canonical Launch Contract");
+  }
+  const expectedSeed = founderSeedFor(input.brief, input.launchContract ?? null);
   if (grant.seed.id !== expectedSeed || grant.seed.version !== "0.2.0") {
     throw new Error("Launch Grant seed does not match the selected product rail");
   }
@@ -1070,7 +1314,10 @@ function assertLaunchGrantBindsGraph(input: {
       "Launch Grant provider/capability/account destinations do not exactly match the compiled graph and current Founder Stack configuration",
     );
   }
-  const requiredEffects = requiredLaunchGrantEffects(input.brief).sort();
+  const requiredEffects = requiredLaunchGrantEffects(
+    input.brief,
+    input.decision.payment.provider,
+  ).sort();
   const grantedEffects = [...grant.allowedExternalEffects].sort();
   if (!isDeepStrictEqual(requiredEffects, grantedEffects)) {
     throw new Error("Launch Grant external effects do not exactly match the compiled launch");
@@ -1107,8 +1354,13 @@ function assertLaunchGrantBindsGraph(input: {
   if (input.brief.domain && !grant.permissions.domainConfiguration) {
     throw new Error("Launch Grant does not authorize the requested domain configuration");
   }
-  if (input.brief.monetization_model !== "none" && !grant.permissions.liveCommerceConfiguration) {
-    throw new Error("Launch Grant does not authorize the requested commerce configuration");
+  if (
+    grant.permissions.liveCommerceConfiguration !==
+    (input.decision.payment.provider !== "none")
+  ) {
+    throw new Error(
+      "Launch Grant commerce permission does not match the selected payment provider",
+    );
   }
   return grant;
 }
@@ -1126,13 +1378,270 @@ function assertExactPlanInput(
   }
 }
 
+function requireExactPlanInput(
+  target: ProviderWorkflowPlanRequest,
+  key: string,
+  expected: string | number,
+): void {
+  if (target.request.inputs[key] !== expected) {
+    throw new Error(
+      `Launch provider request ${target.provider}.${key} does not match its immutable Launch Contract/Grant value`,
+    );
+  }
+}
+
+function founderProductionOrigin(
+  dependencyOutputs: Readonly<Record<string, JsonValue | undefined>>,
+  dependencyId = "initial-production-deploy",
+): string {
+  const dependency = dependencyOutputs[dependencyId];
+  if (
+    !dependency ||
+    Array.isArray(dependency) ||
+    typeof dependency !== "object" ||
+    dependency.provider !== "vercel" ||
+    dependency.state !== "verified" ||
+    !Array.isArray(dependency.environments) ||
+    !dependency.environments.includes("production") ||
+    !Array.isArray(dependency.capabilities) ||
+    !dependency.capabilities.includes("deployment") ||
+    !Array.isArray(dependency.resourceRefs)
+  ) {
+    throw new Error(
+      `Provider origin binding requires same-run verified ${dependencyId} production deployment evidence`,
+    );
+  }
+  const origins = new Set<string>();
+  for (const reference of dependency.resourceRefs) {
+    if (typeof reference !== "string" || !reference.startsWith("url=")) continue;
+    try {
+      const url = new URL(reference.slice("url=".length));
+      const hostname = url.hostname.toLowerCase();
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.port ||
+        isIP(hostname) !== 0 ||
+        !hostname.includes(".") ||
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        hostname.endsWith(".local") ||
+        hostname.endsWith(".internal")
+      ) {
+        continue;
+      }
+      origins.add(url.origin);
+    } catch {
+      // Same-run provider output is rejected rather than repaired or inferred.
+    }
+  }
+  if (origins.size !== 1) {
+    throw new Error(
+      `Provider origin binding requires exactly one safe same-run ${dependencyId} production origin`,
+    );
+  }
+  return [...origins][0]!;
+}
+
+function founderVerifiedCustomOrigin(
+  brief: FounderBrief,
+  dependencyOutputs: Readonly<Record<string, JsonValue | undefined>>,
+): string {
+  if (!brief.domain) throw new Error("Stripe custom-domain rebinding has no canonical domain");
+  const origin = `https://${brief.domain}`;
+  const project = dependencyOutputs["vercel-project"];
+  const dns = dependencyOutputs["dns-records"];
+  const verification = dependencyOutputs["verify-custom-domain"];
+  const attached =
+    project &&
+    !Array.isArray(project) &&
+    typeof project === "object" &&
+    project.provider === "vercel" &&
+    project.state === "verified" &&
+    Array.isArray(project.capabilities) &&
+    project.capabilities.includes("domain") &&
+    Array.isArray(project.resourceRefs) &&
+    project.resourceRefs.some((reference) => {
+      if (typeof reference !== "string") return false;
+      const separator = reference.indexOf("=");
+      if (separator < 0 || !["domain", "site_url", "url"].includes(reference.slice(0, separator))) {
+        return false;
+      }
+      const value = reference.slice(separator + 1);
+      if (value === brief.domain) return true;
+      try {
+        return new URL(value).origin === origin;
+      } catch {
+        return false;
+      }
+    });
+  const dnsVerified =
+    dns &&
+    !Array.isArray(dns) &&
+    typeof dns === "object" &&
+    ((dns.mode === "manual_dns" &&
+      Array.isArray(dns.propagation_checks) &&
+      dns.propagation_checks.length >= 2 &&
+      dns.propagation_checks.every(
+        (check) =>
+          check && !Array.isArray(check) && typeof check === "object" && check.status === "matched",
+      )) ||
+      (dns.provider === "dns" && dns.state === "verified"));
+  const exactJourney =
+    verification &&
+    !Array.isArray(verification) &&
+    typeof verification === "object" &&
+    verification.target === "verified_custom_domain" &&
+    verification.deploymentUrl === origin;
+  if (!attached || !dnsVerified || !exactJourney) {
+    throw new Error(
+      "Stripe custom-domain rebinding requires same-run Vercel attachment, DNS, and exact-origin journey evidence",
+    );
+  }
+  return origin;
+}
+
+function assertFounderProviderInputSnapshot(
+  launch: LaunchState,
+  snapshot: DefaultProviderConfigSnapshot,
+): void {
+  if (!launch.launchGrant) return;
+  const venture = snapshot.venture.venture;
+  const expectedDomain = launch.brief.domain ?? null;
+  if (
+    venture.name !== launch.brief.name ||
+    (venture.domain ?? null) !== expectedDomain ||
+    venture.currency !== (launch.brief.currency ?? venture.currency) ||
+    snapshot.offer.pricing.currency !== venture.currency ||
+    venture.repository_visibility !== launch.launchGrant.repository.visibility
+  ) {
+    throw new Error(
+      "Founder provider snapshot does not match the immutable Launch Contract/Grant venture name, domain, currency, or repository visibility; no source or provider action was started.",
+    );
+  }
+  if (
+    !isDeepStrictEqual(
+      [...venture.capabilities.active].sort(),
+      [...launch.decision.capabilities].sort(),
+    )
+  ) {
+    throw new Error(
+      "Founder provider snapshot capabilities do not match the immutable compiled launch graph; no source or provider action was started.",
+    );
+  }
+  const requiredDestinations = requiredGrantDestinations(launch.definition, snapshot.providers).map(
+    providerDestinationKey,
+  );
+  const grantedDestinations = launch.launchGrant.providerAccounts.map(providerDestinationKey);
+  if (!isDeepStrictEqual([...requiredDestinations].sort(), [...grantedDestinations].sort())) {
+    throw new Error(
+      "Founder provider snapshot destinations do not match the immutable Launch Grant; no source or provider action was started.",
+    );
+  }
+
+  if (!launch.launchContract) return;
+  const contract = launchContractSchema.parse(launch.launchContract);
+  const expectedPricing = {
+    currency: contract.business.currency,
+    monthly_price:
+      contract.business.model === "subscription" ? contract.business.priceHypothesis : null,
+    annual_price: null,
+    one_time_price:
+      contract.business.model === "one_time" || contract.business.model === "service"
+        ? contract.business.priceHypothesis
+        : null,
+  };
+  const actualPricing = {
+    currency: snapshot.offer.pricing.currency,
+    monthly_price: snapshot.offer.pricing.monthly_price,
+    annual_price: snapshot.offer.pricing.annual_price,
+    one_time_price: snapshot.offer.pricing.one_time_price,
+  };
+  if (!isDeepStrictEqual(actualPricing, expectedPricing)) {
+    throw new Error(
+      "Founder offer price does not match the immutable Launch Contract; no Stripe, source, or provider action was started.",
+    );
+  }
+}
+
+function immutableFounderStripePrice(input: {
+  brief: FounderBrief;
+  providerConfig: DefaultProviderConfigSnapshot;
+  launchContract?: LaunchContract;
+}): {
+  productName: string;
+  currency: string;
+  unitAmount: number;
+  recurringInterval?: "month" | "year";
+} {
+  if (input.launchContract) {
+    const contract = launchContractSchema.parse(input.launchContract);
+    const amount = contract.business.priceHypothesis;
+    const unitAmount = amount === null ? Number.NaN : amount * 100;
+    if (!Number.isSafeInteger(unitAmount) || unitAmount < 1) {
+      throw new Error("Canonical Launch Contract has no exact Stripe minor-unit amount");
+    }
+    return {
+      productName: contract.venture.name,
+      currency: contract.business.currency.toLowerCase(),
+      unitAmount,
+      ...(contract.business.model === "subscription"
+        ? { recurringInterval: "month" as const }
+        : {}),
+    };
+  }
+
+  // Compatibility for an already-compiled short founder idea. The typed offer
+  // snapshot is captured before any model task, so it is immutable for this
+  // run even when the idea has not yet been upgraded to a Launch Contract.
+  const pricing = input.providerConfig.offer.pricing;
+  const candidates: Array<{
+    amount: number;
+    recurringInterval?: "month" | "year";
+  } | null> =
+    input.brief.monetization_model === "subscription"
+      ? [
+          pricing.monthly_price === null
+            ? null
+            : { amount: pricing.monthly_price, recurringInterval: "month" as const },
+          pricing.annual_price === null
+            ? null
+            : { amount: pricing.annual_price, recurringInterval: "year" as const },
+        ]
+      : input.brief.monetization_model === "one_time" ||
+          input.brief.monetization_model === "services"
+        ? [pricing.one_time_price === null ? null : { amount: pricing.one_time_price }]
+        : [];
+  const selected = candidates.filter(
+    (candidate): candidate is NonNullable<(typeof candidates)[number]> => candidate !== null,
+  );
+  const unitAmount = selected.length === 1 ? selected[0]!.amount * 100 : Number.NaN;
+  if (!Number.isSafeInteger(unitAmount) || unitAmount < 1) {
+    throw new Error("Immutable founder offer snapshot has no single exact Stripe price");
+  }
+  return {
+    productName: input.brief.name,
+    currency: pricing.currency.toLowerCase(),
+    unitAmount,
+    ...(selected[0]!.recurringInterval
+      ? { recurringInterval: selected[0]!.recurringInterval }
+      : {}),
+  };
+}
+
 function bindFounderProviderFactories(input: {
   factories: Readonly<Record<string, ProviderWorkflowPlanFactory>>;
   definition: WorkflowDefinition;
   grant: LaunchGrant;
+  providerConfig: DefaultProviderConfigSnapshot;
+  brief: FounderBrief;
+  launchContract?: LaunchContract;
   root: string;
   broker: CredentialBroker;
 }): Readonly<Record<string, ProviderWorkflowPlanFactory>> {
+  const grant = parseLaunchGrant(input.grant);
+  const providers = providersSchema.parse(input.providerConfig.providers);
   const nodeByHandler = new Map(
     input.definition.nodes
       .filter((node) => node.kind === "provider" && node.handler)
@@ -1154,18 +1663,16 @@ function bindFounderProviderFactories(input: {
           );
         }
         const capabilities = [...new Set(target.request.capabilities)];
+        const authorizedScopes = new Set(node.authorization.scopes);
         if (
           capabilities.length === 0 ||
           capabilities.length !== target.request.capabilities.length ||
-          capabilities.some((capability) => !node.authorization.scopes.includes(capability))
+          capabilities.some((capability) => !authorizedScopes.has(capability))
         ) {
           throw new Error(
-            `Launch provider factory ${handler} returned a capability outside its immutable graph scope`,
+            `Launch provider factory ${handler} requested duplicate, empty, or out-of-scope capabilities`,
           );
         }
-        const providers = providersSchema.parse(
-          readStructured(inside(input.root, "config/providers.yaml")),
-        );
         const configured = providers.providers[target.provider] as ProviderState | undefined;
         if (!configured) {
           throw new Error(`Launch provider ${target.provider} has no typed configuration`);
@@ -1191,6 +1698,19 @@ function bindFounderProviderFactories(input: {
               `Launch provider ${target.provider} credential account does not match the configured account`,
             );
           }
+          if (
+            target.provider === "stripe" &&
+            (!configured.account_id ||
+              reference.accountId !== configured.account_id ||
+              reference.testStatus !== "passed" ||
+              reference.testedAt === undefined ||
+              reference.providerMode !== "test")
+          ) {
+            throw new Error(
+              "Founder Stripe apply requires durable read-only proof that the exact restricted API credential is authenticated for the configured account in test mode. Next: run vh auth test stripe --ref " +
+                reference.ref,
+            );
+          }
         }
         for (const capability of capabilities) {
           const externalAccountId = configuredProviderDestination(
@@ -1200,7 +1720,7 @@ function bindFounderProviderFactories(input: {
           );
           if (
             !externalAccountId ||
-            !input.grant.providerAccounts.some(
+            !grant.providerAccounts.some(
               (destination) =>
                 destination.provider === target.provider &&
                 destination.capability === capability &&
@@ -1216,15 +1736,43 @@ function bindFounderProviderFactories(input: {
           assertExactPlanInput(
             target,
             "repository",
-            `${input.grant.repository.owner}/${input.grant.repository.name}`,
+            `${grant.repository.owner}/${grant.repository.name}`,
           );
-          assertExactPlanInput(target, "visibility", input.grant.repository.visibility);
+          assertExactPlanInput(target, "visibility", grant.repository.visibility);
           assertExactPlanInput(target, "sourceDirectory", resolve(input.root));
         }
         if (target.provider === "vercel") {
           const scope = configured.team_id ?? configured.account_id;
           if (scope) assertExactPlanInput(target, "scope", scope);
-          assertExactPlanInput(target, "project", input.grant.repository.name);
+          assertExactPlanInput(target, "project", grant.repository.name);
+          if (handler === "provider.vercel-project") {
+            if (input.brief.domain) {
+              requireExactPlanInput(target, "domain", input.brief.domain);
+            } else if (target.request.inputs.domain !== undefined) {
+              throw new Error(
+                "Launch provider request introduced a domain outside the immutable founder brief",
+              );
+            }
+          }
+          if (handler === "provider.vercel-stripe-price-environment") {
+            const priceId = publicIdentifier(
+              workflow.dependencyOutputs["stripe-commerce"],
+              "price_id",
+            );
+            if (!priceId) {
+              throw new Error(
+                "Stripe price application binding requires one same-run verified price identifier",
+              );
+            }
+            requireExactPlanInput(target, "environmentVariableName", "STRIPE_PRICE_ID");
+            requireExactPlanInput(target, "environmentPublicValue", priceId);
+          }
+          if (handler === "provider.vercel-stripe-price-lookup-environment") {
+            const terms = immutableFounderStripePrice(input);
+            const lookupKey = `vh_${input.brief.id.replaceAll("-", "_")}_${terms.currency}_${terms.unitAmount}_${terms.recurringInterval ?? "once"}`;
+            requireExactPlanInput(target, "environmentVariableName", "STRIPE_PRICE_LOOKUP_KEY");
+            requireExactPlanInput(target, "environmentPublicValue", lookupKey);
+          }
         }
         if (target.provider === "neon" && capabilities.includes("project")) {
           const organizationId = configured.external_resource_ids.organization_id;
@@ -1235,11 +1783,70 @@ function bindFounderProviderFactories(input: {
           }
           assertExactPlanInput(target, "organizationId", organizationId);
         }
+        if (target.provider === "stripe") {
+          const accountId = configured.account_id;
+          if (!accountId || target.request.inputs.stripeAccountId !== accountId) {
+            throw new Error(
+              "Launch provider stripe has no exact request-bound configured account destination",
+            );
+          }
+          requireExactPlanInput(target, "ventureSlug", input.brief.id);
+          requireExactPlanInput(target, "stripeMode", "test");
+          if (handler === "provider.stripe-commerce") {
+            const terms = immutableFounderStripePrice(input);
+            requireExactPlanInput(target, "productName", terms.productName);
+            requireExactPlanInput(target, "currency", terms.currency);
+            requireExactPlanInput(target, "unitAmount", terms.unitAmount);
+            const interval = target.request.inputs.recurringInterval;
+            if (interval !== terms.recurringInterval) {
+              throw new Error(
+                "Launch provider request Stripe interval does not match the immutable Launch Contract",
+              );
+            }
+          } else if (
+            handler === "provider.stripe-callbacks" ||
+            handler === "provider.stripe-domain-callbacks"
+          ) {
+            const origin =
+              handler === "provider.stripe-domain-callbacks"
+                ? founderVerifiedCustomOrigin(input.brief, workflow.dependencyOutputs)
+                : founderProductionOrigin(workflow.dependencyOutputs);
+            requireExactPlanInput(target, "webhookUrl", `${origin}/api/stripe/webhook`);
+            requireExactPlanInput(target, "portalReturnUrl", `${origin}/account`);
+            const expectedWebhookRef =
+              configured.external_resource_ids.webhook_secret_credential_ref;
+            if (
+              !expectedWebhookRef ||
+              target.request.inputs.webhookSecretCredentialRef !== expectedWebhookRef
+            ) {
+              throw new Error(
+                "Launch provider request Stripe webhook secret target does not match the immutable Founder Stack snapshot",
+              );
+            }
+          }
+        }
         if (target.provider === "google" && capabilities.includes("analytics_property")) {
           const analyticsAccount = configured.external_resource_ids.analytics_account_id;
           if (analyticsAccount) {
             assertExactPlanInput(target, "analyticsAccountId", analyticsAccount);
           }
+        }
+        if (target.provider === "google" && capabilities.includes("analytics_web_stream")) {
+          const dependencyId = node.dependencies.includes("initial-production-deploy")
+            ? "initial-production-deploy"
+            : "production-deploy";
+          const origin = founderProductionOrigin(workflow.dependencyOutputs, dependencyId);
+          requireExactPlanInput(target, "defaultUri", `${origin}/`);
+          const propertyId = publicIdentifier(
+            workflow.dependencyOutputs["google-analytics-property"],
+            "property_id",
+          );
+          if (!propertyId) {
+            throw new Error(
+              "GA4 stream binding requires one same-run verified analytics property identifier",
+            );
+          }
+          requireExactPlanInput(target, "analyticsPropertyId", propertyId);
         }
         return {
           ...target,
@@ -1247,7 +1854,7 @@ function bindFounderProviderFactories(input: {
             maxOperations: Math.max(1, node.authorization.scopes.length),
             missingCostClassification: {
               basis: "reviewed_known_zero_direct_charge",
-              currency: input.grant.providerOperationBudget!.currency,
+              currency: grant.providerOperationBudget!.currency,
               ongoingAccountPlanUsageCovered: false,
               allowedOperations: FOUNDER_REVIEWED_ZERO_DIRECT_CHARGE_OPERATIONS.filter(
                 ([provider, capability]) =>
@@ -1412,6 +2019,7 @@ function configureFounderOffer(root: string, preparation: FounderLaunchPreparati
       currency: preparation.idea.commercialTerms.currency,
       monthly_price: preparation.idea.commercialTerms.monthlyPrice,
       annual_price: preparation.idea.commercialTerms.annualPrice,
+      one_time_price: preparation.idea.commercialTerms.oneTimePrice,
     },
   });
   writeYamlAtomic(path, next);
@@ -1453,6 +2061,7 @@ function publicFounderPreparation(
     },
     graphDryRun: preparation.graphDryRun as unknown as JsonValue,
     blockers: preparation.blockers,
+    launchGaps: preparation.launchGaps,
     exactFinalCommand: preparation.exactFinalCommand,
     externalEffectsOccurred: false,
     ...extra,
@@ -1510,6 +2119,109 @@ function credentialKind(value: string | undefined, backend: string): CredentialK
   return selected as CredentialKind;
 }
 
+function mergeFounderStackRoleRepair(
+  current: FounderStackConnection | null,
+  next: FounderStackConnection,
+  request: Pick<
+    CliStackRequest,
+    "updatedRoles" | "replaceOptionalRoles" | "updateWritableCredentialBackend"
+  >,
+): FounderStackConnection {
+  if (!current || request.updatedRoles === undefined) return parseFounderStackConnection(next);
+  if (
+    next.ownerOrganizationId !== current.ownerOrganizationId &&
+    next.ownerOrganizationId !== "founder"
+  ) {
+    throw new Error("Founder Stack profile belongs to another organization");
+  }
+  const updated = new Set(request.updatedRoles);
+  const roles = Object.fromEntries(
+    (Object.keys(founderStackRoleDefinitions) as FounderStackRole[]).map((role) => [
+      role,
+      updated.has(role) ? next.roles[role] : current.roles[role],
+    ]),
+  ) as FounderStackConnection["roles"];
+  const selectedOptionalRoles = request.replaceOptionalRoles
+    ? next.selectedOptionalRoles
+    : [
+        ...new Set([
+          ...current.selectedOptionalRoles,
+          ...next.selectedOptionalRoles.filter((role) => updated.has(role)),
+        ]),
+      ];
+  return parseFounderStackConnection({
+    ...current,
+    inspectedCliSessions: next.inspectedCliSessions,
+    roles,
+    selectedOptionalRoles,
+    writableCredentialBackend: request.updateWritableCredentialBackend
+      ? next.writableCredentialBackend
+      : current.writableCredentialBackend,
+    launchDefaults: {
+      neon: updated.has("database.postgres")
+        ? next.launchDefaults.neon
+        : current.launchDefaults.neon,
+      stripe: updated.has("commerce.web")
+        ? next.launchDefaults.stripe
+        : current.launchDefaults.stripe,
+      brevo: updated.has("email.transactional")
+        ? next.launchDefaults.brevo
+        : current.launchDefaults.brevo,
+      google: updated.has("growth.google")
+        ? next.launchDefaults.google
+        : current.launchDefaults.google,
+      bing: updated.has("search.bing") ? next.launchDefaults.bing : current.launchDefaults.bing,
+      dns: updated.has("dns.records") ? next.launchDefaults.dns : current.launchDefaults.dns,
+    },
+  });
+}
+
+function validateFounderStackCredentialWrites(
+  request: CliStackRequest,
+  connection: FounderStackConnection,
+): void {
+  const permittedRoles = new Set<FounderStackRole>(
+    request.updatedRoles ?? (Object.keys(founderStackRoleDefinitions) as FounderStackRole[]),
+  );
+  const seen = new Set<string>();
+  for (const pending of request.credentialWrites ?? []) {
+    if (seen.has(pending.reference)) {
+      throw new Error(`Duplicate Stack credential write for ${pending.reference}`);
+    }
+    seen.add(pending.reference);
+    const role = (Object.keys(founderStackRoleDefinitions) as FounderStackRole[]).find(
+      (candidate) =>
+        permittedRoles.has(candidate) &&
+        founderStackRoleDefinitions[candidate].providerId === pending.provider &&
+        connection.roles[candidate].credentialRef === pending.reference,
+    );
+    if (!role) {
+      throw new Error(
+        `Stack credential write ${pending.reference} is not bound to one refreshed provider role`,
+      );
+    }
+    const expectedKind: CredentialKind =
+      pending.provider === "stripe"
+        ? "restricted_api_key"
+        : pending.provider === "google"
+          ? "oauth"
+          : "api_key";
+    if (pending.kind !== expectedKind) {
+      throw new Error(`Stack credential write for ${role} has the wrong credential kind`);
+    }
+    const metadata = connection.roles[role];
+    if (pending.accountId !== undefined && pending.accountId !== metadata.accountId) {
+      throw new Error("Stack credential write has mismatched account metadata for " + role);
+    }
+    if (
+      pending.scopes.length !== metadata.scopes.length ||
+      pending.scopes.some((scope) => !metadata.scopes.includes(scope))
+    ) {
+      throw new Error("Stack credential write has mismatched scope metadata for " + role);
+    }
+  }
+}
+
 export function createDefaultCliServices(options: DefaultCliServicesOptions = {}): CliServices {
   const root = resolve(options.rootDir ?? process.cwd());
   const store = options.store ?? new FileWorkflowStore({ rootDir: inside(root, ".venture/runs") });
@@ -1542,6 +2254,14 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
   ]);
   if (process.platform === "darwin") supportedBackends.add("macos_keychain");
   const credentialBroker = options.credentialBroker ?? defaultBroker;
+  const credentialTestTimeoutMs = options.credentialTestTimeoutMs ?? 15_000;
+  if (
+    !Number.isSafeInteger(credentialTestTimeoutMs) ||
+    credentialTestTimeoutMs < 1 ||
+    credentialTestTimeoutMs > 60_000
+  ) {
+    throw new Error("Credential test timeout must be an integer from 1 to 60000 milliseconds");
+  }
   const catalogIssues: string[] = [];
   for (const reference of credentialCatalog.references) {
     if (!options.credentialBroker && !supportedBackends.has(reference.backend)) {
@@ -1561,6 +2281,32 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     options.dataHttpFetcher ?? new NativeHttpFetcher({ redactor: credentialBroker.redactor });
   const defaultCredentialTesters = (connection: FounderStackConnection | null) =>
     createDefaultFounderCredentialTesters({ fetcher: httpFetcher, connection });
+  const boundedCredentialTester = (
+    provider: string,
+    tester: CredentialTester,
+  ): CredentialTester => {
+    return async (secret, reference) => {
+      const controller = new AbortController();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const failed = (message: string) => ({ ok: false as const, message });
+      const result = Promise.resolve()
+        .then(() => tester(secret, reference, { signal: controller.signal }))
+        .catch(() => failed(`${provider} credential read-only probe was unavailable`));
+      const deadline = new Promise<Awaited<ReturnType<CredentialTester>>>((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve(failed(`${provider} credential read-only probe timed out`));
+        }, credentialTestTimeoutMs);
+      });
+      try {
+        return await Promise.race([result, deadline]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    };
+  };
+  const testCredential = (ref: string, provider: string, tester: CredentialTester) =>
+    credentialBroker.test(ref, boundedCredentialTester(provider, tester));
   const testFounderStackCredentials = async (connection: FounderStackConnection) => {
     const testers = defaultCredentialTesters(connection);
     const refs = [
@@ -1574,7 +2320,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       const reference = credentialBroker.getReference(ref);
       if (!reference || reference.kind === "cli_session") continue;
       const tester = options.credentialTesters?.[reference.provider] ?? testers[reference.provider];
-      if (tester) await credentialBroker.test(ref, tester);
+      if (tester) await testCredential(ref, reference.provider, tester);
     }
     for (const reference of credentialBroker.list()) {
       credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
@@ -1603,6 +2349,12 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       runner: new NodeCommandRunner({ env: codexBuildAgentEnvironment(process.env) }),
       redactor: credentialBroker.redactor,
     });
+  const ideaSharpenerHost =
+    options.ideaSharpenerHost ??
+    new CodexCliIdeaSharpenerHost({
+      runner: new NodeCommandRunner({ env: ideaSharpenerEnvironment(process.env) }),
+      redactor: credentialBroker.redactor,
+    });
 
   const defaultProviderRuntimeContext = createOfficialProviderContext({
     commandRunner,
@@ -1624,6 +2376,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     brief: launch.brief,
     definition: launch.definition,
     authorization: launch.authorization,
+    ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
   });
 
   const reportCredentialReferences = (launch: LaunchState) => {
@@ -1641,48 +2394,32 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       }));
   };
 
-  const qualityReportLines = (): { lines: string[]; limitations: string[] } => {
+  const qualityReportLines = (
+    state: WorkflowRunState,
+  ): { lines: string[]; limitations: string[] } => {
     const lines: string[] = [];
     const limitations: string[] = [];
-    for (const profile of ["fast", "mvp", "release"] as const) {
-      const path = inside(root, `.venture/reports/quality/${profile}-latest.json`);
-      if (!existsSync(path)) continue;
-      try {
-        const report = JSON.parse(readFileSync(path, "utf8")) as {
-          results?: Array<{
-            id?: unknown;
-            status?: unknown;
-            detail?: unknown;
-            gap?: {
-              missing?: unknown;
-              exact_command?: unknown;
-              expected_evidence?: unknown;
-            } | null;
-          }>;
-        };
-        for (const result of report.results ?? []) {
-          if (
-            typeof result.id !== "string" ||
-            !["PASS", "FAIL", "SKIP", "NOT_APPLICABLE"].includes(String(result.status))
-          ) {
-            throw new Error("result has an invalid id or status");
-          }
-          const detail = typeof result.detail === "string" ? `; ${result.detail}` : "";
-          const gap = result.gap;
-          const prerequisite =
-            gap && typeof gap.missing === "string" && typeof gap.exact_command === "string"
-              ? `; missing ${gap.missing}; run ${gap.exact_command}; evidence ${
-                  typeof gap.expected_evidence === "string" ? gap.expected_evidence : "not recorded"
-                }`
-              : "";
-          lines.push(`${profile}/${result.id}: ${String(result.status)}${detail}${prerequisite}`);
-        }
-      } catch (error) {
-        limitations.push(
-          `${profile} quality artifact could not be parsed; no check state was inferred (${error instanceof Error ? error.message : String(error)}).`,
-        );
+    for (const nodeId of ["verify-local", "verify-mvp", "verify-launch", "verify-production"]) {
+      const node = state.nodes[nodeId];
+      if (!node) continue;
+      const output = node.output;
+      const command =
+        output &&
+        typeof output === "object" &&
+        !Array.isArray(output) &&
+        Array.isArray(output.command)
+          ? output.command.filter((part): part is string => typeof part === "string").join(" ")
+          : null;
+      lines.push(
+        `${nodeId}: ${node.state}${command ? `; ${command}` : ""}${
+          node.evidenceArtifact ? `; evidence ${node.evidenceArtifact}` : ""
+        }`,
+      );
+      if (node.state !== "succeeded") {
+        limitations.push(`${nodeId} did not succeed in this run; no quality pass was inferred.`);
       }
     }
+    if (lines.length === 0) limitations.push("No same-run quality node output was recorded.");
     return { lines, limitations };
   };
 
@@ -1741,7 +2478,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         nextReviews.push(`active blocker: ${blocker}`);
       }
     }
-    const quality = qualityReportLines();
+    const quality = qualityReportLines(state);
     return createLaunchReportInputFromRun({
       generatedAt: now().toISOString(),
       state,
@@ -1761,6 +2498,19 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         entitlementSource: decision.payment.entitlementSource,
         activeEventPacks: launch.activeEventPacks,
         consentMode: "strict",
+        ...(launch.launchContract
+          ? {
+              firstValidationAction: {
+                action: launch.launchContract.distribution.firstValidationAction,
+                channel: launch.launchContract.distribution.firstChannel,
+                userHabitat: launch.launchContract.distribution.firstUserHabitat,
+                state: "planned" as const,
+                execution: "human_gated" as const,
+                evidenceRequired:
+                  "Founder-reviewed evidence that the action was performed; no outreach, response, demand, or conversion result is inferred.",
+              },
+            }
+          : {}),
       },
       authorization: {
         profile: launch.authorization.profile,
@@ -1790,6 +2540,10 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
                 : `Fixture build execution is bounded to ${launch.launchGrant.modelExecutionPolicy.maxBuildAgentTasks} deterministic tasks and attests that no model was invoked.`,
             ]
           : []),
+        ...(launch.founderLaunchGaps ?? []).map(
+          (gap) =>
+            `${gap.code}: ${gap.message} Next: ${gap.nextAction}. State: ${gap.state}; blocksLaunch=false.`,
+        ),
         ...quality.limitations,
       ],
       sections: {
@@ -1800,22 +2554,46 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     });
   };
 
+  const receiptVerification = (
+    launch: LaunchState,
+    state: WorkflowRunState,
+  ): NonNullable<Parameters<typeof createLaunchReceipt>[0]["verification"]> =>
+    sameRunLaunchReceiptVerification(state, Boolean(launch.brief.domain));
+
   const persistStateReport = async (
     launch: LaunchState,
     state: WorkflowRunState,
     runtimeContext: ProviderRuntimeContext,
-  ) =>
-    persistLaunchReport(
-      renderLaunchReport(reportInputFor(launch, state), {
-        redactor: runtimeContext.redactor,
-      }),
-      inside(root, `reports/launch/${state.runId}`),
+  ) => {
+    const outputDirectory = inside(root, `reports/launch/${state.runId}`);
+    const report = renderLaunchReport(reportInputFor(launch, state), {
+      redactor: runtimeContext.redactor,
+    });
+    const persistedReport = await persistLaunchReport(report, outputDirectory);
+    const receipt = createLaunchReceipt(
+      {
+        state,
+        report: persistedReport.document,
+        decision: launch.decision,
+        launchContract: launch.launchContract,
+        launchGrant: launch.launchGrant,
+        launchGaps: launch.founderLaunchGaps,
+        verification: receiptVerification(launch, state),
+      },
+      { redactor: runtimeContext.redactor },
     );
+    const persistedReceipt = await persistLaunchReceipt(receipt, outputDirectory);
+    return { report: persistedReport, receipt: persistedReceipt };
+  };
 
   const bindingsFor = async (
     launch: LaunchState,
   ): Promise<{ bindings: WorkflowBindings; runtimeContext: ProviderRuntimeContext }> => {
     const launchContext = launchContextFor(launch);
+    // Capture every provider-facing input before a model task can run. Founder
+    // bindings below retain this typed snapshot for the full run/resume turn.
+    const providerConfigSnapshot = launch.launchGrant ? loadDefaultProviderConfig(root) : undefined;
+    if (providerConfigSnapshot) assertFounderProviderInputSnapshot(launch, providerConfigSnapshot);
     const productBindings = options.launchBindings
       ? await options.launchBindings(launchContext)
       : (await (launch.launchGrant
@@ -1824,6 +2602,9 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         createLaunchProductBindings({
           rootDir: root,
           brief: launch.brief,
+          decision: launch.decision,
+          launchContract: launch.launchContract,
+          authorization: launch.authorization,
           agentHost: buildAgentHost,
           commandRunner: productCommandRunner,
           redactor: credentialBroker.redactor,
@@ -1852,8 +2633,10 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         : options.providerPlanFactories
       : createDefaultProviderPlanFactories({
           rootDir: root,
-          brief: () => launch.brief,
+          brief: launch.brief,
           definition: launch.definition,
+          ...(providerConfigSnapshot ? { configSnapshot: providerConfigSnapshot } : {}),
+          ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
           lifecycleStore: providerLifecycleStore,
         });
     const providerPlanFactories = launch.launchGrant
@@ -1861,6 +2644,9 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           factories: unboundedProviderPlanFactories,
           definition: launch.definition,
           grant: launch.launchGrant,
+          providerConfig: providerConfigSnapshot!,
+          brief: launch.brief,
+          ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
           root,
           broker: credentialBroker,
         })
@@ -1935,7 +2721,105 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
   };
 
   return {
+    async ideaSharpen(request) {
+      const boundary = new OwnerPathLock(root, {
+        label: "vh idea sharpen",
+        lockName: ".vh-idea-sharpen.lock",
+      });
+      try {
+        const source =
+          request.input === "-"
+            ? readFileSync(0, "utf8")
+            : boundary.readRegularFile(inside(root, request.input), {
+                label: "vh idea sharpen --input",
+                maxBytes: 100_000,
+              });
+        const outputPath = safeIdeaOutputPath(root, request.output, boundary);
+        const outputReference = relative(realpathSync(root), outputPath);
+        const baseOutput = outputReference.slice(0, -3);
+        const constitutionPath = safeIdeaOutputPath(
+          root,
+          `${baseOutput}.product-constitution.md`,
+          boundary,
+        );
+        const usagePath = inside(root, `${baseOutput}.usage.json`);
+        const contractPath = inside(root, `${baseOutput}.launch-contract.yaml`);
+        let result;
+        try {
+          result = await sharpenIdea(source, { host: ideaSharpenerHost, now });
+        } catch (error) {
+          if (error instanceof IdeaSharpenError) {
+            boundary.writeFileAtomic(
+              usagePath,
+              `${JSON.stringify(
+                {
+                  schemaVersion: 1,
+                  command: "idea.sharpen",
+                  status: "failed",
+                  sourceDigest: createHash("sha256").update(source).digest("hex"),
+                  ...error.accounting,
+                  transcriptStored: false,
+                  providerEffects: false,
+                },
+                null,
+                2,
+              )}\n`,
+              "vh idea sharpen failed usage",
+            );
+          }
+          throw error;
+        }
+        boundary.writeFileAtomic(outputPath, result.ideaMarkdown, "vh idea sharpen output");
+        boundary.writeFileAtomic(
+          constitutionPath,
+          result.productConstitutionMarkdown,
+          "vh idea sharpen Product Constitution",
+        );
+        boundary.writeFileAtomic(
+          contractPath,
+          renderLaunchContractYaml(result.launchContract),
+          "vh idea sharpen Launch Contract",
+        );
+        boundary.writeFileAtomic(
+          usagePath,
+          `${JSON.stringify(
+            {
+              schemaVersion: 1,
+              command: "idea.sharpen",
+              status: result.status,
+              sourceDigest: createHash("sha256").update(source).digest("hex"),
+              output: outputReference,
+              productConstitution: `${baseOutput}.product-constitution.md`,
+              launchContract: `${baseOutput}.launch-contract.yaml`,
+              ...result.accounting,
+              transcriptStored: false,
+              providerEffects: false,
+            },
+            null,
+            2,
+          )}\n`,
+          "vh idea sharpen usage",
+        );
+        return {
+          schemaVersion: 1,
+          status: result.status,
+          output: outputReference,
+          productConstitution: `${baseOutput}.product-constitution.md`,
+          launchContract: `${baseOutput}.launch-contract.yaml`,
+          usage: `${baseOutput}.usage.json`,
+          ...result.accounting,
+          transcriptStored: false,
+          providerEffects: false,
+          repositoryCreated: false,
+          deploymentCreated: false,
+          nextAction: `Review ${baseOutput}.launch-contract.yaml, then run vh launch --idea ${outputReference} --stack founder-default --production --dry-run --non-interactive --json.`,
+        } as unknown as JsonValue;
+      } finally {
+        boundary.release();
+      }
+    },
     async founderLaunch(request) {
+      let founderPathBoundary: OwnerPathLock | null = null;
       const connection = founderStackStore.load(request.stackProfile);
       if (!connection) {
         return {
@@ -1971,166 +2855,144 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       // than a silent write into Core.
       const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
       if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
-      const preparation = compileFounderLaunchPreparation({
-        ideaSource,
-        ideaPath: request.idea,
-        stack: connection,
-        stackDoctor,
-        baseDir: resolve(venturesRoot),
-        output: request.output,
-        workflowRefSha,
-        executionMode: request.mode,
-        production: request.production,
-        nonInteractive: request.nonInteractive,
-        at: now(),
-        allowFixtureStack: options.allowFixtureFounderStack ?? false,
-      });
-      if (request.mode === "dry-run" || preparation.status === "blocked") {
-        return publicFounderPreparation(preparation);
-      }
-
-      const childRoot = preparation.repository.localDirectory;
-      const stagingRoot = `${childRoot}.vh-staging-${preparation.launchGrant.grantId.slice(3, 15)}`;
-      const stackConnectionHash = sha256Json(connection);
-
-      const childOptions = (child: string): DefaultCliServicesOptions => ({
-        rootDir: child,
-        founderStackRoot: founderStackStore.rootDir,
-        founderOutputRoot: options.founderOutputRoot,
-        founderWorkflowRefSha: options.founderWorkflowRefSha,
-        allowFixtureFounderStack: options.allowFixtureFounderStack,
-        launchBindings: options.launchBindings,
-        buildAgentHost: options.buildAgentHost,
-        productCommandRunner: options.productCommandRunner,
-        providerCommandRunner: options.providerCommandRunner,
-        dataCommandRunner: options.dataCommandRunner,
-        dataHttpFetcher: options.dataHttpFetcher,
-        upgradeCommandRunner: options.upgradeCommandRunner,
-        providerPlanFactories: options.providerPlanFactories,
-        providerRuntimeContext: options.providerRuntimeContext,
-        credentialBroker,
-        credentialCatalogPath: catalogPath,
-        credentialTesters: options.credentialTesters,
-        interactiveCliLogin: options.interactiveCliLogin,
-        providerRegistry: options.providerRegistry,
-        providerContext: options.providerContext,
-        dataConnectors: options.dataConnectors,
-        dataRequirements: options.dataRequirements,
-        release: options.release,
-        now,
-      });
-
-      let effectivePreparation = preparation;
-      let materialized: {
-        status: "materialized";
-        files: readonly string[];
-        planDigest: string;
-      };
-      let transaction: FounderLaunchTransaction;
-      let workflow: WorkflowRunState | null = null;
-      let buildHostPreflighted = false;
-      let writableTargetsRegistered = false;
-      let pendingFounderGrantRenewal = false;
-      const childStore = new FileWorkflowStore({ rootDir: inside(childRoot, ".venture/runs") });
-
-      if (existsSync(childRoot)) {
-        const continuation = validateFounderLaunchContinuation({
-          childRoot,
-          preparation,
-          stackConnectionHash,
+      const canonicalVenturesRoot = realpathSync(resolve(venturesRoot));
+      founderPathBoundary =
+        request.mode === "apply"
+          ? new OwnerPathLock(canonicalVenturesRoot, {
+              label: "Founder venture operation",
+            })
+          : null;
+      try {
+        const preparation = compileFounderLaunchPreparation({
+          ideaSource,
+          ideaPath: request.idea,
+          stack: connection,
+          stackDoctor,
+          baseDir: canonicalVenturesRoot,
+          output: request.output,
           workflowRefSha,
+          executionMode: request.mode,
+          production: request.production,
+          nonInteractive: request.nonInteractive,
+          at: now(),
+          allowFixtureStack: options.allowFixtureFounderStack ?? false,
         });
-        transaction = continuation.transaction;
-        effectivePreparation = {
-          ...preparation,
-          launchGrant: continuation.grant,
-          materialization: continuation.plan,
-        };
-        materialized = {
-          status: "materialized",
-          files: continuation.plan.files.map(({ path }) => path),
-          planDigest: continuation.plan.planDigest,
-        };
-        if (childStore.exists(transaction.runId)) {
-          workflow = childStore.load(transaction.runId);
-        } else if (transaction.status !== "launch_pending") {
-          throw new Error(
-            `Founder launch transaction is ${transaction.status} but workflow ${transaction.runId} is missing; no continuation was attempted.`,
-          );
-        } else if (now().getTime() >= Date.parse(continuation.grant.expiresAt)) {
-          pendingFounderGrantRenewal = true;
+        if (request.mode === "dry-run" || preparation.status === "blocked") {
+          return publicFounderPreparation(preparation);
         }
-      } else {
-        if (existsSync(stagingRoot)) {
-          throw new Error(
-            `Founder launch staging directory already exists: ${stagingRoot}. Inspect that interrupted local materialization before retrying; no provider effect was started by this invocation.`,
-          );
+        if (!founderPathBoundary) {
+          throw new Error("Founder apply requires an active ventures-root owner lock");
         }
-        if (!options.launchBindings) {
-          await assertFounderBuildAgentHostPolicy(buildAgentHost, preparation.launchGrant);
-          buildHostPreflighted = true;
-        }
-        const registeredTargets = await registerFounderStackWritableCredentialRefs(
-          connection,
-          {
-            ventureSlug: preparation.idea.brief.id,
-            domain: preparation.idea.brief.domain,
-          },
-          credentialBroker,
+        const childRoot = resolveVentureOutputWithinRoot(
+          canonicalVenturesRoot,
+          relative(canonicalVenturesRoot, preparation.repository.localDirectory),
         );
-        for (const target of registeredTargets.inspections) {
-          const reference = credentialBroker.getReference(target.ref);
-          if (reference) {
-            credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
-          }
-        }
-        saveCredentialCatalog(credentialCatalog, catalogPath);
-        writableTargetsRegistered = true;
+        const stagingRoot = `${childRoot}.vh-staging-${preparation.launchGrant.grantId.slice(3, 15)}`;
+        const stackConnectionHash = sha256Json(connection);
 
-        materialized = await materializeFounderVenture(preparation, stagingRoot);
-        const briefArtifact = ".venture/input/founder-brief.yaml";
-        writeYamlAtomic(inside(stagingRoot, briefArtifact), preparation.idea.brief);
-        writeJsonAtomic(inside(stagingRoot, ".venture/founder-input.json"), {
-          schemaVersion: 1,
-          compiledAt: preparation.launchGrant.createdAt,
-          sourceHash: preparation.idea.sourceHash,
-          briefArtifact,
-          assumptions: preparation.idea.assumptionsAdded,
-          stackProfile: preparation.stackProfile,
+        const childOptions = (child: string): DefaultCliServicesOptions => ({
+          rootDir: child,
+          founderStackRoot: founderStackStore.rootDir,
+          founderOutputRoot: options.founderOutputRoot,
+          founderWorkflowRefSha: options.founderWorkflowRefSha,
+          allowFixtureFounderStack: options.allowFixtureFounderStack,
+          launchBindings: options.launchBindings,
+          buildAgentHost: options.buildAgentHost,
+          ideaSharpenerHost: options.ideaSharpenerHost,
+          productCommandRunner: options.productCommandRunner,
+          providerCommandRunner: options.providerCommandRunner,
+          dataCommandRunner: options.dataCommandRunner,
+          dataHttpFetcher: options.dataHttpFetcher,
+          upgradeCommandRunner: options.upgradeCommandRunner,
+          providerPlanFactories: options.providerPlanFactories,
+          providerRuntimeContext: options.providerRuntimeContext,
+          credentialBroker,
+          credentialCatalogPath: catalogPath,
+          credentialTesters: options.credentialTesters,
+          interactiveCliLogin: options.interactiveCliLogin,
+          providerRegistry: options.providerRegistry,
+          providerContext: options.providerContext,
+          dataConnectors: options.dataConnectors,
+          dataRequirements: options.dataRequirements,
+          release: options.release,
+          now,
+          pathSecurityHook: options.pathSecurityHook,
         });
-        writeJsonAtomic(inside(stagingRoot, ".venture/launch-grant.json"), preparation.launchGrant);
-        transaction = {
-          schemaVersion: 1,
-          status: "launch_pending",
-          sourceHash: preparation.idea.sourceHash,
-          stackProfile: preparation.stackProfile,
-          stackConnectionHash,
-          grantId: preparation.launchGrant.grantId,
-          runId: `launch-${preparation.idea.brief.id}-${preparation.launchGrant.grantId.slice(3, 15)}`,
-          planDigest: preparation.materialization.planDigest,
-          createdAt: preparation.launchGrant.createdAt,
-          updatedAt: now().toISOString(),
-        };
-        saveFounderLaunchTransaction(stagingRoot, transaction);
-        const stagingServices = createDefaultCliServices(childOptions(stagingRoot));
-        if (!stagingServices.create) throw new Error("Founder child create service is unavailable");
-        await stagingServices.create({ brief: briefArtifact, json: true });
-        configureFounderProviderTargets(stagingRoot, connection, preparation);
-        configureFounderOffer(stagingRoot, preparation);
-        mkdirSync(dirname(childRoot), { recursive: true, mode: 0o700 });
-        renameSync(stagingRoot, childRoot);
-      }
 
-      if (!workflow) {
-        if (!options.launchBindings && !buildHostPreflighted) {
-          await assertFounderBuildAgentHostPolicy(buildAgentHost, effectivePreparation.launchGrant);
-        }
-        if (!writableTargetsRegistered) {
+        let effectivePreparation = preparation;
+        let materialized: {
+          status: "materialized";
+          files: readonly string[];
+          planDigest: string;
+        };
+        let transaction: FounderLaunchTransaction;
+        let workflow: WorkflowRunState | null = null;
+        let buildHostPreflighted = false;
+        let writableTargetsRegistered = false;
+        let pendingFounderGrantRenewal = false;
+        let childIdentity = existsSync(childRoot)
+          ? founderPathBoundary.captureDirectory(childRoot, "Founder venture child")
+          : null;
+        const childStore = new FileWorkflowStore({ rootDir: inside(childRoot, ".venture/runs") });
+
+        // Recheck the canonical boundary immediately before either continuation
+        // or creation. A dry-run path decision must not become authority to
+        // follow a symlink introduced before apply.
+        resolveVentureOutputWithinRoot(
+          canonicalVenturesRoot,
+          relative(canonicalVenturesRoot, childRoot),
+        );
+        if (existsSync(childRoot)) {
+          options.pathSecurityHook?.("before-founder-continuation", childRoot);
+          founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          const continuation = validateFounderLaunchContinuation({
+            childRoot,
+            preparation,
+            stackConnectionHash,
+            workflowRefSha,
+          });
+          founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          transaction = continuation.transaction;
+          effectivePreparation = {
+            ...preparation,
+            launchGrant: continuation.grant,
+            materialization: continuation.plan,
+          };
+          materialized = {
+            status: "materialized",
+            files: continuation.plan.files.map(({ path }) => path),
+            planDigest: continuation.plan.planDigest,
+          };
+          if (childStore.exists(transaction.runId)) {
+            founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+            workflow = childStore.load(transaction.runId);
+            founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          } else if (transaction.status !== "launch_pending") {
+            throw new Error(
+              `Founder launch transaction is ${transaction.status} but workflow ${transaction.runId} is missing; no continuation was attempted.`,
+            );
+          } else if (now().getTime() >= Date.parse(continuation.grant.expiresAt)) {
+            pendingFounderGrantRenewal = true;
+          }
+        } else {
+          resolveVentureOutputWithinRoot(
+            canonicalVenturesRoot,
+            relative(canonicalVenturesRoot, stagingRoot),
+          );
+          if (existsSync(stagingRoot)) {
+            throw new Error(
+              `Founder launch staging directory already exists: ${stagingRoot}. Inspect that interrupted local materialization before retrying; no provider effect was started by this invocation.`,
+            );
+          }
+          if (!options.launchBindings) {
+            await assertFounderBuildAgentHostPolicy(buildAgentHost, preparation.launchGrant);
+            buildHostPreflighted = true;
+          }
           const registeredTargets = await registerFounderStackWritableCredentialRefs(
             connection,
             {
-              ventureSlug: effectivePreparation.idea.brief.id,
-              domain: effectivePreparation.idea.brief.domain,
+              ventureSlug: preparation.idea.brief.id,
+              domain: preparation.idea.brief.domain,
             },
             credentialBroker,
           );
@@ -2141,103 +3003,215 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
             }
           }
           saveCredentialCatalog(credentialCatalog, catalogPath);
-        }
-      }
+          writableTargetsRegistered = true;
 
-      const authorization =
-        effectivePreparation.idea.brief.app_kind !== "web" &&
-        effectivePreparation.idea.brief.app_kind !== "hybrid"
-          ? "mobile-testflight"
-          : effectivePreparation.idea.brief.monetization_model === "none"
-            ? "standard-launch"
-            : "live-commerce-launch";
-      const runId = transaction.runId;
-      if (!workflow) {
-        const childServices = createDefaultCliServices(childOptions(childRoot));
-        if (!childServices.launch) throw new Error("Founder child launch service is unavailable");
-        try {
-          workflow = (await childServices.launch({
-            mode: "apply",
-            authorization,
-            runId,
-            json: true,
-            launchGrant: effectivePreparation.launchGrant,
-            ...(pendingFounderGrantRenewal ? { pendingFounderGrantRenewal: true as const } : {}),
-          })) as unknown as WorkflowRunState;
-        } catch (error) {
-          if (childStore.exists(runId)) {
-            const persisted = childStore.load(runId);
-            const persistedStatus: FounderLaunchTransaction["status"] =
-              persisted.status === "succeeded"
-                ? "succeeded"
-                : persisted.status === "waiting"
-                  ? "waiting_external_action"
-                  : ["failed", "cancelled", "superseded"].includes(persisted.status)
-                    ? "failed"
-                    : "launch_pending";
-            transaction = {
-              ...transaction,
-              status: persistedStatus,
-              updatedAt: new Date(
-                Math.max(Date.parse(transaction.updatedAt), now().getTime()),
-              ).toISOString(),
-            };
-            saveFounderLaunchTransaction(childRoot, transaction);
+          materialized = await materializeFounderVenture(preparation, stagingRoot);
+          const stagingIdentity = founderPathBoundary.captureDirectory(
+            stagingRoot,
+            "Founder venture staging directory",
+          );
+          const briefArtifact = ".venture/input/founder-brief.yaml";
+          writeYamlAtomic(inside(stagingRoot, briefArtifact), preparation.idea.brief);
+          const contractArtifact = preparation.idea.launchContract
+            ? "config/launch-contract.yaml"
+            : null;
+          if (preparation.idea.launchContract && contractArtifact) {
+            writeTextAtomic(
+              inside(stagingRoot, contractArtifact),
+              renderLaunchContractYaml(preparation.idea.launchContract),
+            );
+            writeTextAtomic(
+              inside(stagingRoot, "docs/product/PRODUCT_CONSTITUTION.md"),
+              renderProductConstitution(preparation.idea.launchContract),
+            );
+            writeTextAtomic(
+              inside(stagingRoot, "docs/product/idea.md"),
+              renderFounderIdea(preparation.idea.launchContract),
+            );
           }
-          throw error;
-        } finally {
-          for (const reference of credentialBroker.list()) {
-            credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
-          }
-          saveCredentialCatalog(credentialCatalog, catalogPath);
+          writeJsonAtomic(inside(stagingRoot, ".venture/founder-input.json"), {
+            schemaVersion: 1,
+            compiledAt: preparation.launchGrant.createdAt,
+            sourceHash: preparation.idea.sourceHash,
+            briefArtifact,
+            assumptions: preparation.idea.assumptionsAdded,
+            stackProfile: preparation.stackProfile,
+          });
+          writeJsonAtomic(
+            inside(stagingRoot, ".venture/launch-grant.json"),
+            preparation.launchGrant,
+          );
+          transaction = {
+            schemaVersion: 1,
+            status: "launch_pending",
+            sourceHash: preparation.idea.sourceHash,
+            stackProfile: preparation.stackProfile,
+            stackConnectionHash,
+            grantId: preparation.launchGrant.grantId,
+            runId: `launch-${preparation.idea.brief.id}-${preparation.launchGrant.grantId.slice(3, 15)}`,
+            planDigest: preparation.materialization.planDigest,
+            createdAt: preparation.launchGrant.createdAt,
+            updatedAt: now().toISOString(),
+          };
+          saveFounderLaunchTransaction(stagingRoot, transaction);
+          const stagingServices = createDefaultCliServices(childOptions(stagingRoot));
+          if (!stagingServices.create)
+            throw new Error("Founder child create service is unavailable");
+          await stagingServices.create({ brief: contractArtifact ?? briefArtifact, json: true });
+          configureFounderProviderTargets(stagingRoot, connection, preparation);
+          configureFounderOffer(stagingRoot, preparation);
+          mkdirSync(dirname(childRoot), { recursive: true, mode: 0o700 });
+          resolveVentureOutputWithinRoot(
+            canonicalVenturesRoot,
+            relative(canonicalVenturesRoot, childRoot),
+          );
+          resolveVentureOutputWithinRoot(
+            canonicalVenturesRoot,
+            relative(canonicalVenturesRoot, stagingRoot),
+          );
+          options.pathSecurityHook?.("before-founder-staging-rename", childRoot);
+          childIdentity = founderPathBoundary.renameDirectory(
+            stagingRoot,
+            childRoot,
+            stagingIdentity,
+            "Founder venture staging commit",
+          );
         }
-      }
 
-      const transactionStatus: FounderLaunchTransaction["status"] =
-        workflow.status === "succeeded"
-          ? "succeeded"
-          : workflow.status === "waiting"
-            ? "waiting_external_action"
-            : ["failed", "cancelled", "superseded"].includes(workflow.status)
-              ? "failed"
-              : "launch_pending";
-      transaction = {
-        ...transaction,
-        status: transactionStatus,
-        updatedAt: new Date(
-          Math.max(Date.parse(transaction.updatedAt), now().getTime()),
-        ).toISOString(),
-      };
-      saveFounderLaunchTransaction(childRoot, transaction);
-      const status = workflow.status === "waiting" ? "waiting_external_action" : workflow.status;
-      const nextAction =
-        workflow.status === "waiting"
-          ? `From ${childRoot}, run vh resume ${runId} with the exact evidence or renewed authorization shown in the launch report.`
-          : workflow.status === "succeeded"
-            ? `Read reports/launch/${runId}/final.md inside ${childRoot}.`
-            : `From ${childRoot}, inspect vh status ${runId} and the launch report before retrying.`;
-      return publicFounderPreparation(effectivePreparation, {
-        status,
-        childRoot,
-        runId,
-        workflowStatus: workflow.status,
-        materialized: {
-          status: materialized.status,
-          planDigest: materialized.planDigest,
-          fileCount: materialized.files.length,
-        },
-        launchReport: {
-          json: `reports/launch/${runId}/final.json`,
-          markdown: `reports/launch/${runId}/final.md`,
-        },
-        externalEffectsOccurred: Object.keys(workflow.verifiedEffects).length > 0,
-        nextAction,
-      });
+        if (!workflow) {
+          founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          if (!options.launchBindings && !buildHostPreflighted) {
+            await assertFounderBuildAgentHostPolicy(
+              buildAgentHost,
+              effectivePreparation.launchGrant,
+            );
+          }
+          if (!writableTargetsRegistered) {
+            const registeredTargets = await registerFounderStackWritableCredentialRefs(
+              connection,
+              {
+                ventureSlug: effectivePreparation.idea.brief.id,
+                domain: effectivePreparation.idea.brief.domain,
+              },
+              credentialBroker,
+            );
+            for (const target of registeredTargets.inspections) {
+              const reference = credentialBroker.getReference(target.ref);
+              if (reference) {
+                credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+              }
+            }
+            saveCredentialCatalog(credentialCatalog, catalogPath);
+          }
+        }
+
+        const authorization =
+          effectivePreparation.idea.brief.app_kind !== "web" &&
+          effectivePreparation.idea.brief.app_kind !== "hybrid"
+            ? "mobile-testflight"
+            : effectivePreparation.graphDryRun.decision.payment.provider === "none"
+              ? "standard-launch"
+              : "live-commerce-launch";
+        const runId = transaction.runId;
+        if (!workflow) {
+          founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          const childServices = createDefaultCliServices(childOptions(childRoot));
+          if (!childServices.launch) throw new Error("Founder child launch service is unavailable");
+          try {
+            workflow = (await childServices.launch({
+              mode: "apply",
+              authorization,
+              runId,
+              json: true,
+              launchGrant: effectivePreparation.launchGrant,
+              founderLaunchGaps: effectivePreparation.launchGaps,
+              ...(pendingFounderGrantRenewal ? { pendingFounderGrantRenewal: true as const } : {}),
+            })) as unknown as WorkflowRunState;
+          } catch (error) {
+            if (childStore.exists(runId)) {
+              const persisted = childStore.load(runId);
+              const persistedStatus: FounderLaunchTransaction["status"] =
+                persisted.status === "succeeded"
+                  ? "succeeded"
+                  : persisted.status === "waiting"
+                    ? "waiting_external_action"
+                    : ["failed", "cancelled", "superseded"].includes(persisted.status)
+                      ? "failed"
+                      : "launch_pending";
+              transaction = {
+                ...transaction,
+                status: persistedStatus,
+                updatedAt: new Date(
+                  Math.max(Date.parse(transaction.updatedAt), now().getTime()),
+                ).toISOString(),
+              };
+              saveFounderLaunchTransaction(childRoot, transaction);
+            }
+            throw error;
+          } finally {
+            for (const reference of credentialBroker.list()) {
+              credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+            }
+            saveCredentialCatalog(credentialCatalog, catalogPath);
+          }
+        }
+
+        const transactionStatus: FounderLaunchTransaction["status"] =
+          workflow.status === "succeeded"
+            ? "succeeded"
+            : workflow.status === "waiting"
+              ? "waiting_external_action"
+              : ["failed", "cancelled", "superseded"].includes(workflow.status)
+                ? "failed"
+                : "launch_pending";
+        transaction = {
+          ...transaction,
+          status: transactionStatus,
+          updatedAt: new Date(
+            Math.max(Date.parse(transaction.updatedAt), now().getTime()),
+          ).toISOString(),
+        };
+        founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+        saveFounderLaunchTransaction(childRoot, transaction);
+        const status = workflow.status === "waiting" ? "waiting_external_action" : workflow.status;
+        const nextAction =
+          workflow.status === "waiting"
+            ? `From ${childRoot}, run vh resume ${runId} with the exact evidence or renewed authorization shown in the launch report.`
+            : workflow.status === "succeeded"
+              ? `Read reports/launch/${runId}/final.md inside ${childRoot}.`
+              : `From ${childRoot}, inspect vh status ${runId} and the launch report before retrying.`;
+        return publicFounderPreparation(effectivePreparation, {
+          status,
+          childRoot,
+          runId,
+          workflowStatus: workflow.status,
+          materialized: {
+            status: materialized.status,
+            planDigest: materialized.planDigest,
+            fileCount: materialized.files.length,
+          },
+          launchReport: {
+            json: `reports/launch/${runId}/final.json`,
+            markdown: `reports/launch/${runId}/final.md`,
+          },
+          launchReceipt: {
+            json: `reports/launch/${runId}/receipt.json`,
+            markdown: `reports/launch/${runId}/receipt.md`,
+          },
+          externalEffectsOccurred: Object.keys(workflow.verifiedEffects).length > 0,
+          nextAction,
+        });
+      } finally {
+        founderPathBoundary?.release();
+      }
     },
     create(request) {
       const source = isAbsolute(request.brief) ? request.brief : resolve(root, request.brief);
-      const brief = founderBriefSchema.parse(readStructured(source));
-      const decision = routeLaunch(brief);
+      const compiledIdea = compileFounderIdea(readFileSync(source, "utf8"));
+      const brief = compiledIdea.brief;
+      const decision = compiledIdea.launchContract
+        ? launchDecisionFromContract(compiledIdea.launchContract)
+        : routeLaunch(brief);
       const activeEventPacks = eventPacksFor(brief, decision);
       const existing = existsSync(projectPath(root)) ? loadProject(root) : null;
       if (existing && existing.brief.id !== brief.id) {
@@ -2253,6 +3227,12 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         activeEventPacks,
         synchronizedAt,
       );
+      const canonicalArtifacts = compiledIdea.launchContract
+        ? persistCanonicalLaunchContract(root, compiledIdea.launchContract)
+        : [];
+      const contractDigest = compiledIdea.launchContract
+        ? launchContractDigest(compiledIdea.launchContract)
+        : undefined;
       const state: ProjectState = {
         schemaVersion: 2,
         createdAt: existing?.createdAt ?? synchronizedAt.toISOString(),
@@ -2260,12 +3240,14 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         decision,
         activeEventPacks,
         routerVersion: LAUNCH_ROUTER_VERSION,
+        ...(compiledIdea.launchContract ? { launchContract: compiledIdea.launchContract } : {}),
+        ...(contractDigest ? { launchContractDigest: contractDigest } : {}),
       };
       writeJsonAtomic(projectPath(root), state);
       return {
         status: "created",
         projectState: ".venture/project.json",
-        updatedContracts,
+        updatedContracts: [...updatedContracts, ...canonicalArtifacts],
         briefId: brief.id,
         synthetic: brief.synthetic ?? false,
         selectedMode: decision.mode.selectedMode,
@@ -2277,19 +3259,21 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       } as unknown as JsonValue;
     },
     plan(request) {
-      const brief = request.brief
-        ? founderBriefSchema.parse(
-            readStructured(
-              isAbsolute(request.brief) ? request.brief : resolve(root, request.brief),
-            ),
-          )
-        : loadProject(root).brief;
-      return compileLaunchDryRun(brief) as unknown as JsonValue;
+      if (request.brief) {
+        const source = isAbsolute(request.brief) ? request.brief : resolve(root, request.brief);
+        const idea = compileFounderIdea(readFileSync(source, "utf8"));
+        return compileLaunchDryRun(
+          idea.brief,
+          idea.launchContract ? launchDecisionFromContract(idea.launchContract) : undefined,
+        ) as unknown as JsonValue;
+      }
+      const project = loadProject(root);
+      return compileLaunchDryRun(project.brief, project.decision) as unknown as JsonValue;
     },
     async launch(request) {
       const project = loadProject(root);
       const brief = project.brief;
-      const dryRun = compileLaunchDryRun(brief);
+      const dryRun = compileLaunchDryRun(brief, project.decision);
       if (request.mode === "dry-run") return dryRun as unknown as JsonValue;
       const runId = request.runId ?? generatedRunId(brief, now());
       if (store.exists(runId)) {
@@ -2330,6 +3314,8 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         ? assertLaunchGrantBindsGraph({
             grant: request.launchGrant,
             brief,
+            decision: project.decision,
+            ...(project.launchContract ? { launchContract: project.launchContract } : {}),
             definition,
             providers,
             at: launchAt,
@@ -2341,7 +3327,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         const expectedProfile =
           brief.app_kind !== "web" && brief.app_kind !== "hybrid"
             ? "mobile_testflight"
-            : brief.monetization_model === "none"
+            : project.decision.payment.provider === "none"
               ? "standard_launch"
               : "live_commerce_launch";
         if (request.authorization!.replaceAll("-", "_") !== expectedProfile) {
@@ -2378,6 +3364,11 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         definition,
         authorization,
         ...(launchGrant ? { launchGrant } : {}),
+        ...(request.founderLaunchGaps ? { founderLaunchGaps: request.founderLaunchGaps } : {}),
+        ...(project.launchContract ? { launchContract: project.launchContract } : {}),
+        ...(project.launchContractDigest
+          ? { launchContractDigest: project.launchContractDigest }
+          : {}),
       };
       if (launchGrant && request.pendingFounderGrantRenewal && pendingFounderTransaction) {
         const authorizationDigest = sha256Json(authorization);
@@ -2430,6 +3421,8 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           assertLaunchGrantBindsGraph({
             grant: launch.launchGrant,
             brief: launch.brief,
+            decision: launch.decision,
+            ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
             definition: launch.definition,
             providers,
             at: renewedAt,
@@ -2548,6 +3541,50 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       return state;
     },
     async stack(request) {
+      if (request.action === "connect") {
+        if (!request.connection) {
+          throw new Error("vh stack connect founder-default requires a credential-free draft");
+        }
+        const connection = mergeFounderStackRoleRepair(
+          founderStackStore.load(request.profileId),
+          request.connection,
+          request,
+        );
+        validateFounderStackCredentialWrites(request, connection);
+        for (const pending of request.credentialWrites ?? []) {
+          if (pending.backend !== "macos_keychain" && pending.backend !== "onepassword") {
+            throw new Error("Stack credential writes require macos_keychain or onepassword");
+          }
+          const value = await pending.readValue();
+          if (!value) throw new Error(`No credential value was entered for ${pending.provider}`);
+          const reference = await credentialBroker.store({
+            ref: pending.reference,
+            provider: pending.provider,
+            kind: pending.kind,
+            backend: pending.backend,
+            scopes: pending.scopes,
+            ...(pending.accountId ? { accountId: pending.accountId } : {}),
+            value,
+          });
+          credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+          // A successful durable secret write must never be left without its
+          // credential-free catalog reference if a later role fails.
+          saveCredentialCatalog(credentialCatalog, catalogPath);
+        }
+        const saved = founderStackStore.save(connection);
+        for (const registration of founderStackCliSessionCredentialRegistrations(saved)) {
+          const reference = credentialBroker.register(registration);
+          credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+        }
+        saveCredentialCatalog(credentialCatalog, catalogPath);
+        await testFounderStackCredentials(saved);
+        return (await doctorFounderStackConnection({
+          connection: saved,
+          context: { ...effectiveProviderContext, authorization: "dry_run" },
+          registry: effectiveProviderRegistry,
+          now,
+        })) as unknown as JsonValue;
+      }
       if (request.action === "create") {
         if (!request.file) {
           throw new Error("vh stack create founder-default requires --file <connection.json>");
@@ -2579,7 +3616,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     },
     doctor: async () => {
       const project = existsSync(projectPath(root)) ? loadProject(root) : null;
-      const definition = project ? compileLaunchGraph(project.brief) : null;
+      const definition = project ? compileLaunchGraph(project.brief, project.decision) : null;
       const providerInspection = await inspectDefaultProviderDoctor({
         rootDir: root,
         broker: credentialBroker,
@@ -2646,7 +3683,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
               return {
                 ref: reference.ref,
                 mode: "remote_tester",
-                result: await credentialBroker.test(reference.ref, tester),
+                result: await testCredential(reference.ref, reference.provider, tester),
               };
             }
             return {
@@ -2660,6 +3697,14 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
             };
           }),
         );
+        const allPassed =
+          tested.length > 0 &&
+          tested.every(({ mode, result }) => {
+            const outcome = result as { ok?: unknown; status?: unknown };
+            return mode === "remote_tester"
+              ? outcome.ok === true
+              : mode === "official_cli_read" && outcome.status === "available";
+          });
         const adapter = provider
           ? effectiveProviderRegistry.list().find((item) => item.descriptor.id === provider)
           : undefined;
@@ -2677,7 +3722,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           ),
         };
         saveCredentialCatalog(credentialCatalog, catalogPath);
-        return { tested, providerDoctor, valuesExposed: false } as unknown as JsonValue;
+        return { tested, allPassed, providerDoctor, valuesExposed: false } as unknown as JsonValue;
       }
       if (action === "revoke") {
         if (!provider) throw new Error("vh auth revoke requires a provider.");
@@ -2727,7 +3772,9 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         request.backend ??
         (["github", "vercel", "eas"].includes(provider) && supportsInteractiveCliAuth(provider)
           ? "cli_session"
-          : "environment");
+          : process.platform === "darwin"
+            ? "macos_keychain"
+            : "onepassword");
       if (!options.credentialBroker && !supportedBackends.has(backend)) {
         throw new Error(
           `Backend ${backend} is not available on this host. Choose: ${[...supportedBackends].sort().join(", ")}.`,
@@ -2743,14 +3790,31 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       };
       if (backend === "cli_session") {
         await (options.interactiveCliLogin ?? runInteractiveCliLogin)(provider);
+        credentialBroker.register(reference);
+      } else if (backend === "macos_keychain" || backend === "onepassword") {
+        if (!request.readValue) {
+          throw new Error(
+            `vh auth login ${provider} requires an interactive hidden prompt for backend ${backend}; rerun the same command in a terminal without --json.`,
+          );
+        }
+        const value = await request.readValue();
+        if (!value) throw new Error(`No credential value was entered for ${provider}.`);
+        await credentialBroker.store({ ...reference, value });
+      } else {
+        credentialBroker.register(reference);
       }
-      credentialBroker.register(reference);
-      credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+      const storedReference = credentialBroker.getReference(ref) ?? reference;
+      credentialCatalog = upsertCredentialReference(credentialCatalog, storedReference);
       saveCredentialCatalog(credentialCatalog, catalogPath);
-      references = [reference];
+      references = [storedReference];
       const inspection = await credentialBroker.inspect(ref);
       return {
-        status: inspection.status === "available" ? "authenticated" : "registered",
+        status:
+          inspection.status !== "available"
+            ? "registered"
+            : backend === "cli_session"
+              ? "authenticated"
+              : "credential_stored_not_tested",
         reference: inspection,
         valuesExposed: false,
         nextAction:

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { stringify } from "yaml";
@@ -10,6 +11,23 @@ import {
 
 const root = resolve(process.cwd());
 const existing = loadHarnessLock(join(root, "harness.lock"));
+const sourceFlag = process.argv.indexOf("--source-commit");
+const sourceCommit =
+  (sourceFlag >= 0 ? process.argv[sourceFlag + 1] : undefined) ??
+  process.env.VH_REVIEWED_SOURCE_SHA;
+if (!sourceCommit || !/^[a-f0-9]{40}$/u.test(sourceCommit)) {
+  throw new Error(
+    "lock:refresh requires --source-commit <reviewed 40-character SHA>; founder-alpha must not claim an unpublished stable release",
+  );
+}
+const resolvedSource = execFileSync("git", ["rev-parse", "--verify", `${sourceCommit}^{commit}`], {
+  cwd: root,
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "pipe"],
+}).trim();
+if (resolvedSource !== sourceCommit) {
+  throw new Error(`Reviewed source commit did not resolve exactly to ${sourceCommit}`);
+}
 const roots: Array<{ path: string; ownership: "harness" | "generated" }> = [
   { path: ".github", ownership: "harness" },
   { path: "bin", ownership: "harness" },
@@ -64,7 +82,7 @@ const managed = [
 
 const lock = harnessLockSchema.parse({
   ...existing,
-  source: { kind: "release", ref: `v${existing.harness_version}` },
+  source: { kind: "local", ref: sourceCommit },
   managed_files: managed,
 });
 writeFileSync(

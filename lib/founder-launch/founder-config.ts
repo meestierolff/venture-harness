@@ -59,7 +59,10 @@ export function saveFounderConfig(config: FounderConfig, path = defaultFounderCo
 
 function contains(parent: string, child: string): boolean {
   const relation = relative(parent, child);
-  return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
+  return (
+    relation === "" ||
+    (relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation))
+  );
 }
 
 /**
@@ -138,6 +141,55 @@ export function venturePathWithin(venturesRoot: string, slug: string): string {
   const child = relative(venturesRoot, target);
   if (!child || child.startsWith("..") || child.includes(sep) || isAbsolute(child)) {
     throw new Error(`venture slug ${slug} does not name a direct child of the ventures root`);
+  }
+  return target;
+}
+
+/**
+ * Resolve one venture output beneath an already configured ventures root.
+ *
+ * Lexical containment is not sufficient here: an existing symlink anywhere in
+ * the requested path could otherwise redirect materialization or continuation
+ * outside the configured root. Missing suffixes are allowed for a new venture,
+ * but every existing component must be a real directory that still resolves
+ * beneath the canonical root.
+ */
+export function resolveVentureOutputWithinRoot(venturesRoot: string, output: string): string {
+  const canonicalRoot = realpathSync(resolve(venturesRoot));
+  const target = resolve(canonicalRoot, output);
+  const child = relative(canonicalRoot, target);
+  if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+    throw new Error("Founder launch output escapes the configured ventures root");
+  }
+
+  let cursor = canonicalRoot;
+  const parts = child.split(sep);
+  for (const [index, part] of parts.entries()) {
+    cursor = join(cursor, part);
+    let metadata: ReturnType<typeof lstatSync>;
+    try {
+      metadata = lstatSync(cursor);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+      throw error;
+    }
+    if (metadata.isSymbolicLink()) {
+      throw new Error(
+        `Founder launch output must not traverse a symbolic link: ${cursor}. ` +
+          "Next: choose a real directory beneath the configured ventures root.",
+      );
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(
+        index === parts.length - 1
+          ? `Founder launch output must be a directory: ${cursor}`
+          : `Founder launch output parent must be a directory: ${cursor}`,
+      );
+    }
+    const canonicalCursor = realpathSync(cursor);
+    if (!contains(canonicalRoot, canonicalCursor)) {
+      throw new Error("Founder launch output resolves outside the configured ventures root");
+    }
   }
   return target;
 }

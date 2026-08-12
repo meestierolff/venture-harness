@@ -19,5 +19,12 @@ jobs:
           cache: pnpm
       - name: Install exact child dependencies
         run: pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false
-      - name: Verify child fast profile
-        run: pnpm verify:fast
+      - name: Install Chromium for the primary journey
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Verify child production-shaped MVP
+        env:
+          NEXT_PUBLIC_SITE_URL: https://child-ci.example.invalid
+          NEXT_PUBLIC_INDEXING_ENABLED: "true"
+          VERCEL: "1"
+          VERCEL_ENV: production
+        run: pnpm verify:mvp
