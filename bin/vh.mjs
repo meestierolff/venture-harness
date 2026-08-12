@@ -37104,7 +37104,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "83a5f748b0e4305ae0bbc6f6558466a8117cf60d" : void 0;
+  const workflowRefSha = true ? "da7bff2277f4c6dcceb86e77d0b74aa3f7851c1e" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(

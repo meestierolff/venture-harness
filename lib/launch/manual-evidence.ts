@@ -41,7 +41,11 @@ export const appleFirstAppRecordOutputSchema = z
     app_name: z.string().min(1).max(255),
     bundle_identifier: z
       .string()
-      .regex(/^[A-Za-z0-9]+(?:[.-][A-Za-z0-9-]+)+$/, "expected a reverse-DNS bundle ID"),
+      // Segments are alphanumeric and separators are "." or "-". The previous
+      // pattern allowed "-" in both the separator class and the segment class,
+      // so a run of dashes could be split many ways and the match backtracked
+      // catastrophically. This accepts the same identifiers unambiguously.
+      .regex(/^[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)+$/, "expected a reverse-DNS bundle ID"),
     sku: z.string().min(1).max(255),
     primary_language: z.string().regex(/^[a-z]{2}(?:-[A-Z]{2})?$/),
     apple_app_id: z.string().regex(/^\d{6,20}$/),

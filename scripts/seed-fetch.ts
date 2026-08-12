@@ -17,8 +17,8 @@
  * the seed's dependency contract changes.
  */
 import { createHash } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parse } from "yaml";
@@ -84,9 +84,9 @@ function preparationGrant(seed: SeedId): LaunchGrantInput {
 
 /** The store the root install actually recorded, so every consumer agrees. */
 export function rootStoreDirectory(root: string): string {
-  const modules = parse(
-    execFileSync("cat", [join(root, "node_modules/.modules.yaml")], { encoding: "utf8" }),
-  ) as { storeDir?: unknown };
+  const modules = parse(readFileSync(join(root, "node_modules/.modules.yaml"), "utf8")) as {
+    storeDir?: unknown;
+  };
   if (typeof modules.storeDir !== "string" || !modules.storeDir) {
     throw new Error(
       "No pnpm store was recorded by the root install. Next: run pnpm install --frozen-lockfile, then rerun pnpm seed:fetch.",

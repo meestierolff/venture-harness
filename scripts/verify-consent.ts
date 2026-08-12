@@ -79,7 +79,14 @@ const codeFiles = ["app", "components", "lib"]
   .filter((d) => existsSync(join(ROOT, d)))
   .flatMap((d) => walk(join(ROOT, d)))
   .filter((f) => /\.(ts|tsx)$/.test(f));
-const gaFiles = codeFiles.filter((f) => readText(f).includes(GA_HOST));
+// Match the host at a URL or attribute boundary rather than anywhere in the
+// text: a bare substring also matches a lookalike such as
+// "googletagmanager.com.example.test", which is a different origin.
+const GA_HOST_REFERENCE = new RegExp(
+  `(?:^|[/@."'\`])${GA_HOST.replace(/[.]/g, "\\.")}(?:[/:"'\`]|$)`,
+  "m",
+);
+const gaFiles = codeFiles.filter((f) => GA_HOST_REFERENCE.test(readText(f)));
 if (gaFiles.length === 1 && gaFiles[0] === "components/AnalyticsScripts.tsx") {
   const src = readText(gaFiles[0]);
   if (src.includes('consent !== "accepted"') || src.includes('consent === "accepted"'))
