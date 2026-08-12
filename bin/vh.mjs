@@ -6,8 +6,8 @@ var __export = (target, all) => {
 };
 
 // scripts/vh-bundle.ts
-import { realpathSync as realpathSync11 } from "node:fs";
-import { resolve as resolve26 } from "node:path";
+import { realpathSync as realpathSync15 } from "node:fs";
+import { resolve as resolve29 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // lib/workflow/errors.ts
@@ -4899,7 +4899,7 @@ var WorkflowExecutor = class {
       secrets: options.bindings?.secrets ?? []
     };
     this.now = options.now ?? (() => /* @__PURE__ */ new Date());
-    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve27) => setTimeout(resolve27, milliseconds)));
+    this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve30) => setTimeout(resolve30, milliseconds)));
   }
   create(definition2, options = {}) {
     validateWorkflow(definition2);
@@ -6037,13 +6037,15 @@ var WorkflowExecutor = class {
     return record3.workspace.path;
   }
   recordCost(state, record3, charge) {
-    if (!charge.category.trim() || !charge.unit.trim() || !Number.isFinite(charge.amount) || charge.amount < 0 || charge.inputTokens !== void 0 && (!Number.isInteger(charge.inputTokens) || charge.inputTokens < 0) || charge.outputTokens !== void 0 && (!Number.isInteger(charge.outputTokens) || charge.outputTokens < 0)) {
+    if (!charge.category.trim() || !charge.unit.trim() || charge.budgeted !== void 0 && typeof charge.budgeted !== "boolean" || !Number.isFinite(charge.amount) || charge.amount < 0 || charge.inputTokens !== void 0 && (!Number.isInteger(charge.inputTokens) || charge.inputTokens < 0) || charge.outputTokens !== void 0 && (!Number.isInteger(charge.outputTokens) || charge.outputTokens < 0)) {
       throw new WorkflowExecutionError(
         "COST_RECORD_INVALID",
         `Node "${record3.definition.id}" produced an invalid cost record.`
       );
     }
-    if (charge.amount === 0 && !charge.inputTokens && !charge.outputTokens) return;
+    if (charge.amount === 0 && charge.inputTokens === void 0 && charge.outputTokens === void 0) {
+      return;
+    }
     state.costs ??= [];
     record3.costEntries ??= [];
     const entryId = `${record3.definition.id}:${record3.attempts}:${record3.loopIterations ?? 0}:${state.costs.length + 1}`;
@@ -6058,6 +6060,7 @@ var WorkflowExecutor = class {
       loopIteration: (record3.loopIterations ?? 0) + 1,
       recordedAt: this.timestamp()
     };
+    if (charge.budgeted !== void 0) cost.budgeted = charge.budgeted;
     if (charge.inputTokens !== void 0) cost.inputTokens = charge.inputTokens;
     if (charge.outputTokens !== void 0) cost.outputTokens = charge.outputTokens;
     if (charge.tool !== void 0) cost.tool = charge.tool;
@@ -6067,6 +6070,10 @@ var WorkflowExecutor = class {
     }
     state.costs.push(cost);
     record3.costEntries.push(entryId);
+    if (charge.budgeted === false) {
+      this.record(state, "node_cost_recorded", record3.definition.id, cost);
+      return;
+    }
     record3.cost += charge.amount;
     state.budget.consumed[charge.category] = (state.budget.consumed[charge.category] ?? 0) + charge.amount;
     this.record(state, "node_cost_recorded", record3.definition.id, cost);
@@ -6868,7 +6875,9 @@ var WorkflowExecutor = class {
 import {
   appendFileSync,
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -6880,6 +6889,31 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 var RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+var NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+function openRegularFile(path, flags, label) {
+  let descriptor2;
+  try {
+    descriptor2 = openSync(path, flags | NO_FOLLOW);
+    if (!fstatSync(descriptor2).isFile()) {
+      throw new Error(`${label} must be a regular non-symlink file.`);
+    }
+    return descriptor2;
+  } catch (error) {
+    if (descriptor2 !== void 0) closeSync(descriptor2);
+    if (error.code === "ELOOP") {
+      throw new Error(`${label} must be a regular non-symlink file.`);
+    }
+    throw error;
+  }
+}
+function readRegularFile(path, label) {
+  const descriptor2 = openRegularFile(path, constants.O_RDONLY, label);
+  try {
+    return readFileSync(descriptor2, "utf8");
+  } finally {
+    closeSync(descriptor2);
+  }
+}
 var FileWorkflowStore = class {
   rootDir;
   secrets;
@@ -6906,8 +6940,16 @@ var FileWorkflowStore = class {
   load(runId2) {
     this.assertRunId(runId2);
     const path = this.statePath(runId2);
-    if (!existsSync(path)) throw new WorkflowRunNotFoundError(runId2);
-    const state = JSON.parse(readFileSync(path, "utf8"));
+    let raw;
+    try {
+      raw = readRegularFile(path, `Workflow state for run "${runId2}"`);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new WorkflowRunNotFoundError(runId2);
+      }
+      throw error;
+    }
+    const state = JSON.parse(raw);
     if (state.pendingEvent) {
       const pending = state.pendingEvent;
       const existing = this.readEvents(runId2).find(({ sequence }) => sequence === pending.sequence);
@@ -6929,7 +6971,6 @@ var FileWorkflowStore = class {
   appendEvent(event) {
     this.assertRunId(event.runId);
     const path = this.eventsPath(event.runId);
-    if (!existsSync(path)) throw new WorkflowRunNotFoundError(event.runId);
     const expectedSequence = this.lastSequence(event.runId) + 1;
     if (event.sequence !== expectedSequence) {
       throw new Error(
@@ -6937,7 +6978,19 @@ var FileWorkflowStore = class {
       );
     }
     const sanitized = sanitizeJson(event, this.secrets);
-    const descriptor2 = openSync(path, "a", 384);
+    let descriptor2;
+    try {
+      descriptor2 = openRegularFile(
+        path,
+        constants.O_WRONLY | constants.O_APPEND,
+        `Workflow event log for run "${event.runId}"`
+      );
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new WorkflowRunNotFoundError(event.runId);
+      }
+      throw error;
+    }
     try {
       appendFileSync(descriptor2, `${JSON.stringify(sanitized)}
 `, { encoding: "utf8" });
@@ -6969,8 +7022,16 @@ var FileWorkflowStore = class {
   readEvents(runId2) {
     this.assertRunId(runId2);
     const path = this.eventsPath(runId2);
-    if (!existsSync(path)) throw new WorkflowRunNotFoundError(runId2);
-    const events = readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    let raw;
+    try {
+      raw = readRegularFile(path, `Workflow event log for run "${runId2}"`);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new WorkflowRunNotFoundError(runId2);
+      }
+      throw error;
+    }
+    const events = raw.split("\n").filter(Boolean).map((line) => JSON.parse(line));
     for (const [index, event] of events.entries()) {
       if (event.runId !== runId2 || event.sequence !== index + 1) {
         throw new Error(`Workflow event log for run "${runId2}" is corrupt at line ${index + 1}.`);
@@ -7083,9 +7144,18 @@ var FileWorkflowStore = class {
 };
 
 // lib/cli/default-services.ts
-import { createHash as createHash17 } from "node:crypto";
-import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync14, renameSync as renameSync6, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname11, isAbsolute as isAbsolute6, relative as relative13, resolve as resolve21, sep as sep13 } from "node:path";
+import { createHash as createHash18 } from "node:crypto";
+import {
+  existsSync as existsSync13,
+  lstatSync as lstatSync9,
+  mkdirSync as mkdirSync10,
+  readFileSync as readFileSync17,
+  realpathSync as realpathSync10,
+  renameSync as renameSync8,
+  writeFileSync as writeFileSync10
+} from "node:fs";
+import { dirname as dirname12, isAbsolute as isAbsolute7, relative as relative15, resolve as resolve24, sep as sep15 } from "node:path";
+import { isIP as isIP3 } from "node:net";
 import { isDeepStrictEqual as isDeepStrictEqual2 } from "node:util";
 import { parse as parse7, stringify as stringify6 } from "yaml";
 
@@ -8709,6 +8779,11 @@ var outcomeSchema = external_exports.object({
   statement: external_exports.string().min(1).nullable(),
   success_signal: external_exports.string().min(1).nullable()
 }).strict();
+var optionalValidationStrategySchema = legacyVentureSchema.shape.validation.extend({
+  minimum_days: external_exports.number().int().min(1).nullable(),
+  target_days: external_exports.number().int().min(1).nullable(),
+  maximum_days: external_exports.number().int().min(1).nullable()
+});
 var ventureV02Schema = external_exports.object({
   venture: external_exports.object({
     name: external_exports.string().nullable(),
@@ -8781,7 +8856,7 @@ var ventureV02Schema = external_exports.object({
   }).passthrough(),
   // Kept as an optional strategy for validate_first and as a compatibility
   // surface for v0.1 tooling. It is no longer a universal launch gate.
-  validation: legacyVentureSchema.shape.validation,
+  validation: optionalValidationStrategySchema,
   // Deprecated compatibility view. Provider lifecycle state lives in
   // config/providers.yaml; this record is retained until downstream scripts migrate.
   infrastructure: external_exports.record(external_exports.boolean()),
@@ -8813,12 +8888,13 @@ var offerSchema = external_exports.object({
     currency: external_exports.string(),
     monthly_price: external_exports.number().nullable(),
     annual_price: external_exports.number().nullable(),
+    one_time_price: external_exports.number().nullable(),
     implementation_fee: external_exports.number().nullable()
   }).passthrough(),
   economics: external_exports.object({
     cac_assumption: external_exports.number().nullable(),
     delivery_cost_monthly: external_exports.number().nullable(),
-    payback_target_days: external_exports.number()
+    payback_target_days: external_exports.number().nullable()
   }).passthrough()
 }).passthrough();
 var experimentVariantSchema = external_exports.object({
@@ -8885,10 +8961,16 @@ var analyticsSchema = external_exports.object({
   events: external_exports.record(analyticsEventSchema)
 }).passthrough();
 var qualityGapSchema = external_exports.object({
+  origin: external_exports.enum(["external", "implementation"]).optional(),
   why: external_exports.string().min(10),
   missing: external_exports.string().min(10),
   exact_command: external_exports.string().min(3),
-  expected_evidence: external_exports.string().min(10)
+  expected_evidence: external_exports.string().min(10),
+  provider: external_exports.string().min(2).optional(),
+  account_scope: external_exports.string().min(10).optional(),
+  impact: external_exports.string().min(10).optional(),
+  vercel_url_availability: external_exports.string().min(10).optional(),
+  resume_command: external_exports.string().min(3).optional()
 }).strict();
 var qualityCheckSchema = external_exports.object({
   kind: external_exports.enum([
@@ -8906,7 +8988,12 @@ var qualityCheckSchema = external_exports.object({
   command: external_exports.union([external_exports.string().min(1), external_exports.array(external_exports.string().min(1)).min(1)]).optional(),
   when_paths: external_exports.array(external_exports.string().min(1)).min(1).optional(),
   provider: external_exports.string().min(1).optional(),
-  gap: qualityGapSchema.optional()
+  gap: qualityGapSchema.optional(),
+  readback: external_exports.object({
+    bundle_manifest: external_exports.string().min(1),
+    required_providers: external_exports.array(external_exports.string().min(1)).min(1),
+    required_receipt_states: external_exports.array(external_exports.string().min(1)).min(1)
+  }).strict().optional()
 }).strict().superRefine((value, ctx) => {
   if (["manual", "provider_readback"].includes(value.kind) && !value.gap) {
     ctx.addIssue({
@@ -8921,6 +9008,37 @@ var qualityCheckSchema = external_exports.object({
       path: ["provider"],
       message: "provider_readback checks require a provider"
     });
+  }
+  if (value.kind === "provider_readback") {
+    if (value.gap?.origin !== "external") {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["gap", "origin"],
+        message: "provider_readback gaps must explicitly identify an external origin"
+      });
+    }
+    if (!value.readback) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["readback"],
+        message: "provider_readback checks require a sanitized artifact parser contract"
+      });
+    }
+    for (const field of [
+      "provider",
+      "account_scope",
+      "impact",
+      "vercel_url_availability",
+      "resume_command"
+    ]) {
+      if (!value.gap?.[field]) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["gap", field],
+          message: `provider_readback gaps require ${field}`
+        });
+      }
+    }
   }
 });
 var qualityProfileSchema = external_exports.object({
@@ -9151,20 +9269,13 @@ var MacOSKeychainCredentialBackend = class {
     return result2.stdout.replace(/\r?\n$/, "");
   }
   async set(reference, value) {
-    const args = [
-      "add-generic-password",
-      "-U",
-      "-s",
-      this.service,
-      "-a",
-      reference.ref,
-      "-w",
-      value
-    ];
+    const args = ["add-generic-password", "-U", "-s", this.service, "-a", reference.ref, "-w"];
     const result2 = await runDirect(this.runner, {
       command: this.binary,
       args,
-      sensitiveArgs: [args.length - 1]
+      stdin: `${value}
+`,
+      sensitiveStdin: true
     });
     if (result2.exitCode !== 0) throw commandFailure(this.id, "store", result2);
   }
@@ -9230,13 +9341,34 @@ var OnePasswordCredentialBackend = class {
     return result2.stdout.replace(/\r?\n$/, "");
   }
   async set(reference, value) {
-    const assignment = `${this.field}=${value}`;
-    const args = ["item", "edit", this.itemForRef(reference.ref), ...this.vaultArgs(), assignment];
-    const result2 = await runDirect(this.runner, {
+    const item = this.itemForRef(reference.ref);
+    const template = `${JSON.stringify({
+      title: item,
+      category: "API_CREDENTIAL",
+      fields: [
+        {
+          id: this.field,
+          type: "CONCEALED",
+          label: this.field,
+          value
+        }
+      ]
+    })}
+`;
+    let result2 = await runDirect(this.runner, {
       command: this.binary,
-      args,
-      sensitiveArgs: [args.length - 1]
+      args: ["item", "edit", item, ...this.vaultArgs()],
+      stdin: template,
+      sensitiveStdin: true
     });
+    if (result2.exitCode === 1) {
+      result2 = await runDirect(this.runner, {
+        command: this.binary,
+        args: ["item", "create", "-", ...this.vaultArgs()],
+        stdin: template,
+        sensitiveStdin: true
+      });
+    }
     if (result2.exitCode !== 0) throw commandFailure(this.id, "store", result2);
   }
   async delete(reference) {
@@ -9377,6 +9509,12 @@ function publicReference(input) {
       "invalid_reference"
     );
   }
+  if (input.providerMode !== void 0 && input.testStatus !== "passed") {
+    throw new CredentialError(
+      `Credential provider mode requires passed remote-test evidence: ${input.ref}`,
+      "invalid_reference"
+    );
+  }
   for (const [field, value] of [
     ["testedAt", input.testedAt],
     ["revokedAt", input.revokedAt]
@@ -9399,6 +9537,7 @@ function publicReference(input) {
     expiresAt: input.expiresAt,
     testedAt: input.testedAt,
     testStatus: input.testStatus,
+    providerMode: input.providerMode,
     revokedAt: input.revokedAt
   };
 }
@@ -9503,6 +9642,7 @@ var CredentialBroker = class {
       ...current,
       testedAt,
       testStatus: result2.ok ? "passed" : "failed",
+      providerMode: result2.ok ? result2.providerMode : void 0,
       accountId: result2.ok ? result2.accountId ?? current.accountId : current.accountId,
       scopes: result2.ok && result2.scopes ? [...result2.scopes] : current.scopes,
       expiresAt: result2.ok ? result2.expiresAt ?? current.expiresAt : current.expiresAt
@@ -9592,6 +9732,12 @@ function parseReference(value) {
   if (input.testedAt === void 0 !== (input.testStatus === void 0)) {
     throw new Error(`credential ${input.ref} requires testedAt and testStatus together`);
   }
+  if (input.providerMode !== void 0 && input.providerMode !== "test" && input.providerMode !== "live") {
+    throw new Error(`credential ${input.ref} providerMode must be test or live`);
+  }
+  if (input.providerMode !== void 0 && input.testStatus !== "passed") {
+    throw new Error(`credential ${input.ref} providerMode requires passed remote-test evidence`);
+  }
   for (const timestamp2 of ["testedAt", "revokedAt"]) {
     if (typeof input[timestamp2] === "string" && Number.isNaN(Date.parse(input[timestamp2]))) {
       throw new Error(`credential ${input.ref} ${timestamp2} must be an ISO timestamp`);
@@ -9608,6 +9754,7 @@ function parseReference(value) {
     expiresAt: input.expiresAt,
     testedAt: input.testedAt,
     testStatus: input.testStatus,
+    providerMode: input.providerMode,
     revokedAt: input.revokedAt
   };
 }
@@ -9777,11 +9924,11 @@ function supportsInteractiveCliAuth(provider) {
 function runInteractiveCliLogin(provider) {
   const spec = CLI_AUTH_COMMANDS[provider]?.login;
   if (!spec) throw new Error(`No official interactive CLI login is registered for ${provider}.`);
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve30, reject) => {
     const child = spawn(spec.command, spec.args, { shell: false, stdio: "inherit" });
     child.once("error", reject);
     child.once("close", (code) => {
-      if (code === 0) resolve27();
+      if (code === 0) resolve30();
       else reject(new Error(`${provider} login exited with ${code ?? "unknown"}`));
     });
   });
@@ -9875,7 +10022,7 @@ var NodeCommandRunner = class {
         (entry) => entry[1] !== void 0
       )
     );
-    return new Promise((resolve27, reject) => {
+    return new Promise((resolve30, reject) => {
       const child = spawn2(invocation2.command, [...invocation2.args], {
         cwd: invocation2.cwd,
         env: environment,
@@ -9907,7 +10054,7 @@ var NodeCommandRunner = class {
           reject(new Error(`Command output exceeded ${this.maxOutputBytes} bytes`));
           return;
         }
-        resolve27({
+        resolve30({
           exitCode: code ?? (signal ? 1 : 0),
           stdout,
           stderr
@@ -10727,8 +10874,8 @@ function createReleaseLogConnector(options) {
 }
 
 // lib/founder-launch/idea.ts
-import { createHash as createHash5 } from "node:crypto";
-import { parse as parseYaml } from "yaml";
+import { createHash as createHash6 } from "node:crypto";
+import { parse as parseYaml2 } from "yaml";
 
 // lib/launch/types.ts
 var routingLevelSchema = external_exports.enum(["unknown", "low", "moderate", "high"]);
@@ -10973,8 +11120,8 @@ function routeLaunch(raw) {
 }
 
 // lib/launch/manual-evidence.ts
-import { existsSync as existsSync4, lstatSync, readFileSync as readFileSync5, realpathSync } from "node:fs";
-import { relative as relative2, resolve as resolve5, sep as sep2 } from "node:path";
+import { closeSync as closeSync3, constants as constants3, fstatSync as fstatSync3, openSync as openSync3, readFileSync as readFileSync6, realpathSync as realpathSync2 } from "node:fs";
+import { relative as relative3, resolve as resolve6, sep as sep3 } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 // lib/providers/adapter.ts
@@ -11301,6 +11448,19 @@ function encodeBody(spec) {
   }
   return { body: JSON.stringify(spec.body), contentType: "application/json" };
 }
+function credentialPreflightHasSafeOrigins(spec) {
+  if (!spec.credentialPreflight) return true;
+  try {
+    const target = new URL(spec.url);
+    if (target.protocol !== "https:" || target.username || target.password) return false;
+    return spec.credentialPreflight.requests.every(({ url }) => {
+      const preflight = new URL(url);
+      return preflight.protocol === "https:" && !preflight.username && !preflight.password && preflight.origin === target.origin;
+    });
+  } catch {
+    return false;
+  }
+}
 var HttpProviderTransport = class {
   constructor(fetcher, availability = async () => ({ available: true }), jwtSigner) {
     this.fetcher = fetcher;
@@ -11377,6 +11537,70 @@ var HttpProviderTransport = class {
           const parsed = new URL(url);
           parsed.searchParams.set(spec.auth.name ?? "apikey", secret);
           url = parsed.toString();
+        }
+      }
+      if (spec.credentialPreflight) {
+        if (!spec.auth || secret === void 0 || spec.credentialPreflight.requests.length === 0 || spec.credentialPreflight.requests.length > 4 || spec.credentialPreflight.requests.some(({ assertions }) => assertions.length === 0) || !credentialPreflightHasSafeOrigins(spec)) {
+          return {
+            status: "failed",
+            providerCode: "credential_preflight_invalid",
+            message: "Credential preflight is incomplete; the provider mutation was not sent",
+            retryable: false,
+            effectOutcome: "confirmed_no_write"
+          };
+        }
+        for (const preflight of spec.credentialPreflight.requests) {
+          let preflightUrl = preflight.url;
+          if (spec.auth.scheme === "api_key_query") {
+            const parsed = new URL(preflightUrl);
+            parsed.searchParams.set(spec.auth.name ?? "apikey", secret);
+            preflightUrl = parsed.toString();
+          }
+          let response2;
+          try {
+            response2 = await this.fetcher.fetch({
+              method: "GET",
+              url: preflightUrl,
+              headers: { ...headers },
+              sensitiveHeaders: [...sensitiveHeaders],
+              sensitiveUrl: spec.auth.scheme === "api_key_query",
+              signal: context2.signal
+            });
+          } catch (error) {
+            const decision2 = classifyProviderFailure({ networkError: true });
+            return {
+              status: "failed",
+              providerCode: decision2.classification,
+              message: context2.redactor.redactText(
+                error instanceof Error ? `Credential preflight was unavailable: ${error.message}` : "Credential preflight was unavailable"
+              ),
+              retryable: decision2.retryable,
+              effectOutcome: "confirmed_no_write"
+            };
+          }
+          if (response2.status < 200 || response2.status >= 300) {
+            const decision2 = classifyProviderFailure({
+              statusCode: response2.status,
+              retryAfter: response2.headers?.["retry-after"]
+            });
+            return {
+              status: "failed",
+              statusCode: response2.status,
+              providerCode: decision2.classification,
+              message: `Credential preflight returned HTTP ${response2.status}; the provider mutation was not sent`,
+              retryable: decision2.retryable,
+              effectOutcome: "confirmed_no_write"
+            };
+          }
+          if (!assertionsMatch(response2.body, preflight.assertions)) {
+            return {
+              status: "failed",
+              providerCode: "credential_preflight_mismatch",
+              message: "Credential preflight did not match the exact provider account and mode; the provider mutation was not sent",
+              retryable: false,
+              effectOutcome: "confirmed_no_write"
+            };
+          }
         }
       }
       if (spec.nativeIdempotency) {
@@ -11460,9 +11684,9 @@ var HttpProviderTransport = class {
         return {
           status: "succeeded",
           statusCode: response.status,
-          message: `${operation2.action} returned HTTP ${response.status}; read-back is still required`,
+          message: operation2.effectClass === "read" ? `${operation2.action} returned HTTP ${response.status}; no provider write was requested` : `${operation2.action} returned HTTP ${response.status}; read-back is still required`,
           output: output2,
-          effectOutcome: "confirmed_write"
+          effectOutcome: operation2.effectClass === "read" ? "confirmed_no_write" : "confirmed_write"
         };
       }
       const output = context2.redactor.redact(response.body);
@@ -11598,6 +11822,155 @@ function resultPath(input, path) {
     return value[part];
   }, input);
 }
+function deepContains2(actual, expected) {
+  if (canonicalJson(actual) === canonicalJson(expected)) return true;
+  if (Array.isArray(actual)) {
+    if (Array.isArray(expected)) {
+      return expected.every(
+        (expectedItem) => actual.some((actualItem) => deepContains2(actualItem, expectedItem))
+      );
+    }
+    return actual.some((item) => deepContains2(item, expected));
+  }
+  if (actual !== null && expected !== null && typeof actual === "object" && typeof expected === "object" && !Array.isArray(expected)) {
+    return Object.entries(expected).every(
+      ([key, value]) => deepContains2(actual[key], value)
+    );
+  }
+  if (typeof actual === "string" && typeof expected === "string") {
+    return actual.includes(expected);
+  }
+  return false;
+}
+function discoveryAssertionsMatch(value, assertions) {
+  return assertions.every(({ path, operator, expected }) => {
+    const actual = resultPath(value, path);
+    return operator === "equals" ? canonicalJson(actual) === canonicalJson(expected) : deepContains2(actual, expected);
+  });
+}
+async function discoverExistingResource(operation2, transport, context2) {
+  const discovery = operation2.existingResource;
+  if (!discovery) return null;
+  const lookupOperation = {
+    ...operation2,
+    action: `${operation2.action}.search_before_create`,
+    title: discovery.description,
+    effectClass: "read",
+    reversibility: "reversible",
+    command: discovery.command,
+    http: discovery.http,
+    manual: void 0,
+    existingResource: void 0,
+    readBack: void 0
+  };
+  let lookup2;
+  try {
+    lookup2 = await transport.execute(lookupOperation, {
+      credentials: context2.credentials,
+      redactor: context2.redactor,
+      signal: context2.signal
+    });
+  } catch (error) {
+    lookup2 = {
+      status: "failed",
+      providerCode: "transport_exception",
+      message: context2.redactor.redactText(error instanceof Error ? error.message : String(error)),
+      retryable: false,
+      effectOutcome: "confirmed_no_write"
+    };
+  }
+  lookup2 = context2.redactor.redact(lookup2);
+  if (lookup2.status !== "succeeded") {
+    return {
+      ...lookup2,
+      message: `Search-before-create failed: ${lookup2.message}`,
+      effectOutcome: "confirmed_no_write"
+    };
+  }
+  const candidates = resultPath(lookup2.output, discovery.candidatesPath);
+  if (!Array.isArray(candidates)) {
+    return {
+      status: "failed",
+      providerCode: "terminal_validation",
+      message: "Search-before-create returned no bounded candidate list",
+      retryable: false,
+      effectOutcome: "confirmed_no_write"
+    };
+  }
+  const identityMatches = candidates.filter(
+    (candidate) => discoveryAssertionsMatch(candidate, discovery.identityAssertions)
+  );
+  if (identityMatches.length > 1) {
+    return {
+      status: "failed",
+      providerCode: "existing_resource_ambiguous",
+      message: "Search-before-create found duplicate resources for one deterministic identity",
+      retryable: false,
+      effectOutcome: "confirmed_no_write"
+    };
+  }
+  if (identityMatches.length === 1) {
+    const candidate = identityMatches[0];
+    if (!discoveryAssertionsMatch(candidate, discovery.stateAssertions)) {
+      return {
+        status: "failed",
+        providerCode: "existing_resource_conflict",
+        message: "The deterministic provider resource exists with different reviewed state",
+        retryable: false,
+        effectOutcome: "confirmed_no_write"
+      };
+    }
+    if (discovery.reuseRequiresCredentialRef) {
+      if (!context2.credentials) {
+        return {
+          status: "failed",
+          providerCode: "existing_resource_credential_unavailable",
+          message: "The existing resource cannot be reused without its separately stored credential reference",
+          retryable: false,
+          effectOutcome: "confirmed_no_write"
+        };
+      }
+      try {
+        const inspection = await context2.credentials.inspect(discovery.reuseRequiresCredentialRef);
+        if (inspection.status !== "available") {
+          return {
+            status: "failed",
+            providerCode: "existing_resource_credential_unavailable",
+            message: "The existing resource was found, but its separately stored credential is unavailable",
+            retryable: false,
+            effectOutcome: "confirmed_no_write"
+          };
+        }
+      } catch {
+        return {
+          status: "failed",
+          providerCode: "existing_resource_credential_unavailable",
+          message: "The existing resource was found, but its credential reference cannot be inspected",
+          retryable: false,
+          effectOutcome: "confirmed_no_write"
+        };
+      }
+    }
+    return {
+      status: "succeeded",
+      message: "Reused the exact deterministic resource found before create",
+      output: candidate,
+      verified: false,
+      retryable: false,
+      effectOutcome: "confirmed_no_write"
+    };
+  }
+  if (discovery.hasMorePath && resultPath(lookup2.output, discovery.hasMorePath) === true) {
+    return {
+      status: "failed",
+      providerCode: "existing_resource_search_incomplete",
+      message: "Search-before-create was paginated before the deterministic identity could be ruled out",
+      retryable: false,
+      effectOutcome: "confirmed_no_write"
+    };
+  }
+  return null;
+}
 function interpolateDependencyString(value, operation2, planOperations, completed) {
   return value.replace(DEPENDENCY_RESULT, (placeholder, capability, path) => {
     const dependencies = planOperations.filter(
@@ -11666,6 +12039,15 @@ function executionState(plan, operations) {
 }
 function scopeMissing(actual, required) {
   return required.filter((scope) => !actual.includes(scope) && !actual.includes("*"));
+}
+function preflightUrlMatchesOperation(url, operationUrl) {
+  try {
+    const preflight = new URL(url);
+    const operation2 = new URL(operationUrl);
+    return preflight.protocol === "https:" && !preflight.username && !preflight.password && operation2.protocol === "https:" && !operation2.username && !operation2.password && preflight.origin === operation2.origin;
+  } catch {
+    return false;
+  }
 }
 var DeclarativeProviderAdapter = class {
   constructor(descriptor2, buildPlan2) {
@@ -11855,6 +12237,33 @@ var DeclarativeProviderAdapter = class {
           "invalid_plan"
         );
       }
+      if (operation2.existingResource) {
+        const discovery = operation2.existingResource;
+        const discoverySpecCount = [discovery.command, discovery.http].filter(Boolean).length;
+        if (discoverySpecCount !== 1 || discovery.transport !== operation2.transport || discovery.http !== void 0 && discovery.http.method !== "GET" || discovery.identityAssertions.length === 0 || discovery.stateAssertions.length === 0) {
+          throw new ProviderPlanError(
+            `Operation ${operation2.id} has an invalid search-before-create declaration`,
+            "invalid_plan"
+          );
+        }
+      }
+      if (operation2.http?.credentialPreflight) {
+        const preflight = operation2.http.credentialPreflight;
+        if (operation2.http.method === "GET" || !operation2.http.auth || preflight.requests.length === 0 || preflight.requests.length > 4 || preflight.requests.some(
+          ({ url, assertions }) => !preflightUrlMatchesOperation(url, operation2.http.url) || assertions.length === 0
+        )) {
+          throw new ProviderPlanError(
+            `Operation ${operation2.id} has an invalid same-credential preflight declaration`,
+            "invalid_plan"
+          );
+        }
+      }
+      if (this.descriptor.id === "stripe" && operation2.http && operation2.http.method !== "GET" && !operation2.http.credentialPreflight) {
+        throw new ProviderPlanError(
+          `Stripe operation ${operation2.id} must prove the exact credential account and mode before mutation`,
+          "invalid_plan"
+        );
+      }
     }
     return plan;
   }
@@ -11876,7 +12285,7 @@ var DeclarativeProviderAdapter = class {
     }
     if (!dryRun) {
       for (const operation2 of plan.operations) {
-        const capture2 = operation2.command?.captureCredential;
+        const capture2 = operation2.command?.captureCredential ?? operation2.http?.captureCredential;
         if (!capture2) continue;
         if (!context2.credentials) {
           throw new ProviderPlanError(
@@ -11996,6 +12405,20 @@ var DeclarativeProviderAdapter = class {
         );
         results.push({ operation: operation2, result: result3, reused: true });
         completed.set(operation2.id, result3);
+        continue;
+      }
+      const existing = await discoverExistingResource(operation2, transport, context2);
+      if (existing) {
+        const settlement2 = existing.status === "succeeded" ? "succeeded" : "definitive_no_write";
+        await context2.idempotencyLedger?.settle(
+          operation2.idempotencyKey,
+          operationRequestHash,
+          settlement2,
+          existing,
+          replay
+        );
+        results.push({ operation: operation2, result: existing, reused: existing.status === "succeeded" });
+        completed.set(operation2.id, existing);
         continue;
       }
       let result2;
@@ -12234,7 +12657,21 @@ var DeclarativeProviderAdapter = class {
     return transport;
   }
   async reconcileUnknownOutcome(operation2, transport, prior, context2) {
+    let discoveryFailure = null;
     try {
+      if (operation2.existingResource) {
+        const discovered = await discoverExistingResource(operation2, transport, context2);
+        if (discovered?.status === "succeeded") {
+          return {
+            ...discovered,
+            message: `Unknown provider outcome reconciled by deterministic lookup: ${discovered.message}`,
+            retryable: false,
+            verified: true,
+            effectOutcome: "confirmed_write"
+          };
+        }
+        discoveryFailure = discovered;
+      }
       if (transport.reconcile) {
         const reconciliation = context2.redactor.redact(
           await transport.reconcile(operation2, {
@@ -12292,9 +12729,30 @@ var DeclarativeProviderAdapter = class {
         )
       );
     }
+    if (operation2.http?.nativeIdempotency === true && (!discoveryFailure || discoveryFailure.providerCode === "existing_resource_credential_unavailable")) {
+      try {
+        const retried = context2.redactor.redact(
+          await transport.execute(operation2, {
+            credentials: context2.credentials,
+            redactor: context2.redactor,
+            signal: context2.signal
+          })
+        );
+        if (retried.status === "succeeded") {
+          return {
+            ...retried,
+            message: `Unknown provider outcome recovered through the provider's native idempotency key: ${retried.message}`,
+            retryable: false,
+            verified: false,
+            effectOutcome: "confirmed_write"
+          };
+        }
+      } catch {
+      }
+    }
     return idempotencyFailure(
       "unknown_outcome_reconciliation_required",
-      "The prior provider write remains ambiguous; the write was not repeated"
+      discoveryFailure ? `The prior provider write remains ambiguous after bounded lookup: ${discoveryFailure.message}` : "The prior provider write remains ambiguous; the write was not repeated"
     );
   }
 };
@@ -12666,6 +13124,387 @@ var providerDescriptors = {
   })
 };
 
+// lib/security/owner-path-lock.ts
+import { randomBytes as randomBytes2 } from "node:crypto";
+import {
+  closeSync as closeSync2,
+  constants as constants2,
+  existsSync as existsSync4,
+  fchmodSync,
+  fstatSync as fstatSync2,
+  fsyncSync as fsyncSync2,
+  lstatSync,
+  mkdirSync as mkdirSync3,
+  openSync as openSync2,
+  readFileSync as readFileSync5,
+  realpathSync,
+  renameSync as renameSync3,
+  rmSync,
+  unlinkSync as unlinkSync2,
+  writeFileSync as writeFileSync3
+} from "node:fs";
+import { basename, dirname as dirname2, isAbsolute, join as join3, relative as relative2, resolve as resolve5, sep as sep2 } from "node:path";
+var noFollow = "O_NOFOLLOW" in constants2 ? constants2.O_NOFOLLOW : 0;
+function currentUid() {
+  return typeof process.getuid === "function" ? process.getuid() : null;
+}
+function fileIdentity(metadata) {
+  return {
+    device: metadata.dev,
+    inode: metadata.ino,
+    size: metadata.size,
+    modifiedAtMs: metadata.mtimeMs,
+    changedAtMs: metadata.ctimeMs
+  };
+}
+function sameFileIdentity(metadata, expected) {
+  return metadata.dev === expected.device && metadata.ino === expected.inode && metadata.size === expected.size && metadata.mtimeMs === expected.modifiedAtMs && metadata.ctimeMs === expected.changedAtMs;
+}
+function sameNodeIdentity(metadata, expected) {
+  return metadata.dev === expected.device && metadata.ino === expected.inode;
+}
+function sameRenamedFileIdentity(metadata, expected) {
+  return metadata.dev === expected.device && metadata.ino === expected.inode && metadata.size === expected.size && metadata.mtimeMs === expected.modifiedAtMs;
+}
+function assertOwnerControlled(metadata, label) {
+  const uid = currentUid();
+  if (uid !== null && metadata.uid !== uid) {
+    throw new Error(`${label} must be owned by the current user`);
+  }
+  if ((metadata.mode & 18) !== 0) {
+    throw new Error(`${label} must not be writable by group or other users`);
+  }
+}
+function assertDirectoryMetadata(metadata, label) {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(`${label} must be a real non-symlink directory`);
+  }
+  assertOwnerControlled(metadata, label);
+}
+function assertRootRenameProtected(path, rootMetadata, label) {
+  const parent = dirname2(path);
+  if (parent === path) return;
+  const parentMetadata = lstatSync(parent);
+  if (parentMetadata.isSymbolicLink() || !parentMetadata.isDirectory()) {
+    throw new Error(`${label} parent must be a real non-symlink directory`);
+  }
+  const writableByAnotherPrincipal = (parentMetadata.mode & 18) !== 0;
+  const stickyDirectory = (parentMetadata.mode & 512) !== 0;
+  const uid = currentUid();
+  const stickyProtectsEntry = stickyDirectory && uid !== null && rootMetadata.uid === uid;
+  if (writableByAnotherPrincipal && !stickyProtectsEntry) {
+    throw new Error(
+      `${label} parent must not permit another OS principal to rename the protected root`
+    );
+  }
+}
+function directoryIdentity(path, metadata) {
+  return Object.freeze({ path, device: metadata.dev, inode: metadata.ino });
+}
+function sameDirectoryIdentity(metadata, expected) {
+  return metadata.dev === expected.device && metadata.ino === expected.inode;
+}
+var OwnerPathLock = class {
+  root;
+  lockPath;
+  #label;
+  #requestedRoot;
+  #lockDescriptor;
+  #lockIdentity = null;
+  #released = false;
+  constructor(rootDir, options) {
+    const requested = resolve5(rootDir);
+    const canonical = realpathSync(requested);
+    const rootMetadata = lstatSync(canonical);
+    assertDirectoryMetadata(rootMetadata, `${options.label} root`);
+    assertRootRenameProtected(canonical, rootMetadata, `${options.label} root`);
+    this.root = directoryIdentity(canonical, rootMetadata);
+    this.#label = options.label;
+    this.#requestedRoot = requested;
+    const lockName = options.lockName ?? ".venture-harness-owner.lock";
+    if (!/^\.[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.lock$/u.test(lockName)) {
+      throw new Error(`${options.label} lock name is invalid`);
+    }
+    this.lockPath = join3(canonical, lockName);
+    try {
+      this.#lockDescriptor = openSync2(
+        this.lockPath,
+        constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL | noFollow,
+        384
+      );
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        throw new Error(
+          `${options.label} is already locked. If no operation is active, inspect and remove ${this.lockPath} before retrying.`
+        );
+      }
+      throw error;
+    }
+    try {
+      fchmodSync(this.#lockDescriptor, 384);
+      const metadata = fstatSync2(this.#lockDescriptor);
+      this.#lockIdentity = fileIdentity(metadata);
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new Error(`${options.label} lock is not one private regular file`);
+      }
+      assertOwnerControlled(metadata, `${options.label} lock`);
+      writeFileSync3(
+        this.#lockDescriptor,
+        `${JSON.stringify({ schemaVersion: 1, pid: process.pid, operation: options.label })}
+`,
+        "utf8"
+      );
+      fsyncSync2(this.#lockDescriptor);
+      this.#lockIdentity = fileIdentity(fstatSync2(this.#lockDescriptor));
+      this.assertRoot();
+      const pathMetadata = lstatSync(this.lockPath);
+      if (!sameFileIdentity(pathMetadata, this.#lockIdentity)) {
+        throw new Error(`${options.label} lock path changed during acquisition`);
+      }
+    } catch (error) {
+      closeSync2(this.#lockDescriptor);
+      try {
+        const current = lstatSync(this.lockPath);
+        if (this.#lockIdentity && sameNodeIdentity(current, this.#lockIdentity)) {
+          unlinkSync2(this.lockPath);
+        }
+      } catch {
+      }
+      this.#released = true;
+      throw error;
+    }
+  }
+  assertRoot() {
+    if (this.#released) throw new Error(`${this.#label} lock has already been released`);
+    const metadata = lstatSync(this.root.path);
+    assertDirectoryMetadata(metadata, `${this.#label} root`);
+    if (!sameDirectoryIdentity(metadata, this.root) || realpathSync(this.root.path) !== this.root.path) {
+      throw new Error(`${this.#label} root changed while the owner lock was held`);
+    }
+  }
+  #relative(path, label, allowRoot = false) {
+    const absolute = this.#canonicalPath(path);
+    const child = relative2(this.root.path, absolute);
+    if (!allowRoot && child === "" || child === ".." || child.startsWith(`..${sep2}`) || isAbsolute(child)) {
+      throw new Error(`${label} escapes the locked ${this.#label} root`);
+    }
+    return child;
+  }
+  #canonicalPath(path) {
+    const absolute = resolve5(path);
+    const throughRequestedRoot = relative2(this.#requestedRoot, absolute);
+    if (throughRequestedRoot === "" || throughRequestedRoot !== ".." && !throughRequestedRoot.startsWith(`..${sep2}`) && !isAbsolute(throughRequestedRoot)) {
+      return resolve5(this.root.path, throughRequestedRoot);
+    }
+    return absolute;
+  }
+  #assertExistingAncestors(path, label, includeLeaf) {
+    this.assertRoot();
+    const child = this.#relative(path, label, true);
+    if (child === "") return;
+    const parts = child.split(sep2);
+    const count2 = includeLeaf ? parts.length : Math.max(0, parts.length - 1);
+    let cursor = this.root.path;
+    for (let index = 0; index < count2; index += 1) {
+      cursor = join3(cursor, parts[index]);
+      let metadata;
+      try {
+        metadata = lstatSync(cursor);
+      } catch (error) {
+        if (error.code === "ENOENT") break;
+        throw error;
+      }
+      assertDirectoryMetadata(metadata, `${label} ancestor ${cursor}`);
+      const canonical = realpathSync(cursor);
+      if (canonical !== cursor) {
+        throw new Error(`${label} must not traverse a symbolic-link alias`);
+      }
+    }
+    this.assertRoot();
+  }
+  captureDirectory(path, label) {
+    const absolute = this.#canonicalPath(path);
+    this.#relative(absolute, label, true);
+    this.#assertExistingAncestors(absolute, label, true);
+    const metadata = lstatSync(absolute);
+    assertDirectoryMetadata(metadata, label);
+    if (realpathSync(absolute) !== absolute) {
+      throw new Error(`${label} must not traverse a symbolic-link alias`);
+    }
+    return directoryIdentity(absolute, metadata);
+  }
+  assertDirectory(path, expected, label) {
+    if (this.#canonicalPath(path) !== expected.path) {
+      throw new Error(`${label} path changed unexpectedly`);
+    }
+    const current = this.captureDirectory(path, label);
+    if (current.device !== expected.device || current.inode !== expected.inode) {
+      throw new Error(`${label} changed while the owner lock was held`);
+    }
+  }
+  ensureDirectory(path, label) {
+    const absolute = this.#canonicalPath(path);
+    this.#relative(absolute, label, true);
+    this.#assertExistingAncestors(absolute, label, true);
+    mkdirSync3(absolute, { recursive: true, mode: 448 });
+    return this.captureDirectory(absolute, label);
+  }
+  assertMissing(path, label) {
+    const absolute = this.#canonicalPath(path);
+    this.#relative(absolute, label);
+    this.#assertExistingAncestors(absolute, label, false);
+    if (existsSync4(absolute)) throw new Error(`${label} already exists`);
+    this.assertRoot();
+  }
+  readRegularFile(path, options) {
+    const absolute = this.#canonicalPath(path);
+    this.#relative(absolute, options.label);
+    this.#assertExistingAncestors(absolute, options.label, false);
+    const pathMetadata = lstatSync(absolute);
+    if (pathMetadata.isSymbolicLink() || !pathMetadata.isFile()) {
+      throw new Error(`${options.label} must be a regular non-symlink file`);
+    }
+    assertOwnerControlled(pathMetadata, options.label);
+    if (options.maxBytes !== void 0 && pathMetadata.size > options.maxBytes) {
+      throw new Error(`${options.label} exceeds the ${options.maxBytes}-byte limit`);
+    }
+    const initial = fileIdentity(pathMetadata);
+    const descriptor2 = openSync2(absolute, constants2.O_RDONLY | noFollow);
+    try {
+      const opened = fstatSync2(descriptor2);
+      if (!sameFileIdentity(opened, initial)) {
+        throw new Error(`${options.label} changed while it was being opened`);
+      }
+      this.assertRoot();
+      const canonical = realpathSync(absolute);
+      this.#relative(canonical, options.label);
+      if (canonical !== absolute || !sameFileIdentity(lstatSync(absolute), initial)) {
+        throw new Error(`${options.label} changed after validation`);
+      }
+      const content = readFileSync5(descriptor2, "utf8");
+      if (!sameFileIdentity(fstatSync2(descriptor2), initial)) {
+        throw new Error(`${options.label} changed while it was being read`);
+      }
+      return content;
+    } finally {
+      closeSync2(descriptor2);
+    }
+  }
+  writeFileAtomic(path, content, label) {
+    const absolute = this.#canonicalPath(path);
+    this.#relative(absolute, label);
+    const parent = this.ensureDirectory(dirname2(absolute), `${label} parent`);
+    if (existsSync4(absolute)) {
+      const existing = lstatSync(absolute);
+      if (existing.isSymbolicLink() || !existing.isFile()) {
+        throw new Error(`${label} target must be a regular non-symlink file`);
+      }
+      assertOwnerControlled(existing, `${label} target`);
+    }
+    const temporary = join3(
+      parent.path,
+      `.${basename(absolute)}.next-${process.pid}-${randomBytes2(8).toString("hex")}`
+    );
+    let temporaryIdentity = null;
+    let descriptor2 = null;
+    try {
+      descriptor2 = openSync2(
+        temporary,
+        constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL | noFollow,
+        384
+      );
+      fchmodSync(descriptor2, 384);
+      writeFileSync3(descriptor2, content, "utf8");
+      fsyncSync2(descriptor2);
+      temporaryIdentity = fileIdentity(fstatSync2(descriptor2));
+      closeSync2(descriptor2);
+      descriptor2 = null;
+      this.assertDirectory(parent.path, parent, `${label} parent`);
+      if (existsSync4(absolute)) {
+        const current = lstatSync(absolute);
+        if (current.isSymbolicLink() || !current.isFile()) {
+          throw new Error(`${label} target changed before commit`);
+        }
+        assertOwnerControlled(current, `${label} target`);
+      }
+      this.assertDirectory(parent.path, parent, `${label} parent`);
+      renameSync3(temporary, absolute);
+      this.assertDirectory(parent.path, parent, `${label} parent`);
+      const committed = lstatSync(absolute);
+      if (!temporaryIdentity || !sameRenamedFileIdentity(committed, temporaryIdentity)) {
+        throw new Error(`${label} target changed during atomic commit`);
+      }
+      temporaryIdentity = null;
+    } finally {
+      if (descriptor2 !== null) closeSync2(descriptor2);
+      if (temporaryIdentity) {
+        try {
+          this.assertDirectory(parent.path, parent, `${label} cleanup parent`);
+          const current = lstatSync(temporary);
+          if (sameFileIdentity(current, temporaryIdentity)) unlinkSync2(temporary);
+        } catch {
+        }
+      }
+    }
+  }
+  renameDirectory(source, target, expectedSource, label) {
+    const absoluteSource = this.#canonicalPath(source);
+    const absoluteTarget = this.#canonicalPath(target);
+    this.#relative(absoluteSource, `${label} source`);
+    this.#relative(absoluteTarget, `${label} target`);
+    this.assertDirectory(absoluteSource, expectedSource, `${label} source`);
+    const sourceParent = this.captureDirectory(dirname2(absoluteSource), `${label} source parent`);
+    const targetParent = this.ensureDirectory(dirname2(absoluteTarget), `${label} target parent`);
+    this.assertMissing(absoluteTarget, `${label} target`);
+    this.assertDirectory(sourceParent.path, sourceParent, `${label} source parent`);
+    this.assertDirectory(targetParent.path, targetParent, `${label} target parent`);
+    renameSync3(absoluteSource, absoluteTarget);
+    this.assertDirectory(sourceParent.path, sourceParent, `${label} source parent`);
+    this.assertDirectory(targetParent.path, targetParent, `${label} target parent`);
+    const installed2 = this.captureDirectory(absoluteTarget, `${label} target`);
+    if (installed2.device !== expectedSource.device || installed2.inode !== expectedSource.inode || existsSync4(absoluteSource)) {
+      throw new Error(`${label} directory identity changed during rename`);
+    }
+    return installed2;
+  }
+  removeDirectory(path, expected, label) {
+    const absolute = this.#canonicalPath(path);
+    this.#relative(absolute, label);
+    this.assertDirectory(absolute, expected, label);
+    const parent = this.captureDirectory(dirname2(absolute), `${label} parent`);
+    this.assertDirectory(parent.path, parent, `${label} parent`);
+    rmSync(absolute, { recursive: true, force: false });
+    this.assertDirectory(parent.path, parent, `${label} parent`);
+    if (existsSync4(absolute)) throw new Error(`${label} still exists after removal`);
+  }
+  release() {
+    if (this.#released) return;
+    let releaseError;
+    try {
+      this.assertRoot();
+      const pathMetadata = lstatSync(this.lockPath);
+      if (!this.#lockIdentity || !sameFileIdentity(pathMetadata, this.#lockIdentity)) {
+        throw new Error(`${this.#label} lock path changed before release`);
+      }
+      closeSync2(this.#lockDescriptor);
+      const afterClose = lstatSync(this.lockPath);
+      if (!sameFileIdentity(afterClose, this.#lockIdentity)) {
+        throw new Error(`${this.#label} lock path changed during release`);
+      }
+      unlinkSync2(this.lockPath);
+    } catch (error) {
+      releaseError = error;
+      try {
+        closeSync2(this.#lockDescriptor);
+      } catch {
+      }
+    } finally {
+      this.#released = true;
+    }
+    if (releaseError) throw releaseError;
+  }
+};
+
 // lib/providers/github-source-publication.ts
 var BOOTSTRAP_CONTENT = Buffer.from("venture-harness-source-bootstrap-v1\n", "utf8");
 var MAX_SOURCE_BLOB_BYTES = 50 * 1024 * 1024;
@@ -12772,7 +13611,16 @@ function createPlan(provider, request2, operations, limitations = []) {
 }
 
 // lib/providers/plans.ts
+var STRIPE_API_VERSION = "2026-07-29.dahlia";
+function versionedStripeHttp(provider, spec) {
+  if (!spec || provider !== "stripe") return spec;
+  return {
+    ...spec,
+    headers: { ...spec.headers, "Stripe-Version": STRIPE_API_VERSION }
+  };
+}
 function operation(request2, input) {
+  const http = versionedStripeHttp(input.provider, input.http);
   const id = operationId(input.provider, input.action, {
     environment: request2.environment,
     identity: input.identity
@@ -12793,14 +13641,21 @@ function operation(request2, input) {
     idempotencyKey: idempotencyKey(input.provider, request2.environment, input.action, {
       identity: input.identity,
       command: input.command,
-      http: input.http,
+      http,
       manual: input.manual
     }),
     dependsOn: input.dependsOn ?? [],
     command: input.command,
-    http: input.http,
+    http,
     manual: input.manual,
-    readBack: input.readBack,
+    existingResource: input.existingResource?.http && input.provider === "stripe" ? {
+      ...input.existingResource,
+      http: versionedStripeHttp(input.provider, input.existingResource.http)
+    } : input.existingResource,
+    readBack: input.readBack?.http && input.provider === "stripe" ? {
+      ...input.readBack,
+      http: versionedStripeHttp(input.provider, input.readBack.http)
+    } : input.readBack,
     verification: input.verification,
     estimatedCost: input.estimatedCost,
     emailRecipientCount: input.emailRecipientCount
@@ -12873,7 +13728,18 @@ function buildGitHubPlan(request2) {
             { path: "visibility", operator: "equals", expected: visibility },
             { path: "branch", operator: "equals", expected: "{result.branch}" },
             { path: "commitOid", operator: "equals", expected: "{result.commitOid}" },
-            { path: "treeOid", operator: "equals", expected: "{result.treeOid}" }
+            { path: "treeOid", operator: "equals", expected: "{result.treeOid}" },
+            {
+              path: "workingRepository.branch",
+              operator: "equals",
+              expected: "{result.branch}"
+            },
+            {
+              path: "workingRepository.head",
+              operator: "equals",
+              expected: "{result.commitOid}"
+            },
+            { path: "workingRepository.clean", operator: "equals", expected: true }
           ]
         },
         verification: {
@@ -13107,28 +13973,39 @@ function buildVercelPlan(request2) {
   }
   if (hasCapability(request2, "environment_variable")) {
     const project = inputString(request2, "project");
+    const scope = optionalString(request2, "scope");
     const name = inputString(request2, "environmentVariableName");
     const target = optionalString(request2, "environmentTarget") ?? "production";
-    const valueRef = credentialInput(request2, "environmentValueCredentialRef");
+    const publicValue = optionalString(request2, "environmentPublicValue");
+    const valueRef = publicValue ? void 0 : credentialInput(request2, "environmentValueCredentialRef");
+    if (publicValue?.startsWith("cred://") || publicValue?.includes("\n")) {
+      throw new Error("Vercel public environment values must be bounded public scalar values");
+    }
+    const args = ["env", "add", name, target, "--force", "--yes", "--project", project];
+    if (scope) args.push("--scope", scope);
+    if (publicValue) args.push("--value", publicValue, "--no-sensitive");
     operations.push(
       operation(request2, {
         provider: "vercel",
         capability: "environment_variable",
         action: "environment_variable.set",
         title: `Set Vercel environment variable ${name}`,
-        identity: { project, name, target },
+        identity: { project, scope, name, target, publicValue },
         riskClass: "critical",
         effectClass: "reversible_external",
         reversibility: "conditionally_reversible",
         credentialRef: request2.credentialRef,
         command: {
           binary: "vercel",
-          args: ["env", "add", name, target, "--force"],
-          stdinCredentialRef: valueRef
+          args,
+          ...valueRef ? { stdinCredentialRef: valueRef } : {}
         },
         readBack: {
           transport: "cli",
-          command: { binary: "vercel", args: ["env", "ls", target] },
+          command: {
+            binary: "vercel",
+            args: ["env", "ls", target, "--project", project, ...scope ? ["--scope", scope] : []]
+          },
           description: "Vercel lists the variable name and target; its value remains unreadable",
           assertions: [{ path: "", operator: "contains", expected: name }]
         },
@@ -13143,6 +14020,7 @@ function buildVercelPlan(request2) {
     const production = request2.environment === "production";
     const project = optionalString(request2, "project");
     const scope = optionalString(request2, "scope");
+    const deploymentPhase = optionalString(request2, "deploymentPhase");
     const args = ["deploy", "--yes", "--format=json"];
     if (project) args.push("--project", project);
     if (scope) args.push("--scope", scope);
@@ -13154,7 +14032,7 @@ function buildVercelPlan(request2) {
         capability: "deployment",
         action: production ? "deployment.production" : "deployment.preview",
         title: `Create a ${production ? "production" : "preview"} deployment`,
-        identity: { project, scope, production },
+        identity: { project, scope, production, deploymentPhase },
         riskClass: production ? "critical" : "high",
         effectClass: "reversible_external",
         reversibility: "conditionally_reversible",
@@ -13657,20 +14535,74 @@ function buildNeonPlan(request2) {
 function stripeAuth(request2) {
   return { scheme: "basic", credentialRef: credentialInput(request2) };
 }
+function stripeVentureIdentity(request2) {
+  const ventureSlug = inputString(request2, "ventureSlug");
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(ventureSlug) || ventureSlug.length > 63) {
+    throw new Error("Stripe ventureSlug must be one canonical lowercase venture slug");
+  }
+  const mode = optionalString(request2, "stripeMode") ?? (request2.environment === "sandbox" ? "test" : "live");
+  if (mode !== "test" && mode !== "live") {
+    throw new Error("Stripe stripeMode must be test or live");
+  }
+  if (mode === "test" && request2.environment !== "sandbox" || mode === "live" && request2.environment !== "production") {
+    throw new Error(`Stripe ${mode} mode does not match ${request2.environment} environment`);
+  }
+  return {
+    ventureSlug,
+    accountId: inputString(request2, "stripeAccountId"),
+    mode,
+    livemode: mode === "live"
+  };
+}
+function stripeCredentialPreflight(accountId, livemode) {
+  return {
+    requests: [
+      {
+        url: "https://api.stripe.com/v1/account",
+        assertions: [{ path: "id", operator: "equals", expected: accountId }]
+      },
+      {
+        url: "https://api.stripe.com/v1/balance",
+        assertions: [{ path: "livemode", operator: "equals", expected: livemode }]
+      }
+    ]
+  };
+}
+function stripeMetadata(ventureSlug, resource2, lookupKey) {
+  return {
+    venture_harness_venture: ventureSlug,
+    venture_harness_resource: resource2,
+    venture_harness_lookup_key: lookupKey
+  };
+}
+function stripeSearchUrl(resource2, query) {
+  const url = new URL(`https://api.stripe.com/v1/${resource2}/search`);
+  url.searchParams.set("query", query);
+  url.searchParams.set("limit", "10");
+  return url.toString();
+}
 function buildStripePlan(request2) {
   const operations = [];
+  const { ventureSlug, accountId, mode, livemode } = stripeVentureIdentity(request2);
   let productOperationId;
   if (hasCapability(request2, "product")) {
     const name = inputString(request2, "productName");
     const description = optionalString(request2, "productDescription");
-    const body = { name };
+    const lookupKey = `vh:${ventureSlug}:product:v1`;
+    const metadata = stripeMetadata(ventureSlug, "product", lookupKey);
+    const body = {
+      id: `vh_${stableHash(lookupKey)}`,
+      name,
+      active: true,
+      metadata
+    };
     if (description) body.description = description;
     const product = operation(request2, {
       provider: "stripe",
       capability: "product",
       action: "product.create",
       title: `Create Stripe product ${name}`,
-      identity: name,
+      identity: { ventureSlug, accountId, lookupKey, name, description, mode },
       riskClass: "high",
       effectClass: "financial",
       reversibility: "conditionally_reversible",
@@ -13681,7 +14613,42 @@ function buildStripePlan(request2) {
         body,
         encoding: "form",
         auth: stripeAuth(request2),
+        credentialPreflight: stripeCredentialPreflight(accountId, livemode),
         nativeIdempotency: true
+      },
+      existingResource: {
+        transport: "http",
+        http: {
+          method: "GET",
+          url: stripeSearchUrl("products", `metadata['venture_harness_lookup_key']:'${lookupKey}'`),
+          auth: stripeAuth(request2)
+        },
+        candidatesPath: "data",
+        hasMorePath: "has_more",
+        identityAssertions: [
+          {
+            path: "metadata.venture_harness_lookup_key",
+            operator: "equals",
+            expected: lookupKey
+          }
+        ],
+        stateAssertions: [
+          { path: "name", operator: "equals", expected: name },
+          { path: "active", operator: "equals", expected: true },
+          { path: "livemode", operator: "equals", expected: livemode },
+          {
+            path: "metadata.venture_harness_venture",
+            operator: "equals",
+            expected: ventureSlug
+          },
+          {
+            path: "metadata.venture_harness_resource",
+            operator: "equals",
+            expected: "product"
+          },
+          ...description ? [{ path: "description", operator: "equals", expected: description }] : []
+        ],
+        description: `Locate the deterministic Stripe product for ${ventureSlug}`
       },
       readBack: {
         transport: "http",
@@ -13693,7 +14660,24 @@ function buildStripePlan(request2) {
         description: "Stripe returned the created product by id",
         assertions: [
           { path: "name", operator: "equals", expected: name },
-          { path: "id", operator: "exists" }
+          { path: "id", operator: "exists" },
+          { path: "active", operator: "equals", expected: true },
+          { path: "livemode", operator: "equals", expected: livemode },
+          {
+            path: "metadata.venture_harness_lookup_key",
+            operator: "equals",
+            expected: lookupKey
+          },
+          {
+            path: "metadata.venture_harness_venture",
+            operator: "equals",
+            expected: ventureSlug
+          },
+          {
+            path: "metadata.venture_harness_resource",
+            operator: "equals",
+            expected: "product"
+          }
         ]
       },
       verification: {
@@ -13712,10 +14696,15 @@ function buildStripePlan(request2) {
       throw new Error("Stripe unitAmount must be a non-negative integer in minor units");
     }
     const interval = optionalString(request2, "recurringInterval");
+    const lookupKey = `vh_${ventureSlug.replaceAll("-", "_")}_${currency}_${unitAmount}_${interval ?? "once"}`;
+    const metadata = stripeMetadata(ventureSlug, "price", lookupKey);
     const body = {
       product: productId,
       currency,
-      unit_amount: unitAmount
+      unit_amount: unitAmount,
+      active: true,
+      lookup_key: lookupKey,
+      metadata
     };
     if (interval) body.recurring = { interval };
     operations.push(
@@ -13724,7 +14713,16 @@ function buildStripePlan(request2) {
         capability: "price",
         action: "price.create",
         title: `Create ${currency.toUpperCase()} ${unitAmount} Stripe price`,
-        identity: { productId, currency, unitAmount, interval },
+        identity: {
+          ventureSlug,
+          accountId,
+          lookupKey,
+          productId,
+          currency,
+          unitAmount,
+          interval,
+          mode
+        },
         riskClass: "critical",
         effectClass: "financial",
         reversibility: "irreversible",
@@ -13736,7 +14734,49 @@ function buildStripePlan(request2) {
           body,
           encoding: "form",
           auth: stripeAuth(request2),
+          credentialPreflight: stripeCredentialPreflight(accountId, livemode),
           nativeIdempotency: true
+        },
+        existingResource: {
+          transport: "http",
+          http: {
+            method: "GET",
+            url: stripeSearchUrl("prices", `lookup_key:'${lookupKey}'`),
+            auth: stripeAuth(request2)
+          },
+          candidatesPath: "data",
+          hasMorePath: "has_more",
+          identityAssertions: [{ path: "lookup_key", operator: "equals", expected: lookupKey }],
+          stateAssertions: [
+            { path: "product", operator: "equals", expected: productId },
+            { path: "currency", operator: "equals", expected: currency },
+            { path: "unit_amount", operator: "equals", expected: unitAmount },
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "type",
+              operator: "equals",
+              expected: interval ? "recurring" : "one_time"
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "price"
+            },
+            ...interval ? [
+              {
+                path: "recurring.interval",
+                operator: "equals",
+                expected: interval
+              }
+            ] : [{ path: "recurring", operator: "equals", expected: null }]
+          ],
+          description: `Locate the deterministic Stripe price ${lookupKey}`
         },
         readBack: {
           transport: "http",
@@ -13749,7 +14789,32 @@ function buildStripePlan(request2) {
           assertions: [
             { path: "product", operator: "equals", expected: productId },
             { path: "currency", operator: "equals", expected: currency },
-            { path: "unit_amount", operator: "equals", expected: unitAmount }
+            { path: "unit_amount", operator: "equals", expected: unitAmount },
+            { path: "lookup_key", operator: "equals", expected: lookupKey },
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "type",
+              operator: "equals",
+              expected: interval ? "recurring" : "one_time"
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "price"
+            },
+            ...interval ? [
+              {
+                path: "recurring.interval",
+                operator: "equals",
+                expected: interval
+              }
+            ] : [{ path: "recurring", operator: "equals", expected: null }]
           ]
         },
         verification: {
@@ -13761,15 +14826,17 @@ function buildStripePlan(request2) {
   }
   if (hasCapability(request2, "webhook")) {
     const url = inputString(request2, "webhookUrl");
-    const enabledEvents = inputStrings(request2, "enabledEvents");
+    const enabledEvents = inputStrings(request2, "enabledEvents").sort();
     const webhookSecretCredentialRef = credentialInput(request2, "webhookSecretCredentialRef");
+    const lookupKey = `vh:${ventureSlug}:webhook:v1`;
+    const metadata = stripeMetadata(ventureSlug, "webhook", lookupKey);
     operations.push(
       operation(request2, {
         provider: "stripe",
         capability: "webhook",
         action: "webhook_endpoint.create",
         title: `Create Stripe webhook endpoint ${url}`,
-        identity: { url, enabledEvents: [...enabledEvents].sort() },
+        identity: { ventureSlug, accountId, lookupKey, url, enabledEvents, mode },
         riskClass: "critical",
         effectClass: "communication",
         reversibility: "reversible",
@@ -13777,14 +14844,55 @@ function buildStripePlan(request2) {
         http: {
           method: "POST",
           url: "https://api.stripe.com/v1/webhook_endpoints",
-          body: { url, enabled_events: enabledEvents },
+          body: {
+            url,
+            enabled_events: enabledEvents,
+            description: `Venture Harness webhook for ${ventureSlug}`,
+            metadata
+          },
           encoding: "form",
           auth: stripeAuth(request2),
+          credentialPreflight: stripeCredentialPreflight(accountId, livemode),
           nativeIdempotency: true,
           captureCredential: {
             credentialRef: webhookSecretCredentialRef,
             outputPath: "secret"
           }
+        },
+        existingResource: {
+          transport: "http",
+          http: {
+            method: "GET",
+            url: "https://api.stripe.com/v1/webhook_endpoints?limit=100",
+            auth: stripeAuth(request2)
+          },
+          candidatesPath: "data",
+          hasMorePath: "has_more",
+          identityAssertions: [
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey
+            }
+          ],
+          stateAssertions: [
+            { path: "url", operator: "equals", expected: url },
+            { path: "enabled_events", operator: "contains", expected: enabledEvents },
+            { path: "status", operator: "equals", expected: "enabled" },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "webhook"
+            }
+          ],
+          reuseRequiresCredentialRef: webhookSecretCredentialRef,
+          description: `Locate the deterministic Stripe webhook for ${ventureSlug}`
         },
         readBack: {
           transport: "http",
@@ -13800,6 +14908,23 @@ function buildStripePlan(request2) {
               path: "enabled_events",
               operator: "contains",
               expected: enabledEvents
+            },
+            { path: "status", operator: "equals", expected: "enabled" },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "webhook"
             }
           ]
         },
@@ -13812,15 +14937,23 @@ function buildStripePlan(request2) {
   }
   if (hasCapability(request2, "billing_portal")) {
     const headline = optionalString(request2, "headline");
-    const body = {};
+    const returnUrl = optionalString(request2, "portalReturnUrl");
+    const lookupKey = `vh:${ventureSlug}:billing-portal:v1`;
+    const metadata = stripeMetadata(ventureSlug, "billing_portal", lookupKey);
+    const body = {
+      name: `Venture Harness ${ventureSlug}`,
+      features: { invoice_history: { enabled: true } },
+      metadata
+    };
     if (headline) body.business_profile = { headline };
+    if (returnUrl) body.default_return_url = returnUrl;
     operations.push(
       operation(request2, {
         provider: "stripe",
         capability: "billing_portal",
         action: "billing_portal.configuration.create",
         title: "Create Stripe billing portal configuration",
-        identity: body,
+        identity: { ventureSlug, accountId, lookupKey, body, mode },
         riskClass: "high",
         effectClass: "financial",
         reversibility: "conditionally_reversible",
@@ -13831,7 +14964,59 @@ function buildStripePlan(request2) {
           body,
           encoding: "form",
           auth: stripeAuth(request2),
+          credentialPreflight: stripeCredentialPreflight(accountId, livemode),
           nativeIdempotency: true
+        },
+        existingResource: {
+          transport: "http",
+          http: {
+            method: "GET",
+            url: "https://api.stripe.com/v1/billing_portal/configurations?active=true&limit=100",
+            auth: stripeAuth(request2)
+          },
+          candidatesPath: "data",
+          hasMorePath: "has_more",
+          identityAssertions: [
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey
+            }
+          ],
+          stateAssertions: [
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "features.invoice_history.enabled",
+              operator: "equals",
+              expected: true
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "billing_portal"
+            },
+            ...headline ? [
+              {
+                path: "business_profile.headline",
+                operator: "equals",
+                expected: headline
+              }
+            ] : [],
+            ...returnUrl ? [
+              {
+                path: "default_return_url",
+                operator: "equals",
+                expected: returnUrl
+              }
+            ] : []
+          ],
+          description: `Locate the deterministic Stripe portal for ${ventureSlug}`
         },
         readBack: {
           transport: "http",
@@ -13841,13 +15026,45 @@ function buildStripePlan(request2) {
             auth: stripeAuth(request2)
           },
           description: "Stripe returned the portal configuration by id",
-          assertions: headline ? [
+          assertions: [
+            { path: "id", operator: "exists" },
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
             {
-              path: "business_profile.headline",
+              path: "metadata.venture_harness_lookup_key",
               operator: "equals",
-              expected: headline
-            }
-          ] : [{ path: "id", operator: "exists" }]
+              expected: lookupKey
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "billing_portal"
+            },
+            {
+              path: "features.invoice_history.enabled",
+              operator: "equals",
+              expected: true
+            },
+            ...headline ? [
+              {
+                path: "business_profile.headline",
+                operator: "equals",
+                expected: headline
+              }
+            ] : [],
+            ...returnUrl ? [
+              {
+                path: "default_return_url",
+                operator: "equals",
+                expected: returnUrl
+              }
+            ] : []
+          ]
         },
         verification: {
           strategy: "response_then_read_back",
@@ -13857,7 +15074,9 @@ function buildStripePlan(request2) {
     );
   }
   return createPlan("stripe", request2, operations, [
-    "Prices cannot be corrected in place; create a new price when exact values differ."
+    "Prices cannot be corrected in place; create a new price when exact values differ.",
+    "This adapter configures catalog, webhook, and portal resources only; it has no charge, capture, PaymentIntent, or Checkout Session capability.",
+    "Stripe search is eventually consistent; deterministic product IDs, price lookup keys, native idempotency, and the durable client ledger remain the duplicate barriers when search has not propagated."
   ]);
 }
 function revenueCatAuth(request2) {
@@ -15271,6 +16490,8 @@ var publicProviderIdentifierSchema = external_exports.object({
     "property_id",
     "stream_id",
     "measurement_id",
+    "product_id",
+    "price_id",
     "build_id",
     "submission_id",
     "app_id",
@@ -15426,6 +16647,12 @@ function collectProviderPublicOutputs(input) {
           identifier(identifiers, "stream_id", name, (value) => value.split("/").at(-1));
         }
         identifier(identifiers, "measurement_id", object2.measurementId);
+      }
+      if (operation2.operation.capability === "product") {
+        identifier(identifiers, "product_id", object2.id);
+      }
+      if (operation2.operation.capability === "price") {
+        identifier(identifiers, "price_id", object2.id);
       }
       if (operation2.operation.capability === "ios_build") {
         identifier(identifiers, "build_id", object2.id);
@@ -15600,12 +16827,141 @@ var genericDnsStackProfile = {
 var stackCapabilityRoles = Object.keys(stackCapabilityContracts);
 var knownStackCapabilityRoles = new Set(stackCapabilityRoles);
 
+// packages/core/dist/index.js
+var CREDENTIAL_VALUE_PATTERNS2 = [
+  /\bwhsec_[a-z0-9_-]{8,}/iu,
+  /\b(?:sk|rk|pk|atk)_(?:live|test)?_?[a-z0-9_-]{8,}/iu,
+  /\bsk-[a-z0-9_-]{16,}/iu,
+  /\bxkeysib-[a-z0-9_-]{12,}/iu,
+  /\bAIza[a-z0-9_-]{30,}/iu,
+  /\b(?:gh[pousr]_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,})\b/iu,
+  /\bxox[baprs]-[a-z0-9-]{10,}/iu,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/u,
+  /\bbearer\s+[a-z0-9._~+/=-]{8,}/iu,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
+  /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/iu,
+  /[?&](?:access_token|api_key|token|secret)=[^&\s]{6,}/iu,
+  /\b(?:(?:vh|credential)[_-])canary[_-][a-z0-9_-]{6,}/iu
+];
+function credentialFieldWords2(field) {
+  return field.replace(/([a-z0-9])([A-Z])/gu, "$1_$2").toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
+}
+function secretBearingField2(field) {
+  const words = credentialFieldWords2(field);
+  if (["secret", "password", "token", "credential", "authorization"].some((word) => words.includes(word))) {
+    return true;
+  }
+  const joined = words.join("");
+  return ["apikey", "privatekey", "signingkey"].some((marker) => joined.includes(marker));
+}
+function findCredentialMaterial2(value, options = {}) {
+  const canaries = [...options.canaries ?? []].filter(Boolean);
+  const referenceKeys = new Set(options.allowedCredentialReferenceKeys ?? []);
+  const visited = /* @__PURE__ */ new WeakSet();
+  const inspect = (candidate, path) => {
+    if (typeof candidate === "string") {
+      if (canaries.some((canary) => candidate.includes(canary))) {
+        return { kind: "registered_canary", path };
+      }
+      if (CREDENTIAL_VALUE_PATTERNS2.some((pattern) => pattern.test(candidate))) {
+        return { kind: "credential_pattern", path };
+      }
+      return null;
+    }
+    if (candidate === null || typeof candidate === "boolean")
+      return null;
+    if (typeof candidate === "number") {
+      return Number.isFinite(candidate) ? null : { kind: "non_json_value", path };
+    }
+    if (typeof candidate !== "object")
+      return { kind: "non_json_value", path };
+    if (visited.has(candidate))
+      return { kind: "non_json_value", path };
+    visited.add(candidate);
+    if (Array.isArray(candidate)) {
+      for (const [index, entry] of candidate.entries()) {
+        const finding = inspect(entry, `${path}[${index}]`);
+        if (finding)
+          return finding;
+      }
+      return null;
+    }
+    const prototype = Object.getPrototypeOf(candidate);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return { kind: "non_json_value", path };
+    }
+    for (const [field, entry] of Object.entries(candidate)) {
+      const childPath = `${path}.${field}`;
+      if (referenceKeys.has(field)) {
+        if (typeof entry !== "string" || !/^cred:\/\/[A-Za-z0-9][A-Za-z0-9/_:.-]*$/u.test(entry)) {
+          return { kind: "invalid_credential_reference", path: childPath };
+        }
+      } else if (secretBearingField2(field)) {
+        return { kind: "secret_bearing_field", path: childPath };
+      }
+      const finding = inspect(entry, childPath);
+      if (finding)
+        return finding;
+    }
+    return null;
+  };
+  return inspect(value, "$");
+}
+function assertNonEmpty(value, field) {
+  const normalized = value.trim();
+  if (!normalized)
+    throw new Error(`${field} must not be empty`);
+  return normalized;
+}
+function tenantKey(tenant) {
+  const organizationId = assertNonEmpty(tenant.organizationId, "organizationId");
+  const ventureId2 = assertNonEmpty(tenant.ventureId, "ventureId");
+  if (organizationId !== tenant.organizationId) {
+    throw new Error("organizationId must not contain leading or trailing whitespace");
+  }
+  if (ventureId2 !== tenant.ventureId) {
+    throw new Error("ventureId must not contain leading or trailing whitespace");
+  }
+  const tenantIdPattern = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+  if (!tenantIdPattern.test(organizationId)) {
+    throw new Error("organizationId must be a canonical tenant identifier");
+  }
+  if (!tenantIdPattern.test(ventureId2)) {
+    throw new Error("ventureId must be a canonical tenant identifier");
+  }
+  return `${organizationId}:${ventureId2}`;
+}
+function canonicalCommandId(value) {
+  const commandId = value.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(commandId)) {
+    throw new Error(`Invalid command id: ${value}`);
+  }
+  return commandId;
+}
+function sortJson(value) {
+  if (Array.isArray(value))
+    return value.map(sortJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, sortJson(child)]));
+  }
+  return value;
+}
+function stableJson(value) {
+  return JSON.stringify(sortJson(value));
+}
+function assertCredentialFree(value, path = "value", canaries = []) {
+  const finding = findCredentialMaterial2(value, { canaries });
+  if (finding)
+    throw new Error(`credential-like material is forbidden at ${path}${finding.path.slice(1)}`);
+}
+
 // lib/launch/manual-evidence.ts
 var propagationCheckSchema = external_exports.object({
   resolver: external_exports.string().min(1).max(253),
   checked_at: external_exports.string().datetime({ offset: true }),
   status: external_exports.literal("matched")
 }).strict();
+var NO_FOLLOW2 = "O_NOFOLLOW" in constants3 ? constants3.O_NOFOLLOW : 0;
 var manualDnsOutputSchema = external_exports.object({
   mode: external_exports.literal("manual_dns"),
   records: external_exports.array(publicDnsRecordSchema).min(1).max(100),
@@ -15692,10 +17048,10 @@ function expectedDnsRecordsFromDependencies(dependencyOutputs) {
   return orderPublicDnsRecords(records);
 }
 function inside2(rootDir, artifact) {
-  const root = realpathSync(rootDir);
-  const target = resolve5(root, artifact);
-  const rel = relative2(root, target);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep2}`) || rel.startsWith(sep2)) {
+  const root = realpathSync2(rootDir);
+  const target = resolve6(root, artifact);
+  const rel = relative3(root, target);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep3}`) || rel.startsWith(sep3)) {
     throw new Error(`Evidence artifact escapes the venture root: ${artifact}`);
   }
   return target;
@@ -15762,22 +17118,43 @@ function createRepositoryInterruptEvidenceVerifier(options) {
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
-    if (!existsSync4(path))
-      return { ok: false, message: `Evidence file does not exist: ${expected}.` };
-    const stat2 = lstatSync(path);
-    if (stat2.isSymbolicLink() || !stat2.isFile()) {
-      return { ok: false, message: `Evidence must be a regular non-symlink file: ${expected}.` };
-    }
-    if (stat2.size === 0 || stat2.size > maxBytes) {
-      return {
-        ok: false,
-        message: `Evidence size must be between 1 and ${maxBytes} bytes: ${expected}.`
-      };
-    }
     let raw;
+    let descriptor2;
+    try {
+      descriptor2 = openSync3(path, constants3.O_RDONLY | NO_FOLLOW2);
+    } catch (error) {
+      const code = error.code;
+      if (code === "ENOENT") {
+        return { ok: false, message: `Evidence file does not exist: ${expected}.` };
+      }
+      if (code === "ELOOP") {
+        return {
+          ok: false,
+          message: `Evidence must be a regular non-symlink file: ${expected}.`
+        };
+      }
+      throw error;
+    }
+    try {
+      const stat2 = fstatSync3(descriptor2);
+      if (!stat2.isFile()) {
+        return {
+          ok: false,
+          message: `Evidence must be a regular non-symlink file: ${expected}.`
+        };
+      }
+      if (stat2.size === 0 || stat2.size > maxBytes) {
+        return {
+          ok: false,
+          message: `Evidence size must be between 1 and ${maxBytes} bytes: ${expected}.`
+        };
+      }
+      raw = readFileSync6(descriptor2, "utf8");
+    } finally {
+      closeSync3(descriptor2);
+    }
     let artifact;
     try {
-      raw = readFileSync5(path, "utf8");
       artifact = manualEvidenceArtifactSchema.parse(JSON.parse(raw));
     } catch (error) {
       return {
@@ -15845,7 +17222,9 @@ var launchProviderCapabilitiesByNode = {
   "brevo-sending-domain": ["sending_domain"],
   "brevo-domain-verification": ["sending_domain_verification"],
   "brevo-email": ["sender", "template", "webhook"],
-  "stripe-commerce": ["product", "price", "webhook", "billing_portal"],
+  "stripe-commerce": ["product", "price"],
+  "stripe-callbacks": ["webhook", "billing_portal"],
+  "stripe-domain-callbacks": ["webhook", "billing_portal"],
   "google-analytics-property": ["analytics_property"],
   "google-analytics-stream": ["analytics_web_stream"],
   "google-site-dns-record": ["site_verification_token"],
@@ -15856,6 +17235,8 @@ var launchProviderCapabilitiesByNode = {
   "vercel-database-environment": ["environment_variable"],
   "vercel-stripe-environment": ["environment_variable"],
   "vercel-stripe-webhook-environment": ["environment_variable"],
+  "vercel-stripe-price-environment": ["environment_variable"],
+  "vercel-stripe-price-lookup-environment": ["environment_variable"],
   "vercel-brevo-environment": ["environment_variable"],
   "vercel-ga-environment": ["environment_variable"],
   "dns-records": ["record"],
@@ -15863,7 +17244,10 @@ var launchProviderCapabilitiesByNode = {
   "eas-build": ["ios_build"],
   "eas-submit": ["app_store_connection", "ios_submit"],
   "testflight-state": ["build_processing", "testflight_group", "build_group_assignment"],
-  "production-deploy": ["deployment"]
+  "production-deploy": ["deployment"],
+  "initial-production-deploy": ["deployment"],
+  "analytics-production-redeploy": ["deployment"],
+  "email-production-redeploy": ["deployment"]
 };
 var launchProviderByNode = {
   "github-repository": "github",
@@ -15872,6 +17256,8 @@ var launchProviderByNode = {
   "brevo-domain-verification": "brevo",
   "brevo-email": "brevo",
   "stripe-commerce": "stripe",
+  "stripe-callbacks": "stripe",
+  "stripe-domain-callbacks": "stripe",
   "google-analytics-property": "google",
   "google-analytics-stream": "google",
   "google-site-dns-record": "google",
@@ -15882,9 +17268,14 @@ var launchProviderByNode = {
   "vercel-database-environment": "vercel",
   "vercel-stripe-environment": "vercel",
   "vercel-stripe-webhook-environment": "vercel",
+  "vercel-stripe-price-environment": "vercel",
+  "vercel-stripe-price-lookup-environment": "vercel",
   "vercel-brevo-environment": "vercel",
   "vercel-ga-environment": "vercel",
   "production-deploy": "vercel",
+  "initial-production-deploy": "vercel",
+  "analytics-production-redeploy": "vercel",
+  "email-production-redeploy": "vercel",
   "dns-records": "dns",
   "revenuecat-entitlements": "revenuecat",
   "apple-first-app-record": "app_store_connect",
@@ -15892,21 +17283,33 @@ var launchProviderByNode = {
   "eas-submit": "eas",
   "testflight-state": "app_store_connect"
 };
+var launchOptionalProviderNodeIds = /* @__PURE__ */ new Set([
+  "brevo-sending-domain",
+  "brevo-domain-verification",
+  "brevo-email",
+  "google-analytics-property",
+  "google-analytics-stream",
+  "google-site-dns-record",
+  "google-site-verification",
+  "google-search-console",
+  "bing-discovery",
+  "dns-records",
+  "vercel-brevo-environment",
+  "vercel-ga-environment",
+  "analytics-production-redeploy",
+  "email-production-redeploy",
+  "stripe-domain-callbacks"
+]);
 function launchProviderOperationCeiling(definition2) {
   return definition2.nodes.filter((node) => node.kind === "provider").reduce((total, node) => total + Math.max(1, node.authorization.scopes.length), 0);
 }
 var launchBuildAgentHandlers = /* @__PURE__ */ new Set([
   "launch.prepareRepository",
-  "launch.designDirection",
-  "launch.buildCoreJourney",
-  "launch.configureEventPack",
-  "launch.defineValidationGate",
-  "launch.prepareConciergeOperations",
-  "launch.defineUsageProof"
+  "launch.reviewProduct"
 ]);
 function launchBuildAgentTaskCount(definition2) {
   return definition2.nodes.filter(
-    (node) => node.handler && launchBuildAgentHandlers.has(node.handler)
+    (node) => node.kind === "model" && node.handler && launchBuildAgentHandlers.has(node.handler)
   ).length;
 }
 function providerNode(id, purpose, capability, dependencies, transport = "cli", authorizationProfile = "standard_launch") {
@@ -15973,73 +17376,6 @@ function compileLaunchGraph(briefInput, decisionInput) {
     monetizationModel: brief.monetization_model,
     leadJourney: ["lead_generation", "services"].includes(brief.monetization_model)
   });
-  const repositoryReadyNodeId = decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
-  const modePreparationNodes = [];
-  if (decision.mode.selectedMode === "validate_first") {
-    modePreparationNodes.push(
-      workflowNode("define-validation-gate", {
-        purpose: "Define the smallest honest demand test, its primary signal, decision threshold, stop rule, and optional 30/60/90-day gates before product scope expands.",
-        kind: "model",
-        capability: "validation.strategy",
-        dependencies: [repositoryReadyNodeId],
-        transport: "model",
-        handler: "launch.defineValidationGate",
-        model: { tier: "capable" },
-        effect: "local_write",
-        idempotencyKey: `launch:${brief.id}:validation-gate`,
-        concurrencyGroup: "strategy",
-        evidence: {
-          required: true,
-          artifact: "reports/launch/validation-gate.json"
-        },
-        completion: {
-          description: "The validation hypothesis, threshold, stop rule, assumptions, and optional timed gates are explicit."
-        }
-      })
-    );
-  }
-  if (decision.mode.selectedMode === "concierge_first") {
-    modePreparationNodes.push(
-      workflowNode("prepare-concierge-operations", {
-        purpose: "Define the bounded human-delivery workflow, service limits, disclosures, evidence capture, and handoff before automating the outcome.",
-        kind: "model",
-        capability: "concierge.operations",
-        dependencies: [repositoryReadyNodeId],
-        transport: "model",
-        handler: "launch.prepareConciergeOperations",
-        model: { tier: "capable" },
-        effect: "local_write",
-        idempotencyKey: `launch:${brief.id}:concierge-operations`,
-        concurrencyGroup: "strategy",
-        evidence: {
-          required: true,
-          artifact: "reports/launch/concierge-operations.json"
-        },
-        completion: {
-          description: "The concierge journey is deliverable without deception and has capacity, privacy, escalation, and evidence limits."
-        }
-      })
-    );
-  }
-  const designDependencies = modePreparationNodes.length > 0 ? modePreparationNodes.map(({ id }) => id) : [repositoryReadyNodeId];
-  const postBuildModeNodes = decision.mode.selectedMode === "product_first" ? [
-    workflowNode("define-usage-proof", {
-      purpose: "Define how real product use will demonstrate the promised value, including activation, retention, quality, and deletion or failure signals.",
-      kind: "model",
-      capability: "product.usage_proof",
-      dependencies: ["build-core-journey", "configure-event-pack"],
-      transport: "model",
-      handler: "launch.defineUsageProof",
-      model: { tier: "capable" },
-      effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:usage-proof`,
-      concurrencyGroup: "strategy",
-      evidence: { required: true, artifact: "reports/launch/usage-proof.json" },
-      completion: {
-        description: "Activation, usage, retention, failure, and deletion evidence are connected to the core journey without collecting private content."
-      }
-    })
-  ] : [];
   const dependencyBootstrapNodes = decision.rail.appKind === "web" ? [
     workflowNode("install-dependencies", {
       purpose: "Install the ordinary child repository's exact lockfile before any product build or quality command runs.",
@@ -16097,72 +17433,48 @@ function compileLaunchGraph(briefInput, decisionInput) {
       }
     })
   ] : [];
+  const repositoryReadyNodeId = decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
   const nodes = [
     ...dependencyBootstrapNodes,
     workflowNode("prepare-repository", {
-      purpose: "Create the venture-owned local scaffold and managed-file manifest.",
-      capability: "harness.create",
+      purpose: decision.rail.appKind === "web" ? `In one bounded build call, refine the proposition, create the venture-specific design, and implement and test the smallest useful journey: ${brief.smallest_core_journey}` : "Create the venture-owned native scaffold and managed-file manifest before product review.",
+      kind: decision.rail.appKind === "web" ? "model" : "code",
+      capability: decision.rail.appKind === "web" ? "product.web" : decision.rail.mobileStack === "swiftui" ? "product.swiftui" : "product.expo",
       dependencies: dependencyBootstrapNodes.map(({ id }) => id),
+      transport: decision.rail.appKind === "web" ? "model" : "code",
       effect: "local_write",
       handler: "launch.prepareRepository",
+      ...decision.rail.appKind === "web" ? { model: { tier: "capable" } } : {},
       idempotencyKey: `launch:${brief.id}:prepare`,
-      concurrencyGroup: "local",
-      evidence: { required: true, artifact: "reports/launch/local-scaffold.json" }
+      timeoutMs: decision.rail.appKind === "web" ? 9e5 : 12e4,
+      concurrencyGroup: "product-build",
+      evidence: { required: true, artifact: "reports/launch/local-scaffold.json" },
+      completion: {
+        description: decision.rail.appKind === "web" ? "The venture scaffold, proposition, original responsive design, core journey, affected tests, and minimum privacy-safe event instrumentation are complete in one coherent product build. Mode-specific validation, concierge, or usage proof is included only when selected." : "The selected native scaffold and managed manifest are complete."
+      }
     }),
     ...dependencyFinalizationNodes,
-    ...modePreparationNodes,
-    workflowNode("design-direction", {
-      purpose: "Create a distinct, accessible visual direction and responsive composition for the smallest core journey.",
+    workflowNode("review-product", {
+      purpose: "Independently review the proposition, venture-specific design, primary journey, tests, truth, accessibility, responsive behavior, analytics privacy, and selected-mode evidence; make only focused repairs and verify them.",
       kind: "model",
-      capability: "design.system",
-      dependencies: designDependencies,
+      capability: "product.review_repair",
+      dependencies: [repositoryReadyNodeId],
       transport: "model",
-      handler: "launch.designDirection",
+      handler: "launch.reviewProduct",
       model: { tier: "capable" },
       effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:design-direction`,
-      concurrencyGroup: "product-build",
-      evidence: { required: true, artifact: "reports/launch/design-direction.json" },
-      completion: {
-        description: "Design thesis, tokens, responsive composition, accessibility constraints, and anti-template audit are recorded."
-      }
-    }),
-    workflowNode("build-core-journey", {
-      purpose: `Build and test the smallest useful ${decision.rail.appKind} journey: ${brief.smallest_core_journey}`,
-      kind: "model",
-      capability: decision.rail.appKind === "web" ? "product.web" : decision.rail.mobileStack === "swiftui" ? "product.swiftui" : "product.expo",
-      dependencies: ["design-direction"],
-      transport: "model",
-      handler: "launch.buildCoreJourney",
-      model: { tier: "capable" },
-      effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:build-core-journey`,
+      idempotencyKey: `launch:${brief.id}:review-product`,
       timeoutMs: 9e5,
       concurrencyGroup: "product-build",
-      evidence: { required: true, artifact: "reports/launch/core-journey.json" },
+      evidence: { required: true, artifact: "reports/launch/product-review.json" },
       completion: {
-        description: "The declared core journey exists, uses labeled sample data where needed, and has affected tests."
+        description: "An independent pass has exercised the primary journey and directly checked the affected product; defects are repaired or recorded as exact blockers without broadening scope."
       }
     }),
-    workflowNode("configure-event-pack", {
-      purpose: "Enable the minimum capability-driven analytics event pack without personal or free-form data.",
-      capability: "analytics.event_pack",
-      dependencies: ["build-core-journey"],
-      handler: "launch.configureEventPack",
-      effect: "local_write",
-      idempotencyKey: `launch:${brief.id}:event-pack`,
-      concurrencyGroup: "analytics",
-      evidence: { required: true, artifact: "reports/launch/event-pack.json" }
-    }),
-    ...postBuildModeNodes,
     workflowNode("verify-local", {
       purpose: "Run affected local tests, schemas, secrets, PII, truth, and core journey checks.",
       capability: "quality.fast",
-      dependencies: [
-        "build-core-journey",
-        "configure-event-pack",
-        ...postBuildModeNodes.map(({ id }) => id)
-      ],
+      dependencies: ["review-product"],
       handler: "launch.verifyLocal",
       idempotencyKey: `launch:${brief.id}:verify-local`,
       concurrencyGroup: "quality",
@@ -16210,7 +17522,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
     nodes.push(
       providerNode(
         "stripe-commerce",
-        "Create and verify test-mode product, exact prices, checkout, portal, and webhook.",
+        "Create and verify the test-mode product and one exact immutable price before any deployment callback is configured.",
         "stripe",
         [repositoryReadyNodeId],
         "api"
@@ -16227,17 +17539,8 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "google_discovery",
         [repositoryReadyNodeId],
         "api"
-      ),
-      providerNode(
-        "google-analytics-stream",
-        "Create or locate the GA4 web stream from the same-run property identifier and read its measurement identifier back.",
-        "google_discovery",
-        ["google-analytics-property"],
-        "api"
       )
     );
-    completionDependencies.add("google-analytics-stream");
-    preDeployDependencies.add("google-analytics-stream");
   }
   if (needsGsc) {
     nodes.push(
@@ -16261,14 +17564,13 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "api"
       )
     );
-    completionDependencies.add("bing-discovery");
   }
   nodes.push(
     providerNode(
       "vercel-project",
       "Create or link the explicitly scoped Vercel project, configure its domain when declared, deploy preview, and read project and deployment state back.",
       "public_website",
-      [...preDeployDependencies].sort()
+      [...preDeployDependencies].filter((id) => id !== "stripe-commerce").sort()
     )
   );
   completionDependencies.add("vercel-project");
@@ -16296,6 +17598,18 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "vercel-stripe-webhook-environment",
         "Bind the captured Stripe webhook signing secret reference to STRIPE_WEBHOOK_SECRET in Vercel production without persisting the value.",
         "public_website",
+        ["stripe-callbacks", "vercel-project"]
+      ),
+      providerNode(
+        "vercel-stripe-price-environment",
+        "Bind the same-run read-back Stripe price ID as a typed non-secret production application variable.",
+        "public_website",
+        ["stripe-commerce", "vercel-project"]
+      ),
+      providerNode(
+        "vercel-stripe-price-lookup-environment",
+        "Bind the deterministic immutable Stripe price lookup key as a typed non-secret production application variable.",
+        "public_website",
         ["stripe-commerce", "vercel-project"]
       )
     );
@@ -16306,7 +17620,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "vercel-brevo-environment",
         "Bind the restricted Brevo credential reference to BREVO_API_KEY in Vercel production without reading its value back.",
         "public_website",
-        ["brevo-sending-domain", "vercel-project"]
+        ["brevo-email", "vercel-project"]
       )
     );
   }
@@ -16320,12 +17634,21 @@ function compileLaunchGraph(briefInput, decisionInput) {
       )
     );
   }
-  nodes.push(...environmentNodes);
-  for (const node of environmentNodes) {
-    completionDependencies.add(node.id);
+  const criticalPreOriginEnvironmentNodes = environmentNodes.filter(
+    ({ id }) => id === "vercel-database-environment"
+  );
+  const stripeEnvironmentNodes = environmentNodes.filter(
+    ({ id }) => id.startsWith("vercel-stripe-")
+  );
+  const optionalIntegrationEnvironmentNodes = environmentNodes.filter(
+    ({ id }) => id === "vercel-brevo-environment" || id === "vercel-ga-environment"
+  );
+  nodes.push(...criticalPreOriginEnvironmentNodes);
+  for (const node of criticalPreOriginEnvironmentNodes) {
     preDeployDependencies.add(node.id);
+    completionDependencies.add(node.id);
   }
-  const needsDnsRecords = Boolean(brief.domain) || has("stripe") || needsBrevo || needsGa4 || needsGsc;
+  const needsDnsRecords = Boolean(brief.domain) || needsBrevo || needsGsc;
   if (needsDnsRecords) {
     if (brief.preferred_dns_provider === "mijndomein" || brief.preferred_dns_provider === "manual") {
       nodes.push(
@@ -16347,7 +17670,6 @@ function compileLaunchGraph(briefInput, decisionInput) {
         )
       );
     }
-    completionDependencies.add("dns-records");
   }
   if (needsBrevo) {
     nodes.push(
@@ -16366,7 +17688,6 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "api"
       )
     );
-    completionDependencies.add("brevo-email");
   }
   if (needsGsc) {
     nodes.push(
@@ -16385,7 +17706,6 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "api"
       )
     );
-    completionDependencies.add("google-search-console");
   }
   if (decision.rail.appKind !== "web") {
     nodes.push(
@@ -16416,7 +17736,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
           "eas-build",
           "Configure EAS project/build profiles and produce a reproducible iOS build.",
           "eas",
-          ["build-core-journey", "verify-local"],
+          ["review-product", "verify-local"],
           "cli",
           "mobile_testflight"
         ),
@@ -16450,23 +17770,155 @@ function compileLaunchGraph(briefInput, decisionInput) {
       idempotencyKey: `launch:${brief.id}:verify-mvp`,
       concurrencyGroup: "quality",
       evidence: { required: true, artifact: "reports/quality/launch-mvp.json" }
-    }),
+    })
+  );
+  const needsInitialProductionOrigin = has("stripe");
+  if (needsInitialProductionOrigin) {
+    nodes.push(
+      providerNode(
+        "initial-production-deploy",
+        "Create and read back one initial production deployment so origin-dependent integrations bind to a real production URL, never a preview URL.",
+        "public_website",
+        ["verify-launch"]
+      )
+    );
+    completionDependencies.add("initial-production-deploy");
+  }
+  if (has("stripe")) {
+    nodes.push(
+      providerNode(
+        "stripe-callbacks",
+        "Create and verify the Stripe test-mode webhook and billing portal against the exact same-run production deployment origin; a merely declared custom domain is never selected.",
+        "stripe",
+        ["initial-production-deploy", "stripe-commerce", "vercel-project"],
+        "api"
+      ),
+      ...stripeEnvironmentNodes.map((node) => ({
+        ...node,
+        dependencies: [
+          .../* @__PURE__ */ new Set([...node.dependencies, "initial-production-deploy", "stripe-callbacks"])
+        ].sort()
+      }))
+    );
+    completionDependencies.add("stripe-callbacks");
+    for (const node of stripeEnvironmentNodes) completionDependencies.add(node.id);
+  } else {
+    nodes.push(...stripeEnvironmentNodes);
+  }
+  nodes.push(
+    ...optionalIntegrationEnvironmentNodes.filter(({ id }) => id === "vercel-brevo-environment")
+  );
+  if (needsGa4) {
+    const analyticsOriginDependency = has("stripe") ? "initial-production-deploy" : "production-deploy";
+    nodes.push(
+      providerNode(
+        "google-analytics-stream",
+        "Create and verify the GA4 web stream from the same-run property id and exact production origin; a preview URL is never accepted.",
+        "google_discovery",
+        ["google-analytics-property", analyticsOriginDependency],
+        "api"
+      ),
+      ...optionalIntegrationEnvironmentNodes.filter(({ id }) => id === "vercel-ga-environment")
+    );
+  }
+  const finalProductionDependencies = has("stripe") ? stripeEnvironmentNodes.map(({ id }) => id) : ["verify-launch"];
+  nodes.push(
     providerNode(
       "production-deploy",
-      "Deploy the verified web surface to production and read the immutable deployment and domain state back.",
+      "Deploy the final verified web surface with all typed application bindings, then read the immutable production deployment and domain state back.",
       "public_website",
-      ["verify-launch"]
+      finalProductionDependencies
     ),
+    ...needsGa4 ? [
+      providerNode(
+        "analytics-production-redeploy",
+        "Redeploy production only after the verified public GA4 measurement identifier is bound.",
+        "public_website",
+        ["production-deploy", "vercel-ga-environment"]
+      )
+    ] : [],
+    ...needsBrevo ? [
+      providerNode(
+        "email-production-redeploy",
+        "Redeploy production only after the verified Brevo application credential binding is ready.",
+        "public_website",
+        ["production-deploy", "vercel-brevo-environment"]
+      )
+    ] : [],
     workflowNode("verify-production", {
-      purpose: "Run read-only HTTPS smoke plus desktop and mobile critical-surface journeys against the exact production URL returned by deployment read-back.",
-      capability: "quality.post_deploy",
+      purpose: "Run the generic read-only deployment-surface check, then the exact Launch Contract primary journey under a labeled test identity with bounded reversible writes and verified cleanup against the exact production URL returned by deployment read-back.",
+      capability: "product.primary_journey.verify",
       dependencies: ["production-deploy"],
       handler: "launch.verifyProduction",
-      effect: "read",
+      effect: "external_reversible",
+      risk: "high",
+      authorization: {
+        required: true,
+        profile: "standard_launch",
+        scopes: ["product.primary_journey.verify"]
+      },
       idempotencyKey: `launch:${brief.id}:verify-production`,
+      retry: {
+        maxAttempts: 1,
+        retryableCodes: [],
+        backoff: { strategy: "none", initialMs: 0, maxMs: 0, multiplier: 1 }
+      },
+      reconciliation: {
+        handler: "launch.verifyProduction",
+        pollIntervalMs: 0,
+        maxPollAttempts: 3
+      },
       concurrencyGroup: "quality",
-      evidence: { required: true, artifact: "reports/quality/post-deploy.json" }
+      evidence: { required: true, artifact: "reports/quality/post-deploy.json" },
+      completion: {
+        description: "The generic deployment surface passed separately; the exact product journey passed under one labeled test identity, produced run-bound evidence, and verified cleanup of every reversible test write without charging, publishing, configuring providers, deleting unrelated data, or sending outside the authorized test recipient."
+      }
     }),
+    ...brief.domain ? [
+      workflowNode("verify-custom-domain", {
+        purpose: "After same-run Vercel attachment and DNS propagation read-back, rerun the generic surface and exact Launch Contract journey against the exact custom-domain HTTPS origin; never fall back after this origin is selected.",
+        capability: "product.primary_journey.verify",
+        dependencies: [
+          "production-deploy",
+          "vercel-project",
+          "dns-records",
+          "verify-production"
+        ],
+        handler: "launch.verifyProduction",
+        effect: "external_reversible",
+        risk: "high",
+        authorization: {
+          required: true,
+          profile: "standard_launch",
+          scopes: ["product.primary_journey.verify"]
+        },
+        idempotencyKey: `launch:${brief.id}:verify-custom-domain`,
+        retry: {
+          maxAttempts: 1,
+          retryableCodes: [],
+          backoff: { strategy: "none", initialMs: 0, maxMs: 0, multiplier: 1 }
+        },
+        reconciliation: {
+          handler: "launch.verifyProduction",
+          pollIntervalMs: 0,
+          maxPollAttempts: 3
+        },
+        concurrencyGroup: "quality",
+        evidence: { required: true, artifact: "reports/quality/custom-domain.json" },
+        completion: {
+          description: "The exact verified custom-domain origin passed the generic surface and immutable product journey, and every labeled test write was cleaned up with read-back."
+        }
+      })
+    ] : [],
+    ...brief.domain && has("stripe") ? [
+      providerNode(
+        "stripe-domain-callbacks",
+        "After the custom origin has same-run Vercel attachment, authoritative DNS, and product-journey verification, rebind Stripe callbacks to that exact verified HTTPS origin.",
+        "stripe",
+        ["dns-records", "stripe-callbacks", "vercel-project", "verify-custom-domain"],
+        "api"
+      )
+    ] : [],
     workflowNode("launch-report", {
       purpose: "Write sanitized human and JSON launch reports with only genuine remaining actions.",
       capability: "launch.report",
@@ -16521,9 +17973,12 @@ function criticalPath(graph) {
   }
   return [...best.values()].sort((a, b) => b.length - a.length || a.join().localeCompare(b.join()))[0] ?? [];
 }
-function compileLaunchDryRun(briefInput) {
+function compileLaunchDryRun(briefInput, decisionInput) {
   const brief = founderBriefSchema.parse(briefInput);
-  const decision = routeLaunch(brief);
+  const decision = decisionInput ?? routeLaunch(brief);
+  if (decision.briefId !== brief.id) {
+    throw new Error(`Launch decision for ${decision.briefId} cannot compile brief ${brief.id}`);
+  }
   const graph = compileLaunchGraph(brief, decision);
   const eventPacks = resolveActiveEventPacks({
     capabilities: decision.capabilities,
@@ -16568,6 +18023,7 @@ function compileLaunchDryRun(briefInput) {
 
 // lib/launch/authorization-scope.ts
 var PREVIEW_PROVIDER_NODES = /* @__PURE__ */ new Set(["github-repository", "vercel-project"]);
+var PRODUCTION_JOURNEY_NODES = /* @__PURE__ */ new Set(["verify-production", "verify-custom-domain"]);
 function canonicalProfile2(profile2) {
   const canonical = profile2.replaceAll("-", "_");
   if (![
@@ -16606,10 +18062,10 @@ function scopeLaunchGraphForAuthorization(definition2, requestedProfile) {
   }
   const keep = (node) => {
     if (profile2 === "build_local") {
-      return node.id === "launch-report" || node.kind !== "provider" && node.kind !== "manual_action" && node.id !== "verify-launch" && node.id !== "verify-production";
+      return node.id === "launch-report" || node.kind !== "provider" && node.kind !== "manual_action" && node.id !== "verify-launch" && !PRODUCTION_JOURNEY_NODES.has(node.id);
     }
     if (profile2 === "preview_launch") {
-      return node.id === "launch-report" || node.id === "verify-launch" || (node.kind === "code" || node.kind === "model") && node.id !== "verify-production" || PREVIEW_PROVIDER_NODES.has(node.id);
+      return node.id === "launch-report" || node.id === "verify-launch" || (node.kind === "code" || node.kind === "model") && !PRODUCTION_JOURNEY_NODES.has(node.id) || PREVIEW_PROVIDER_NODES.has(node.id);
     }
     return true;
   };
@@ -16636,15 +18092,25 @@ function scopeLaunchGraphForAuthorization(definition2, requestedProfile) {
   });
 }
 function nodeEnvironment(nodeId) {
-  if (["stripe-commerce", "revenuecat-entitlements"].includes(nodeId)) return "test";
+  if ([
+    "stripe-commerce",
+    "stripe-callbacks",
+    "stripe-domain-callbacks",
+    "revenuecat-entitlements"
+  ].includes(nodeId)) {
+    return "test";
+  }
   if ([
     "dns-records",
     "apple-first-app-record",
     "eas-build",
     "eas-submit",
     "testflight-state",
+    "initial-production-deploy",
+    "analytics-production-redeploy",
+    "email-production-redeploy",
     "production-deploy"
-  ].includes(nodeId)) {
+  ].includes(nodeId) || nodeId.startsWith("vercel-") && nodeId.endsWith("-environment")) {
     return "production";
   }
   return "preview";
@@ -16664,9 +18130,604 @@ function requiredEnvironmentsForLaunch(definition2) {
 function requiredCapabilitiesForLaunch(definition2) {
   return [
     ...new Set(
-      definition2.nodes.filter((node) => node.kind === "provider").flatMap((node) => node.authorization.scopes)
+      definition2.nodes.filter((node) => node.authorization.required).flatMap((node) => node.authorization.scopes)
     )
   ].sort();
+}
+
+// lib/founder-launch/launch-contract.ts
+import { createHash as createHash5 } from "node:crypto";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+var boundedText = external_exports.string().trim().min(1).max(1e3);
+var conciseText = external_exports.string().trim().min(1).max(500);
+var textList = (minimum = 0, maximum = 20) => external_exports.array(boundedText).min(minimum).max(maximum).refine((values) => new Set(values).size === values.length, "values must be unique");
+var conciseList = (minimum = 0, maximum = 20) => external_exports.array(conciseText).min(minimum).max(maximum).refine((values) => new Set(values).size === values.length, "values must be unique");
+var launchContractPriceSchema = external_exports.number().positive().finite().refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, {
+  message: "priceHypothesis must use at most two decimal places"
+});
+var MAX_LAUNCH_CONTRACT_BYTES = 32e3;
+function indexedSafetyText(path, values) {
+  return values.map((value, index) => ({ path: [...path, index], value }));
+}
+function affirmativeSafetyText(contract) {
+  return [
+    { path: ["venture", "oneSentenceThesis"], value: contract.venture.oneSentenceThesis },
+    { path: ["venture", "targetUser"], value: contract.venture.targetUser },
+    { path: ["venture", "painfulJob"], value: contract.venture.painfulJob },
+    { path: ["venture", "desiredOutcome"], value: contract.venture.desiredOutcome },
+    { path: ["venture", "differentiation"], value: contract.venture.differentiation },
+    { path: ["venture", "founderAdvantage"], value: contract.venture.founderAdvantage },
+    { path: ["product", "oneCoreFeature"], value: contract.product.oneCoreFeature },
+    ...indexedSafetyText(["product", "primaryJourney"], contract.product.primaryJourney),
+    { path: ["product", "primaryCta"], value: contract.product.primaryCta },
+    { path: ["product", "designThesis"], value: contract.product.designThesis },
+    ...indexedSafetyText(["product", "trustRequirements"], contract.product.trustRequirements),
+    {
+      path: ["business", "commercialCommitmentEvent"],
+      value: contract.business.commercialCommitmentEvent
+    },
+    { path: ["distribution", "firstChannel"], value: contract.distribution.firstChannel },
+    {
+      path: ["distribution", "firstUserHabitat"],
+      value: contract.distribution.firstUserHabitat
+    },
+    { path: ["distribution", "initialMessage"], value: contract.distribution.initialMessage },
+    {
+      path: ["distribution", "firstValidationAction"],
+      value: contract.distribution.firstValidationAction
+    },
+    { path: ["decision", "continueRule"], value: contract.decision.continueRule },
+    { path: ["decision", "changeRule"], value: contract.decision.changeRule },
+    { path: ["decision", "stopRule"], value: contract.decision.stopRule },
+    ...indexedSafetyText(["truth", "facts"], contract.truth.facts),
+    ...indexedSafetyText(["truth", "assumptions"], contract.truth.assumptions),
+    ...indexedSafetyText(["truth", "inferences"], contract.truth.inferences),
+    ...indexedSafetyText(["truth", "contradictions"], contract.truth.contradictions),
+    ...indexedSafetyText(["truth", "unknowns"], contract.truth.unknowns),
+    ...indexedSafetyText(["truth", "externalEvidence"], contract.truth.externalEvidence),
+    ...indexedSafetyText(["agentNative", "outcomeCommands"], contract.agentNative.outcomeCommands)
+  ];
+}
+function negatesMatchedAction(value, matchIndex) {
+  const prefix = value.slice(Math.max(0, matchIndex - 48), matchIndex);
+  return /\b(?:do not|don't|never|must not|avoid|prevent|reject|prohibit)\b[^.!?;:\n]{0,44}$/iu.test(
+    prefix
+  );
+}
+function unsafeMatch(value, pattern) {
+  const matcher = new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`);
+  let match;
+  while ((match = matcher.exec(value)) !== null) {
+    if (!negatesMatchedAction(value, match.index)) return true;
+    matcher.lastIndex = match.index + 1;
+  }
+  return false;
+}
+function launchContractSafetyIssues(contract) {
+  const issues = [];
+  const texts = affirmativeSafetyText(contract);
+  const deceptivePatterns = [
+    /\b(?:fake|fabricat(?:e|ed|ing)|invent(?:ed|ing)?|forge[ds]?|manufactur(?:e|ed|ing))\b.{0,48}\b(?:customers?|users?|reviews?|testimonials?|metrics?|revenue|demand|evidence|results?|provider state)\b/iu,
+    /\bimpersonat(?:e|es|ed|ing|ion)\b/iu,
+    /\bmislead(?:s|ing|ingly)?\b/iu,
+    /\bconceal\b.{0,40}\b(?:price|sponsor|advertis(?:ing|ement)|subscription|renewal|risk|conflict)\b/iu
+  ];
+  for (const text2 of texts) {
+    if (deceptivePatterns.some((pattern) => unsafeMatch(text2.value, pattern))) {
+      issues.push({
+        path: text2.path,
+        message: "Launch Contract requests deceptive or fabricated state"
+      });
+    }
+  }
+  const joinedProductIntent = [
+    contract.product.oneCoreFeature,
+    ...contract.product.primaryJourney,
+    ...contract.agentNative.outcomeCommands
+  ].join(" ");
+  const trustText = contract.product.trustRequirements.join(" ");
+  const medicalAction = /\b(?:prescribe|calculate|recommend|determine|administer|adjust)\b.{0,56}\b(?:insulin|medication|medicine|drug|dosage|dose)\b/iu.test(
+    joinedProductIntent
+  ) || /\b(?:diagnose|treat)\b.{0,48}\b(?:patient|medical|health condition|disease)\b/iu.test(
+    joinedProductIntent
+  );
+  const reviewedMedicalSafeguard = /\b(?:clinician|doctor|licensed medical professional|medical professional)\b.{0,36}\b(?:review|approval|oversight)\b/iu.test(
+    trustText
+  ) && !/\bno\b.{0,24}\b(?:clinician|doctor|medical professional)\b.{0,36}\breview\b/iu.test(
+    trustText
+  );
+  if (medicalAction && !reviewedMedicalSafeguard) {
+    issues.push({
+      path: ["product", "oneCoreFeature"],
+      message: "A medical diagnosis or dosing action requires an explicit licensed-clinician review safeguard"
+    });
+  }
+  const directUnsafePatterns = [
+    /\b(?:disable|bypass|remove|evade)\b.{0,48}\b(?:authentication|authorization|consent|encryption|signature verification|safety check|clinician review|human review)\b/iu,
+    /\b(?:automatically|autonomously)\b.{0,48}\b(?:send|publish|post|deploy|charge|purchase|delete|replace nameservers?|change dns)\b/iu,
+    /\b(?:bulk|cold)\b.{0,24}\b(?:send|email|message|outreach)\b/iu,
+    /\b(?:delete|drop|erase|destroy)\b.{0,36}\b(?:production|customer|user|database|records?|data)\b/iu
+  ];
+  for (const text2 of texts) {
+    if (directUnsafePatterns.some((pattern) => unsafeMatch(text2.value, pattern))) {
+      issues.push({
+        path: text2.path,
+        message: "Launch Contract requests an unsafe or non-human-gated external effect"
+      });
+    }
+  }
+  for (const [index, contradiction] of contract.truth.contradictions.entries()) {
+    if (fundamentalContradiction(contradiction)) {
+      issues.push({
+        path: ["truth", "contradictions", index],
+        message: `Resolve fundamental Launch Contract contradiction: ${contradiction}`
+      });
+    }
+  }
+  return issues;
+}
+function isRealIsoDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+var launchContractSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  /** Explicit fixture marker; omitted contracts always represent real founder input. */
+  synthetic: external_exports.literal(true).optional(),
+  venture: external_exports.object({
+    name: external_exports.string().trim().min(1).max(100),
+    slug: external_exports.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+    domain: external_exports.string().regex(
+      /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/u
+    ).nullable().optional(),
+    oneSentenceThesis: conciseText,
+    targetUser: conciseText,
+    painfulJob: conciseText,
+    desiredOutcome: conciseText,
+    differentiation: conciseText,
+    founderAdvantage: conciseText
+  }).strict(),
+  product: external_exports.object({
+    oneCoreFeature: conciseText,
+    primaryJourney: conciseList(1, 8),
+    primaryCta: external_exports.string().trim().min(1).max(120),
+    explicitNotBuilding: textList(1, 12),
+    designThesis: boundedText,
+    trustRequirements: textList(0, 12)
+  }).strict(),
+  business: external_exports.object({
+    model: external_exports.enum(["subscription", "one_time", "usage", "service", "take_rate", "free"]),
+    priceHypothesis: launchContractPriceSchema.nullable(),
+    currency: external_exports.literal("EUR"),
+    paymentProvider: external_exports.enum(["stripe", "revenuecat", "none"]),
+    commercialCommitmentEvent: conciseText
+  }).strict(),
+  distribution: external_exports.object({
+    firstChannel: conciseText,
+    firstUserHabitat: conciseText,
+    initialMessage: boundedText,
+    firstValidationAction: boundedText
+  }).strict(),
+  decision: external_exports.object({
+    launchMode: external_exports.enum(["thin_mvp", "product_first", "validate_first", "concierge_first"]),
+    primarySuccessSignal: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+    reviewDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/u).refine(isRealIsoDate, {
+      message: "reviewDate must be a real YYYY-MM-DD date"
+    }),
+    continueRule: boundedText,
+    changeRule: boundedText,
+    stopRule: boundedText
+  }).strict(),
+  truth: external_exports.object({
+    facts: textList(),
+    assumptions: textList(),
+    inferences: textList(),
+    contradictions: textList(),
+    unknowns: textList(),
+    externalEvidence: textList()
+  }).strict(),
+  agentNative: external_exports.object({
+    customerAgentSurfaceRequired: external_exports.boolean(),
+    serviceBlueprintRequired: external_exports.boolean(),
+    outcomeCommands: textList(0, 12)
+  }).strict()
+}).strict().superRefine((contract, context2) => {
+  rejectCredentialMaterial(contract, context2);
+  if (Buffer.byteLength(JSON.stringify(contract), "utf8") > MAX_LAUNCH_CONTRACT_BYTES) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: [],
+      message: `Launch Contract exceeds the ${MAX_LAUNCH_CONTRACT_BYTES}-byte context bound`
+    });
+  }
+  if (contract.business.model === "free") {
+    if (contract.business.paymentProvider !== "none") {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["business", "paymentProvider"],
+        message: "a free launch cannot select a payment provider"
+      });
+    }
+    if (contract.business.priceHypothesis !== null) {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["business", "priceHypothesis"],
+        message: "a free launch cannot assert a price hypothesis"
+      });
+    }
+  }
+  const pricingBasisText = [
+    contract.business.commercialCommitmentEvent,
+    ...contract.truth.facts,
+    ...contract.truth.assumptions
+  ].join(" ");
+  if (["usage", "take_rate"].includes(contract.business.model) && contract.business.priceHypothesis === null) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "priceHypothesis"],
+      message: "usage and take-rate models require an explicit reviewed amount and meter or percentage basis in the commitment event, fact, or assumption"
+    });
+  }
+  if (contract.business.model === "usage" && !/\b(?:per|each)\b.{0,80}\b(?:unit|request|seat|record|receipt|transaction|minute|hour|gigabyte|gb|credit|use|run|item)\b|\b(?:unit|request|seat|record|receipt|transaction|minute|hour|gigabyte|gb|credit|use|run|item)[ -]based\b|\/\s*(?:unit|request|seat|record|receipt|transaction|minute|hour|gigabyte|gb|credit|use|run|item)\b/iu.test(
+    pricingBasisText
+  )) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "commercialCommitmentEvent"],
+      message: "a usage contract must identify its reviewed meter in the commitment event, fact, or assumption"
+    });
+  }
+  if (contract.business.model === "take_rate" && !/(?:%|\bpercent(?:age)?\b|\btake[- ]?rate\b).{0,80}\b(?:transaction|sale|booking|payment|revenue|gross|order)\b|\b(?:transaction|sale|booking|payment|revenue|gross|order)\b.{0,80}(?:%|\bpercent(?:age)?\b|\btake[- ]?rate\b)/iu.test(
+    pricingBasisText
+  )) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "commercialCommitmentEvent"],
+      message: "a take-rate contract must identify its reviewed percentage basis in the commitment event, fact, or assumption"
+    });
+  }
+  if (contract.business.paymentProvider !== "none" && contract.business.priceHypothesis === null) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "priceHypothesis"],
+      message: "an automatic payment provider requires a reviewed price hypothesis"
+    });
+  }
+  if (contract.business.paymentProvider === "revenuecat" && !["subscription", "one_time"].includes(contract.business.model)) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "paymentProvider"],
+      message: "RevenueCat is supported only for reviewed native subscription or one-time commerce"
+    });
+  }
+  if (contract.business.paymentProvider === "stripe" && ["usage", "take_rate"].includes(contract.business.model)) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "paymentProvider"],
+      message: "automatic Stripe configuration does not yet implement usage meters or take-rate settlement; preserve the model with paymentProvider none for the present validation proof"
+    });
+  }
+  if (contract.business.paymentProvider === "none" && ["subscription", "one_time"].includes(contract.business.model) && contract.business.priceHypothesis !== null) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "paymentProvider"],
+      message: "a priced subscription or one-time launch requires a compatible reviewed payment provider"
+    });
+  }
+  if (contract.business.paymentProvider === "none" && /\b(?:pay(?:ment|ing)?|checkout|purchase|charge|subscribe|subscription started)\b/iu.test(
+    contract.business.commercialCommitmentEvent
+  )) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "commercialCommitmentEvent"],
+      message: "a payment commitment event requires a compatible reviewed payment provider"
+    });
+  }
+  if (contract.business.model === "take_rate" && contract.business.priceHypothesis !== null && contract.business.priceHypothesis > 100) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["business", "priceHypothesis"],
+      message: "a take-rate percentage cannot exceed 100"
+    });
+  }
+  for (const issue of launchContractSafetyIssues(contract)) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: [...issue.path],
+      message: issue.message
+    });
+  }
+});
+function assertLaunchContractSafe(contractInput) {
+  return launchContractSchema.parse(contractInput);
+}
+function frontMatter(source) {
+  const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/u);
+  if (!match?.[1]) return void 0;
+  try {
+    return parseYaml(match[1]);
+  } catch {
+    return void 0;
+  }
+}
+function parseLaunchContractSource(source) {
+  const candidates = [frontMatter(source)];
+  try {
+    candidates.push(parseYaml(source));
+  } catch {
+  }
+  for (const candidate of candidates) {
+    const parsed = launchContractSchema.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+  }
+  return void 0;
+}
+function selectedText(contract) {
+  return [
+    contract.product.oneCoreFeature,
+    ...contract.product.primaryJourney,
+    ...contract.product.trustRequirements,
+    ...contract.agentNative.outcomeCommands
+  ].join(" ").toLowerCase();
+}
+function explicitlyNeeds(text2, patterns) {
+  return patterns.some((pattern) => pattern.test(text2));
+}
+function fundamentalContradiction(value) {
+  return /\b(?:fundamental|indispensable|impossible|cannot both|mutually exclusive|unsafe|illegal|unlawful|no safe default)\b/iu.test(
+    value
+  );
+}
+function monetizationModel(contract) {
+  switch (contract.business.model) {
+    case "free":
+      return "none";
+    case "one_time":
+      return "one_time";
+    case "usage":
+      return "usage_based";
+    case "service":
+      return "services";
+    case "take_rate":
+      return "transaction_fee";
+    case "subscription":
+      return "subscription";
+  }
+}
+function founderBriefFromLaunchContract(contractInput) {
+  const contract = assertLaunchContractSafe(contractInput);
+  const selected = selectedText(contract);
+  const mobile = contract.business.paymentProvider === "revenuecat";
+  const needsAuth = explicitlyNeeds(selected, [
+    /\bauth(?:entication|enticated)?\b/u,
+    /\bsign[ -]?in\b/u,
+    /\baccount\b/u,
+    /\bprivate\b/u
+  ]);
+  const needsDatabase = explicitlyNeeds(selected, [
+    /\bpersist(?:ed|ence|ent)?\b/u,
+    /\bsav(?:e|ed|ing)\b/u,
+    /\bdatabase\b/u,
+    /\bstored?\b/u,
+    /\brecords?\b/u,
+    /\bchecklist state\b/u
+  ]);
+  const needsEmail = explicitlyNeeds(selected, [
+    /\be-?mail\b/u,
+    /\bmail(?:ed|ing)?\b/u,
+    /\btransactional message\b/u
+  ]);
+  const needsFiles = explicitlyNeeds(selected, [
+    /\bfile (?:upload|storage)\b/u,
+    /\bupload(?:ed|s|ing)?\b/u,
+    /\battachment\b/u
+  ]);
+  const needsAnalytics = explicitlyNeeds(selected, [
+    /\banalytics\b/u,
+    /\btrack(?:ed|ing)?\b/u,
+    /\bevent instrumentation\b/u,
+    /\bmeasure(?:d|ment)?\b/u
+  ]);
+  const discoveryText = [
+    contract.distribution.firstChannel,
+    contract.distribution.firstUserHabitat,
+    ...contract.product.trustRequirements
+  ].join(" ").toLowerCase();
+  const needsSearch = explicitlyNeeds(discoveryText, [
+    /\bseo\b/u,
+    /\bsearch\b/u,
+    /\bindex(?:ed|ing|ation)?\b/u,
+    /\bcrawl(?:able|ing)?\b/u
+  ]);
+  const knownTruths = contract.truth.facts.map((fact) => `FACT: ${fact}`);
+  const assumptions = [
+    ...contract.truth.assumptions.map((item) => `FOUNDER_ASSUMPTION: ${item}`),
+    ...contract.truth.inferences.map((item) => `MODEL_INFERENCE: ${item}`),
+    ...contract.truth.unknowns.map((item) => `UNKNOWN: ${item}`),
+    ...contract.truth.contradictions.map((item) => `CONTRADICTORY: ${item}`),
+    ...contract.truth.externalEvidence.map(
+      (item) => `UNKNOWN: Founder-supplied external evidence is not independently verified: ${item}`
+    )
+  ];
+  return founderBriefSchema.parse({
+    id: contract.venture.slug,
+    name: contract.venture.name,
+    specific_user_or_audience: contract.venture.targetUser,
+    problem_or_job: contract.venture.painfulJob,
+    intended_outcome: contract.venture.desiredOutcome,
+    smallest_core_journey: contract.product.primaryJourney.join(" -> "),
+    primary_success_signal: contract.decision.primarySuccessSignal,
+    material_constraints: [
+      ...contract.product.trustRequirements,
+      ...contract.product.explicitNotBuilding.map((item) => `Not building: ${item}`),
+      "Do not fabricate provider, user, demand, metric, revenue, or verification state.",
+      "Keep credentials outside Git and model context."
+    ],
+    known_truths: knownTruths,
+    assumptions,
+    // Agent Surfaces are an optional service capability, not a mobile rail.
+    // Seed selection consumes the Launch Contract directly so a web service
+    // does not accidentally activate App Store tooling.
+    app_kind: mobile ? "mobile_ios" : "web",
+    requested_mobile_stack: mobile ? "auto" : "none",
+    business_model: "b2b",
+    monetization_model: monetizationModel(contract),
+    native_digital_goods: mobile,
+    target_market: null,
+    domain: contract.venture.domain ?? null,
+    locale: "en-US",
+    currency: contract.business.currency,
+    timezone: "Europe/Amsterdam",
+    repository_visibility: "private",
+    bundle_identifier: null,
+    app_scheme: null,
+    factors: {
+      smallest_useful_build_cost: "low",
+      smallest_useful_build_time: "low",
+      reversibility: "high",
+      regulatory_or_safety_risk: contract.product.trustRequirements.some(
+        (item) => /\b(?:regulated|medical|health|legal|financial|safety-critical)\b/iu.test(item)
+      ) ? "high" : "low",
+      real_usage_required: "high",
+      marketplace_cold_start: contract.business.model === "take_rate" ? "high" : "low",
+      operational_burden: contract.decision.launchMode === "concierge_first" ? "high" : "moderate",
+      founder_evidence: "low",
+      concierge_delivery_fit: contract.decision.launchMode === "concierge_first" ? "high" : "low",
+      app_store_required: mobile ? "high" : "low",
+      deep_native_requirements: "low",
+      on_device_requirements: "low"
+    },
+    needs: {
+      authenticated_product: needsAuth,
+      database: needsDatabase,
+      file_storage: needsFiles,
+      transactional_email: needsEmail,
+      lifecycle_email: false,
+      feedback: false,
+      analytics: needsAnalytics,
+      search_discovery: needsSearch,
+      scheduled_learning: false
+    },
+    preferred_dns_provider: "manual",
+    ...contract.synthetic ? { synthetic: true } : {},
+    deceptive_request: false,
+    unsafe_non_defaultable_choice: null,
+    indispensable_missing_credential: null
+  });
+}
+function launchDecisionFromContract(contractInput) {
+  const contract = assertLaunchContractSafe(contractInput);
+  const brief = founderBriefFromLaunchContract(contract);
+  const base = routeLaunch(brief);
+  const selectedMode = contract.decision.launchMode;
+  const payment = {
+    provider: contract.business.paymentProvider,
+    entitlementSource: contract.business.paymentProvider,
+    rationale: `The reviewed Launch Contract selected ${contract.business.paymentProvider} for ${contract.business.model}.`
+  };
+  return {
+    ...base,
+    mode: {
+      ...base.mode,
+      selectedMode,
+      confidence: 1,
+      rationale: `The reviewed Launch Contract explicitly selected ${selectedMode}.`,
+      rejectedAlternatives: ["thin_mvp", "product_first", "validate_first", "concierge_first"].filter((mode) => mode !== selectedMode).map((mode) => ({
+        mode,
+        reason: `The reviewed Launch Contract selected ${selectedMode}; change the contract to select ${mode}.`
+      })),
+      assumptions: [...brief.assumptions],
+      evidenceThatCouldChangeChoice: [contract.decision.changeRule, contract.decision.stopRule]
+    },
+    payment,
+    capabilities: resolveCapabilities(brief, base.rail, payment)
+  };
+}
+function renderLaunchContractYaml(contractInput) {
+  const contract = launchContractSchema.parse(contractInput);
+  return stringifyYaml(contract, { lineWidth: 0 }).trimEnd() + "\n";
+}
+function renderFounderIdea(contractInput) {
+  const contract = launchContractSchema.parse(contractInput);
+  return [
+    "---",
+    renderLaunchContractYaml(contract).trimEnd(),
+    "---",
+    "",
+    `# ${contract.venture.name}`,
+    "",
+    contract.venture.oneSentenceThesis,
+    "",
+    "## Smallest credible launch",
+    "",
+    `- First user: ${contract.venture.targetUser}`,
+    `- Painful job: ${contract.venture.painfulJob}`,
+    `- Useful outcome: ${contract.venture.desiredOutcome}`,
+    `- Core feature: ${contract.product.oneCoreFeature}`,
+    `- Price hypothesis: ${contract.business.priceHypothesis === null ? "none" : `${contract.business.currency} ${contract.business.priceHypothesis}`}`,
+    `- Commitment: ${contract.business.commercialCommitmentEvent}`,
+    `- Success signal: ${contract.decision.primarySuccessSignal}`,
+    `- Review date: ${contract.decision.reviewDate}`,
+    "",
+    "## Primary journey",
+    "",
+    ...contract.product.primaryJourney.map((step, index) => `${index + 1}. ${step}`),
+    "",
+    "## Explicitly not building",
+    "",
+    ...contract.product.explicitNotBuilding.map((item) => `- ${item}`),
+    "",
+    "The YAML front matter is the canonical Launch Contract. This prose is a human review surface.",
+    ""
+  ].join("\n");
+}
+function renderProductConstitution(contractInput) {
+  const contract = launchContractSchema.parse(contractInput);
+  const truthLines = [
+    ...contract.truth.facts.map((item) => `- FACT \u2014 ${item}`),
+    ...contract.truth.assumptions.map((item) => `- FOUNDER_ASSUMPTION \u2014 ${item}`),
+    ...contract.truth.inferences.map((item) => `- MODEL_INFERENCE \u2014 ${item}`),
+    ...contract.truth.contradictions.map((item) => `- CONTRADICTORY \u2014 ${item}`),
+    ...contract.truth.unknowns.map((item) => `- UNKNOWN \u2014 ${item}`),
+    ...contract.truth.externalEvidence.map(
+      (item) => `- UNKNOWN \u2014 Founder-supplied external evidence awaits provenance and read-back: ${item}`
+    )
+  ];
+  return [
+    `# ${contract.venture.name} Product Constitution`,
+    "",
+    `- Category: ${contract.venture.oneSentenceThesis}`,
+    `- Promise: ${contract.venture.desiredOutcome}`,
+    `- First user: ${contract.venture.targetUser}`,
+    `- Job to be done: ${contract.venture.painfulJob}`,
+    `- Native product object: ${contract.product.oneCoreFeature}`,
+    `- Primary journey: ${contract.product.primaryJourney.join(" -> ")}`,
+    ...contract.venture.domain ? [`- Reviewed custom domain: ${contract.venture.domain}`] : [],
+    `- Business-model boundary: ${contract.business.model}; ${contract.business.paymentProvider}; price ${contract.business.priceHypothesis === null ? "not asserted" : `${contract.business.currency} ${contract.business.priceHypothesis}`}; one commitment event (${contract.business.commercialCommitmentEvent}).`,
+    `- First learning question: Will the target user produce ${contract.decision.primarySuccessSignal} before ${contract.decision.reviewDate}?`,
+    "",
+    "## Truth register",
+    "",
+    ...truthLines.length > 0 ? truthLines : ["- UNKNOWN \u2014 No external evidence is recorded yet."],
+    "- FIXTURE \u2014 Any sample or synthetic data must be visibly labeled at its public surface.",
+    "",
+    "Truth classes are FACT, FOUNDER_ASSUMPTION, MODEL_INFERENCE, FIXTURE, EXTERNALLY_VERIFIED, UNKNOWN, and CONTRADICTORY.",
+    "",
+    "Models may improve framing, prioritization, language, design, and implementation. Models may not invent provider state, users, demand, metrics, results, customers, revenue, reviews, source URLs, or testimonials.",
+    "",
+    "## Scope exclusions",
+    "",
+    ...contract.product.explicitNotBuilding.map((item) => `- ${item}`),
+    ""
+  ].join("\n");
+}
+function launchContractDigest(contractInput) {
+  return createHash5("sha256").update(renderLaunchContractYaml(launchContractSchema.parse(contractInput))).digest("hex");
 }
 
 // lib/founder-launch/idea.ts
@@ -16679,7 +18740,7 @@ var DEFAULT_ASSUMPTIONS = Object.freeze({
 });
 function slug(value) {
   const normalized = value.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
-  return /^[a-z][a-z0-9-]+$/.test(normalized) ? normalized : `venture-${createHash5("sha256").update(value).digest("hex").slice(0, 12)}`;
+  return /^[a-z][a-z0-9-]+$/.test(normalized) ? normalized : `venture-${createHash6("sha256").update(value).digest("hex").slice(0, 12)}`;
 }
 function textLine(source, labels) {
   for (const label of labels) {
@@ -16713,24 +18774,26 @@ function moneyLine(source, labels) {
 function commercialTerms(source, brief) {
   const monthlyPrice = moneyLine(source, ["Monthly price", "Price per month"]);
   const annualPrice = moneyLine(source, ["Annual price", "Price per year"]);
+  const oneTimePrice = moneyLine(source, ["One-time price", "Service price"]);
   const generalPrice = moneyLine(source, ["Price"]);
   const generalInterval = textLine(source, ["Billing", "Billing interval"])?.toLowerCase();
   return Object.freeze({
     currency: brief.currency ?? "EUR",
-    monthlyPrice: monthlyPrice ?? (generalPrice !== null && generalInterval !== "annual" && generalInterval !== "yearly" ? generalPrice : null),
+    oneTimePrice: oneTimePrice ?? (generalPrice !== null && (brief.monetization_model === "one_time" || brief.monetization_model === "services") ? generalPrice : null),
+    monthlyPrice: monthlyPrice ?? (generalPrice !== null && brief.monetization_model === "subscription" && generalInterval !== "annual" && generalInterval !== "yearly" ? generalPrice : null),
     annualPrice: annualPrice ?? (generalPrice !== null && (generalInterval === "annual" || generalInterval === "yearly") ? generalPrice : null)
   });
 }
-function frontMatter(source) {
+function frontMatter2(source) {
   const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/);
-  return match?.[1] ? parseYaml(match[1]) : void 0;
+  return match?.[1] ? parseYaml2(match[1]) : void 0;
 }
 function structuredBrief(source) {
   const candidates = [
-    frontMatter(source),
+    frontMatter2(source),
     (() => {
       try {
-        return parseYaml(source);
+        return parseYaml2(source);
       } catch {
         return void 0;
       }
@@ -16774,10 +18837,10 @@ function markdownBrief(source) {
     assumptionsAdded.push(`${label}: ${fallback}`);
     return fallback;
   };
-  const commerce = (textLine(source, ["Commerce", "Monetization", "Revenue model"]) ?? "subscription").toLowerCase();
+  const commerce = (textLine(source, ["Commerce", "Monetization", "Revenue model"]) ?? "none").toLowerCase();
   const appKindRaw = (textLine(source, ["Rail", "App", "App kind"]) ?? "web").toLowerCase();
   const appKind = appKindRaw.includes("hybrid") ? "hybrid" : appKindRaw.includes("ios") || appKindRaw.includes("mobile") ? "ios" : "web";
-  const monetizationModel = commerce.includes("none") || commerce.includes("free") ? "none" : commerce.includes("one") ? "one_time" : commerce.includes("usage") ? "usage_based" : commerce.includes("service") ? "services" : "subscription";
+  const monetizationModel2 = commerce.includes("none") || commerce.includes("free") ? "none" : commerce.includes("one") ? "one_time" : commerce.includes("usage") ? "usage_based" : commerce.includes("service") ? "services" : "subscription";
   const domain = textLine(source, ["Domain"]);
   const repositoryVisibility = (textLine(source, ["Repository visibility", "Visibility"]) ?? "private").toLowerCase();
   const brief = founderBriefSchema.parse({
@@ -16814,7 +18877,7 @@ function markdownBrief(source) {
     app_kind: appKind,
     requested_mobile_stack: appKind === "web" ? "none" : "auto",
     business_model: "b2b",
-    monetization_model: monetizationModel,
+    monetization_model: monetizationModel2,
     native_digital_goods: appKind !== "web" && commerce.includes("native"),
     target_market: textLine(source, ["Market", "Target market"]) ?? null,
     domain: domain ?? null,
@@ -16839,15 +18902,15 @@ function markdownBrief(source) {
       on_device_requirements: "low"
     },
     needs: {
-      authenticated_product: booleanLine(source, ["Auth", "Authentication"], true),
-      database: booleanLine(source, ["Database"], true),
+      authenticated_product: booleanLine(source, ["Auth", "Authentication"], false),
+      database: booleanLine(source, ["Database"], false),
       file_storage: booleanLine(source, ["File storage"], false),
-      transactional_email: booleanLine(source, ["Email", "Transactional email"], true),
+      transactional_email: booleanLine(source, ["Email", "Transactional email"], false),
       lifecycle_email: booleanLine(source, ["Lifecycle email"], false),
-      feedback: booleanLine(source, ["Feedback"], true),
-      analytics: booleanLine(source, ["Analytics"], true),
-      search_discovery: booleanLine(source, ["Search", "SEO", "Discovery"], true),
-      scheduled_learning: booleanLine(source, ["Learning", "Scheduled learning"], true)
+      feedback: booleanLine(source, ["Feedback"], false),
+      analytics: booleanLine(source, ["Analytics"], false),
+      search_discovery: booleanLine(source, ["Search", "SEO", "Discovery"], false),
+      scheduled_learning: booleanLine(source, ["Learning", "Scheduled learning"], false)
     },
     preferred_dns_provider: (textLine(source, ["DNS", "DNS provider"]) ?? "manual").toLowerCase() === "mijndomein" ? "mijndomein" : "manual",
     ...booleanLine(source, ["Synthetic", "Fixture"], false) ? { synthetic: true } : {},
@@ -16859,13 +18922,32 @@ function markdownBrief(source) {
 }
 function compileFounderIdea(source) {
   assertSafeIdea(source);
-  const hash = createHash5("sha256").update(source).digest("hex");
+  const hash = createHash6("sha256").update(source).digest("hex");
+  const launchContract = parseLaunchContractSource(source);
+  if (launchContract) {
+    const brief = founderBriefFromLaunchContract(launchContract);
+    const monthlyPrice = launchContract.business.model === "subscription" ? launchContract.business.priceHypothesis : null;
+    return Object.freeze({
+      brief,
+      sourceHash: hash,
+      sourceKind: "launch_contract",
+      launchContract,
+      assumptionsAdded: Object.freeze([]),
+      commercialTerms: Object.freeze({
+        currency: launchContract.business.currency,
+        monthlyPrice,
+        annualPrice: null,
+        oneTimePrice: launchContract.business.model === "one_time" || launchContract.business.model === "service" ? launchContract.business.priceHypothesis : null
+      })
+    });
+  }
   const structured = structuredBrief(source);
   if (structured) {
     return Object.freeze({
       brief: structured,
       sourceHash: hash,
       sourceKind: "structured_brief",
+      launchContract: null,
       assumptionsAdded: Object.freeze([]),
       commercialTerms: commercialTerms(source, structured)
     });
@@ -16875,19 +18957,421 @@ function compileFounderIdea(source) {
     brief: compiled.brief,
     sourceHash: hash,
     sourceKind: "markdown_idea",
+    launchContract: null,
     assumptionsAdded: Object.freeze([...compiled.assumptionsAdded]),
     commercialTerms: commercialTerms(source, compiled.brief)
   });
 }
 
+// lib/founder-launch/idea-sharpener.ts
+import { mkdtempSync, rmSync as rmSync2 } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as join4 } from "node:path";
+var IDEA_SHARPENER_TOTAL_CALL_LIMIT = 2;
+var IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT = 24e3;
+var IdeaSharpenError = class extends Error {
+  constructor(message, accounting2) {
+    super(message);
+    this.accounting = accounting2;
+    this.name = "IdeaSharpenError";
+  }
+  accounting;
+};
+var CODEX_IDEA_SHARPENER_ARGS = [
+  "exec",
+  "--sandbox",
+  "read-only",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--skip-git-repo-check",
+  "--json"
+];
+var SAFE_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "CODEX_HOME",
+  "XDG_CONFIG_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "PATHEXT"
+];
+function ideaSharpenerEnvironment(source) {
+  return {
+    NODE_ENV: source.NODE_ENV ?? "production",
+    ...Object.fromEntries(
+      SAFE_ENVIRONMENT_KEYS.flatMap(
+        (key) => source[key] === void 0 ? [] : [[key, source[key]]]
+      )
+    )
+  };
+}
+function objectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function assistantText(event) {
+  const record3 = objectRecord(event);
+  if (!record3) return null;
+  if (record3.type === "item.completed") {
+    const item = objectRecord(record3.item);
+    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
+  }
+  if (record3.type === "turn.completed" && typeof record3.final_output === "string") {
+    return record3.final_output;
+  }
+  if (record3.type === "result" && typeof record3.result === "string") return record3.result;
+  return null;
+}
+function eventUsage(event) {
+  const record3 = objectRecord(event);
+  if (record3?.type !== "turn.completed") return void 0;
+  const usage = objectRecord(record3.usage);
+  if (!usage) return void 0;
+  if (typeof usage.input_tokens !== "number" || typeof usage.cached_input_tokens !== "number" || typeof usage.output_tokens !== "number") {
+    return void 0;
+  }
+  return {
+    inputTokens: usage.input_tokens,
+    cachedInputTokens: usage.cached_input_tokens,
+    outputTokens: usage.output_tokens,
+    ...typeof record3.model === "string" && record3.model.trim() ? { model: record3.model.trim() } : {}
+  };
+}
+function parseCodexJsonLines(stdout) {
+  const finalTexts = [];
+  let usage;
+  for (const [index, line] of stdout.split(/\r?\n/u).filter((candidate) => candidate.trim().length > 0).entries()) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new Error(`Codex sharpener JSONL line ${index + 1} was invalid`);
+    }
+    const text2 = assistantText(event);
+    if (text2) finalTexts.push(text2);
+    usage = eventUsage(event) ?? usage;
+  }
+  const finalText = finalTexts.at(-1);
+  if (!finalText) throw new Error("Codex sharpener returned no final Launch Contract");
+  return { finalText, usage };
+}
+var CodexCliIdeaSharpenerHost = class {
+  id = "codex_cli";
+  runner;
+  binary;
+  redactor;
+  model;
+  constructor(options) {
+    this.runner = options.runner;
+    this.binary = options.binary ?? "codex";
+    this.redactor = options.redactor ?? new Redactor();
+    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
+  }
+  async run(input) {
+    const isolatedRoot = mkdtempSync(join4(tmpdir(), "vh-idea-sharpen-"));
+    try {
+      const result2 = await this.runner.run({
+        command: this.binary,
+        args: [
+          ...CODEX_IDEA_SHARPENER_ARGS,
+          ...this.model ? ["--model", this.model] : [],
+          "-C",
+          isolatedRoot,
+          "-"
+        ],
+        cwd: isolatedRoot,
+        stdin: input.prompt,
+        sensitiveStdin: true,
+        env: ideaSharpenerEnvironment(process.env),
+        signal: input.signal
+      });
+      if (result2.exitCode !== 0) {
+        const detail = this.redactor.redactText(result2.stderr || result2.stdout).trim().slice(0, 2e3);
+        throw new Error(
+          `Codex idea ${input.phase} call exited ${result2.exitCode}${detail ? `: ${detail}` : ""}`
+        );
+      }
+      const parsed = parseCodexJsonLines(result2.stdout);
+      return {
+        ...parsed,
+        usage: parsed.usage ? { ...parsed.usage, ...parsed.usage.model || !this.model ? {} : { model: this.model } } : void 0
+      };
+    } finally {
+      rmSync2(isolatedRoot, { force: true, recursive: true });
+    }
+  }
+};
+function schemaSkeleton() {
+  return JSON.stringify(
+    {
+      schemaVersion: 1,
+      venture: {
+        name: "",
+        slug: "",
+        oneSentenceThesis: "",
+        targetUser: "",
+        painfulJob: "",
+        desiredOutcome: "",
+        differentiation: "",
+        founderAdvantage: ""
+      },
+      product: {
+        oneCoreFeature: "",
+        primaryJourney: [""],
+        primaryCta: "",
+        explicitNotBuilding: [""],
+        designThesis: "",
+        trustRequirements: []
+      },
+      business: {
+        model: "subscription | one_time | usage | service | take_rate | free",
+        priceHypothesis: null,
+        currency: "EUR",
+        paymentProvider: "stripe | revenuecat | none",
+        commercialCommitmentEvent: ""
+      },
+      distribution: {
+        firstChannel: "",
+        firstUserHabitat: "",
+        initialMessage: "",
+        firstValidationAction: ""
+      },
+      decision: {
+        launchMode: "thin_mvp | product_first | validate_first | concierge_first",
+        primarySuccessSignal: "snake_case_event",
+        reviewDate: "YYYY-MM-DD",
+        continueRule: "",
+        changeRule: "",
+        stopRule: ""
+      },
+      truth: {
+        facts: [],
+        assumptions: [],
+        inferences: [],
+        contradictions: [],
+        unknowns: [],
+        externalEvidence: []
+      },
+      agentNative: {
+        customerAgentSurfaceRequired: false,
+        serviceBlueprintRequired: false,
+        outcomeCommands: []
+      }
+    },
+    null,
+    2
+  );
+}
+function primaryPrompt(source, today) {
+  return [
+    "Turn one rough founder idea into the smallest credible Launch Contract.",
+    "This is one bounded judgement call. Do not browse, use tools, read files, plan provider operations, or write code.",
+    "Return exactly one JSON object matching the skeleton below, with no Markdown fence or prose.",
+    "Use one user, one painful job, one useful outcome, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list.",
+    "Do not invent demand, users, quotes, revenue, metrics, provider state, external evidence, founder credentials, market size, or pricing certainty. Put reversible uncertainty in truth.assumptions, truth.inferences, or truth.unknowns.",
+    "Default to thin_mvp. Use product_first only when real usage is indispensable, validate_first only when risk or cost makes a smaller demand test necessary, and concierge_first only when honest manual delivery is materially better.",
+    "Default business.model to free and paymentProvider to none unless the founder proposes present commerce. Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. priceHypothesis is one positive numeric amount or null. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
+    "Do not require auth, persistence, email, analytics, search, agents, or scheduled work unless the primary journey actually needs it. Put material implementation needs in product.trustRequirements using direct terms such as authentication, persisted state, transactional email, analytics, or SEO.",
+    `Today is ${today}; choose a concrete reviewDate after today without claiming future evidence.`,
+    "Schema skeleton (replace every placeholder and use only the listed keys/enums):",
+    schemaSkeleton(),
+    "Rough founder idea:",
+    source
+  ].join("\n\n");
+}
+function refinementPrompt(candidate, issues, today) {
+  return [
+    "Repair this candidate into the exact Launch Contract schema. This is the only refinement call.",
+    "Return exactly one JSON object with no Markdown fence or prose. Preserve sound venture decisions; change only what is needed for a small, credential-free, internally consistent contract.",
+    `Today is ${today}; reviewDate must be a real date after today.`,
+    "Schema skeleton:",
+    schemaSkeleton(),
+    "Validation issues:",
+    issues.join("\n"),
+    "Candidate:",
+    candidate.slice(0, IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT / 2)
+  ].join("\n\n");
+}
+function jsonCandidate(text2) {
+  const trimmed = text2.trim();
+  const withoutFence = trimmed.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
+  return JSON.parse(withoutFence);
+}
+function validateCandidate(text2) {
+  let candidate;
+  try {
+    candidate = jsonCandidate(text2);
+  } catch {
+    return { success: false, issues: ["result: expected one valid JSON object"] };
+  }
+  const parsed = launchContractSchema.safeParse(candidate);
+  if (parsed.success) {
+    return { success: true, contract: assertLaunchContractSafe(parsed.data) };
+  }
+  return {
+    success: false,
+    issues: parsed.error.issues.map(
+      (issue) => `${issue.path.join(".") || "contract"}: ${issue.message}`
+    )
+  };
+}
+function accounting(status, contract, usages, calls, elapsedMs, contextCharacters, host) {
+  const known = usages.length === calls;
+  const inputTokens = known ? usages.reduce((sum, item) => sum + item.inputTokens, 0) : null;
+  const cachedInputTokens = known ? usages.reduce((sum, item) => sum + item.cachedInputTokens, 0) : null;
+  const outputTokens = known ? usages.reduce((sum, item) => sum + item.outputTokens, 0) : null;
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
+    modelCalls: calls,
+    elapsedMs,
+    assumptionsAdded: status === "already_structured" ? [] : [...contract.truth.assumptions, ...contract.truth.inferences],
+    contradictionsDetected: [...contract.truth.contradictions],
+    contextCharacters,
+    host: status === "already_structured" ? null : host,
+    model: status === "already_structured" ? null : [...new Set(usages.map(({ model }) => model).filter(Boolean))].join(", ") || null
+  };
+}
+function failedAccounting(usages, calls, elapsedMs, contextCharacters, host) {
+  const known = usages.length === calls;
+  const inputTokens = known ? usages.reduce((sum, item) => sum + item.inputTokens, 0) : null;
+  const cachedInputTokens = known ? usages.reduce((sum, item) => sum + item.cachedInputTokens, 0) : null;
+  const outputTokens = known ? usages.reduce((sum, item) => sum + item.outputTokens, 0) : null;
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
+    modelCalls: calls,
+    elapsedMs,
+    assumptionsAdded: [],
+    contradictionsDetected: [],
+    contextCharacters,
+    host,
+    model: [...new Set(usages.map(({ model }) => model).filter(Boolean))].join(", ") || null
+  };
+}
+async function sharpenIdea(source, options = {}) {
+  if (source.trim().length < 12) {
+    throw new Error("Rough idea must contain at least 12 non-whitespace characters");
+  }
+  if (source.length > IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT) {
+    throw new Error(
+      `Rough idea exceeds the ${IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT}-character sharpener context limit`
+    );
+  }
+  const credential = findCredentialMaterial(source);
+  if (credential) {
+    throw new Error(
+      `Rough idea contains forbidden credential-like material (${credential.kind}); remove it before sharpening`
+    );
+  }
+  if (/^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
+    source
+  )) {
+    throw new Error("Rough idea contains a credential-labeled field; remove it before sharpening");
+  }
+  const startedAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().getTime();
+  const structured = parseLaunchContractSource(source);
+  if (structured) {
+    const contract = assertLaunchContractSafe(structured);
+    return {
+      schemaVersion: 1,
+      status: "already_structured",
+      launchContract: contract,
+      ideaMarkdown: renderFounderIdea(contract),
+      productConstitutionMarkdown: renderProductConstitution(contract),
+      accounting: accounting(
+        "already_structured",
+        contract,
+        [],
+        0,
+        Math.max(0, (options.now ?? (() => /* @__PURE__ */ new Date()))().getTime() - startedAt),
+        source.length,
+        null
+      )
+    };
+  }
+  if (!options.host) {
+    throw new Error("Unstructured ideas require the authenticated Codex CLI sharpener host");
+  }
+  const now = options.now ?? (() => /* @__PURE__ */ new Date());
+  const today = new Date(startedAt).toISOString().slice(0, 10);
+  const usages = [];
+  let calls = 0;
+  const run = async (prompt, phase) => {
+    if (calls >= IDEA_SHARPENER_TOTAL_CALL_LIMIT) {
+      throw new Error(`Idea sharpener exceeded its ${IDEA_SHARPENER_TOTAL_CALL_LIMIT}-call limit`);
+    }
+    calls += 1;
+    const result2 = await options.host.run({ prompt, phase, signal: options.signal });
+    if (result2.usage) usages.push(result2.usage);
+    return result2.finalText;
+  };
+  try {
+    let finalText = await run(primaryPrompt(source, today), "primary");
+    let parsed = validateCandidate(finalText);
+    if (!parsed.success) {
+      finalText = await run(refinementPrompt(finalText, parsed.issues, today), "refinement");
+      parsed = validateCandidate(finalText);
+    }
+    if (!parsed.success) {
+      throw new Error(
+        `Idea sharpener exhausted its ${IDEA_SHARPENER_TOTAL_CALL_LIMIT}-call limit: ${parsed.issues.join("; ")}`
+      );
+    }
+    const contract = parsed.contract;
+    if (Date.parse(`${contract.decision.reviewDate}T00:00:00.000Z`) <= startedAt) {
+      throw new Error("Idea sharpener returned a reviewDate that is not after the sharpening date");
+    }
+    return {
+      schemaVersion: 1,
+      status: "sharpened",
+      launchContract: contract,
+      ideaMarkdown: renderFounderIdea(contract),
+      productConstitutionMarkdown: renderProductConstitution(contract),
+      accounting: accounting(
+        "sharpened",
+        contract,
+        usages,
+        calls,
+        Math.max(0, now().getTime() - startedAt),
+        source.length,
+        options.host.id
+      )
+    };
+  } catch (error) {
+    if (error instanceof IdeaSharpenError) throw error;
+    throw new IdeaSharpenError(
+      error instanceof Error ? error.message : String(error),
+      failedAccounting(
+        usages,
+        calls,
+        Math.max(0, now().getTime() - startedAt),
+        source.length,
+        options.host.id
+      )
+    );
+  }
+}
+
 // lib/founder-launch/orchestrator.ts
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync as lstatSync3, readFileSync as readFileSync7, realpathSync as realpathSync3 } from "node:fs";
-import { isAbsolute as isAbsolute2, relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
+import { lstatSync as lstatSync4, readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
+import { isAbsolute as isAbsolute4, relative as relative7, resolve as resolve10, sep as sep7 } from "node:path";
 
 // lib/materialization/grant.ts
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 var semver = external_exports.string().regex(/^\d+\.\d+\.\d+$/);
 var slug2 = external_exports.string().regex(/^[a-z][a-z0-9-]{1,62}$/);
 var effectSchema = external_exports.enum([
@@ -17061,7 +19545,7 @@ function immutableGrantBody(body) {
 }
 function createLaunchGrant(input) {
   const body = launchGrantBodySchema.parse(input);
-  const grantId = `lg_${createHash6("sha256").update(stable2(immutableGrantBody(body))).digest("hex").slice(0, 26)}`;
+  const grantId = `lg_${createHash7("sha256").update(stable2(immutableGrantBody(body))).digest("hex").slice(0, 26)}`;
   return freeze(launchGrantSchema.parse({ grantId, schemaVersion: 1, ...body }));
 }
 function parseLaunchGrant(input) {
@@ -17071,7 +19555,7 @@ function parseLaunchGrant(input) {
     Object.entries(parsed).filter(([key]) => key !== "grantId" && key !== "schemaVersion")
   );
   const body = launchGrantBodySchema.parse(candidateBody);
-  const expectedId = `lg_${createHash6("sha256").update(stable2(immutableGrantBody(body))).digest("hex").slice(0, 26)}`;
+  const expectedId = `lg_${createHash7("sha256").update(stable2(immutableGrantBody(body))).digest("hex").slice(0, 26)}`;
   if (grantId !== expectedId)
     throw new Error("Launch Grant content does not match its immutable ID");
   return freeze({ grantId, schemaVersion: 1, ...body });
@@ -17090,17 +19574,17 @@ function assertLaunchEffectAuthorized(grant, effect, at) {
 }
 
 // lib/materialization/materializer.ts
-import { createHash as createHash8 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 import { lstat, mkdir as mkdir2, readdir, unlink as unlink2, writeFile } from "node:fs/promises";
-import { dirname as dirname3, relative as relative3, resolve as resolve6, sep as sep3 } from "node:path";
+import { dirname as dirname4, relative as relative4, resolve as resolve7, sep as sep4 } from "node:path";
 import { stringify as stringify2 } from "yaml";
 
 // lib/runtime/file-idempotency-ledger.ts
-import { createHash as createHash7, randomBytes as randomBytes2 } from "node:crypto";
+import { createHash as createHash8, randomBytes as randomBytes3 } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname as dirname2 } from "node:path";
+import { dirname as dirname3 } from "node:path";
 function digest(key) {
-  return createHash7("sha256").update(key).digest("hex");
+  return createHash8("sha256").update(key).digest("hex");
 }
 var SAFE_PROVIDER_CODES = /* @__PURE__ */ new Set([
   "retryable_rate_limit",
@@ -17123,7 +19607,7 @@ function safeProviderCode(code) {
 }
 var LEDGER_ID = /^ledger_[a-f0-9]{64}$/u;
 function newLedgerId() {
-  return `ledger_${randomBytes2(32).toString("hex")}`;
+  return `ledger_${randomBytes3(32).toString("hex")}`;
 }
 function emptyDocument(ledgerId) {
   return { version: 4, ledgerId, entries: {} };
@@ -17448,9 +19932,9 @@ var FileProviderIdempotencyLedger = class {
     return document2;
   }
   async write(document2) {
-    const directory = dirname2(this.path);
+    const directory = dirname3(this.path);
     await mkdir(directory, { recursive: true, mode: 448 });
-    const temporary = `${this.path}.${process.pid}.${randomBytes2(6).toString("hex")}.tmp`;
+    const temporary = `${this.path}.${process.pid}.${randomBytes3(6).toString("hex")}.tmp`;
     const handle = await open(temporary, "wx", 384);
     try {
       await handle.writeFile(`${JSON.stringify(document2, null, 2)}
@@ -17503,7 +19987,7 @@ var FileProviderIdempotencyLedger = class {
     return pending;
   }
   async withLock(work) {
-    await mkdir(dirname2(this.path), { recursive: true, mode: 448 });
+    await mkdir(dirname3(this.path), { recursive: true, mode: 448 });
     const lockPath = `${this.path}.lock`;
     let handle;
     for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -17512,7 +19996,7 @@ var FileProviderIdempotencyLedger = class {
         break;
       } catch (error) {
         if (error.code !== "EEXIST") throw error;
-        await new Promise((resolve27) => setTimeout(resolve27, 10));
+        await new Promise((resolve30) => setTimeout(resolve30, 10));
       }
     }
     if (!handle) {
@@ -17617,6 +20101,9 @@ importers:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
     devDependencies:
+      '@axe-core/playwright':
+        specifier: 4.12.1
+        version: 4.12.1(playwright-core@1.62.1)
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
@@ -17637,6 +20124,11 @@ importers:
         version: 5.9.3
 
 packages:
+
+  '@axe-core/playwright@4.12.1':
+    resolution: {integrity: sha512-rMd7xriptqKpP+w5265i4Hdkv2X5kbu6uiBi/B2I7uf3hieRBM3qDCfaKPtxfiYb2mKXfF+yLODJwIx+Jv1GDw==}
+    peerDependencies:
+      playwright-core: '>= 1.0.0'
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
@@ -18004,6 +20496,10 @@ packages:
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
 
+  axe-core@4.12.1:
+    resolution: {integrity: sha512-s7iGf5GaVMxEG0ENN9x+xTr7GFZCb1ZP/1uATUpCEK2X78nDB3RwbtFCo9pGAf9ru+VwoQ464DkaLEeRM08wJA==}
+    engines: {node: '>=4'}
+
   caniuse-lite@1.0.30001809:
     resolution: {integrity: sha512-xxWVywk6a6Arlk+hymeycyn/VgqEfLDxupvhH/xiY5SJ/18kmi9o6MiO320DCUzypORHLtvh0I4i04tUhCNHNQ==}
 
@@ -18130,6 +20626,11 @@ packages:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
 snapshots:
+
+  '@axe-core/playwright@4.12.1(playwright-core@1.62.1)':
+    dependencies:
+      axe-core: 4.12.1
+      playwright-core: 1.62.1
 
   '@emnapi/runtime@1.11.3':
     dependencies:
@@ -18357,6 +20858,8 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+  axe-core@4.12.1: {}
+
   caniuse-lite@1.0.30001809: {}
 
   client-only@0.0.1: {}
@@ -18544,7 +21047,7 @@ var repositoryFiles = [
   file(
     "README.md",
     "venture_owned",
-    "# {{ventureName}}\n\nIndependent venture repository materialized from `{{seedId}}@{{seedVersion}}`.\n\nThe initial web surface is an honest, noindex-by-default product scaffold. Run `pnpm verify` locally, complete the venture brief, and verify provider state before any production launch.\n"
+    "# {{ventureName}}\n\nIndependent venture repository materialized from `{{seedId}}@{{seedVersion}}`.\n\nThe initial web surface is an honest, noindex-by-default product scaffold. Run `pnpm verify` locally, review the Launch Contract and Product Constitution, and verify provider state before any production launch.\n"
   )
 ];
 var recursiveServiceFiles = [
@@ -18594,9 +21097,9 @@ var ventureConfig = {
   },
   validation: {
     stage: "build",
-    minimum_days: 30,
-    target_days: 60,
-    maximum_days: 90,
+    minimum_days: null,
+    target_days: null,
+    maximum_days: null,
     launch_date: null,
     decision_date: null,
     primary_conversion: null,
@@ -18690,20 +21193,7 @@ var mobileConfig = {
   extensions: {}
 };
 var analyticsConfig = {
-  providers: {
-    vercel: {
-      layer: 1,
-      purpose: "Aggregate traffic only after consent and provider verification."
-    },
-    ga4: {
-      layer: 2,
-      purpose: "Consented acquisition and journey aggregates after provider verification."
-    },
-    neon: {
-      layer: 3,
-      purpose: "First-party commercial evidence after a database is configured."
-    }
-  },
+  providers: {},
   consent: {
     default_mode: "strict",
     google_analytics: "opt_in",
@@ -18730,45 +21220,9 @@ var analyticsConfig = {
     "free_text",
     "user_content"
   ],
-  events: {
-    page_view: {
-      purpose: "Measure consented aggregate route usage without private content.",
-      trigger: "A public route becomes visible after analytics consent.",
-      destinations: ["vercel", "ga4"],
-      consent: "analytics",
-      props: ["route_id", "release_version"],
-      neon: false,
-      experiment: false
-    },
-    core_journey_started: {
-      purpose: "Record that the typed primary journey started without submitted values.",
-      trigger: "The allowlisted primary action is invoked after analytics consent.",
-      destinations: ["neon"],
-      consent: "analytics",
-      props: ["journey_id", "surface_id", "release_version"],
-      neon: true,
-      experiment: false
-    },
-    core_journey_completed: {
-      purpose: "Record a verified primary outcome without personal or free-form data.",
-      trigger: "The product verifies the allowlisted primary outcome after analytics consent.",
-      destinations: ["neon"],
-      consent: "analytics",
-      props: ["journey_id", "outcome_id", "release_version"],
-      neon: true,
-      experiment: false
-    }
-  },
-  event_packs: { active: ["core_product", "web_acquisition"] },
-  core_journeys: {
-    core_product: {
-      active: true,
-      required_packs: ["core_product"],
-      start_events: ["core_journey_started"],
-      outcome_events: ["core_journey_completed"],
-      authoritative_destination: "neon"
-    }
-  }
+  events: {},
+  event_packs: { active: [] },
+  core_journeys: {}
 };
 function disabledLoop(cadence, expression, destination) {
   return {
@@ -18967,6 +21421,7 @@ var offerConfig = {
     currency: "EUR",
     monthly_price: null,
     annual_price: null,
+    one_time_price: null,
     implementation_fee: null,
     annual_waives_implementation_fee: false,
     usage_price: null,
@@ -18977,208 +21432,108 @@ var offerConfig = {
     delivery_cost_monthly: null,
     onboarding_cost: null,
     target_contribution_margin: 0.7,
-    payback_target_days: 30
+    payback_target_days: null
   }
 };
-var coreEvidenceMigration = `-- Venture Harness v0.2 core evidence schema.
--- Additive and idempotent: safe to apply repeatedly in one venture database.
-begin;
-
-create table if not exists vh_schema_migrations (
-  version text primary key,
-  applied_at timestamptz not null default now()
-);
-
-create table if not exists experiment_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  experiment_id text not null,
-  variant_key text,
-  visitor_id text not null,
-  route text,
-  displayed_offer text,
-  displayed_price text,
-  metric text,
-  release_version text,
-  event_id text unique
-);
-
-create table if not exists commercial_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  visitor_id text not null,
-  plan_key text,
-  displayed_price text,
-  billing_period text,
-  experiment_id text,
-  variant_key text,
-  qualified boolean,
-  qualification_tier text,
-  attribution jsonb,
-  provider text,
-  release_version text,
-  event_id text unique,
-  constraint commercial_events_attribution_object
-    check (attribution is null or jsonb_typeof(attribution) = 'object')
-);
-
--- Submitted private values belong only in this first-party table. Analytics
--- call sites must never copy payload fields into product_events or providers.
-create table if not exists submissions (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  form_id text not null,
-  visitor_id text not null,
-  payload jsonb not null,
-  qualified boolean not null,
-  qualification_tier text,
-  event_id text unique,
-  constraint submissions_payload_object check (jsonb_typeof(payload) = 'object')
-);
-
-create table if not exists consent_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  visitor_id text not null,
-  from_state text,
-  to_state text,
-  event_id text unique
-);
-
-create table if not exists product_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  visitor_id text,
-  journey_id text,
-  release_version text,
-  props jsonb not null default '{}'::jsonb,
-  event_id text unique,
-  constraint product_events_props_object check (jsonb_typeof(props) = 'object')
-);
-
-create table if not exists provider_webhook_events (
-  id bigint generated always as identity primary key,
-  provider text not null,
-  external_event_id text not null,
-  event_type text not null,
-  received_at timestamptz not null default now(),
-  processed_at timestamptz,
-  status text not null default 'received',
-  payload_hash text not null,
-  error_code text,
-  unique (provider, external_event_id),
-  constraint provider_webhook_status
-    check (status in ('received', 'processed', 'failed', 'ignored'))
-);
-
-create table if not exists analytics_sync_runs (
-  id bigint generated always as identity primary key,
-  dataset_id text not null unique,
-  source text not null,
-  source_account text not null,
-  fetched_at timestamptz not null,
-  window_start timestamptz not null,
-  window_end timestamptz not null,
-  timezone text not null,
-  quality_status text not null,
-  dimensions jsonb not null default '[]'::jsonb,
-  limitations jsonb not null default '[]'::jsonb,
-  release_version text,
-  row_count integer not null,
-  constraint analytics_sync_window check (window_end >= window_start),
-  constraint analytics_sync_row_count check (row_count >= 0),
-  constraint analytics_sync_quality
-    check (quality_status in ('complete', 'partial', 'sampled', 'thresholded', 'stale', 'unavailable')),
-  constraint analytics_sync_dimensions_array check (jsonb_typeof(dimensions) = 'array'),
-  constraint analytics_sync_limitations_array check (jsonb_typeof(limitations) = 'array')
-);
-
-create index if not exists experiment_events_experiment_occurred_idx
-  on experiment_events (experiment_id, occurred_at);
-create index if not exists commercial_events_event_occurred_idx
-  on commercial_events (event, occurred_at);
-create index if not exists submissions_form_occurred_idx
-  on submissions (form_id, occurred_at);
-create index if not exists consent_events_visitor_occurred_idx
-  on consent_events (visitor_id, occurred_at);
-create index if not exists product_events_journey_occurred_idx
-  on product_events (journey_id, occurred_at);
-create index if not exists provider_webhook_events_status_received_idx
-  on provider_webhook_events (status, received_at);
-create index if not exists analytics_sync_runs_source_fetched_idx
-  on analytics_sync_runs (source, fetched_at desc);
-
-insert into vh_schema_migrations (version)
-values ('001_core_evidence')
-on conflict (version) do nothing;
-
-commit;
-`;
-var coreEvidenceRollback = `-- Safe rollback for 001_core_evidence.
--- It refuses to drop evidence when any managed table contains data.
-begin;
-
-do $$
-declare
-  table_name text;
-  has_rows boolean;
-begin
-  foreach table_name in array array[
-    'experiment_events',
-    'commercial_events',
-    'submissions',
-    'consent_events',
-    'product_events',
-    'provider_webhook_events',
-    'analytics_sync_runs'
-  ]
-  loop
-    if to_regclass('public.' || table_name) is not null then
-      execute format('select exists (select 1 from %I limit 1)', table_name) into has_rows;
-      if has_rows then
-        raise exception using
-          errcode = '55000',
-          message = format('safe rollback refused: %s contains evidence', table_name),
-          hint = 'Export and explicitly archive/delete the data, then rerun this rollback.';
-      end if;
-    end if;
-  end loop;
-end
-$$;
-
-drop table if exists analytics_sync_runs;
-drop table if exists provider_webhook_events;
-drop table if exists product_events;
-drop table if exists consent_events;
-drop table if exists submissions;
-drop table if exists commercial_events;
-drop table if exists experiment_events;
-
-do $$
-begin
-  if to_regclass('public.vh_schema_migrations') is not null then
-    delete from vh_schema_migrations where version = '001_core_evidence';
-  end if;
-end
-$$;
-
-do $$
-begin
-  if to_regclass('public.vh_schema_migrations') is not null
-     and not exists (select 1 from vh_schema_migrations) then
-    drop table vh_schema_migrations;
-  end if;
-end
-$$;
-
-commit;
-`;
 var ordinaryWebFiles = [
   file("pnpm-lock.yaml", "merge_managed", AGENTIC_WEB_PNPM_LOCK),
+  file(
+    "PROJECT.md",
+    "venture_owned",
+    `# {{ventureName}}
+
+## Purpose
+
+Build the smallest trustworthy product described by \`config/launch-contract.yaml\`. The generated neutral surface is a temporary scaffold, not the finished product.
+
+## Source of truth
+
+1. \`config/launch-contract.yaml\` \u2014 the typed founder decision when created through the public sharpen-and-launch path.
+2. \`docs/product/PRODUCT_CONSTITUTION.md\` \u2014 product identity, truth classes, boundaries, and learning question.
+3. \`docs/product/idea.md\` \u2014 human review surface for the same contract.
+4. \`docs/product/PRODUCT_TRUTH.md\` \u2014 claims and evidence ceiling.
+
+## Product boundary
+
+- One primary journey; product-specific implementation and design remain venture-owned.
+- Provider configuration begins unconfigured and credential-free.
+- Analytics begins with no provider, event, experiment, or scheduled-learning assumptions.
+- Recursive tenancy, customer Agent Surfaces, Winner Loop, DistributionPR, Fleet, and mobile tooling are absent unless the Launch Contract selects them.
+`
+  ),
+  file(
+    "AGENTS.md",
+    "venture_owned",
+    `# {{ventureName}} agent instructions
+
+Read \`PROJECT.md\`, \`config/launch-contract.yaml\` when present, \`docs/product/PRODUCT_CONSTITUTION.md\`, \`docs/product/PRODUCT_TRUTH.md\`, and the relevant typed config before changing product code.
+
+Use \`skills/design-director/SKILL.md\` for the first product/design pass. Implement only the Launch Contract's core journey and explicit capabilities. Missing non-critical detail becomes a labeled assumption; never invent users, provider state, demand, metrics, revenue, reviews, or evidence.
+
+Keep credentials and private runtime state out of Git and model context. Product and design files are venture-owned; Core upgrades may not overwrite them. Run \`pnpm verify:fast\` for focused work and \`pnpm verify\` before completion.
+`
+  ),
+  file(
+    "docs/product/PRODUCT_CONSTITUTION.md",
+    "venture_owned",
+    `# {{ventureName}} Product Constitution
+
+This placeholder records no proposition or evidence. The public founder launch replaces it from the reviewed \`config/launch-contract.yaml\` before product work begins.
+
+Until then, every capability, provider connection, customer outcome, metric, and commercial result is UNKNOWN. Samples must be labeled FIXTURE. Models may improve framing and implementation but may not invent evidence.
+`
+  ),
+  file(
+    "docs/product/idea.md",
+    "venture_owned",
+    `# {{ventureName}} idea
+
+The canonical founder path writes the human-readable sharpened idea here and the typed source to \`config/launch-contract.yaml\`. This seed placeholder makes no product or market claim.
+`
+  ),
+  file(
+    "skills/design-director/SKILL.md",
+    "core_owned",
+    `---
+name: design-director
+description: Turn this venture's Launch Contract and Product Constitution into an original, accessible product identity and primary journey. Use for the first product/design pass and material redesigns.
+---
+
+# Design director
+
+## Inputs
+
+Read \`config/launch-contract.yaml\`, \`docs/product/PRODUCT_CONSTITUTION.md\`, \`PROJECT.md\`, and existing product/design files. If the Launch Contract is absent, stop design judgment and report that exact missing input.
+
+## Process
+
+1. Extract the target user, painful job, desired outcome, one core feature, primary journey, design thesis, trust requirements, explicit exclusions, and truth boundaries.
+2. Write one venture-specific visual thesis. Choose type, colour, spacing, shape, density, and motion because they support that thesis.
+3. Implement real product UI for the primary journey at mobile and desktop sizes, with visible focus, semantic structure, readable contrast, and reduced-motion behavior.
+4. Add one memorable interaction only when it clarifies product state or progress. Label sample data as FIXTURE.
+5. Run the originality audit in \`references/originality-audit.md\`, then run the relevant quality commands.
+
+## Ownership and truth
+
+Product and design files are venture-owned: application pages, product components, copy, identity, themes, illustrations, and product-specific tests. Do not copy Venture Harness branding or another venture. Do not add testimonials, customer logos, metrics, outcomes, integrations, or provider state without evidence in Product Truth.
+`
+  ),
+  file(
+    "skills/design-director/references/originality-audit.md",
+    "core_owned",
+    `# Originality audit
+
+Reject the result if any answer is yes without a product-specific reason:
+
+- Is it a generic purple AI gradient, interchangeable bento grid, or row of identical feature cards?
+- Does it use filler stock imagery, an arbitrary icon logo, fake social proof, fake metrics, or unlabeled sample data?
+- Is it a static marketing page when the Launch Contract requires an application journey?
+- Could the interface belong to an unrelated product after changing only the name?
+- Does it copy Venture Harness identity or overwrite venture-owned design?
+
+Require a coherent design thesis, useful hierarchy, product-specific states, keyboard-visible focus, reduced motion, mobile layout, accessible contrast, one clear primary action, and one purposeful memorable interaction. Unsupported claims fail the audit.
+`
+  ),
   file(
     "app/layout.tsx",
     "merge_managed",
@@ -19261,6 +21616,7 @@ export default function StatusPage() {
     status: "ok",
     venture: "{{ventureSlug}}",
     evidence: "local_build_shape",
+    localServerNonce: process.env.VH_LOCAL_SERVER_NONCE ?? null,
   });
 }
 `
@@ -19367,11 +21723,9 @@ export const SITE = Object.freeze({
   file(
     "src/analytics/events.ts",
     "merge_managed",
-    `export const ANALYTICS_EVENT_NAMES = [
-  "page_view",
-  "core_journey_started",
-  "core_journey_completed",
-] as const;
+    `// The focused seed has no universal analytics events. The Launch Contract
+// and implemented primary journey must justify each allowlisted event.
+export const ANALYTICS_EVENT_NAMES = [] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];
 export interface SafeAnalyticsProperties {
@@ -19392,8 +21746,8 @@ export function analyticsEvent(name: AnalyticsEventName, properties: SafeAnalyti
     "core_owned",
     String.raw`import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 const MAX_ENTRIES = 10_000;
@@ -19534,7 +21888,9 @@ function assertSourcePath(path: string): void {
     path.split("/").some((part) => !part || part === "." || part === "..") ||
     path === BOOTSTRAP_PATH ||
     path === ".venture" ||
-    path.startsWith(".venture/")
+    path.startsWith(".venture/") ||
+    path === "reports" ||
+    path.startsWith("reports/")
   ) {
     throw new Error("Local source contains an unsafe or private runtime path");
   }
@@ -19557,22 +21913,7 @@ function loadSnapshot(root: string): SourceSnapshot {
       "Initialize isolated source index",
     );
     success(
-      run(
-        "git",
-        [
-          "add",
-          "-A",
-          "--",
-          ".",
-          ":(exclude).venture",
-          ":(exclude).venture/**",
-          ":(exclude)reports",
-          ":(exclude)reports/**",
-          ":(exclude)*.tsbuildinfo",
-          ":(exclude)**/*.tsbuildinfo",
-        ],
-        { cwd: sourceRoot, env: gitEnvironment },
-      ),
+      run("git", ["add", "-A", "--", "."], { cwd: sourceRoot, env: gitEnvironment }),
       "Snapshot local venture source",
     );
     const treeOid = success(run("git", ["write-tree"], { cwd: sourceRoot, env: gitEnvironment }), "Write local source tree")
@@ -19797,6 +22138,105 @@ async function verify(
   throw new Error("GitHub exact source read-back remained unavailable");
 }
 
+function githubOriginMatches(origin: string, repository: string): boolean {
+  const normalized = origin.trim().replace(/\/+$/u, "").replace(/\.git$/iu, "");
+  const expected = repository.toLowerCase();
+  const https = normalized.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)$/iu)?.[1];
+  const scp = normalized.match(/^git@github\.com:([^/]+\/[^/]+)$/iu)?.[1];
+  const ssh = normalized.match(/^ssh:\/\/git@github\.com\/([^/]+\/[^/]+)$/iu)?.[1];
+  return [https, scp, ssh].some((candidate) => candidate?.toLowerCase() === expected);
+}
+
+function gitText(cwd: string, args: string[], label: string): string {
+  return success(run("git", args, { cwd }), label).toString("utf8").trim();
+}
+
+function ensureWorkingRepository(
+  repository: string,
+  branch: string,
+  commitOid: string,
+): { originUrl: string; branch: string; head: string; clean: true } {
+  assertRepository(repository);
+  assertBranch(branch);
+  assertOid(commitOid, "Verified GitHub commit id");
+  const root = realpathSync(process.cwd());
+  if (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory()) {
+    throw new Error("Child working repository root must be a real directory");
+  }
+  const gitPath = join(root, ".git");
+  let installed = false;
+  try {
+    if (!existsSync(gitPath)) {
+      const parent = realpathSync(dirname(root));
+      const temporaryRoot = mkdtempSync(join(parent, "." + basename(root) + "-git-"));
+      const cloneDirectory = join(temporaryRoot, "clone");
+      try {
+        success(
+          run(
+            "gh",
+            [
+              "repo",
+              "clone",
+              repository,
+              cloneDirectory,
+              "--",
+              "--no-checkout",
+              "--single-branch",
+              "--branch",
+              branch,
+            ],
+            { cwd: parent },
+          ),
+          "Clone verified GitHub repository metadata",
+        );
+        const stagedGit = join(cloneDirectory, ".git");
+        if (!existsSync(stagedGit) || !lstatSync(stagedGit).isDirectory()) {
+          throw new Error("Verified GitHub metadata clone did not produce a normal .git directory");
+        }
+        if (gitText(cloneDirectory, ["rev-parse", "HEAD"], "Read cloned GitHub HEAD") !== commitOid) {
+          throw new Error("Cloned GitHub HEAD differs from verified remote HEAD");
+        }
+        if (gitText(cloneDirectory, ["symbolic-ref", "--short", "HEAD"], "Read cloned GitHub branch") !== branch) {
+          throw new Error("Cloned GitHub branch differs from the verified default branch");
+        }
+        if (!githubOriginMatches(gitText(cloneDirectory, ["remote", "get-url", "origin"], "Read cloned GitHub origin"), repository)) {
+          throw new Error("Cloned GitHub origin differs from the verified repository");
+        }
+        if (existsSync(gitPath)) throw new Error("Child Git state appeared during metadata staging; refusing overwrite");
+        renameSync(stagedGit, gitPath);
+        installed = true;
+        success(run("git", ["read-tree", commitOid], { cwd: root }), "Bind child Git index to verified remote tree");
+      } finally {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
+    } else if (lstatSync(gitPath).isSymbolicLink() || !lstatSync(gitPath).isDirectory()) {
+      throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+    }
+
+    if (realpathSync(gitText(root, ["rev-parse", "--show-toplevel"], "Resolve child Git root")) !== root) {
+      throw new Error("Child Git root differs from the venture root");
+    }
+    const originUrl = gitText(root, ["remote", "get-url", "origin"], "Read child Git origin");
+    if (!githubOriginMatches(originUrl, repository)) throw new Error("Child Git origin differs from the verified repository");
+    const localBranch = gitText(root, ["symbolic-ref", "--short", "HEAD"], "Read child Git branch");
+    if (localBranch !== branch) throw new Error("Child Git branch differs from the verified default branch");
+    const head = gitText(root, ["rev-parse", "HEAD"], "Read child Git HEAD");
+    if (head !== commitOid) throw new Error("Child Git HEAD differs from verified remote HEAD");
+    const remoteHead = gitText(root, ["rev-parse", "refs/remotes/origin/" + branch], "Read child remote-tracking HEAD");
+    if (remoteHead !== commitOid) throw new Error("Child remote-tracking HEAD differs from verified remote HEAD");
+    if (gitText(root, ["status", "--porcelain=v1", "--untracked-files=all"], "Read child Git status")) {
+      throw new Error("Child Git working tree is not clean after verified publication");
+    }
+    if (gitText(root, ["ls-files", "--", ".venture", "reports"], "Check private runtime tracking")) {
+      throw new Error("Child Git repository tracks private runtime state or launch reports");
+    }
+    return { originUrl, branch: localBranch, head, clean: true };
+  } catch (error) {
+    if (installed) rmSync(gitPath, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 function options(args: string[], required: string[]): Record<string, string> {
   if (args.length !== required.length * 2) throw new Error("Unexpected source publication arguments");
   const allowed = new Set(required);
@@ -19834,7 +22274,8 @@ async function main(args: string[]): Promise<unknown> {
     assertBranch(branch);
     assertOid(commitOid, "Expected GitHub commit id");
     assertOid(treeOid, "Expected GitHub tree id");
-    return verify(repository, visibility, branch, commitOid, treeOid);
+    const verified = await verify(repository, visibility, branch, commitOid, treeOid);
+    return { ...verified, workingRepository: ensureWorkingRepository(repository, branch, commitOid) };
   }
 
   const snapshot = loadSnapshot(process.cwd());
@@ -19909,7 +22350,10 @@ try {
     `import { defineConfig, devices } from "@playwright/test";
 
 const configuredBaseURL = process.env.PLAYWRIGHT_BASE_URL?.trim();
-const baseURL = configuredBaseURL || "http://127.0.0.1:43127";
+if (!configuredBaseURL) {
+  throw new Error("PLAYWRIGHT_BASE_URL is required; use the generated local browser runner or pass one exact deployed origin");
+}
+const baseURL = configuredBaseURL;
 const parsedBaseURL = new URL(baseURL);
 
 if (!["http:", "https:"].includes(parsedBaseURL.protocol) || parsedBaseURL.username || parsedBaseURL.password) {
@@ -19921,23 +22365,15 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 7_500 },
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   workers: 1,
   reporter: "line",
-  outputDir: ".venture/private/test-results",
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? ".venture/private/test-results",
   use: {
     baseURL: parsedBaseURL.origin,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: configuredBaseURL
-    ? undefined
-    : {
-        command: "pnpm exec next start --hostname 127.0.0.1 --port 43127",
-        url: parsedBaseURL.origin,
-        reuseExistingServer: false,
-        timeout: 120_000,
-      },
   projects: [
     {
       name: "desktop-chromium",
@@ -19952,11 +22388,200 @@ export default defineConfig({
 `
   ),
   file(
-    "tests/e2e/post-deploy-readonly.spec.ts",
-    "venture_owned",
-    String.raw`import { expect, test } from "@playwright/test";
+    "scripts/run-local-browser-check.ts",
+    "core_owned",
+    String.raw`import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { once } from "node:events";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { resolve } from "node:path";
 
-test("deployed primary public journey remains readable without mutation", async ({ page, request }) => {
+const ALLOWED_SPECS = new Set([
+  "tests/e2e/post-deploy-readonly.spec.ts",
+  "tests/e2e/primary-journey.spec.ts",
+  "tests/e2e/primary-journey-cleanup.spec.ts",
+]);
+const READY_TIMEOUT_MS = 120_000;
+
+async function reserveLoopbackPort(): Promise<number> {
+  const reservation = createServer();
+  reservation.listen(0, "127.0.0.1");
+  await once(reservation, "listening");
+  const address = reservation.address();
+  if (!address || typeof address === "string") {
+    reservation.close();
+    throw new Error("Could not reserve an ephemeral loopback port");
+  }
+  const port = address.port;
+  reservation.close();
+  await once(reservation, "close");
+  return port;
+}
+
+async function stopServer(server: ChildProcess): Promise<void> {
+  if (server.exitCode !== null || server.signalCode !== null) return;
+  const exited = once(server, "exit");
+  server.kill("SIGTERM");
+  const forced = setTimeout(() => {
+    if (server.exitCode === null && server.signalCode === null) server.kill("SIGKILL");
+  }, 5_000);
+  try {
+    await exited;
+  } finally {
+    clearTimeout(forced);
+  }
+}
+
+async function runPlaywright(
+  spec: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<Error | null> {
+  const playwright = spawn(
+    "pnpm",
+    ["exec", "playwright", "test", spec, "--retries=0"],
+    { cwd: process.cwd(), env: environment, stdio: "inherit" },
+  );
+  const [code, signal] = (await once(playwright, "exit")) as [
+    number | null,
+    NodeJS.Signals | null,
+  ];
+  return code === 0
+    ? null
+    : new Error("Playwright " + spec + " exited " + (code ?? signal ?? "without status"));
+}
+
+async function main(): Promise<void> {
+  const [spec] = process.argv.slice(2);
+  if (!spec || !ALLOWED_SPECS.has(spec)) {
+    throw new Error("Expected one allowlisted repository-relative Playwright spec");
+  }
+  let port = await reserveLoopbackPort();
+  let origin = "http://127.0.0.1:" + port;
+  const expectedPublicOrigin =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://local-e2e.example.invalid";
+  const serverNonce = randomBytes(24).toString("hex");
+  const environment = {
+    ...process.env,
+    NEXT_PUBLIC_SITE_URL: expectedPublicOrigin,
+    NEXT_PUBLIC_INDEXING_ENABLED: "true",
+    VERCEL: "1",
+    VERCEL_ENV: "production",
+    VH_LOCAL_SERVER_NONCE: serverNonce,
+  };
+  let output = "";
+  let server: ChildProcess | null = null;
+  const spawnServer = () => {
+    output = "";
+    const child = spawn(
+      process.execPath,
+      [resolve("node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(port)],
+      { cwd: process.cwd(), env: environment, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const append = (chunk: Buffer | string) => {
+      output = (output + String(chunk)).slice(-20_000);
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    return child;
+  };
+  server = spawnServer();
+
+  try {
+    const deadline = Date.now() + READY_TIMEOUT_MS;
+    let addressRetries = 0;
+    while (Date.now() < deadline) {
+      if (server.exitCode !== null || server.signalCode !== null) {
+        if (/EADDRINUSE/u.test(output) && addressRetries < 2) {
+          addressRetries += 1;
+          port = await reserveLoopbackPort();
+          origin = "http://127.0.0.1:" + port;
+          server = spawnServer();
+          continue;
+        }
+        throw new Error("Local production server exited before readiness:\n" + output);
+      }
+      try {
+        const health = await fetch(origin + "/api/health", {
+          signal: AbortSignal.timeout(1_000),
+        });
+        const body = health.ok ? await health.json() as { localServerNonce?: unknown } : null;
+        if (body?.localServerNonce === serverNonce) break;
+      } catch {
+        // Continue within the bounded readiness window.
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    }
+    const health = await fetch(origin + "/api/health", {
+      signal: AbortSignal.timeout(1_000),
+    }).catch(() => null);
+    const healthBody = health?.ok
+      ? await health.json().catch(() => null) as { localServerNonce?: unknown } | null
+      : null;
+    if (
+      server.exitCode !== null ||
+      server.signalCode !== null ||
+      healthBody?.localServerNonce !== serverNonce
+    ) {
+      throw new Error("Owned local production server was not ready:\n" + output);
+    }
+
+    const journeyContract = spec.includes("primary-journey")
+      ? JSON.parse(readFileSync("tests/e2e/primary-journey.contract.json", "utf8")) as {
+          production: { identity: { label: string } };
+        }
+      : null;
+    const browserEnvironment = {
+      ...environment,
+      PLAYWRIGHT_BASE_URL: origin,
+      EXPECTED_PUBLIC_ORIGIN: expectedPublicOrigin,
+      VH_PRIMARY_JOURNEY_RUN_ID: "local-mvp-" + process.pid,
+      VH_PRIMARY_JOURNEY_NONCE: randomBytes(24).toString("hex"),
+      VH_PRIMARY_JOURNEY_TEST_IDENTITY:
+        journeyContract?.production.identity.label ?? "local-mvp-test-identity",
+    };
+    const primaryError = await runPlaywright(spec, browserEnvironment);
+    if (spec === "tests/e2e/primary-journey.spec.ts") {
+      const journeyReadBackError = await runPlaywright(
+        "tests/e2e/post-deploy-readonly.spec.ts",
+        { ...browserEnvironment, VH_PRIMARY_JOURNEY_OBSERVER_PHASE: "journey_readback" },
+      );
+      if (journeyReadBackError) throw journeyReadBackError;
+      const cleanupError = await runPlaywright(
+        "tests/e2e/primary-journey-cleanup.spec.ts",
+        browserEnvironment,
+      );
+      if (cleanupError) throw cleanupError;
+      const cleanupReadBackError = await runPlaywright(
+        "tests/e2e/post-deploy-readonly.spec.ts",
+        { ...browserEnvironment, VH_PRIMARY_JOURNEY_OBSERVER_PHASE: "cleanup_readback" },
+      );
+      if (cleanupReadBackError) throw cleanupReadBackError;
+    }
+    if (primaryError) throw primaryError;
+  } finally {
+    if (server) await stopServer(server);
+    const lingering = await fetch(origin + "/api/health", {
+      signal: AbortSignal.timeout(1_000),
+    }).catch(() => null);
+    if (lingering) throw new Error("Owned local production listener remained after teardown");
+  }
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write((error instanceof Error ? error.message : String(error)) + "\n");
+  process.exitCode = 1;
+});
+`
+  ),
+  file(
+    "tests/e2e/post-deploy-readonly.spec.ts",
+    "core_owned",
+    String.raw`import { readFileSync } from "node:fs";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+test("deployed public surface has raw HTML and a responsive accessibility baseline", async ({ page, request }, testInfo) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   page.on("console", (message) => {
@@ -19968,14 +22593,71 @@ test("deployed primary public journey remains readable without mutation", async 
     else await route.abort("blockedbyclient");
   });
 
+  const observerPhase = process.env.VH_PRIMARY_JOURNEY_OBSERVER_PHASE;
+  if (observerPhase) {
+    const runId = process.env.VH_PRIMARY_JOURNEY_RUN_ID;
+    const nonce = process.env.VH_PRIMARY_JOURNEY_NONCE;
+    const identityLabel = process.env.VH_PRIMARY_JOURNEY_TEST_IDENTITY;
+    if (!runId || !nonce || !identityLabel) throw new Error("Primary-journey observer bindings are required");
+    const contract = JSON.parse(readFileSync("tests/e2e/primary-journey.contract.json", "utf8")) as {
+      journeyId: string;
+      steps: string[];
+      production: {
+        identity: { label: string };
+        readBack: { method: "GET"; path: string; protocol: "venture_harness_primary_journey_v1" };
+      };
+    };
+    expect(identityLabel).toBe(contract.production.identity.label);
+    const response = await request.get(contract.production.readBack.path, {
+      headers: {
+        "x-venture-harness-run-id": runId,
+        "x-venture-harness-nonce": nonce,
+        "x-venture-harness-test-identity": identityLabel,
+      },
+      failOnStatusCode: false,
+    });
+    expect(response.status()).toBe(200);
+    const observed = await response.json() as Record<string, unknown>;
+    expect(observed).toMatchObject({
+      protocol: contract.production.readBack.protocol,
+      runId,
+      nonce,
+      journeyId: contract.journeyId,
+      identityLabel,
+      completedSteps: contract.steps,
+      phase: observerPhase,
+    });
+    console.log("VH_PRIMARY_JOURNEY_OBSERVER_RESULT " + JSON.stringify({
+      schemaVersion: 1,
+      phase: observerPhase,
+      runId,
+      nonce,
+      journeyId: contract.journeyId,
+      identityLabel,
+      completedSteps: contract.steps,
+      project: testInfo.project.name,
+      writes: observed.writes,
+      removedWriteIds: observed.removedWriteIds,
+      remainingWrites: observed.remainingWrites,
+    }));
+    return;
+  }
+
   const smoke = await request.get("/", { failOnStatusCode: false });
   expect(smoke.status()).toBeGreaterThanOrEqual(200);
   expect(smoke.status()).toBeLessThan(400);
+  const rawHtml = await smoke.text();
+  expect(rawHtml).toMatch(/<main(?:\s|>)/iu);
+  expect(rawHtml).toMatch(/<h1(?:\s|>)/iu);
+  expect(rawHtml).toContain("{{ventureName}}");
+  expect(rawHtml).toMatch(/<link[^>]+rel=["']canonical["'][^>]*>/iu);
 
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   expect(response).not.toBeNull();
   expect(response!.status()).toBeLessThan(400);
   await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator("main")).toHaveCount(1);
+  await expect(page.locator("h1")).toHaveCount(1);
   await expect(page.getByRole("heading", { level: 1, name: "{{ventureName}}" })).toBeVisible();
 
   const canonical = await page.locator('link[rel="canonical"]').getAttribute("href");
@@ -20008,7 +22690,47 @@ test("deployed primary public journey remains readable without mutation", async 
   await primaryAction.click();
   await expect(page).toHaveURL(/\/status$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("not launched yet");
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+  const unnamedInteractiveControls = await page
+    .locator('a:visible, button:visible, input:visible, select:visible, textarea:visible')
+    .evaluateAll((elements) =>
+      elements.filter((element) => {
+        const html = element as HTMLElement;
+        const label =
+          html.getAttribute("aria-label") ??
+          html.getAttribute("aria-labelledby") ??
+          html.getAttribute("title") ??
+          html.textContent ??
+          (element instanceof HTMLInputElement ? element.value || element.placeholder : "");
+        return label.trim().length === 0;
+      }).length,
+    );
+  expect(unnamedInteractiveControls).toBe(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+  await page.keyboard.press("Tab");
+  const focusEvidence = await page.evaluate(() => {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || active === document.body) return false;
+    const style = getComputedStyle(active);
+    return style.outlineStyle !== "none" || style.boxShadow !== "none";
+  });
+  expect(focusEvidence).toBe(true);
   expect(runtimeErrors).toEqual([]);
+  console.log(
+    "VH_DEPLOYMENT_SURFACE_RESULT " +
+      JSON.stringify({
+        schemaVersion: 1,
+        project: testInfo.project.name,
+        rawServerHtml: true,
+        accessibilityAxe: true,
+        accessibleNamesAndLandmarks: true,
+        keyboardFocus: true,
+        responsiveOverflow: true,
+      }),
+  );
 });
 `
   ),
@@ -20075,7 +22797,7 @@ This register describes only the generated seed state.
 | Claim | Status | Evidence | Public boundary |
 | --- | --- | --- | --- |
 | The repository contains an independently buildable Next.js web scaffold. | local implementation | package.json, app/, next.config.mjs | Do not call it launched until production read-back and the primary journey pass. |
-| Analytics uses an allowlisted, free-form-free event baseline. | local contract | config/analytics.yaml, src/analytics/events.ts | No provider is configured and no event delivery is claimed. |
+  | Analytics starts disabled, with no universal provider or event assumptions. | local contract | config/analytics.yaml, src/analytics/events.ts | The product journey must justify each consented allowlisted event; no delivery is claimed. |
 | Provider configuration is credential-reference-only. | local contract | config/providers.yaml, config/connectors.json | Every provider starts unconfigured. |
 
 No customer, revenue, outcome, provider connection, deployment, or market evidence is claimed.
@@ -20089,8 +22811,6 @@ No customer, revenue, outcome, provider connection, deployment, or market eviden
   file("config/providers.yaml", "venture_owned", yaml(providersConfig)),
   file("config/policies.yaml", "venture_owned", yaml(policiesConfig)),
   file("config/offer.yaml", "venture_owned", yaml(offerConfig)),
-  file("migrations/sql/001_core_evidence.up.sql", "core_owned", coreEvidenceMigration),
-  file("migrations/sql/001_core_evidence.down.sql", "core_owned", coreEvidenceRollback),
   file(
     "tests/seed-contract.test.mjs",
     "core_owned",
@@ -20180,6 +22900,7 @@ var VENTURE_SEEDS = Object.freeze({
       "react-dom": "19.2.7"
     },
     developmentPackages: {
+      "@axe-core/playwright": "4.12.1",
       "@playwright/test": "1.62.1",
       "@types/node": "22.20.1",
       "@types/react": "19.2.17",
@@ -20193,10 +22914,11 @@ var VENTURE_SEEDS = Object.freeze({
       start: "next start",
       typecheck: "tsc --noEmit",
       test: "node --test tests/*.test.mjs",
-      "test:e2e:readonly": "playwright test tests/e2e/post-deploy-readonly.spec.ts",
+      "test:e2e:readonly": "tsx scripts/run-local-browser-check.ts tests/e2e/post-deploy-readonly.spec.ts",
+      "test:e2e:primary-journey": "tsx scripts/run-local-browser-check.ts tests/e2e/primary-journey.spec.ts",
       verify: "pnpm typecheck && pnpm test && pnpm build",
       "verify:fast": "pnpm typecheck && pnpm test",
-      "verify:mvp": "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly"
+      "verify:mvp": "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly && pnpm test:e2e:primary-journey"
     },
     generatorVersions: { ui: CORE_VERSION },
     files: ordinaryWebFiles
@@ -20231,7 +22953,7 @@ function ventureSeed(id, version) {
 
 // lib/materialization/materializer.ts
 function sha256(value) {
-  return createHash8("sha256").update(value).digest("hex");
+  return createHash9("sha256").update(value).digest("hex");
 }
 function stable3(value) {
   if (Array.isArray(value)) return `[${value.map(stable3).join(",")}]`;
@@ -20256,12 +22978,12 @@ function render(template, values) {
 var NodeMaterializationFileSystem = class {
   #root;
   constructor(root) {
-    this.#root = resolve6(root);
+    this.#root = resolve7(root);
   }
   #inside(path) {
-    const target = resolve6(this.#root, safeRelativePath(path));
-    const child = relative3(this.#root, target);
-    if (!child || child === ".." || child.startsWith(`..${sep3}`)) {
+    const target = resolve7(this.#root, safeRelativePath(path));
+    const child = relative4(this.#root, target);
+    if (!child || child === ".." || child.startsWith(`..${sep4}`)) {
       throw new Error(`Materialization path escapes workspace: ${path}`);
     }
     return target;
@@ -20282,7 +23004,7 @@ var NodeMaterializationFileSystem = class {
   }
   async writeExclusive(path, content) {
     const target = this.#inside(path);
-    await mkdir2(dirname3(target), { recursive: true });
+    await mkdir2(dirname4(target), { recursive: true });
     await writeFile(target, content, { encoding: "utf8", flag: "wx", mode: 384 });
   }
   async removeCreated(path) {
@@ -20328,6 +23050,8 @@ function compileVentureMaterialization(input) {
     stackProfile: grant.stackProfile,
     rail: seed.rail,
     coreVersion: input.coreVersion,
+    launchContractDigest: grant.ideaDigest,
+    launchContractPath: "config/launch-contract.yaml",
     ...seed.serviceRuntime === "recursive" ? {
       serviceBlueprints: Object.freeze([`${grant.ventureSlug}.primary`]),
       agentSurface: Object.freeze({
@@ -20408,7 +23132,7 @@ function compileVentureMaterialization(input) {
     materialized(
       ".gitignore",
       "core_owned",
-      "node_modules/\n.next/\ndist/\n.env*\n!.env.example\n.venture/private/\n"
+      "node_modules/\n.next/\ndist/\n.env*\n!.env.example\n.venture/\nreports/\n*.tsbuildinfo\n"
     ),
     materialized(
       ".venture/launch-grant.receipt.json",
@@ -20441,7 +23165,9 @@ function compileVentureMaterialization(input) {
     runtime_packages: seed.runtimePackages,
     provider_adapters: accountProviders(grant),
     generators: seed.generatorVersions,
-    managed_files: files.map(({ path, ownership, sha256: hash }) => ({
+    // `.venture/` is durable local run state, not distributable source. It is
+    // ignored by Git and must never become a Core-upgrade managed path.
+    managed_files: files.filter(({ path }) => !path.startsWith(".venture/")).map(({ path, ownership, sha256: hash }) => ({
       path,
       ownership,
       sha256: hash,
@@ -20582,23 +23308,144 @@ var PACKS = Object.freeze({
   })
 });
 
+// lib/founder-launch/founder-config.ts
+import {
+  existsSync as existsSync5,
+  lstatSync as lstatSync2,
+  mkdirSync as mkdirSync4,
+  readFileSync as readFileSync7,
+  realpathSync as realpathSync3,
+  writeFileSync as writeFileSync4
+} from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { dirname as dirname5, isAbsolute as isAbsolute2, join as join5, relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
+var FOUNDER_CONFIG_KEYS = ["ventures-root"];
+function defaultFounderConfigPath(options = {}) {
+  const configRoot = options.xdgConfigHome ? resolve8(options.xdgConfigHome) : join5(resolve8(options.homeDirectory ?? homedir2()), ".config");
+  return join5(configRoot, "venture-harness", "founder.json");
+}
+function loadFounderConfig(path = defaultFounderConfigPath()) {
+  const absolute = resolve8(path);
+  if (!existsSync5(absolute)) return { schemaVersion: 1 };
+  const value = JSON.parse(readFileSync7(absolute, "utf8"));
+  if (value.schemaVersion !== 1) {
+    throw new Error("unsupported founder config; expected schemaVersion 1");
+  }
+  if (value.venturesRoot !== void 0 && typeof value.venturesRoot !== "string") {
+    throw new Error("founder config venturesRoot must be a string");
+  }
+  return {
+    schemaVersion: 1,
+    ...typeof value.venturesRoot === "string" ? { venturesRoot: value.venturesRoot } : {}
+  };
+}
+function saveFounderConfig(config, path = defaultFounderConfigPath()) {
+  const absolute = resolve8(path);
+  mkdirSync4(dirname5(absolute), { recursive: true, mode: 448 });
+  writeFileSync4(absolute, `${JSON.stringify(config, null, 2)}
+`, { mode: 384 });
+}
+function contains(parent, child) {
+  const relation = relative5(parent, child);
+  return relation === "" || relation !== ".." && !relation.startsWith(`..${sep5}`) && !isAbsolute2(relation);
+}
+function resolveVenturesRoot(candidate, options) {
+  if (!candidate.trim()) {
+    throw new Error("ventures-root must be a non-empty absolute path");
+  }
+  const expanded = candidate.startsWith("~/") ? join5(homedir2(), candidate.slice(2)) : candidate;
+  if (!isAbsolute2(expanded)) {
+    throw new Error(
+      `ventures-root must be an absolute path; received ${candidate}. Next: pass an absolute directory such as ~/Projects/ventures.`
+    );
+  }
+  const target = resolve8(expanded);
+  if (existsSync5(target)) {
+    const metadata = lstatSync2(target);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(
+        `ventures-root must not be a symbolic link; received ${target}. Next: point ventures-root at the real directory.`
+      );
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(`ventures-root must be a directory; received ${target}`);
+    }
+  } else {
+    mkdirSync4(target, { recursive: true, mode: 448 });
+  }
+  const canonicalTarget = realpathSync3(target);
+  const canonicalCore = realpathSync3(resolve8(options.coreRoot));
+  if (contains(canonicalCore, canonicalTarget)) {
+    throw new Error(
+      `ventures-root must not be inside the Venture Harness repository (${canonicalCore}). Ventures are independent products with their own Git history. Next: choose a sibling directory such as ~/Projects/ventures.`
+    );
+  }
+  if (contains(canonicalTarget, canonicalCore)) {
+    throw new Error(
+      `ventures-root must not contain the Venture Harness repository (${canonicalCore}). Next: choose a directory that holds only ventures, such as ~/Projects/ventures.`
+    );
+  }
+  return canonicalTarget;
+}
+var VENTURES_ROOT_UNSET_MESSAGE = "No ventures root is configured, so there is no safe directory to materialize an independent venture into.\nNext: run vh config set ventures-root <absolute-path> (for example ~/Projects/ventures), or run vh stack connect founder-default.";
+function configuredVenturesRoot(options) {
+  const config = loadFounderConfig(options.configPath ?? defaultFounderConfigPath());
+  if (!config.venturesRoot) return void 0;
+  return resolveVenturesRoot(config.venturesRoot, { coreRoot: options.coreRoot });
+}
+function resolveVentureOutputWithinRoot(venturesRoot, output) {
+  const canonicalRoot3 = realpathSync3(resolve8(venturesRoot));
+  const target = resolve8(canonicalRoot3, output);
+  const child = relative5(canonicalRoot3, target);
+  if (!child || child === ".." || child.startsWith(`..${sep5}`) || isAbsolute2(child)) {
+    throw new Error("Founder launch output escapes the configured ventures root");
+  }
+  let cursor = canonicalRoot3;
+  const parts = child.split(sep5);
+  for (const [index, part] of parts.entries()) {
+    cursor = join5(cursor, part);
+    let metadata;
+    try {
+      metadata = lstatSync2(cursor);
+    } catch (error) {
+      if (error.code === "ENOENT") break;
+      throw error;
+    }
+    if (metadata.isSymbolicLink()) {
+      throw new Error(
+        `Founder launch output must not traverse a symbolic link: ${cursor}. Next: choose a real directory beneath the configured ventures root.`
+      );
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(
+        index === parts.length - 1 ? `Founder launch output must be a directory: ${cursor}` : `Founder launch output parent must be a directory: ${cursor}`
+      );
+    }
+    const canonicalCursor = realpathSync3(cursor);
+    if (!contains(canonicalRoot3, canonicalCursor)) {
+      throw new Error("Founder launch output resolves outside the configured ventures root");
+    }
+  }
+  return target;
+}
+
 // lib/founder-launch/stack.ts
 import {
-  closeSync as closeSync2,
-  constants,
-  existsSync as existsSync5,
-  fstatSync,
-  fsyncSync as fsyncSync2,
-  lstatSync as lstatSync2,
-  mkdirSync as mkdirSync3,
-  openSync as openSync2,
-  readFileSync as readFileSync6,
-  realpathSync as realpathSync2,
-  renameSync as renameSync3,
-  unlinkSync as unlinkSync2,
-  writeFileSync as writeFileSync3
+  closeSync as closeSync4,
+  constants as constants4,
+  existsSync as existsSync6,
+  fstatSync as fstatSync4,
+  fsyncSync as fsyncSync3,
+  lstatSync as lstatSync3,
+  mkdirSync as mkdirSync5,
+  openSync as openSync4,
+  readFileSync as readFileSync8,
+  realpathSync as realpathSync4,
+  renameSync as renameSync4,
+  unlinkSync as unlinkSync3,
+  writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname4, isAbsolute, join as join3, relative as relative4, resolve as resolve7, sep as sep4 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute3, join as join6, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
 var FOUNDER_STACK_PROFILE_ID = "founder-default";
 var FOUNDER_STACK_SCHEMA_VERSION = 1;
 var founderStackRoleDefinitions = {
@@ -20639,6 +23486,20 @@ var founderStackRoleDefinitions = {
     capabilities: ["record"]
   }
 };
+var founderStackRequiredRoles = [
+  "source.repository",
+  "hosting.web",
+  "database.postgres",
+  "commerce.web"
+];
+var founderStackOptionalRoles = [
+  "commerce.native",
+  "email.transactional",
+  "growth.google",
+  "search.bing",
+  "dns.records"
+];
+var founderStackOptionalRoleSchema = external_exports.enum(founderStackOptionalRoles);
 var canonicalIdentifierSchema = external_exports.string().min(1).max(200).regex(/^[A-Za-z0-9_][A-Za-z0-9._-]*$/u, "expected a canonical organization identifier");
 var safeMetadataSchema = external_exports.string().min(1).max(300).refine((value) => value.trim() === value, "metadata must not have surrounding whitespace").refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), "metadata contains control characters");
 var safeScopeSchema = external_exports.string().min(1).max(300).refine((value) => value.trim() === value, "scope must not have surrounding whitespace").refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), "scope contains control characters");
@@ -20650,6 +23511,42 @@ var founderStackVerificationSchema = external_exports.discriminatedUnion("status
     source: external_exports.enum(["official_cli", "official_api", "manual_read_back"])
   }).strict()
 ]);
+var founderStackCliSessionSchema = external_exports.object({
+  installed: external_exports.boolean(),
+  authenticated: external_exports.boolean(),
+  accountId: safeMetadataSchema.nullable(),
+  mode: external_exports.literal("test").nullable(),
+  verifiedAt: external_exports.string().datetime({ offset: true }).nullable()
+}).strict().superRefine((value, context2) => {
+  if (value.authenticated && (!value.accountId || !value.verifiedAt)) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      message: "an authenticated CLI session requires safe account metadata and verification time"
+    });
+  }
+});
+var founderStackCliSessionsSchema = external_exports.object({
+  github: founderStackCliSessionSchema.nullable(),
+  vercel: founderStackCliSessionSchema.nullable(),
+  stripe: founderStackCliSessionSchema.nullable()
+}).strict().superRefine((value, context2) => {
+  for (const provider of ["github", "vercel"]) {
+    if (value[provider] && value[provider].mode !== null) {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: [provider, "mode"],
+        message: `${provider} CLI metadata must not claim a commerce mode`
+      });
+    }
+  }
+  if (value.stripe?.authenticated && value.stripe.mode !== "test") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["stripe", "mode"],
+      message: "an authenticated Stripe CLI session must prove test mode"
+    });
+  }
+});
 var founderStackRoleConnectionSchema = external_exports.object({
   credentialRef: credentialReferenceSchema.optional(),
   accountId: safeMetadataSchema.optional(),
@@ -20713,6 +23610,12 @@ var founderStackConnectionSchema = external_exports.object({
   schemaVersion: external_exports.literal(FOUNDER_STACK_SCHEMA_VERSION),
   profileId: external_exports.literal(FOUNDER_STACK_PROFILE_ID),
   ownerOrganizationId: canonicalIdentifierSchema,
+  selectedOptionalRoles: external_exports.array(founderStackOptionalRoleSchema).max(founderStackOptionalRoles.length).refine((values) => new Set(values).size === values.length).default(["email.transactional", "growth.google", "search.bing", "dns.records"]),
+  inspectedCliSessions: founderStackCliSessionsSchema.default({
+    github: null,
+    vercel: null,
+    stripe: null
+  }),
   roles: founderStackRolesSchema,
   writableCredentialBackend: writableCredentialBackendSchema,
   launchDefaults: founderStackLaunchDefaultsSchema,
@@ -20749,6 +23652,98 @@ var founderStackConnectionSchema = external_exports.object({
     }
   }
 });
+function createFounderStackConnectionDraft(input) {
+  const verifiedAt = input.verifiedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+  const byRole = new Map(input.roles.map((role) => [role.role, role]));
+  const roles = Object.fromEntries(
+    Object.keys(founderStackRoleDefinitions).map((role) => {
+      const collected = byRole.get(role);
+      return [
+        role,
+        {
+          ...collected?.credentialRef ? { credentialRef: collected.credentialRef } : {},
+          ...collected?.accountId ? { accountId: collected.accountId } : {},
+          ...collected?.teamId ? { teamId: collected.teamId } : {},
+          ...collected?.organizationId ? { organizationId: collected.organizationId } : {},
+          scopes: [...collected?.scopes ?? []],
+          ...collected?.expiresAt ? { expiresAt: collected.expiresAt } : {},
+          verification: collected?.verifiedBy && collected.credentialRef ? { status: "verified", verifiedAt, source: collected.verifiedBy } : { status: "unverified" }
+        }
+      ];
+    })
+  );
+  const defaults = input.launchDefaults;
+  const brevo = defaults?.brevo;
+  const dns = defaults?.dns;
+  return parseFounderStackConnection({
+    schemaVersion: FOUNDER_STACK_SCHEMA_VERSION,
+    profileId: FOUNDER_STACK_PROFILE_ID,
+    ownerOrganizationId: input.ownerOrganizationId,
+    selectedOptionalRoles: input.selectedOptionalRoles ?? [
+      "email.transactional",
+      "growth.google",
+      "search.bing",
+      "dns.records"
+    ],
+    inspectedCliSessions: {
+      github: input.inspectedCliSessions?.github ?? null,
+      vercel: input.inspectedCliSessions?.vercel ?? null,
+      stripe: input.inspectedCliSessions?.stripe ?? null
+    },
+    roles,
+    writableCredentialBackend: input.writableCredentialBackend ?? {
+      mode: "shared",
+      backend: "macos_keychain"
+    },
+    launchDefaults: {
+      neon: { region: defaults?.neonRegion ?? null },
+      stripe: { mode: "test" },
+      brevo: {
+        senderName: brevo?.senderName ?? null,
+        senderEmail: brevo?.senderEmail ?? null,
+        templateName: brevo?.templateName ?? null,
+        templateSubject: brevo?.templateSubject ?? null,
+        templateHtml: brevo?.templateHtml ?? null
+      },
+      google: { analyticsAccountId: defaults?.googleAnalyticsAccountId ?? null },
+      bing: { authMode: defaults?.bingAuthMode ?? null },
+      dns: {
+        providerId: "dns",
+        adapter: dns?.adapter ?? null,
+        registrarAccountId: dns?.registrarAccountId ?? null,
+        zoneId: dns?.zoneId ?? null
+      }
+    },
+    writableRefs: {
+      neonDatabaseUriTemplate: "cred://neon/{ventureSlug}-database",
+      stripeWebhookSigningTemplate: "cred://stripe/{ventureSlug}-webhook",
+      googleAnalyticsMeasurementIdTemplate: "cred://google/{ventureSlug}-measurement-id"
+    }
+  });
+}
+function founderStackCliSessionCredentialRegistrations(connection) {
+  const parsed = parseFounderStackConnection(connection);
+  return Object.entries(founderStackRoleDefinitions).flatMap(([role, definition2]) => {
+    const metadata = parsed.roles[role];
+    if (definition2.providerId !== "github" && definition2.providerId !== "vercel" || !metadata.credentialRef || metadata.verification.status !== "verified" || metadata.verification.source !== "official_cli") {
+      return [];
+    }
+    return [
+      {
+        ref: metadata.credentialRef,
+        provider: definition2.providerId,
+        kind: "cli_session",
+        backend: "cli_session",
+        label: `${definition2.providerId} official CLI session`,
+        scopes: [...metadata.scopes],
+        ...metadata.accountId ? { accountId: metadata.accountId } : {},
+        ...metadata.expiresAt ? { expiresAt: metadata.expiresAt } : {},
+        testedAt: metadata.verification.verifiedAt,
+        testStatus: "passed"
+      }
+    ];
+  });
+}
 function founderStackDnsDestinationId(connection) {
   const selected = connection?.roles["dns.records"];
   return connection?.launchDefaults.dns.registrarAccountId ?? selected?.accountId ?? selected?.organizationId ?? null;
@@ -20774,49 +23769,49 @@ function checkedProfileId(profileId) {
   }
   return profileId;
 }
-function readRegularFile(path, label) {
-  const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+function readRegularFile2(path, label) {
+  const noFollow2 = "O_NOFOLLOW" in constants4 ? constants4.O_NOFOLLOW : 0;
   let descriptor2;
   try {
-    descriptor2 = openSync2(path, constants.O_RDONLY | noFollow);
-    const metadata = fstatSync(descriptor2);
+    descriptor2 = openSync4(path, constants4.O_RDONLY | noFollow2);
+    const metadata = fstatSync4(descriptor2);
     if (!metadata.isFile()) throw new Error(`${label} must be a regular non-symlink file`);
     if (metadata.size > MAX_CONNECTION_FILE_BYTES) {
       throw new Error(`${label} exceeds the ${MAX_CONNECTION_FILE_BYTES}-byte limit`);
     }
-    return readFileSync6(descriptor2, "utf8");
+    return readFileSync8(descriptor2, "utf8");
   } catch (error) {
     if (error instanceof Error && error.message.startsWith(label)) throw error;
     throw new Error(`${label} must be a readable regular non-symlink file`);
   } finally {
-    if (descriptor2 !== void 0) closeSync2(descriptor2);
+    if (descriptor2 !== void 0) closeSync4(descriptor2);
   }
 }
 function containedInputPath(baseDir, file2) {
-  if (!file2 || isAbsolute(file2)) {
+  if (!file2 || isAbsolute3(file2)) {
     throw new Error("Founder Stack --file must be a project-relative path");
   }
-  const root = resolve7(baseDir);
-  const path = resolve7(root, file2);
-  const rel = relative4(root, path);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute(rel)) {
+  const root = resolve9(baseDir);
+  const path = resolve9(root, file2);
+  const rel = relative6(root, path);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep6}`) || isAbsolute3(rel)) {
     throw new Error("Founder Stack --file escapes the project root");
   }
   return path;
 }
 function assertRealInputContainment(baseDir, path) {
-  const root = realpathSync2(resolve7(baseDir));
-  const target = realpathSync2(path);
-  const rel = relative4(root, target);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep4}`) || isAbsolute(rel)) {
+  const root = realpathSync4(resolve9(baseDir));
+  const target = realpathSync4(path);
+  const rel = relative6(root, target);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep6}`) || isAbsolute3(rel)) {
     throw new Error("Founder Stack --file resolves outside the project root");
   }
 }
 function loadFounderStackConnectionFile(file2, options = {}) {
   const path = containedInputPath(options.baseDir ?? process.cwd(), file2);
-  if (!existsSync5(path)) throw new Error(`Founder Stack connection file does not exist: ${file2}`);
+  if (!existsSync6(path)) throw new Error(`Founder Stack connection file does not exist: ${file2}`);
   assertRealInputContainment(options.baseDir ?? process.cwd(), path);
-  const content = readRegularFile(path, "Founder Stack connection file");
+  const content = readRegularFile2(path, "Founder Stack connection file");
   let value;
   try {
     value = JSON.parse(content);
@@ -20826,36 +23821,36 @@ function loadFounderStackConnectionFile(file2, options = {}) {
   return parseFounderStackConnection(value);
 }
 function defaultFounderStackStateRoot() {
-  return join3(dirname4(defaultCredentialCatalogPath()), "founder-stacks");
+  return join6(dirname6(defaultCredentialCatalogPath()), "founder-stacks");
 }
 function ensureStateRoot(path) {
-  mkdirSync3(path, { recursive: true, mode: 448 });
-  const metadata = lstatSync2(path);
+  mkdirSync5(path, { recursive: true, mode: 448 });
+  const metadata = lstatSync3(path);
   if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
     throw new Error("Founder Stack state root must be a regular non-symlink directory");
   }
 }
 function syncDirectory(path) {
-  const descriptor2 = openSync2(path, constants.O_RDONLY);
+  const descriptor2 = openSync4(path, constants4.O_RDONLY);
   try {
-    fsyncSync2(descriptor2);
+    fsyncSync3(descriptor2);
   } finally {
-    closeSync2(descriptor2);
+    closeSync4(descriptor2);
   }
 }
 var FileFounderStackStore = class {
   rootDir;
   constructor(rootDir = defaultFounderStackStateRoot()) {
-    this.rootDir = resolve7(rootDir);
+    this.rootDir = resolve9(rootDir);
   }
   pathFor(profileId) {
-    return join3(this.rootDir, `${checkedProfileId(profileId)}.v1.json`);
+    return join6(this.rootDir, `${checkedProfileId(profileId)}.v1.json`);
   }
   load(profileId) {
     ensureStateRoot(this.rootDir);
     const path = this.pathFor(profileId);
-    if (!existsSync5(path)) return null;
-    const content = readRegularFile(path, "Founder Stack state file");
+    if (!existsSync6(path)) return null;
+    const content = readRegularFile2(path, "Founder Stack state file");
     let value;
     try {
       value = JSON.parse(content);
@@ -20870,31 +23865,31 @@ var FileFounderStackStore = class {
     const parsed = parseFounderStackConnection(connection);
     ensureStateRoot(this.rootDir);
     const path = this.pathFor(parsed.profileId);
-    if (existsSync5(path)) {
+    if (existsSync6(path)) {
       const current = this.load(parsed.profileId);
       if (current && current.ownerOrganizationId !== parsed.ownerOrganizationId) {
         throw new Error("Founder Stack profile belongs to another organization");
       }
     }
-    const temporary = join3(this.rootDir, `.${parsed.profileId}.${process.pid}.${Date.now()}.next`);
-    const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+    const temporary = join6(this.rootDir, `.${parsed.profileId}.${process.pid}.${Date.now()}.next`);
+    const noFollow2 = "O_NOFOLLOW" in constants4 ? constants4.O_NOFOLLOW : 0;
     let descriptor2;
     try {
-      descriptor2 = openSync2(
+      descriptor2 = openSync4(
         temporary,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow,
+        constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | noFollow2,
         384
       );
-      writeFileSync3(descriptor2, `${JSON.stringify(parsed, null, 2)}
+      writeFileSync5(descriptor2, `${JSON.stringify(parsed, null, 2)}
 `, "utf8");
-      fsyncSync2(descriptor2);
-      closeSync2(descriptor2);
+      fsyncSync3(descriptor2);
+      closeSync4(descriptor2);
       descriptor2 = void 0;
-      renameSync3(temporary, path);
+      renameSync4(temporary, path);
       syncDirectory(this.rootDir);
     } catch (error) {
-      if (descriptor2 !== void 0) closeSync2(descriptor2);
-      if (existsSync5(temporary)) unlinkSync2(temporary);
+      if (descriptor2 !== void 0) closeSync4(descriptor2);
+      if (existsSync6(temporary)) unlinkSync3(temporary);
       throw error;
     }
     return parsed;
@@ -20904,7 +23899,11 @@ function defaultRoleConnection() {
   return { scopes: [], verification: { status: "unverified" } };
 }
 function loginCommand(providerId) {
-  return `vh auth login ${providerId} --ref cred://${providerId}/founder-default`;
+  if (providerId === "github" || providerId === "vercel") {
+    return `vh auth login ${providerId} --ref cred://${providerId}/founder-default`;
+  }
+  const role = Object.entries(founderStackRoleDefinitions).find(([, definition2]) => definition2.providerId === providerId)?.[0];
+  return role && providerId !== "revenuecat" ? `vh stack connect founder-default --role ${role}` : `vh auth login ${providerId} --ref cred://${providerId}/founder-default`;
 }
 function includesScopes(actual, required) {
   return required.every((scope) => actual.includes(scope) || actual.includes("*"));
@@ -20914,6 +23913,27 @@ var writableCaptureRoles = /* @__PURE__ */ new Set([
   "commerce.web",
   "growth.google"
 ]);
+var defaultSelectedOptionalRoles = /* @__PURE__ */ new Set([
+  "email.transactional",
+  "growth.google",
+  "search.bing",
+  "dns.records"
+]);
+function activeFounderStackRoles(connection) {
+  const selected = new Set(
+    connection?.selectedOptionalRoles ?? defaultSelectedOptionalRoles
+  );
+  return Object.keys(founderStackRoleDefinitions).filter((role) => {
+    if (founderStackRequiredRoles.includes(role)) {
+      return true;
+    }
+    if (selected.has(role)) return true;
+    const configured = connection?.roles[role];
+    return Boolean(
+      configured?.credentialRef || configured?.accountId || configured?.teamId || configured?.organizationId
+    );
+  });
+}
 function missingLaunchDefaults(connection, role) {
   if (role === "database.postgres" && !connection?.launchDefaults.neon.region) {
     return ["launchDefaults.neon.region"];
@@ -20941,6 +23961,25 @@ function missingLaunchDefaults(connection, role) {
     ];
   }
   return [];
+}
+function exactRoleRepairCommand(role, providerId, status, credentialRef2, credentialTestStatus, missingDefaults, writableCredentialTargets) {
+  if (status === "ready" || status === "manual_only") return "vh launch --dry-run";
+  if (role === "source.repository" || role === "hosting.web") {
+    return loginCommand(providerId);
+  }
+  if (status === "auth_required" && credentialRef2) {
+    if (credentialTestStatus === "failed" && (role === "database.postgres" || role === "commerce.web" || role === "email.transactional" || role === "growth.google" || role === "search.bing")) {
+      return `vh stack connect founder-default --role ${role}`;
+    }
+    return `vh auth test ${providerId} --ref ${credentialRef2}`;
+  }
+  if (role === "database.postgres" || role === "commerce.web" || role === "email.transactional" || role === "growth.google" || role === "search.bing" || role === "dns.records") {
+    return `vh stack connect founder-default --role ${role}`;
+  }
+  if (missingDefaults.length > 0 || writableCredentialTargets.status !== "ready") {
+    return "vh stack create founder-default --file <connection.json>";
+  }
+  return loginCommand(providerId);
 }
 async function doctorFounderStackConnection(options) {
   const registry = options.registry ?? providerRegistry;
@@ -20977,12 +24016,12 @@ async function doctorFounderStackConnection(options) {
         status: "unconfigured",
         fixtureOnly: options.connection.writableCredentialBackend.mode === "fixture",
         targets: [],
-        nextCommand: "vh stack create founder-default --file <connection.json>"
+        nextCommand: options.connection.writableCredentialBackend.mode === "shared" ? `vh stack connect founder-default --role database.postgres --credential-backend ${options.connection.writableCredentialBackend.backend}` : "vh stack connect founder-default --role database.postgres"
       };
     }
   }
   const roles = await Promise.all(
-    Object.keys(founderStackRoleDefinitions).map(async (role) => {
+    activeFounderStackRoles(options.connection).map(async (role) => {
       const definition2 = founderStackRoleDefinitions[role];
       const connection = options.connection?.roles[role] ?? defaultRoleConnection();
       const missingDefaults = missingLaunchDefaults(options.connection, role);
@@ -20997,12 +24036,14 @@ async function doctorFounderStackConnection(options) {
       const manualOnly = adapter.descriptor.transports.every((transport) => transport === "manual");
       let authenticated2 = false;
       let metadataMatches = true;
+      let credentialTestStatus = null;
       if (connection.credentialRef && context2.credentials) {
         try {
           const inspection = await context2.credentials.inspect(connection.credentialRef);
           const reference = context2.credentials.getReference(connection.credentialRef);
-          authenticated2 = inspection.status === "available" && (inspection.kind === "cli_session" && inspection.backend === "cli_session" || inspection.testStatus === "passed" && inspection.testedAt !== void 0);
-          metadataMatches = reference?.provider === definition2.providerId && (!connection.accountId || !reference.accountId || connection.accountId === reference.accountId) && includesScopes(reference.scopes, connection.scopes) && (!connection.expiresAt || Date.parse(connection.expiresAt) > now().getTime());
+          credentialTestStatus = inspection.testStatus ?? null;
+          authenticated2 = inspection.status === "available" && (inspection.kind === "cli_session" && inspection.backend === "cli_session" || inspection.testStatus === "passed" && inspection.testedAt !== void 0 && (definition2.providerId !== "stripe" || inspection.providerMode === "test"));
+          metadataMatches = reference?.provider === definition2.providerId && (definition2.providerId === "stripe" ? Boolean(connection.accountId && reference.accountId === connection.accountId) : !connection.accountId || !reference.accountId || connection.accountId === reference.accountId) && includesScopes(reference.scopes, connection.scopes) && (!connection.expiresAt || Date.parse(connection.expiresAt) > now().getTime());
         } catch {
           authenticated2 = false;
           metadataMatches = false;
@@ -21013,10 +24054,21 @@ async function doctorFounderStackConnection(options) {
         status = "unconfigured";
       }
       if (missingDefaults.length > 0) status = "unconfigured";
-      const nextCommand = status === "ready" || status === "manual_only" ? "vh launch --dry-run" : status === "unconfigured" && missingDefaults.length > 0 ? "vh stack create founder-default --file <connection.json>" : status === "unconfigured" && writableCaptureRoles.has(role) ? writableCredentialTargets.nextCommand : status === "unconfigured" ? loginCommand(definition2.providerId) : `vh auth test ${definition2.providerId} --ref ${connection.credentialRef}`;
+      const nextCommand = exactRoleRepairCommand(
+        role,
+        definition2.providerId,
+        status,
+        connection.credentialRef,
+        credentialTestStatus,
+        missingDefaults,
+        writableCredentialTargets
+      );
       return {
         role,
         providerId: definition2.providerId,
+        blocksLaunch: founderStackRequiredRoles.includes(
+          role
+        ),
         status,
         credentialRef: connection.credentialRef ?? null,
         accountId: connection.accountId ?? null,
@@ -21033,12 +24085,37 @@ async function doctorFounderStackConnection(options) {
       };
     })
   );
+  const launchReady = roles.filter(({ blocksLaunch }) => blocksLaunch).every(({ status }) => status === "ready" || status === "manual_only");
+  const unresolvedActions = roles.filter(({ status }) => status !== "ready" && status !== "manual_only").map(
+    ({
+      role,
+      providerId,
+      status,
+      issueCodes,
+      missingLaunchDefaults: missingLaunchDefaults2,
+      nextCommand,
+      blocksLaunch
+    }) => ({
+      role,
+      providerId,
+      why: missingLaunchDefaults2.length > 0 ? `Missing ${missingLaunchDefaults2.join(", ")}.` : issueCodes.length > 0 ? `${providerId} doctor reported ${issueCodes.join(", ")} (${status}).` : `${providerId} is ${status}.`,
+      command: nextCommand,
+      blocksLaunch
+    })
+  );
   return {
     schemaVersion: 1,
     profileId: FOUNDER_STACK_PROFILE_ID,
     ownerOrganizationId: options.connection?.ownerOrganizationId ?? null,
+    inspectedCliSessions: options.connection?.inspectedCliSessions ?? {
+      github: null,
+      vercel: null,
+      stripe: null
+    },
     status: roles.every(({ status }) => status === "ready" || status === "manual_only") ? "ready" : "attention_required",
+    launchReady,
     roles,
+    unresolvedActions,
     writableCredentialTargets,
     externalEffects: false,
     launchGrantRequired: false,
@@ -21200,7 +24277,7 @@ async function registerFounderStackWritableCredentialRefs(connection, input, bro
       });
     }
     const inspection = await broker.inspect(registration.ref);
-    const backendReady = inspection.writable && inspection.status !== "unavailable" && (registration.backend !== "onepassword" || inspection.status === "available");
+    const backendReady = inspection.writable && inspection.status !== "unavailable";
     if (!backendReady) {
       throw new Error(`Writable credential backend is unavailable for ${registration.purpose}`);
     }
@@ -21231,22 +24308,24 @@ var ENVIRONMENT_BINDINGS = {
   "growth.google": ["NEXT_PUBLIC_GA_MEASUREMENT_ID"]
 };
 function sha2562(value) {
-  return createHash9("sha256").update(value).digest("hex");
+  return createHash10("sha256").update(value).digest("hex");
 }
-function seedFor(brief) {
+function founderSeedFor(brief, launchContract) {
+  if (launchContract?.agentNative.customerAgentSurfaceRequired || launchContract?.agentNative.serviceBlueprintRequired) {
+    return "hybrid-agentic-service";
+  }
   if (brief.app_kind === "web") return "agentic-web-saas";
   if (brief.app_kind === "mobile_ios" || brief.app_kind === "mobile_cross_platform") {
     return "agentic-ios-subscription";
   }
   return "hybrid-agentic-service";
 }
-function requiredRoles(brief) {
+function requiredRoles(brief, paymentProvider) {
   const roles = /* @__PURE__ */ new Set(["source.repository"]);
   if (brief.app_kind === "web" || brief.app_kind === "hybrid") roles.add("hosting.web");
   if (brief.needs.database) roles.add("database.postgres");
-  if (brief.monetization_model !== "none") {
-    roles.add(brief.native_digital_goods ? "commerce.native" : "commerce.web");
-  }
+  if (paymentProvider === "stripe") roles.add("commerce.web");
+  if (paymentProvider === "revenuecat") roles.add("commerce.native");
   if (brief.needs.transactional_email) roles.add("email.transactional");
   if (brief.needs.analytics || brief.needs.search_discovery) roles.add("growth.google");
   if (brief.needs.search_discovery) roles.add("search.bing");
@@ -21297,7 +24376,7 @@ function providerAccounts(connection, graph) {
   }
   return accounts;
 }
-function effectsFor(brief) {
+function effectsFor(brief, paymentProvider) {
   const effects = /* @__PURE__ */ new Set([
     "repository.create",
     "company_stack.provision",
@@ -21306,44 +24385,39 @@ function effectsFor(brief) {
     "production.deploy"
   ]);
   if (brief.domain) effects.add("domain.configure");
-  if (brief.monetization_model !== "none") effects.add("commerce.configure");
+  if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
 }
 function containedOutput(baseDir, requested, slug4) {
-  const root = resolve8(baseDir);
-  const relativeOutput = requested ?? `ventures/${slug4}`;
-  if (!relativeOutput || isAbsolute2(relativeOutput)) {
+  const root = resolve10(baseDir);
+  const relativeOutput = requested ?? slug4;
+  if (!relativeOutput || isAbsolute4(relativeOutput)) {
     throw new Error("Founder launch --output must be a non-empty project-relative path");
   }
-  const target = resolve8(root, relativeOutput);
-  const child = relative5(root, target);
-  if (child === "" || child === ".." || child.startsWith(`..${sep5}`) || isAbsolute2(child)) {
-    throw new Error("Founder launch --output escapes the selected workspace");
-  }
-  return target;
+  return resolveVentureOutputWithinRoot(root, relativeOutput);
 }
 function loadFounderIdeaFile(file2, baseDir = process.cwd()) {
   if (!file2) throw new Error("Founder launch --idea requires a file path");
-  const root = realpathSync3(resolve8(baseDir));
-  const target = resolve8(root, file2);
-  const child = relative5(root, target);
-  if (child === "" || child === ".." || child.startsWith(`..${sep5}`) || isAbsolute2(child)) {
+  const root = realpathSync5(resolve10(baseDir));
+  const target = resolve10(root, file2);
+  const child = relative7(root, target);
+  if (child === "" || child === ".." || child.startsWith(`..${sep7}`) || isAbsolute4(child)) {
     throw new Error("Founder launch --idea escapes the selected workspace");
   }
-  const metadata = lstatSync3(target);
+  const metadata = lstatSync4(target);
   if (metadata.isSymbolicLink() || !metadata.isFile()) {
     throw new Error("Founder launch --idea must be a regular non-symlink file");
   }
-  const canonicalTarget = realpathSync3(target);
-  const canonicalChild = relative5(root, canonicalTarget);
-  if (canonicalChild === "" || canonicalChild === ".." || canonicalChild.startsWith(`..${sep5}`) || isAbsolute2(canonicalChild)) {
+  const canonicalTarget = realpathSync5(target);
+  const canonicalChild = relative7(root, canonicalTarget);
+  if (canonicalChild === "" || canonicalChild === ".." || canonicalChild.startsWith(`..${sep7}`) || isAbsolute4(canonicalChild)) {
     throw new Error("Founder launch --idea resolves outside the selected workspace");
   }
   if (metadata.size > MAX_IDEA_BYTES) {
     throw new Error(`Founder launch --idea exceeds the ${MAX_IDEA_BYTES}-byte limit`);
   }
-  return readFileSync7(canonicalTarget, "utf8");
+  return readFileSync9(canonicalTarget, "utf8");
 }
 function resolveFounderWorkflowRefSha(baseDir, explicit) {
   const candidate = explicit ?? process.env.VH_WORKFLOW_REF_SHA;
@@ -21355,7 +24429,7 @@ function resolveFounderWorkflowRefSha(baseDir, explicit) {
   }
   try {
     const resolved = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: resolve8(baseDir),
+      cwd: resolve10(baseDir),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).trim();
@@ -21369,8 +24443,23 @@ function resolveFounderWorkflowRefSha(baseDir, explicit) {
 function quoteCli(value) {
   return /^[A-Za-z0-9_./-]+$/u.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
-function blockersFor(compiled, connection, roles, doctor, allowFixtureStack) {
+function providerForRole(role) {
+  return role === "source.repository" ? "github" : role === "hosting.web" ? "vercel" : role === "database.postgres" ? "neon" : role === "commerce.web" ? "stripe" : role === "commerce.native" ? "revenuecat" : role === "email.transactional" ? "brevo" : role === "growth.google" ? "google" : role === "search.bing" ? "bing" : "dns";
+}
+function readinessFor(compiled, paymentProvider, connection, roles, doctor, allowFixtureStack) {
   const blockers = [];
+  const launchGaps = [];
+  const blockingRoles = /* @__PURE__ */ new Set(["source.repository"]);
+  if (roles.includes("hosting.web")) blockingRoles.add("hosting.web");
+  if (roles.includes("database.postgres")) blockingRoles.add("database.postgres");
+  if (paymentProvider === "stripe") blockingRoles.add("commerce.web");
+  const addRoleIssue = (issue, state, forceBlock = false) => {
+    if (forceBlock || issue.role !== void 0 && blockingRoles.has(issue.role)) {
+      blockers.push(issue);
+    } else {
+      launchGaps.push({ ...issue, state, blocksLaunch: false });
+    }
+  };
   if (doctor?.writableCredentialTargets.fixtureOnly && !allowFixtureStack) {
     blockers.push({
       code: "stack_role_not_ready",
@@ -21388,61 +24477,89 @@ function blockersFor(compiled, connection, roles, doctor, allowFixtureStack) {
       nextAction: "Update founder-default source.repository with an accountId, teamId, or organizationId, then rerun stack doctor."
     });
   }
-  if (compiled.brief.monetization_model !== "none" && !compiled.brief.native_digital_goods && Number(compiled.commercialTerms.monthlyPrice !== null) + Number(compiled.commercialTerms.annualPrice !== null) !== 1) {
+  const expectedStripePrices = compiled.brief.monetization_model === "subscription" ? Number(compiled.commercialTerms.monthlyPrice !== null) + Number(compiled.commercialTerms.annualPrice !== null) : compiled.brief.monetization_model === "one_time" || compiled.brief.monetization_model === "services" ? Number(compiled.commercialTerms.oneTimePrice !== null) : 0;
+  if (paymentProvider === "stripe" && expectedStripePrices !== 1) {
     blockers.push({
       code: "exact_price_missing",
       role: "commerce.web",
       provider: "stripe",
-      message: "Stripe planning requires exactly one reviewed monthly or annual displayed price.",
-      nextAction: "Add exactly one of `Monthly price:` or `Annual price:` to the founder idea and rerun dry-run."
+      message: compiled.brief.monetization_model === "subscription" ? "Stripe planning requires exactly one reviewed monthly or annual displayed price." : "Stripe planning requires exactly one reviewed one-time displayed price.",
+      nextAction: compiled.brief.monetization_model === "subscription" ? "Add exactly one of `Monthly price:` or `Annual price:` to the founder idea and rerun dry-run." : "Add one reviewed one-time price to the Launch Contract and rerun dry-run."
     });
   }
   for (const role of roles) {
-    const definitionProvider = role === "source.repository" ? "github" : role === "hosting.web" ? "vercel" : role === "database.postgres" ? "neon" : role === "commerce.web" ? "stripe" : role === "commerce.native" ? "revenuecat" : role === "email.transactional" ? "brevo" : role === "growth.google" ? "google" : role === "search.bing" ? "bing" : "dns";
+    const definitionProvider = providerForRole(role);
     const accountId = accountIdFor(connection, role);
+    const credentialReady = role === "dns.records" || Boolean(connection.roles[role].credentialRef);
     const dnsAdapterReady = role !== "dns.records" || connection.launchDefaults.dns.adapter !== null;
     if (!accountId) {
-      blockers.push({
-        code: "provider_account_missing",
-        role,
-        provider: definitionProvider,
-        message: `The Founder Stack does not bind ${role} to an exact external account.`,
-        nextAction: `Update founder-default ${role} account metadata and rerun stack doctor.`
-      });
+      addRoleIssue(
+        {
+          code: "provider_account_missing",
+          role,
+          provider: definitionProvider,
+          message: `The Founder Stack does not bind ${role} to an exact external account.`,
+          nextAction: `Update founder-default ${role} account metadata and rerun stack doctor.`
+        },
+        "waiting_for_auth"
+      );
+    }
+    if (!credentialReady) {
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: `The Founder Stack does not bind ${role} to a registered credential reference.`,
+          nextAction: `Run vh auth login ${definitionProvider}, update founder-default ${role}, then rerun stack doctor.`
+        },
+        "waiting_for_auth"
+      );
     }
     if (!dnsAdapterReady) {
-      blockers.push({
-        code: "stack_role_not_ready",
-        role,
-        provider: definitionProvider,
-        message: "The Founder Stack does not select an exact supported manual DNS adapter for this domain.",
-        nextAction: "Set founder-default launchDefaults.dns.adapter to manual_generic or mijndomein_manual, then rerun stack doctor."
-      });
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: "The Founder Stack does not select an exact supported manual DNS adapter for this domain.",
+          nextAction: "Set founder-default launchDefaults.dns.adapter to manual_generic or mijndomein_manual, then rerun stack doctor."
+        },
+        "waiting_for_external_action"
+      );
     }
     const diagnostic = doctor?.roles.find((candidate) => candidate.role === role);
     if (!diagnostic) {
-      blockers.push({
-        code: "stack_role_not_ready",
-        role,
-        provider: definitionProvider,
-        message: `Founder Stack role ${role} has not been checked by the read-only doctor.`,
-        nextAction: "Run vh stack doctor founder-default, then rerun the launch dry-run."
-      });
-    } else if (accountId && dnsAdapterReady && diagnostic.status !== "ready" && !(role === "dns.records" && diagnostic.status === "manual_only")) {
-      blockers.push({
-        code: "stack_role_not_ready",
-        role,
-        provider: definitionProvider,
-        message: `Founder Stack role ${role} is ${diagnostic.status}; no provider effect is authorized.`,
-        nextAction: diagnostic.nextCommand
-      });
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: `Founder Stack role ${role} has not been checked by the read-only doctor.`,
+          nextAction: "Run vh stack doctor founder-default, then rerun the launch dry-run."
+        },
+        "waiting_for_auth"
+      );
+    } else if (accountId && credentialReady && dnsAdapterReady && diagnostic.status !== "ready" && !(role === "dns.records" && diagnostic.status === "manual_only")) {
+      addRoleIssue(
+        {
+          code: "stack_role_not_ready",
+          role,
+          provider: definitionProvider,
+          message: `Founder Stack role ${role} is ${diagnostic.status}; no provider effect is authorized.`,
+          nextAction: diagnostic.nextCommand
+        },
+        "waiting_for_auth",
+        diagnostic.blocksLaunch && blockingRoles.has(role)
+      );
     }
   }
-  return blockers.filter(
+  const unique2 = (items) => items.filter(
     (item, index, all) => all.findIndex(
       (candidate) => candidate.code === item.code && candidate.role === item.role && candidate.message === item.message
     ) === index
   );
+  return { blockers: unique2(blockers), launchGaps: unique2(launchGaps) };
 }
 function compileFounderLaunchPreparation(input) {
   if (input.executionMode === "apply" && (!input.production || !input.nonInteractive)) {
@@ -21453,19 +24570,20 @@ function compileFounderLaunchPreparation(input) {
   }
   const connection = parseFounderStackConnection(input.stack);
   const idea = compileFounderIdea(input.ideaSource);
-  const roles = requiredRoles(idea.brief);
-  const dryRun = compileLaunchDryRun(idea.brief);
+  const decision = idea.launchContract ? launchDecisionFromContract(idea.launchContract) : void 0;
+  const dryRun = compileLaunchDryRun(idea.brief, decision);
+  const roles = requiredRoles(idea.brief, dryRun.decision.payment.provider);
   const outputDirectory = containedOutput(input.baseDir, input.output, idea.brief.id);
   const repositoryOwner = accountIdFor(connection, "source.repository") ?? connection.ownerOrganizationId;
-  const allowedExternalEffects = effectsFor(idea.brief);
+  const allowedExternalEffects = effectsFor(idea.brief, dryRun.decision.payment.provider);
   const maxBuildAgentTasks = launchBuildAgentTaskCount(dryRun.graph);
   const maxProviderOperations = Math.max(1, launchProviderOperationCeiling(dryRun.graph));
   const grant = createLaunchGrant({
     ownerOrganizationId: connection.ownerOrganizationId,
     ventureName: idea.brief.name,
     ventureSlug: idea.brief.id,
-    ideaDigest: idea.sourceHash,
-    seed: { id: seedFor(idea.brief), version: CORE_VERSION2 },
+    ideaDigest: idea.launchContract ? launchContractDigest(idea.launchContract) : idea.sourceHash,
+    seed: { id: founderSeedFor(idea.brief, idea.launchContract), version: CORE_VERSION2 },
     stackProfile: { id: connection.profileId, version: STACK_VERSION },
     repository: {
       owner: repositoryOwner,
@@ -21496,7 +24614,7 @@ function compileFounderLaunchPreparation(input) {
     permissions: {
       productionDeployment: input.production,
       domainConfiguration: input.production && Boolean(idea.brief.domain),
-      liveCommerceConfiguration: input.production && idea.brief.monetization_model !== "none"
+      liveCommerceConfiguration: input.production && dryRun.decision.payment.provider !== "none"
     },
     createdAt: input.at.toISOString(),
     expiresAt: new Date(input.at.getTime() + 24 * 60 * 60 * 1e3).toISOString(),
@@ -21515,8 +24633,9 @@ function compileFounderLaunchPreparation(input) {
     ventureSlug: idea.brief.id,
     domain: idea.brief.domain
   });
-  const blockers = blockersFor(
+  const { blockers, launchGaps } = readinessFor(
     idea,
+    dryRun.decision.payment.provider,
     connection,
     roles,
     input.stackDoctor,
@@ -21591,6 +24710,7 @@ function compileFounderLaunchPreparation(input) {
     materialization,
     graphDryRun: dryRun,
     blockers,
+    launchGaps,
     exactFinalCommand: `vh launch --idea ${ideaArgument} --stack founder-default --production --apply --non-interactive`
   });
 }
@@ -21606,92 +24726,6 @@ async function materializeFounderVenture(preparation, targetDirectory = preparat
     new NodeMaterializationFileSystem(targetDirectory),
     new Date(preparation.launchGrant.createdAt)
   );
-}
-
-// lib/founder-launch/founder-config.ts
-import {
-  existsSync as existsSync6,
-  lstatSync as lstatSync4,
-  mkdirSync as mkdirSync4,
-  readFileSync as readFileSync8,
-  realpathSync as realpathSync4,
-  writeFileSync as writeFileSync4
-} from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { dirname as dirname5, isAbsolute as isAbsolute3, join as join4, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
-var FOUNDER_CONFIG_KEYS = ["ventures-root"];
-function defaultFounderConfigPath(options = {}) {
-  const configRoot = options.xdgConfigHome ? resolve9(options.xdgConfigHome) : join4(resolve9(options.homeDirectory ?? homedir2()), ".config");
-  return join4(configRoot, "venture-harness", "founder.json");
-}
-function loadFounderConfig(path = defaultFounderConfigPath()) {
-  const absolute = resolve9(path);
-  if (!existsSync6(absolute)) return { schemaVersion: 1 };
-  const value = JSON.parse(readFileSync8(absolute, "utf8"));
-  if (value.schemaVersion !== 1) {
-    throw new Error("unsupported founder config; expected schemaVersion 1");
-  }
-  if (value.venturesRoot !== void 0 && typeof value.venturesRoot !== "string") {
-    throw new Error("founder config venturesRoot must be a string");
-  }
-  return {
-    schemaVersion: 1,
-    ...typeof value.venturesRoot === "string" ? { venturesRoot: value.venturesRoot } : {}
-  };
-}
-function saveFounderConfig(config, path = defaultFounderConfigPath()) {
-  const absolute = resolve9(path);
-  mkdirSync4(dirname5(absolute), { recursive: true, mode: 448 });
-  writeFileSync4(absolute, `${JSON.stringify(config, null, 2)}
-`, { mode: 384 });
-}
-function contains(parent, child) {
-  const relation = relative6(parent, child);
-  return relation === "" || !relation.startsWith("..") && !isAbsolute3(relation);
-}
-function resolveVenturesRoot(candidate, options) {
-  if (!candidate.trim()) {
-    throw new Error("ventures-root must be a non-empty absolute path");
-  }
-  const expanded = candidate.startsWith("~/") ? join4(homedir2(), candidate.slice(2)) : candidate;
-  if (!isAbsolute3(expanded)) {
-    throw new Error(
-      `ventures-root must be an absolute path; received ${candidate}. Next: pass an absolute directory such as ~/Projects/ventures.`
-    );
-  }
-  const target = resolve9(expanded);
-  if (existsSync6(target)) {
-    const metadata = lstatSync4(target);
-    if (metadata.isSymbolicLink()) {
-      throw new Error(
-        `ventures-root must not be a symbolic link; received ${target}. Next: point ventures-root at the real directory.`
-      );
-    }
-    if (!metadata.isDirectory()) {
-      throw new Error(`ventures-root must be a directory; received ${target}`);
-    }
-  } else {
-    mkdirSync4(target, { recursive: true, mode: 448 });
-  }
-  const canonicalTarget = realpathSync4(target);
-  const canonicalCore = realpathSync4(resolve9(options.coreRoot));
-  if (contains(canonicalCore, canonicalTarget)) {
-    throw new Error(
-      `ventures-root must not be inside the Venture Harness repository (${canonicalCore}). Ventures are independent products with their own Git history. Next: choose a sibling directory such as ~/Projects/ventures.`
-    );
-  }
-  if (contains(canonicalTarget, canonicalCore)) {
-    throw new Error(
-      `ventures-root must not contain the Venture Harness repository (${canonicalCore}). Next: choose a directory that holds only ventures, such as ~/Projects/ventures.`
-    );
-  }
-  return canonicalTarget;
-}
-var VENTURES_ROOT_UNSET_MESSAGE = "No ventures root is configured, so there is no safe directory to materialize an independent venture into.\nNext: run vh config set ventures-root <absolute-path> (for example ~/Projects/ventures), or run vh stack connect founder-default.";
-function configuredVenturesRoot(options) {
-  const config = loadFounderConfig(options.configPath ?? defaultFounderConfigPath());
-  if (!config.venturesRoot) return void 0;
-  return resolveVenturesRoot(config.venturesRoot, { coreRoot: options.coreRoot });
 }
 
 // lib/learning/engine.ts
@@ -22072,24 +25106,24 @@ function createDefaultDataLearningRuntime(options) {
 }
 
 // lib/learning/report.ts
-import { mkdirSync as mkdirSync5, renameSync as renameSync4, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname6, relative as relative7, resolve as resolve10, sep as sep7 } from "node:path";
+import { mkdirSync as mkdirSync6, renameSync as renameSync5, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname7, relative as relative8, resolve as resolve11, sep as sep8 } from "node:path";
 function inside3(root, candidate) {
-  const absolute = resolve10(root, candidate);
-  const rel = relative7(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep7}`) && rel !== ".." && !rel.startsWith(sep7)) {
+  const absolute = resolve11(root, candidate);
+  const rel = relative8(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep8}`) && rel !== ".." && !rel.startsWith(sep8)) {
     return absolute;
   }
   throw new Error(`Learning report destination escapes the venture root: ${candidate}`);
 }
 function repositoryPath(root, absolute) {
-  return relative7(root, absolute).split(sep7).join("/");
+  return relative8(root, absolute).split(sep8).join("/");
 }
 function writeAtomic(path, content) {
-  mkdirSync5(dirname6(path), { recursive: true, mode: 448 });
+  mkdirSync6(dirname7(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync5(temporary, content, { encoding: "utf8", mode: 384 });
-  renameSync4(temporary, path);
+  writeFileSync6(temporary, content, { encoding: "utf8", mode: 384 });
+  renameSync5(temporary, path);
 }
 function singleLine(value) {
   return value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
@@ -22129,7 +25163,7 @@ function renderLearningReportMarkdown(report) {
   ].join("\n");
 }
 function persistLearningReport(args) {
-  const root = resolve10(args.rootDir);
+  const root = resolve11(args.rootDir);
   const destination = inside3(root, args.definition.outputDestination);
   const stamp = args.report.generatedAt.replace(/[:.]/g, "-");
   const base = `${stamp}-${args.report.loopId.replace(/[^a-z0-9_-]+/gi, "-")}`;
@@ -22179,7 +25213,7 @@ function renderOperatingCadenceMarkdown(cadence) {
   ].join("\n");
 }
 function persistOperatingCadence(args) {
-  const root = resolve10(args.rootDir);
+  const root = resolve11(args.rootDir);
   const jsonPath = inside3(root, "reports/learning/operating-cadence.json");
   const markdownPath = inside3(root, "reports/learning/operating-cadence.md");
   writeAtomic(jsonPath, `${JSON.stringify(args.cadence, null, 2)}
@@ -22248,11 +25282,11 @@ function nextCronOccurrence(expression, after) {
 
 // lib/migrations/file-system.ts
 import { mkdir as mkdir3, readFile as readFile2, rename as rename2, rm, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname7, relative as relative8, resolve as resolve11, sep as sep8 } from "node:path";
+import { dirname as dirname8, relative as relative9, resolve as resolve12, sep as sep9 } from "node:path";
 function insideRoot(root, path) {
-  const absolute = resolve11(root, path);
-  const rel = relative8(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep8}`) && rel !== ".." && !rel.startsWith(sep8)) {
+  const absolute = resolve12(root, path);
+  const rel = relative9(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep9}`) && rel !== ".." && !rel.startsWith(sep9)) {
     return absolute;
   }
   throw new Error(`migration path escapes repository root: ${path}`);
@@ -22270,7 +25304,7 @@ function createNodeMigrationFileSystem(root = process.cwd()) {
     },
     async writeAtomic(path, content) {
       const destination = insideRoot(root, path);
-      await mkdir3(dirname7(destination), { recursive: true });
+      await mkdir3(dirname8(destination), { recursive: true });
       const temporary = `${destination}.vh-next-${process.pid}-${sequence++}`;
       try {
         await writeFile2(temporary, content, { encoding: "utf8", flag: "wx" });
@@ -22952,134 +25986,6 @@ var V01_TO_V02_MIGRATION = {
 };
 var defaultMigrationRegistry = new MigrationRegistry([V01_TO_V02_MIGRATION]);
 
-// packages/core/dist/index.js
-var CREDENTIAL_VALUE_PATTERNS2 = [
-  /\bwhsec_[a-z0-9_-]{8,}/iu,
-  /\b(?:sk|rk|pk|atk)_(?:live|test)?_?[a-z0-9_-]{8,}/iu,
-  /\bsk-[a-z0-9_-]{16,}/iu,
-  /\bxkeysib-[a-z0-9_-]{12,}/iu,
-  /\bAIza[a-z0-9_-]{30,}/iu,
-  /\b(?:gh[pousr]_[a-z0-9]{20,}|github_pat_[a-z0-9_]{20,})\b/iu,
-  /\bxox[baprs]-[a-z0-9-]{10,}/iu,
-  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/u,
-  /\bbearer\s+[a-z0-9._~+/=-]{8,}/iu,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
-  /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/iu,
-  /[?&](?:access_token|api_key|token|secret)=[^&\s]{6,}/iu,
-  /\b(?:(?:vh|credential)[_-])canary[_-][a-z0-9_-]{6,}/iu
-];
-function credentialFieldWords2(field) {
-  return field.replace(/([a-z0-9])([A-Z])/gu, "$1_$2").toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean);
-}
-function secretBearingField2(field) {
-  const words = credentialFieldWords2(field);
-  if (["secret", "password", "token", "credential", "authorization"].some((word) => words.includes(word))) {
-    return true;
-  }
-  const joined = words.join("");
-  return ["apikey", "privatekey", "signingkey"].some((marker) => joined.includes(marker));
-}
-function findCredentialMaterial2(value, options = {}) {
-  const canaries = [...options.canaries ?? []].filter(Boolean);
-  const referenceKeys = new Set(options.allowedCredentialReferenceKeys ?? []);
-  const visited = /* @__PURE__ */ new WeakSet();
-  const inspect = (candidate, path) => {
-    if (typeof candidate === "string") {
-      if (canaries.some((canary) => candidate.includes(canary))) {
-        return { kind: "registered_canary", path };
-      }
-      if (CREDENTIAL_VALUE_PATTERNS2.some((pattern) => pattern.test(candidate))) {
-        return { kind: "credential_pattern", path };
-      }
-      return null;
-    }
-    if (candidate === null || typeof candidate === "boolean")
-      return null;
-    if (typeof candidate === "number") {
-      return Number.isFinite(candidate) ? null : { kind: "non_json_value", path };
-    }
-    if (typeof candidate !== "object")
-      return { kind: "non_json_value", path };
-    if (visited.has(candidate))
-      return { kind: "non_json_value", path };
-    visited.add(candidate);
-    if (Array.isArray(candidate)) {
-      for (const [index, entry] of candidate.entries()) {
-        const finding = inspect(entry, `${path}[${index}]`);
-        if (finding)
-          return finding;
-      }
-      return null;
-    }
-    const prototype = Object.getPrototypeOf(candidate);
-    if (prototype !== Object.prototype && prototype !== null) {
-      return { kind: "non_json_value", path };
-    }
-    for (const [field, entry] of Object.entries(candidate)) {
-      const childPath = `${path}.${field}`;
-      if (referenceKeys.has(field)) {
-        if (typeof entry !== "string" || !/^cred:\/\/[A-Za-z0-9][A-Za-z0-9/_:.-]*$/u.test(entry)) {
-          return { kind: "invalid_credential_reference", path: childPath };
-        }
-      } else if (secretBearingField2(field)) {
-        return { kind: "secret_bearing_field", path: childPath };
-      }
-      const finding = inspect(entry, childPath);
-      if (finding)
-        return finding;
-    }
-    return null;
-  };
-  return inspect(value, "$");
-}
-function assertNonEmpty(value, field) {
-  const normalized = value.trim();
-  if (!normalized)
-    throw new Error(`${field} must not be empty`);
-  return normalized;
-}
-function tenantKey(tenant) {
-  const organizationId = assertNonEmpty(tenant.organizationId, "organizationId");
-  const ventureId2 = assertNonEmpty(tenant.ventureId, "ventureId");
-  if (organizationId !== tenant.organizationId) {
-    throw new Error("organizationId must not contain leading or trailing whitespace");
-  }
-  if (ventureId2 !== tenant.ventureId) {
-    throw new Error("ventureId must not contain leading or trailing whitespace");
-  }
-  const tenantIdPattern = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
-  if (!tenantIdPattern.test(organizationId)) {
-    throw new Error("organizationId must be a canonical tenant identifier");
-  }
-  if (!tenantIdPattern.test(ventureId2)) {
-    throw new Error("ventureId must be a canonical tenant identifier");
-  }
-  return `${organizationId}:${ventureId2}`;
-}
-function canonicalCommandId(value) {
-  const commandId = value.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(commandId)) {
-    throw new Error(`Invalid command id: ${value}`);
-  }
-  return commandId;
-}
-function sortJson(value) {
-  if (Array.isArray(value))
-    return value.map(sortJson);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, sortJson(child)]));
-  }
-  return value;
-}
-function stableJson(value) {
-  return JSON.stringify(sortJson(value));
-}
-function assertCredentialFree(value, path = "value", canaries = []) {
-  const finding = findCredentialMaterial2(value, { canaries });
-  if (finding)
-    throw new Error(`credential-like material is forbidden at ${path}${finding.path.slice(1)}`);
-}
-
 // lib/runtime/build-agent-host.ts
 var BuildAgentHostError = class extends Error {
   constructor(code, message) {
@@ -23090,8 +25996,189 @@ var BuildAgentHostError = class extends Error {
   code;
 };
 
+// lib/runtime/build-context-manifest.ts
+import { existsSync as existsSync7, lstatSync as lstatSync5, readdirSync as readdirSync2, readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
+import { relative as relative10, resolve as resolve13, sep as sep10 } from "node:path";
+var selectedContextFileSchema = external_exports.object({
+  path: artifactReferenceSchema,
+  reason: external_exports.string().min(1).max(500),
+  estimatedTokens: external_exports.number().int().nonnegative().nullable()
+}).strict();
+var buildContextManifestSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  runId: external_exports.string().min(1).max(200),
+  nodeId: external_exports.string().min(1).max(200),
+  selectedFiles: external_exports.array(selectedContextFileSchema).max(80),
+  estimatedTotalTokens: external_exports.number().int().nonnegative().nullable(),
+  tokenCap: external_exports.number().int().positive().max(5e5),
+  selectionTruncated: external_exports.boolean(),
+  omittedFileCount: external_exports.number().int().nonnegative(),
+  capabilitiesRequired: external_exports.array(external_exports.string().min(1)).min(1),
+  excludedOptionalPacks: external_exports.array(external_exports.string().min(1)).min(1),
+  selectionPolicy: external_exports.literal("contract_capability_minimum_v1")
+}).strict();
+var ALWAYS_SELECTED = {
+  "config/launch-contract.yaml": "Canonical downstream business and product decisions.",
+  "docs/product/PRODUCT_CONSTITUTION.md": "Truth, promise, scope, and model boundaries.",
+  "docs/product/PRODUCT_TRUTH.md": "Public claim status and evidence boundary.",
+  "PROJECT.md": "Compact venture map and direct verification commands.",
+  "AGENTS.md": "Repository-local operating and safety rules.",
+  "package.json": "Existing deterministic scripts and exact dependency surface.",
+  "skills/design-director/SKILL.md": "Selected product-design method and accessibility rules.",
+  "skills/design-director/references/originality-audit.md": "Selected anti-template and originality review contract."
+};
+var DEFAULT_BUILD_CONTEXT_TOKEN_CAP = 32e3;
+var PRODUCT_ROOTS = ["app", "src", "tests/e2e"];
+var EXCLUDED_OPTIONAL_PACKS = [
+  "Winner Loop",
+  "DistributionPR",
+  "paid acquisition",
+  "Fleet",
+  "recursive customer tenancy",
+  "customer Provider Connections",
+  "customer Agent Grants"
+];
+function contained(root, target) {
+  const relation = relative10(root, target);
+  return relation === "" || !relation.startsWith(`..${sep10}`) && relation !== "..";
+}
+function regularFileWithinRoot(root, reference) {
+  const absolute = resolve13(root, reference);
+  if (!contained(root, absolute)) return false;
+  const relation = relative10(root, absolute);
+  let cursor = root;
+  for (const component of relation.split(sep10).filter(Boolean)) {
+    cursor = resolve13(cursor, component);
+    if (!existsSync7(cursor)) return false;
+    const metadata = lstatSync5(cursor);
+    if (metadata.isSymbolicLink()) return false;
+    if (cursor === absolute) return metadata.isFile();
+    if (!metadata.isDirectory()) return false;
+  }
+  return false;
+}
+function regularFiles(root, reference) {
+  const absolute = resolve13(root, reference);
+  if (!contained(root, absolute) || !existsSync7(absolute)) return [];
+  const metadata = lstatSync5(absolute);
+  if (metadata.isSymbolicLink()) return [];
+  if (metadata.isFile()) return [reference];
+  if (!metadata.isDirectory()) return [];
+  return readdirSync2(absolute, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name)).flatMap((entry) => {
+    if (entry.isSymbolicLink()) return [];
+    const child = `${reference}/${entry.name}`;
+    return entry.isDirectory() ? regularFiles(root, child) : entry.isFile() ? [child] : [];
+  });
+}
+function selectedProviderContracts(brief, paymentProvider) {
+  const files = {};
+  if (brief.needs.analytics) {
+    files["config/analytics.yaml"] = "Selected analytics capability and privacy constraints.";
+  }
+  if (brief.needs.search_discovery) {
+    files["config/seo.yaml"] = "Selected crawlability and discovery contract.";
+  }
+  if ((paymentProvider ?? (brief.monetization_model !== "none" ? "selected" : "none")) !== "none") {
+    files["config/offer.yaml"] = "Selected commerce price and claim boundary.";
+  }
+  if (brief.app_kind !== "web") {
+    files["config/mobile.yaml"] = "Selected native rail contract.";
+  }
+  return files;
+}
+function createBuildContextManifest(input) {
+  const root = realpathSync6(resolve13(input.rootDir));
+  const reasons = {
+    ...ALWAYS_SELECTED,
+    ...selectedProviderContracts(input.brief, input.paymentProvider)
+  };
+  const requiredPaths = new Set(Object.keys(reasons));
+  if (input.requireCanonicalContract) {
+    const missing = [
+      "config/launch-contract.yaml",
+      "docs/product/PRODUCT_CONSTITUTION.md",
+      "PROJECT.md",
+      "AGENTS.md",
+      "skills/design-director/SKILL.md",
+      "skills/design-director/references/originality-audit.md"
+    ].filter((path) => !regularFileWithinRoot(root, path));
+    if (missing.length > 0) {
+      throw new Error(`Required Launch Contract build context is missing: ${missing.join(", ")}`);
+    }
+  }
+  for (const productRoot of PRODUCT_ROOTS) {
+    for (const file2 of regularFiles(root, productRoot)) {
+      reasons[file2] = input.nodeId === "review-product" ? "Existing product or primary-journey test selected for independent review." : "Existing seed/product surface selected for venture-specific implementation.";
+    }
+  }
+  const candidates = Object.entries(reasons).filter(([path]) => regularFileWithinRoot(root, path)).sort(([left], [right]) => {
+    const priority = Number(requiredPaths.has(right)) - Number(requiredPaths.has(left));
+    return priority || left.localeCompare(right);
+  }).map(([path, reason]) => {
+    const bytes = readFileSync10(resolve13(root, path)).byteLength;
+    return { path, reason, estimatedTokens: Math.ceil(bytes / 4) };
+  });
+  const tokenCap = input.tokenCap ?? DEFAULT_BUILD_CONTEXT_TOKEN_CAP;
+  const requiredTokens = candidates.filter(({ path }) => requiredPaths.has(path)).reduce((total, candidate) => total + (candidate.estimatedTokens ?? 0), 0);
+  if (requiredTokens > tokenCap) {
+    throw new Error(
+      `Required build context needs approximately ${requiredTokens} tokens, above the ${tokenCap}-token cap`
+    );
+  }
+  const selectedFiles = [];
+  let estimatedTotalTokens = 0;
+  for (const candidate of candidates) {
+    const estimate = candidate.estimatedTokens ?? 0;
+    if (selectedFiles.length >= 80 || !requiredPaths.has(candidate.path) && estimatedTotalTokens + estimate > tokenCap) {
+      continue;
+    }
+    selectedFiles.push(candidate);
+    estimatedTotalTokens += estimate;
+  }
+  if (input.requireCanonicalContract) {
+    const unselected = [...requiredPaths].filter(
+      (path) => [
+        "config/launch-contract.yaml",
+        "docs/product/PRODUCT_CONSTITUTION.md",
+        "PROJECT.md",
+        "AGENTS.md",
+        "skills/design-director/SKILL.md",
+        "skills/design-director/references/originality-audit.md"
+      ].includes(path) && !selectedFiles.some((selected) => selected.path === path)
+    );
+    if (unselected.length > 0) {
+      throw new Error(
+        `Required Launch Contract build context was not selected as regular files: ${unselected.join(", ")}`
+      );
+    }
+  }
+  const capabilitiesRequired = input.capabilitiesRequired ?? routeLaunch(input.brief).capabilities;
+  const excludedOptionalPacks = [
+    ...EXCLUDED_OPTIONAL_PACKS,
+    ...input.brief.app_kind === "web" ? ["RevenueCat", "iOS and TestFlight"] : []
+  ].filter((pack2) => {
+    if (input.agentNative?.customerAgentSurfaceRequired && ["customer Provider Connections", "customer Agent Grants"].includes(pack2)) {
+      return false;
+    }
+    return !(input.agentNative?.serviceBlueprintRequired && pack2 === "recursive customer tenancy");
+  });
+  return buildContextManifestSchema.parse({
+    schemaVersion: 1,
+    runId: input.runId,
+    nodeId: input.nodeId,
+    selectedFiles,
+    estimatedTotalTokens,
+    tokenCap,
+    selectionTruncated: selectedFiles.length < candidates.length,
+    omittedFileCount: candidates.length - selectedFiles.length,
+    capabilitiesRequired,
+    excludedOptionalPacks,
+    selectionPolicy: "contract_capability_minimum_v1"
+  });
+}
+
 // lib/runtime/codex-cli-build-agent.ts
-import { resolve as resolve12 } from "node:path";
+import { resolve as resolve14 } from "node:path";
 var buildAgentCheckSchema = external_exports.object({
   command: external_exports.string().min(1).max(500),
   status: external_exports.enum(["passed", "failed", "skipped"]),
@@ -23218,7 +26305,7 @@ function codexBuildAgentEnvironment(source) {
   };
 }
 function productCommandEnvironment(source, isolatedHome) {
-  const home = resolve12(isolatedHome);
+  const home = resolve14(isolatedHome);
   return {
     NODE_ENV: source.NODE_ENV ?? "production",
     ...Object.fromEntries(
@@ -23228,9 +26315,9 @@ function productCommandEnvironment(source, isolatedHome) {
     ),
     HOME: home,
     USERPROFILE: home,
-    XDG_CONFIG_HOME: resolve12(home, ".config"),
-    npm_config_userconfig: resolve12(home, ".npmrc"),
-    NPM_CONFIG_USERCONFIG: resolve12(home, ".npmrc")
+    XDG_CONFIG_HOME: resolve14(home, ".config"),
+    npm_config_userconfig: resolve14(home, ".npmrc"),
+    NPM_CONFIG_USERCONFIG: resolve14(home, ".npmrc")
   };
 }
 function assertCredentialFree2(value, path = "context") {
@@ -23263,8 +26350,9 @@ function promptFor(request2, redactor) {
   const context2 = redactor.redact(request2.context);
   return [
     "Execute one bounded Venture Harness product-build task in the current repository.",
-    "Read AGENTS.md, PROJECT.md, docs/product/PRODUCT_TRUTH.md, the typed config, and only the skill/docs needed for this task.",
+    "Read only the repository files listed in bounded JSON context.contextManifest.selectedFiles. Each entry states why it was selected. Do not crawl the repository, reread historical plans, or load excluded optional packs. If one indispensable file is absent from the manifest, stop and report that exact blocker instead of silently widening context.",
     "Work only inside the repository. Do not deploy, publish, send, charge, change DNS, create provider resources, commit, push, or expose credentials.",
+    "Never modify or report a modification to Core-owned or launch-authority inputs: .venture state, harness.lock, venture.manifest.json, the canonical Launch Contract, Product Constitution, founder idea, provider/offer/venture/launch/policy/mobile/connector config, or any file marked core_owned in harness.lock. Product source and explicitly requested dependency manifests are the writable product boundary; the harness independently fingerprints protected inputs and rejects the task if they change.",
     "Use deterministic code and existing scripts when they are sufficient. Preserve venture-owned work and label samples, prototypes, and unverified state honestly.",
     "Never read or print credential values. Repository config may contain only cred:// references.",
     `Run ID: ${request2.runId}`,
@@ -23282,7 +26370,7 @@ function promptFor(request2, redactor) {
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function assistantText(event) {
+function assistantText2(event) {
   const record3 = asRecord(event);
   if (!record3) return null;
   if (record3.type === "item.completed") {
@@ -23306,13 +26394,23 @@ function usageFrom(event) {
   if (typeof inputTokens !== "number" || typeof cachedInputTokens !== "number" || typeof outputTokens !== "number") {
     return void 0;
   }
-  return { inputTokens, cachedInputTokens, outputTokens };
+  const model = typeof record3.model === "string" && record3.model.trim() ? record3.model.trim() : void 0;
+  return { inputTokens, cachedInputTokens, outputTokens, ...model ? { model } : {} };
 }
 function parseJsonLines(stdout) {
   const lines = stdout.split(/\r?\n/).filter((line) => line.trim().length > 0);
   const finalTexts = [];
   const eventTypes = /* @__PURE__ */ new Set();
   let usage;
+  let toolCalls = 0;
+  let failedCommands = 0;
+  const toolItemTypes = /* @__PURE__ */ new Set([
+    "command_execution",
+    "file_change",
+    "mcp_tool_call",
+    "web_search",
+    "dynamic_tool_call"
+  ]);
   for (const [index, line] of lines.entries()) {
     let event;
     try {
@@ -23325,7 +26423,15 @@ function parseJsonLines(stdout) {
     }
     const type = asRecord(event)?.type;
     if (typeof type === "string") eventTypes.add(type);
-    const text2 = assistantText(event);
+    if (type === "item.completed") {
+      const item = asRecord(asRecord(event)?.item);
+      const itemType = typeof item?.type === "string" ? item.type : null;
+      if (itemType && toolItemTypes.has(itemType)) toolCalls += 1;
+      if (itemType === "command_execution" && typeof item?.exit_code === "number" && item.exit_code !== 0) {
+        failedCommands += 1;
+      }
+    }
+    const text2 = assistantText2(event);
     if (text2) finalTexts.push(text2);
     usage = usageFrom(event) ?? usage;
   }
@@ -23336,6 +26442,7 @@ function parseJsonLines(stdout) {
       "Codex JSONL contained no final structured agent result; no task result was accepted."
     );
   }
+  if (usage) usage = { ...usage, toolCalls, failedCommands };
   return { finalText, eventTypes: [...eventTypes].sort(), usage };
 }
 function compactVersion2(value, redactor) {
@@ -23348,12 +26455,14 @@ var CodexCliBuildAgentHost = class {
   runner;
   redactor;
   binary;
+  model;
   inspection;
   constructor(options) {
-    this.rootDir = resolve12(options.rootDir);
+    this.rootDir = resolve14(options.rootDir);
     this.runner = options.runner;
     this.redactor = options.redactor ?? new Redactor();
     this.binary = options.binary ?? "codex";
+    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
   }
   inspect() {
     this.inspection ??= this.inspectOnce();
@@ -23417,7 +26526,13 @@ ${login.stderr}`);
     const prompt = promptFor(request2, this.redactor);
     const result2 = await this.runner.run({
       command: this.binary,
-      args: [...CODEX_EXEC_ARGS, "-C", this.rootDir, "-"],
+      args: [
+        ...CODEX_EXEC_ARGS,
+        ...this.model ? ["--model", this.model] : [],
+        "-C",
+        this.rootDir,
+        "-"
+      ],
       cwd: this.rootDir,
       stdin: prompt,
       sensitiveStdin: true,
@@ -23461,24 +26576,28 @@ ${login.stderr}`);
           checkCommand: parsed.data.completion.validator.check_command
         }
       } : null,
-      usage: parsedJsonLines.usage
+      usage: parsedJsonLines.usage ? {
+        ...parsedJsonLines.usage,
+        ...parsedJsonLines.usage.model || !this.model ? {} : { model: this.model }
+      } : void 0
     };
   }
 };
 
 // lib/runtime/checkpoint-evidence.ts
-import { existsSync as existsSync7, lstatSync as lstatSync5, readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
-import { relative as relative9, resolve as resolve13, sep as sep9 } from "node:path";
+import { closeSync as closeSync5, constants as constants5, fstatSync as fstatSync5, openSync as openSync5, readFileSync as readFileSync11, realpathSync as realpathSync7 } from "node:fs";
+import { relative as relative11, resolve as resolve15, sep as sep11 } from "node:path";
+var NO_FOLLOW3 = "O_NOFOLLOW" in constants5 ? constants5.O_NOFOLLOW : 0;
 function inside4(rootDir, artifact) {
-  const root = realpathSync5(rootDir);
-  const target = resolve13(root, artifact);
-  const lexicalRelative = relative9(root, target);
-  if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep9}`) || lexicalRelative.startsWith(sep9)) {
+  const root = realpathSync7(rootDir);
+  const target = resolve15(root, artifact);
+  const lexicalRelative = relative11(root, target);
+  if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep11}`) || lexicalRelative.startsWith(sep11)) {
     throw new Error(`Checkpoint evidence escapes the venture root: ${artifact}`);
   }
-  const realTarget = realpathSync5(target);
-  const realRelative = relative9(root, realTarget);
-  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep9}`) || realRelative.startsWith(sep9)) {
+  const realTarget = realpathSync7(target);
+  const realRelative = relative11(root, realTarget);
+  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep11}`) || realRelative.startsWith(sep11)) {
     throw new Error(`Checkpoint evidence resolves outside the venture root: ${artifact}`);
   }
   return target;
@@ -23489,22 +26608,44 @@ function loadRepositoryCheckpointEvidence(options) {
   if (!reference.startsWith(prefix) || !reference.endsWith(".json")) {
     throw new Error(`Checkpoint evidence must be a JSON file under ${prefix}.`);
   }
-  const lexicalTarget = resolve13(options.rootDir, reference);
-  if (!existsSync7(lexicalTarget)) {
-    throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
+  let target;
+  try {
+    target = inside4(options.rootDir, reference);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
+    }
+    throw error;
   }
-  const target = inside4(options.rootDir, reference);
-  const stat2 = lstatSync5(target);
   const maxBytes = options.maxBytes ?? 1e6;
-  if (stat2.isSymbolicLink() || !stat2.isFile()) {
-    throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
+  let descriptor2;
+  try {
+    descriptor2 = openSync5(target, constants5.O_RDONLY | NO_FOLLOW3);
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") {
+      throw new Error(`Checkpoint evidence file does not exist: ${reference}.`);
+    }
+    if (code === "ELOOP") {
+      throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
+    }
+    throw error;
   }
-  if (stat2.size === 0 || stat2.size > maxBytes) {
-    throw new Error(
-      `Checkpoint evidence size must be between 1 and ${maxBytes} bytes: ${reference}.`
-    );
+  let raw;
+  try {
+    const stat2 = fstatSync5(descriptor2);
+    if (!stat2.isFile()) {
+      throw new Error(`Checkpoint evidence must be a regular non-symlink file: ${reference}.`);
+    }
+    if (stat2.size === 0 || stat2.size > maxBytes) {
+      throw new Error(
+        `Checkpoint evidence size must be between 1 and ${maxBytes} bytes: ${reference}.`
+      );
+    }
+    raw = readFileSync11(descriptor2, "utf8");
+  } finally {
+    closeSync5(descriptor2);
   }
-  const raw = readFileSync9(target, "utf8");
   const redactor = options.redactor ?? new Redactor();
   if (redactor.redactText(raw) !== raw) {
     throw new Error("Checkpoint evidence contains registered credential material.");
@@ -23542,9 +26683,153 @@ function createRepositoryCheckpointEvidenceVerifier(options) {
 }
 
 // lib/runtime/launch-report.ts
-import { randomBytes as randomBytes3 } from "node:crypto";
+import { randomBytes as randomBytes4 } from "node:crypto";
 import { mkdir as mkdir4, open as open2, readFile as readFile3, rename as rename3 } from "node:fs/promises";
-import { join as join5, resolve as resolve14 } from "node:path";
+import { join as join7, resolve as resolve16 } from "node:path";
+function rejectUnredactedCredentialStrings(value, context2) {
+  const visit = (candidate, path) => {
+    if (typeof candidate === "string") {
+      const withoutRedactionMarkers = candidate.replaceAll("[REDACTED]", "redacted").replaceAll("[REDACTED PII]", "redacted-pii");
+      if (looksLikeCredentialValue(withoutRedactionMarkers)) {
+        context2.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path,
+          message: "unredacted credential material is forbidden in a Launch Report"
+        });
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item, index) => visit(item, [...path, index]));
+      return;
+    }
+    if (!candidate || typeof candidate !== "object") return;
+    for (const [key, item] of Object.entries(candidate)) visit(item, [...path, key]);
+  };
+  visit(value, []);
+}
+var boundedText2 = external_exports.string().max(4e3);
+var boundedTextArray = external_exports.array(boundedText2).max(1e3);
+var workflowRunStatusSchema = external_exports.enum([
+  "created",
+  "queued",
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "superseded"
+]);
+var workflowNodeStateSchema = external_exports.enum([
+  "pending",
+  "ready",
+  "running",
+  "waiting_for_auth",
+  "waiting_for_external_action",
+  "waiting_for_approval",
+  "waiting_for_manual_action",
+  "succeeded",
+  "failed_retryable",
+  "failed_terminal",
+  "skipped",
+  "compensated",
+  "cancelled"
+]);
+var launchReportNodeOutcomeSchema = external_exports.object({
+  id: external_exports.string().min(1).max(128),
+  capability: external_exports.string().min(1).max(500),
+  state: workflowNodeStateSchema,
+  provider: external_exports.string().min(1).max(100).optional(),
+  evidenceRef: external_exports.string().min(1).max(1e3).optional(),
+  effectVerified: external_exports.boolean(),
+  errorCode: external_exports.string().min(1).max(200).optional()
+}).strict();
+var launchReportProviderOutcomeSchema = external_exports.object({
+  provider: external_exports.string().min(1).max(100),
+  capability: external_exports.string().min(1).max(1e3),
+  lifecycleState: external_exports.string().min(1).max(100),
+  environment: external_exports.string().min(1).max(200).optional(),
+  accountId: external_exports.string().min(1).max(500).optional(),
+  teamId: external_exports.string().min(1).max(500).optional(),
+  region: external_exports.string().min(1).max(500).optional(),
+  resourceRefs: external_exports.array(external_exports.string().min(1).max(1e3)).max(100).optional(),
+  evidenceRef: external_exports.string().min(1).max(1e3).optional(),
+  verified: external_exports.boolean()
+}).strict();
+var launchReportManualActionSchema = external_exports.object({
+  nodeId: external_exports.string().min(1).max(128),
+  resolved: external_exports.boolean(),
+  action: boundedText2,
+  requiredFields: boundedTextArray,
+  risk: external_exports.string().min(1).max(100),
+  evidenceNeeded: boundedTextArray,
+  resumeCommand: boundedText2
+}).strict();
+var launchReportCredentialReferenceSchema = external_exports.object({
+  ref: external_exports.string().regex(/^cred:\/\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u),
+  provider: external_exports.string().min(1).max(100),
+  status: external_exports.string().min(1).max(100),
+  scopes: external_exports.array(external_exports.string().min(1).max(300)).max(100),
+  expiresAt: external_exports.string().datetime({ offset: true }).optional(),
+  accountId: external_exports.string().min(1).max(500).optional()
+}).strict();
+var launchReportSectionsSchema = external_exports.object({
+  whatBuilt: boundedTextArray,
+  repository: boundedTextArray,
+  deploymentsAndBuilds: boundedTextArray,
+  commerce: boundedTextArray,
+  email: boundedTextArray,
+  analyticsAndSearch: boundedTextArray,
+  asoAndTestflight: boundedTextArray,
+  checksRun: boundedTextArray,
+  scheduledLoops: boundedTextArray,
+  nextReviews: boundedTextArray
+}).strict();
+var launchReportDocumentSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  generatedAt: external_exports.string().datetime({ offset: true }),
+  run: external_exports.object({ id: external_exports.string().min(1).max(128), status: workflowRunStatusSchema }).strict(),
+  brief: external_exports.object({
+    id: external_exports.string().min(1).max(100),
+    name: external_exports.string().min(1).max(200),
+    synthetic: external_exports.boolean()
+  }).strict(),
+  launch: external_exports.object({
+    mode: external_exports.string().min(1).max(100),
+    rail: external_exports.string().min(1).max(100),
+    paymentProvider: external_exports.string().min(1).max(100).optional(),
+    entitlementSource: external_exports.string().min(1).max(100).optional(),
+    activeEventPacks: external_exports.array(external_exports.string().min(1).max(200)).max(100).optional(),
+    consentMode: external_exports.string().min(1).max(100).optional(),
+    firstValidationAction: external_exports.object({
+      action: boundedText2,
+      channel: boundedText2,
+      userHabitat: boundedText2,
+      state: external_exports.literal("planned"),
+      execution: external_exports.literal("human_gated"),
+      evidenceRequired: boundedText2
+    }).strict().optional()
+  }).strict(),
+  authorization: external_exports.object({
+    profile: external_exports.string().min(1).max(100),
+    approvalRef: external_exports.string().min(1).max(300),
+    expiresAt: external_exports.string().datetime({ offset: true }),
+    spendCeiling: external_exports.object({ amount: external_exports.number().nonnegative(), currency: external_exports.string().regex(/^[A-Z]{3}$/u) }).strict(),
+    spendScope: external_exports.literal("reviewed_direct_provider_operations_only").optional()
+  }).strict().nullable(),
+  overallState: external_exports.enum(["succeeded", "waiting", "degraded", "failed"]),
+  nodes: external_exports.array(launchReportNodeOutcomeSchema).max(1e3),
+  providers: external_exports.array(launchReportProviderOutcomeSchema).max(1e3),
+  evidenceRefs: external_exports.array(external_exports.string().min(1).max(1e3)).max(2e3),
+  remainingManualActions: external_exports.array(launchReportManualActionSchema).max(1e3),
+  credentialReferences: external_exports.array(launchReportCredentialReferenceSchema).max(1e3),
+  limitations: boundedTextArray,
+  nextCommands: boundedTextArray,
+  sections: launchReportSectionsSchema
+}).strict().superRefine(rejectUnredactedCredentialStrings);
+function parseLaunchReportDocument(input) {
+  return launchReportDocumentSchema.parse(input);
+}
 var EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 var PHONE = /(?<![\w])\+\d(?:[\d .()-]{7,}\d)/g;
 var PRIVATE_KEY = /-----BEGIN [^-\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\n]*PRIVATE KEY-----/g;
@@ -23661,15 +26946,7 @@ function createLaunchReportInputFromRun(input) {
   );
   const generatedNextCommands = waiting.length > 0 ? waiting.map(({ resumeCommand }) => resumeCommand) : failedNodes.length > 0 ? failedNodes.map(({ id }) => `vh explain ${input.state.runId} ${id}`) : [`vh status ${input.state.runId}`];
   const records = input.state.nodes;
-  const productIds = [
-    "prepare-repository",
-    "define-validation-gate",
-    "prepare-concierge-operations",
-    "design-direction",
-    "build-core-journey",
-    "configure-event-pack",
-    "define-usage-proof"
-  ];
+  const productIds = ["prepare-repository", "review-product"];
   const generatedSections = {
     whatBuilt: productIds.filter((id) => records[id]).map((id) => productOutcomeLine(records[id])),
     repository: providers.filter(({ provider }) => provider === "github").map(providerOutcomeLine),
@@ -23681,7 +26958,7 @@ function createLaunchReportInputFromRun(input) {
     email: providers.filter(({ provider }) => provider === "brevo").map(providerOutcomeLine),
     analyticsAndSearch: [
       `Event packs ${input.launch.activeEventPacks?.join(", ") || "not recorded"}; consent ${input.launch.consentMode ?? "not recorded"}.`,
-      ...records["configure-event-pack"] ? [productOutcomeLine(records["configure-event-pack"])] : [],
+      ...records["prepare-repository"] ? [productOutcomeLine(records["prepare-repository"])] : [],
       ...providers.filter(({ provider }) => ["google", "bing"].includes(provider)).map(providerOutcomeLine)
     ],
     asoAndTestflight: providers.filter(({ provider }) => ["app_store_connect", "eas", "revenuecat"].includes(provider)).map(providerOutcomeLine),
@@ -23785,6 +27062,7 @@ function renderMarkdown(document2) {
 - Launch mode / rail: ${document2.launch.mode} / ${document2.launch.rail}
 - Payment / entitlement source: ${document2.launch.paymentProvider ?? "none recorded"} / ${document2.launch.entitlementSource ?? "none recorded"}
 - Event packs / consent: ${document2.launch.activeEventPacks?.join(", ") || "none recorded"} / ${document2.launch.consentMode ?? "not recorded"}
+- First validation action: ${document2.launch.firstValidationAction ? `${document2.launch.firstValidationAction.action}; channel ${document2.launch.firstValidationAction.channel}; habitat ${document2.launch.firstValidationAction.userHabitat}; ${document2.launch.firstValidationAction.state}; ${document2.launch.firstValidationAction.execution}; evidence required ${document2.launch.firstValidationAction.evidenceRequired}` : "not recorded"}
 - Authorization: ${authorization}
 - Overall state: ${document2.overallState}
 - Brief: ${document2.brief.id}${document2.brief.synthetic ? " (synthetic fixture)" : ""}
@@ -23896,7 +27174,7 @@ function renderLaunchReport(input, options = {}) {
     profile: sanitizeText(input.authorization.profile, redactor),
     approvalRef: sanitizeText(input.authorization.approvalRef, redactor)
   } : null;
-  const document2 = {
+  const document2 = parseLaunchReportDocument({
     schemaVersion: 1,
     generatedAt: input.generatedAt,
     run: { id: sanitizeText(input.run.id, redactor), status: input.run.status },
@@ -23911,7 +27189,18 @@ function renderLaunchReport(input, options = {}) {
       paymentProvider: input.launch.paymentProvider ? sanitizeText(input.launch.paymentProvider, redactor) : void 0,
       entitlementSource: input.launch.entitlementSource ? sanitizeText(input.launch.entitlementSource, redactor) : void 0,
       activeEventPacks: sortedUnique(input.launch.activeEventPacks ?? [], redactor),
-      consentMode: input.launch.consentMode ? sanitizeText(input.launch.consentMode, redactor) : void 0
+      consentMode: input.launch.consentMode ? sanitizeText(input.launch.consentMode, redactor) : void 0,
+      firstValidationAction: input.launch.firstValidationAction ? {
+        action: sanitizeText(input.launch.firstValidationAction.action, redactor),
+        channel: sanitizeText(input.launch.firstValidationAction.channel, redactor),
+        userHabitat: sanitizeText(input.launch.firstValidationAction.userHabitat, redactor),
+        state: "planned",
+        execution: "human_gated",
+        evidenceRequired: sanitizeText(
+          input.launch.firstValidationAction.evidenceRequired,
+          redactor
+        )
+      } : void 0
     },
     authorization,
     overallState: overallState(input),
@@ -23929,13 +27218,13 @@ function renderLaunchReport(input, options = {}) {
     limitations: sortedUnique(input.limitations, redactor),
     nextCommands: sortedUnique(input.nextCommands, redactor),
     sections: normalizeSections(input.sections, redactor)
-  };
+  });
   const json2 = `${JSON.stringify(document2, null, 2)}
 `;
   return { document: document2, json: json2, markdown: renderMarkdown(document2) };
 }
 async function atomicWrite(path, contents) {
-  const temporary = `${path}.${process.pid}.${randomBytes3(6).toString("hex")}.tmp`;
+  const temporary = `${path}.${process.pid}.${randomBytes4(6).toString("hex")}.tmp`;
   const handle = await open2(temporary, "wx", 384);
   try {
     await handle.writeFile(contents, "utf8");
@@ -23946,10 +27235,10 @@ async function atomicWrite(path, contents) {
   await rename3(temporary, path);
 }
 async function persistLaunchReport(report, outputDirectory = "reports/launch") {
-  const directory = resolve14(outputDirectory);
+  const directory = resolve16(outputDirectory);
   await mkdir4(directory, { recursive: true, mode: 448 });
-  const jsonPath = join5(directory, "final.json");
-  const markdownPath = join5(directory, "final.md");
+  const jsonPath = join7(directory, "final.json");
+  const markdownPath = join7(directory, "final.md");
   await atomicWrite(jsonPath, report.json);
   await atomicWrite(markdownPath, report.markdown);
   const [storedJson, storedMarkdown] = await Promise.all([
@@ -23986,37 +27275,479 @@ function createLaunchReportWorkflowBinding(options) {
   };
 }
 
+// lib/runtime/launch-receipt.ts
+import { randomBytes as randomBytes5 } from "node:crypto";
+import { mkdir as mkdir5, open as open3, readFile as readFile4, rename as rename4 } from "node:fs/promises";
+import { join as join8, resolve as resolve17 } from "node:path";
+var launchReceiptEvidenceStateSchema = external_exports.enum([
+  "planned",
+  "requested",
+  "accepted",
+  "waiting",
+  "verified",
+  "failed",
+  "fixture"
+]);
+var nullableCount = external_exports.number().int().nonnegative().nullable();
+var stackState = launchReceiptEvidenceStateSchema;
+var launchReceiptPrimaryJourneyEvidenceSchema = external_exports.object({
+  scope: external_exports.literal("product_specific_end_to_end"),
+  journeyId: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+  steps: external_exports.array(external_exports.string().trim().min(1).max(1e3)).min(1).max(20),
+  state: external_exports.enum(["verified", "failed", "fixture"]),
+  evidenceRef: external_exports.string().trim().min(1).max(1e3)
+}).strict();
+var launchReceiptSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  venture: external_exports.object({
+    name: external_exports.string().max(200),
+    repository: external_exports.string().max(1e3),
+    productionUrl: external_exports.string().max(1e3),
+    customDomain: external_exports.string().max(253).nullable()
+  }).strict(),
+  decision: external_exports.object({
+    launchMode: external_exports.string().min(1).max(100),
+    primarySuccessSignal: external_exports.string().min(1).max(200),
+    reviewDate: external_exports.string().max(100),
+    firstValidationAction: external_exports.string().max(2e3)
+  }).strict(),
+  build: external_exports.object({
+    seed: external_exports.string().min(1).max(200),
+    coreVersion: external_exports.string().min(1).max(100),
+    buildAgent: external_exports.string().min(1).max(200),
+    taskCount: external_exports.number().int().nonnegative(),
+    inputTokens: nullableCount,
+    cachedInputTokens: nullableCount,
+    outputTokens: nullableCount,
+    totalTokens: nullableCount,
+    toolCalls: nullableCount,
+    retries: external_exports.number().int().nonnegative(),
+    failedCommands: nullableCount,
+    elapsedMs: external_exports.number().int().nonnegative(),
+    filesRead: nullableCount,
+    filesChanged: external_exports.number().int().nonnegative()
+  }).strict(),
+  stack: external_exports.object({
+    github: stackState,
+    vercel: stackState,
+    neon: stackState,
+    commerce: stackState,
+    email: stackState,
+    analytics: stackState,
+    search: stackState,
+    dns: stackState
+  }).strict(),
+  verification: external_exports.object({
+    repository: stackState,
+    deployment: stackState,
+    database: stackState,
+    commerce: stackState,
+    primaryJourney: stackState,
+    primaryJourneyEvidence: launchReceiptPrimaryJourneyEvidenceSchema.nullable(),
+    evidenceArtifact: external_exports.string().trim().min(1).max(1e3).nullable(),
+    accessibility: stackState,
+    rawHtml: stackState,
+    providerReadBack: external_exports.array(
+      external_exports.object({
+        provider: external_exports.string().min(1).max(200),
+        capability: external_exports.string().min(1).max(500),
+        state: launchReceiptEvidenceStateSchema,
+        evidenceRef: external_exports.string().max(1e3).nullable()
+      }).strict()
+    ).max(100)
+  }).strict(),
+  manualActions: external_exports.array(
+    external_exports.object({
+      action: external_exports.string().min(1).max(2e3),
+      command: external_exports.string().min(1).max(2e3),
+      evidence: external_exports.string().min(1).max(2e3),
+      impact: external_exports.string().min(1).max(2e3)
+    }).strict()
+  ).max(100),
+  limitations: external_exports.array(external_exports.string().min(1).max(4e3)).max(100)
+}).strict().superRefine(rejectCredentialMaterial);
+function providerState(report, providers, capability) {
+  const matches2 = report.providers.filter(
+    (outcome) => providers.includes(outcome.provider) && (!capability || capability(outcome.capability))
+  );
+  if (matches2.length === 0) return "planned";
+  const states = matches2.map((outcome) => providerOutcomeState(outcome, report.brief.synthetic));
+  for (const state of ["failed", "waiting", "planned", "requested", "accepted"]) {
+    if (states.includes(state)) return state;
+  }
+  return states.every((state) => state === "fixture") ? "fixture" : "verified";
+}
+function providerOutcomeState(provider, fixture) {
+  if (provider.verified) return fixture ? "fixture" : "verified";
+  const lifecycle = provider.lifecycleState.toLowerCase();
+  if (/fail|error|cancel/u.test(lifecycle)) return "failed";
+  if (/wait|auth|manual|pending/u.test(lifecycle)) return "waiting";
+  if (/accept|applied|created|configured|succeed|completed/u.test(lifecycle)) return "accepted";
+  if (/request|running|execut/u.test(lifecycle)) return "requested";
+  return "planned";
+}
+function resource(report, provider, keys) {
+  const refs = report.providers.filter((item) => item.provider === provider && item.verified).flatMap((item) => item.resourceRefs ?? []);
+  for (const key of keys) {
+    const value = refs.find((reference) => reference.startsWith(`${key}=`));
+    if (value) return value.slice(key.length + 1);
+  }
+  return "";
+}
+function modelUsage(state) {
+  const expectedTasks = Object.values(state.nodes).filter(({ definition: definition2 }) => definition2.kind === "model").reduce((total, node) => total + node.attempts, 0);
+  const costs = (state.costs ?? []).filter(
+    ({ kind, unit, inputTokens: inputTokens2, outputTokens: outputTokens2 }) => kind === "model" && unit === "tokens" && (inputTokens2 !== void 0 || outputTokens2 !== void 0)
+  );
+  if (costs.length === 0) {
+    return {
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      buildAgent: "not_recorded",
+      toolCalls: null,
+      failedCommands: null,
+      complete: expectedTasks === 0
+    };
+  }
+  const complete = costs.length === expectedTasks && costs.every(
+    ({ inputTokens: inputTokens2, outputTokens: outputTokens2 }) => inputTokens2 !== void 0 && outputTokens2 !== void 0
+  );
+  const inputTokens = complete ? costs.reduce((sum, item) => sum + (item.inputTokens ?? 0), 0) : null;
+  const outputTokens = complete ? costs.reduce((sum, item) => sum + (item.outputTokens ?? 0), 0) : null;
+  const cachedComplete = complete && costs.every(({ metadata }) => typeof metadata?.cachedInputTokens === "number");
+  const toolCallsComplete = complete && costs.every(({ metadata }) => typeof metadata?.toolCalls === "number");
+  const failedCommandsComplete = complete && costs.every(({ metadata }) => typeof metadata?.failedCommands === "number");
+  return {
+    inputTokens,
+    cachedInputTokens: cachedComplete ? costs.reduce((sum, item) => sum + Number(item.metadata?.cachedInputTokens ?? 0), 0) : null,
+    outputTokens,
+    totalTokens: inputTokens === null || outputTokens === null ? null : inputTokens + outputTokens,
+    buildAgent: [
+      ...new Set(
+        costs.map(
+          ({ tool, model }) => tool ? `${tool}${model ? ` (${model})` : " (model unrecorded)"}` : null
+        ).filter(Boolean)
+      )
+    ].join(", ") || "not_recorded",
+    toolCalls: toolCallsComplete ? costs.reduce((sum, item) => sum + Number(item.metadata?.toolCalls ?? 0), 0) : null,
+    failedCommands: failedCommandsComplete ? costs.reduce((sum, item) => sum + Number(item.metadata?.failedCommands ?? 0), 0) : null,
+    complete
+  };
+}
+function primaryJourneyFallback(state) {
+  const node = state.nodes["verify-production"];
+  switch (node?.state) {
+    case "failed_retryable":
+    case "failed_terminal":
+    case "cancelled":
+      return "failed";
+    case "waiting_for_approval":
+    case "waiting_for_manual_action":
+    case "waiting_for_auth":
+    case "waiting_for_external_action":
+      return "waiting";
+    default:
+      return "planned";
+  }
+}
+function uniqueChangedFiles(state) {
+  const files = /* @__PURE__ */ new Set();
+  for (const record3 of Object.values(state.nodes)) {
+    const output = record3.output;
+    if (!output || typeof output !== "object" || Array.isArray(output)) continue;
+    const changed = output.changedFiles;
+    if (!Array.isArray(changed)) continue;
+    for (const path of changed) if (typeof path === "string") files.add(path);
+  }
+  return files.size;
+}
+function createLaunchReceipt(input, options = {}) {
+  const redactor = options.redactor ?? new Redactor();
+  const fixture = input.report.brief.synthetic;
+  const modelTaskCount = Object.values(input.state.nodes).filter(({ definition: definition2 }) => definition2.kind === "model").reduce((total, node) => total + node.attempts, 0);
+  const usage = modelUsage(input.state);
+  const contract = input.launchContract;
+  const reportedValidationAction = input.report.launch.firstValidationAction;
+  if (contract) {
+    if (!reportedValidationAction) {
+      throw new Error(
+        "Launch Report must link the reviewed human-gated first validation action before a receipt can be created"
+      );
+    }
+    if (reportedValidationAction.action !== contract.distribution.firstValidationAction || reportedValidationAction.channel !== contract.distribution.firstChannel || reportedValidationAction.userHabitat !== contract.distribution.firstUserHabitat) {
+      throw new Error("Launch Report first validation action does not match the Launch Contract");
+    }
+  }
+  const primaryJourneyEvidence2 = input.verification?.primaryJourneyEvidence ? launchReceiptPrimaryJourneyEvidenceSchema.parse(input.verification.primaryJourneyEvidence) : null;
+  if (primaryJourneyEvidence2 && contract && (primaryJourneyEvidence2.journeyId !== contract.decision.primarySuccessSignal || JSON.stringify(primaryJourneyEvidence2.steps) !== JSON.stringify(contract.product.primaryJourney))) {
+    throw new Error(
+      "Primary-journey evidence must identify and enumerate the reviewed Launch Contract journey"
+    );
+  }
+  if (fixture && primaryJourneyEvidence2?.state === "verified") {
+    throw new Error("Synthetic launch evidence must use the fixture state, not verified");
+  }
+  const deploymentEvidence = input.verification?.deploymentEvidence;
+  if (primaryJourneyEvidence2 && (!deploymentEvidence || primaryJourneyEvidence2.evidenceRef !== deploymentEvidence.evidenceRef)) {
+    throw new Error(
+      "Primary-journey and deployment verification must reference the same exact run-scoped evidence artifact"
+    );
+  }
+  if ([input.verification?.accessibility, input.verification?.rawHtml].some(
+    (evidenceState) => evidenceState === "verified" || evidenceState === "fixture"
+  ) && !deploymentEvidence) {
+    throw new Error(
+      "Verified accessibility and raw-HTML states require exact same-run deployment evidence"
+    );
+  }
+  const elapsedMs = Math.max(
+    0,
+    Date.parse(input.state.finishedAt ?? input.state.updatedAt) - Date.parse(input.state.createdAt)
+  );
+  const github = providerState(input.report, ["github"]);
+  const vercel = input.verification?.deploymentEvidence?.state ?? "planned";
+  const neon = providerState(input.report, ["neon"]);
+  const commerce = providerState(input.report, ["stripe", "revenuecat"]);
+  const email = providerState(input.report, ["brevo"]);
+  const analytics = providerState(
+    input.report,
+    ["google"],
+    (capability) => /^analytics_/u.test(capability)
+  );
+  const search = providerState(
+    input.report,
+    ["google", "bing"],
+    (capability) => /^(?:search_console_|site(?:_|$)|sitemap$|url_submission$)/u.test(capability)
+  );
+  const dns = providerState(input.report, ["dns"]);
+  const productionUrl = input.verification?.deploymentEvidence?.productionUrl ?? "";
+  const customDomain = input.verification?.deploymentEvidence?.customDomain ?? null;
+  const accountingLimitations = [
+    ...modelTaskCount > 0 && !usage.complete ? [
+      `Model usage is incomplete: ${modelTaskCount} build-agent task attempt(s) were recorded but complete token observations were not available for every attempt.`
+    ] : [],
+    ...input.filesRead === void 0 || input.filesRead === null ? [
+      "Observed file-read accounting is unavailable; selected context-manifest file counts are not reported as files actually read."
+    ] : [],
+    ...modelTaskCount > 0 && usage.failedCommands === null ? ["Build-agent failed-command accounting is unavailable for one or more model calls."] : []
+  ];
+  const providerManualActions = input.report.remainingManualActions.map((action) => ({
+    action: action.action,
+    command: action.resumeCommand,
+    evidence: action.evidenceNeeded.join("; ") || "Provider read-back evidence",
+    impact: `Launch remains incomplete for ${action.nodeId} until this evidence is verified.`
+  }));
+  if (reportedValidationAction && providerManualActions.length >= 100) {
+    throw new Error(
+      "Launch Receipt manual-action limit leaves no room for the reviewed first validation action"
+    );
+  }
+  const validationManualAction = reportedValidationAction ? {
+    action: reportedValidationAction.action,
+    command: "Do not execute automatically; the founder performs this action outside Venture Harness after review",
+    evidence: reportedValidationAction.evidenceRequired,
+    impact: "This demand-validation action remains planned and human-gated; no outreach, response, demand, or conversion result is inferred."
+  } : null;
+  const launchGapActions = (input.launchGaps ?? []).map((gap) => ({
+    action: gap.nextAction,
+    command: gap.nextAction,
+    evidence: `${gap.provider ?? gap.role ?? gap.code} same-run provider read-back`,
+    impact: `${gap.message} (${gap.state.replaceAll("_", " ")}; does not block the provider-URL launch).`
+  }));
+  if (providerManualActions.length + launchGapActions.length + (validationManualAction ? 1 : 0) > 100) {
+    throw new Error("Launch Receipt manual-action limit is too small for current launch gaps");
+  }
+  const candidate = {
+    schemaVersion: 1,
+    venture: {
+      name: input.report.brief.name,
+      repository: resource(input.report, "github", ["repository_url", "repository"]),
+      productionUrl,
+      customDomain
+    },
+    decision: {
+      launchMode: input.decision.mode.selectedMode,
+      primarySuccessSignal: contract?.decision.primarySuccessSignal ?? "not_recorded_in_legacy_brief",
+      reviewDate: contract?.decision.reviewDate ?? "",
+      firstValidationAction: contract?.distribution.firstValidationAction ?? reportedValidationAction?.action ?? ""
+    },
+    build: {
+      seed: input.launchGrant?.seed.id ?? "not_recorded",
+      coreVersion: input.launchGrant?.seed.version ?? "not_recorded",
+      buildAgent: usage.buildAgent !== "not_recorded" ? usage.buildAgent : input.launchGrant?.modelExecutionPolicy?.attestation ?? "not_recorded",
+      taskCount: modelTaskCount,
+      inputTokens: usage.inputTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      toolCalls: usage.toolCalls,
+      retries: Object.values(input.state.nodes).reduce(
+        (sum, record3) => sum + Math.max(0, record3.attempts - 1),
+        0
+      ),
+      failedCommands: usage.failedCommands,
+      elapsedMs,
+      filesRead: input.filesRead ?? null,
+      filesChanged: uniqueChangedFiles(input.state)
+    },
+    stack: { github, vercel, neon, commerce, email, analytics, search, dns },
+    verification: {
+      repository: github,
+      deployment: vercel,
+      database: neon,
+      commerce,
+      primaryJourney: primaryJourneyEvidence2?.state ?? primaryJourneyFallback(input.state),
+      primaryJourneyEvidence: primaryJourneyEvidence2,
+      evidenceArtifact: deploymentEvidence?.evidenceRef ?? null,
+      accessibility: input.verification?.accessibility ?? "planned",
+      rawHtml: input.verification?.rawHtml ?? "planned",
+      providerReadBack: input.report.providers.map((provider) => ({
+        provider: provider.provider,
+        capability: provider.capability,
+        state: providerOutcomeState(provider, fixture),
+        evidenceRef: provider.evidenceRef ?? null
+      }))
+    },
+    manualActions: [
+      ...providerManualActions,
+      ...launchGapActions,
+      ...validationManualAction ? [validationManualAction] : []
+    ],
+    limitations: [
+      .../* @__PURE__ */ new Set([
+        ...input.report.limitations,
+        ...accountingLimitations,
+        ...(input.launchGaps ?? []).map(
+          (gap) => `${gap.code}: ${gap.message} Next: ${gap.nextAction}. State: ${gap.state}; blocksLaunch=false.`
+        ),
+        ...reportedValidationAction ? [
+          "The first validation action is planned and human-gated; Venture Harness did not send, post, or infer a result."
+        ] : []
+      ])
+    ]
+  };
+  return launchReceiptSchema.parse(redactor.redact(candidate));
+}
+function renderLaunchReceiptMarkdown(receiptInput) {
+  const receipt = launchReceiptSchema.parse(receiptInput);
+  const line = (label, state) => `- ${label}: ${state}`;
+  return [
+    `# Launch Receipt: ${receipt.venture.name}`,
+    "",
+    `- Repository: ${receipt.venture.repository || "not verified"}`,
+    `- Production URL: ${receipt.venture.productionUrl || "not verified"}`,
+    `- Custom domain: ${receipt.venture.customDomain ?? "not verified"}`,
+    `- Mode: ${receipt.decision.launchMode}`,
+    `- Success signal: ${receipt.decision.primarySuccessSignal}`,
+    `- Review date: ${receipt.decision.reviewDate || "not recorded"}`,
+    `- First validation action: ${receipt.decision.firstValidationAction || "not recorded"}`,
+    "",
+    "## Build accounting",
+    "",
+    `- Seed / Core: ${receipt.build.seed} / ${receipt.build.coreVersion}`,
+    `- Agent / tasks: ${receipt.build.buildAgent} / ${receipt.build.taskCount}`,
+    `- Tokens (input / cached / output / total): ${receipt.build.inputTokens ?? "unavailable"} / ${receipt.build.cachedInputTokens ?? "unavailable"} / ${receipt.build.outputTokens ?? "unavailable"} / ${receipt.build.totalTokens ?? "unavailable"}`,
+    `- Retries / failed commands / elapsed ms: ${receipt.build.retries} / ${receipt.build.failedCommands ?? "unavailable"} / ${receipt.build.elapsedMs}`,
+    `- Tool calls: ${receipt.build.toolCalls ?? "unavailable"}`,
+    `- Files read / changed: ${receipt.build.filesRead ?? "unavailable"} / ${receipt.build.filesChanged}`,
+    "",
+    "## Stack and verification",
+    "",
+    ...Object.entries(receipt.stack).map(([label, state]) => line(label, state)),
+    ...Object.entries(receipt.verification).filter(
+      ([label]) => !["providerReadBack", "primaryJourneyEvidence", "evidenceArtifact"].includes(label)
+    ).map(([label, state]) => line(label, state)),
+    `- primaryJourney evidence: ${receipt.verification.primaryJourneyEvidence?.evidenceRef ?? "not recorded"}`,
+    `- production evidence artifact: ${receipt.verification.evidenceArtifact ?? "not recorded"}`,
+    ...receipt.verification.providerReadBack.map(
+      ({ provider, capability, state, evidenceRef }) => `- providerReadBack ${provider}/${capability}: ${state}; evidence ${evidenceRef ?? "not recorded"}`
+    ),
+    "",
+    "## Manual actions",
+    "",
+    ...receipt.manualActions.length > 0 ? receipt.manualActions.map(
+      (action) => `- ${action.action} \u2014 run \`${action.command}\`; evidence: ${action.evidence}`
+    ) : ["_No unresolved manual action is recorded._"],
+    "",
+    "## Limitations",
+    "",
+    ...receipt.limitations.length > 0 ? receipt.limitations.map((limitation) => `- ${limitation}`) : ["_No limitation was recorded._"],
+    "",
+    "This sanitized receipt is stored locally. Venture Harness does not upload it or phone home.",
+    ""
+  ].join("\n");
+}
+async function atomicWrite2(path, contents) {
+  const temporary = `${path}.${process.pid}.${randomBytes5(6).toString("hex")}.tmp`;
+  const handle = await open3(temporary, "wx", 384);
+  try {
+    await handle.writeFile(contents, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename4(temporary, path);
+}
+async function persistLaunchReceipt(receiptInput, outputDirectory) {
+  const receipt = launchReceiptSchema.parse(receiptInput);
+  const directory = resolve17(outputDirectory);
+  await mkdir5(directory, { recursive: true, mode: 448 });
+  const jsonPath = join8(directory, "receipt.json");
+  const markdownPath = join8(directory, "receipt.md");
+  const json2 = `${JSON.stringify(receipt, null, 2)}
+`;
+  const markdown = renderLaunchReceiptMarkdown(receipt);
+  await Promise.all([atomicWrite2(jsonPath, json2), atomicWrite2(markdownPath, markdown)]);
+  const [storedJson, storedMarkdown] = await Promise.all([
+    readFile4(jsonPath, "utf8"),
+    readFile4(markdownPath, "utf8")
+  ]);
+  if (storedJson !== json2 || storedMarkdown !== markdown) {
+    throw new Error("Launch Receipt read-back did not match its rendered artifacts");
+  }
+  return { receipt, jsonPath, markdownPath };
+}
+
 // lib/runtime/launch-product-bindings.ts
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13, randomBytes as randomBytes6 } from "node:crypto";
 import {
+  closeSync as closeSync7,
+  constants as constants7,
   existsSync as existsSync9,
+  fstatSync as fstatSync7,
   lstatSync as lstatSync7,
-  mkdirSync as mkdirSync7,
-  readdirSync as readdirSync3,
-  readFileSync as readFileSync11,
-  renameSync as renameSync5,
-  writeFileSync as writeFileSync7
+  mkdirSync as mkdirSync8,
+  openSync as openSync7,
+  readdirSync as readdirSync4,
+  readFileSync as readFileSync13,
+  renameSync as renameSync6,
+  writeFileSync as writeFileSync8
 } from "node:fs";
-import { dirname as dirname9, isAbsolute as isAbsolute4, relative as relative11, resolve as resolve16, sep as sep11 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative13, resolve as resolve19, sep as sep13 } from "node:path";
+import { inflateRawSync } from "node:zlib";
 import { parse as parse3 } from "yaml";
 
 // lib/mobile/scaffold.ts
-import { createHash as createHash11 } from "node:crypto";
+import { createHash as createHash12 } from "node:crypto";
 import {
-  closeSync as closeSync3,
+  closeSync as closeSync6,
+  constants as constants6,
   existsSync as existsSync8,
+  fstatSync as fstatSync6,
   lstatSync as lstatSync6,
-  mkdirSync as mkdirSync6,
-  openSync as openSync3,
-  readFileSync as readFileSync10,
-  readdirSync as readdirSync2,
-  realpathSync as realpathSync6,
-  writeFileSync as writeFileSync6
+  mkdirSync as mkdirSync7,
+  openSync as openSync6,
+  readFileSync as readFileSync12,
+  readdirSync as readdirSync3,
+  realpathSync as realpathSync8,
+  writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname8, join as join6, relative as relative10, resolve as resolve15, sep as sep10 } from "node:path";
+import { dirname as dirname9, join as join9, relative as relative12, resolve as resolve18, sep as sep12 } from "node:path";
 
 // lib/mobile/templates.ts
-import { createHash as createHash10 } from "node:crypto";
+import { createHash as createHash11 } from "node:crypto";
 var EXPO_TEMPLATE_TOOLCHAIN = {
   expo: "53.0.0",
   react: "19.0.0",
@@ -24037,7 +27768,7 @@ function moduleNameFor(ventureId2) {
   return ventureId2.split("-").filter(Boolean).map((segment) => `${segment[0].toUpperCase()}${segment.slice(1)}`).join("");
 }
 function pbxId(ventureId2, label) {
-  return createHash10("sha256").update(`venture-harness:${ventureId2}:${label}`).digest("hex").slice(0, 24).toUpperCase();
+  return createHash11("sha256").update(`venture-harness:${ventureId2}:${label}`).digest("hex").slice(0, 24).toUpperCase();
 }
 function expoTemplates(input, bundleIdentifier, appScheme) {
   const moduleName = moduleNameFor(input.ventureId);
@@ -24428,8 +28159,9 @@ var MobileScaffoldError = class extends Error {
 
 // lib/mobile/scaffold.ts
 var MANIFEST_NAME = ".venture-scaffold.json";
+var NO_FOLLOW4 = "O_NOFOLLOW" in constants6 ? constants6.O_NOFOLLOW : 0;
 function sha2563(content) {
-  return createHash11("sha256").update(content).digest("hex");
+  return createHash12("sha256").update(content).digest("hex");
 }
 function defaultMobileScaffoldDirectory(stack) {
   return stack === "expo_react_native" ? "mobile/expo" : "mobile/ios";
@@ -24438,21 +28170,21 @@ function placeholderBundleIdentifier(ventureId2) {
   return `com.example.${ventureId2}`;
 }
 function relativeReference(root, absolute) {
-  return relative10(root, absolute).split(sep10).join("/");
+  return relative12(root, absolute).split(sep12).join("/");
 }
 function pathInside(root, reference) {
-  const absolute = resolve15(root, reference);
-  const rel = relative10(root, absolute);
-  if (rel !== "" && !rel.startsWith(`..${sep10}`) && rel !== ".." && !rel.startsWith(sep10)) {
+  const absolute = resolve18(root, reference);
+  const rel = relative12(root, absolute);
+  if (rel !== "" && !rel.startsWith(`..${sep12}`) && rel !== ".." && !rel.startsWith(sep12)) {
     return absolute;
   }
   throw new MobileScaffoldError("unsafe_path", `Path escapes repository root: ${reference}`);
 }
 function assertNoSymlinkBetween(root, absolute) {
-  const rel = relative10(root, absolute);
+  const rel = relative12(root, absolute);
   let current = root;
-  for (const segment of rel.split(sep10).filter(Boolean)) {
-    current = join6(current, segment);
+  for (const segment of rel.split(sep12).filter(Boolean)) {
+    current = join9(current, segment);
     if (!existsSync8(current)) continue;
     const status = lstatSync6(current);
     if (status.isSymbolicLink()) {
@@ -24464,10 +28196,10 @@ function assertNoSymlinkBetween(root, absolute) {
   }
 }
 function ensureDirectory(root, absolute) {
-  const rel = relative10(root, absolute);
+  const rel = relative12(root, absolute);
   let current = root;
-  for (const segment of rel.split(sep10).filter(Boolean)) {
-    current = join6(current, segment);
+  for (const segment of rel.split(sep12).filter(Boolean)) {
+    current = join9(current, segment);
     if (existsSync8(current)) {
       const status = lstatSync6(current);
       if (status.isSymbolicLink() || !status.isDirectory()) {
@@ -24478,41 +28210,59 @@ function ensureDirectory(root, absolute) {
       }
       continue;
     }
-    mkdirSync6(current, { mode: 493 });
+    mkdirSync7(current, { mode: 493 });
   }
 }
 function readExactFile(root, path, expected) {
-  if (!existsSync8(path)) return false;
-  const status = lstatSync6(path);
-  if (status.isSymbolicLink() || !status.isFile()) {
-    throw new MobileScaffoldError(
-      "output_conflict",
-      `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`
-    );
+  let descriptor2;
+  try {
+    descriptor2 = openSync6(path, constants6.O_RDONLY | NO_FOLLOW4);
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") return null;
+    if (code === "ELOOP") {
+      throw new MobileScaffoldError(
+        "output_conflict",
+        `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`
+      );
+    }
+    throw error;
   }
-  if (readFileSync10(path, "utf8") !== expected) {
+  let actual;
+  try {
+    if (!fstatSync6(descriptor2).isFile()) {
+      throw new MobileScaffoldError(
+        "output_conflict",
+        `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`
+      );
+    }
+    actual = readFileSync12(descriptor2, "utf8");
+  } finally {
+    closeSync6(descriptor2);
+  }
+  if (actual !== expected) {
     throw new MobileScaffoldError(
       "output_conflict",
       `Refusing to overwrite existing content at ${relativeReference(root, path)}.`
     );
   }
-  return true;
+  return actual;
 }
 function writeCreateOnly(root, path, content) {
   assertNoSymlinkBetween(root, path);
-  ensureDirectory(root, dirname8(path));
-  if (readExactFile(root, path, content)) return "unchanged";
+  ensureDirectory(root, dirname9(path));
+  if (readExactFile(root, path, content) !== null) return "unchanged";
   let descriptor2;
   try {
-    descriptor2 = openSync3(path, "wx", 420);
-    writeFileSync6(descriptor2, content, { encoding: "utf8" });
-    closeSync3(descriptor2);
+    descriptor2 = openSync6(path, "wx", 420);
+    writeFileSync7(descriptor2, content, { encoding: "utf8" });
+    closeSync6(descriptor2);
     descriptor2 = void 0;
     return "created";
   } catch (error) {
-    if (descriptor2 !== void 0) closeSync3(descriptor2);
+    if (descriptor2 !== void 0) closeSync6(descriptor2);
     if (error.code === "EEXIST") {
-      if (readExactFile(root, path, content)) return "unchanged";
+      if (readExactFile(root, path, content) !== null) return "unchanged";
       throw new MobileScaffoldError(
         "io_failure",
         `A concurrent writer removed ${relativeReference(root, path)} before read-back.`
@@ -24526,7 +28276,7 @@ function writeCreateOnly(root, path, content) {
 }
 function generateMobileScaffold(rootDirectory, requestInput) {
   const request2 = mobileScaffoldRequestSchema.parse(requestInput);
-  const root = realpathSync6(resolve15(rootDirectory));
+  const root = realpathSync8(resolve18(rootDirectory));
   if (!lstatSync6(root).isDirectory()) {
     throw new MobileScaffoldError("unsafe_path", `Repository root is not a directory: ${root}`);
   }
@@ -24583,7 +28333,7 @@ function generateMobileScaffold(rootDirectory, requestInput) {
         `Refusing to replace existing scaffold output ${outputDirectory}.`
       );
     }
-    const entries = readdirSync2(output);
+    const entries = readdirSync3(output);
     if (entries.length > 0 && !existsSync8(absoluteManifestPath)) {
       throw new MobileScaffoldError(
         "output_conflict",
@@ -24610,8 +28360,8 @@ function generateMobileScaffold(rootDirectory, requestInput) {
   readExactFile(root, absoluteManifestPath, manifestContent);
   for (const file2 of templateFiles) {
     const absolute = pathInside(root, `${outputDirectory}/${file2.relativePath}`);
-    readExactFile(root, absolute, file2.content);
-    if (sha2563(readFileSync10(absolute, "utf8")) !== sha2563(file2.content)) {
+    const readBack = readExactFile(root, absolute, file2.content);
+    if (readBack === null || sha2563(readBack) !== sha2563(file2.content)) {
       throw new MobileScaffoldError(
         "io_failure",
         `Hash read-back failed for ${relativeReference(root, absolute)}.`
@@ -24627,8 +28377,12 @@ function generateMobileScaffold(rootDirectory, requestInput) {
 }
 
 // lib/runtime/launch-product-bindings.ts
+var PRIMARY_JOURNEY_SPEC_PATH = "tests/e2e/primary-journey.spec.ts";
+var PRIMARY_JOURNEY_CONTRACT_PATH = "tests/e2e/primary-journey.contract.json";
+var PRIMARY_JOURNEY_CLEANUP_SPEC_PATH = "tests/e2e/primary-journey-cleanup.spec.ts";
 var AGENT_TASKS = {
-  "launch.prepareRepository": "Inspect the selected rail and existing repository, then create or adapt only the smallest venture-owned scaffold needed for the brief. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Preserve managed contracts and existing project-owned work. Record assumptions instead of inventing non-critical product detail.",
+  "launch.prepareRepository": "Complete the first and primary bounded product-build call. Inspect the selected rail and compact Launch Contract context, then create or adapt only the smallest venture-owned scaffold needed for the brief. In this same coherent pass, refine the venture proposition, implement one original accessible responsive design direction, build the declared primary journey and affected tests, and wire only the minimum privacy-safe capability-driven event instrumentation. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Include only selected-mode evidence: one validation gate for validate-first, bounded human operations for concierge-first, or real usage/failure/deletion proof for product-first. Preserve managed contracts and existing venture-owned work. Record assumptions instead of inventing non-critical detail. Do not regenerate standard infrastructure that the seed already provides. For a canonical web Launch Contract, create tests/e2e/primary-journey.spec.ts as the product-specific Playwright path, tests/e2e/primary-journey-cleanup.spec.ts as its independently runnable cleanup, and tests/e2e/primary-journey.contract.json as their machine-readable binding. The binding must contain schemaVersion 1, scope product_specific_end_to_end, the exact Launch Contract primarySuccessSignal as journeyId, the exact ordered Launch Contract primaryJourney strings as steps, both exact spec paths, launchContractPath config/launch-contract.yaml, a visibly TEST/SYNTHETIC/FIXTURE-labeled identity, required-and-verified cleanup, allowedEffects containing reversible_external_write plus transactional_email only when needed and separately authorized, and the unique complete forbidden-effect list supplied in context. Both specs must read that binding and require VH_PRIMARY_JOURNEY_RUN_ID, VH_PRIMARY_JOURNEY_NONCE, and VH_PRIMARY_JOURNEY_TEST_IDENTITY. After observed success, each desktop/mobile test prints exactly `VH_PRIMARY_JOURNEY_RESULT ` followed by JSON with schemaVersion=1, phase, the runId and nonce environment values, contract journeyId and steps, testInfo.project.name, contract identity, observedEffects, recipientCount, recipientsAllMatchTestIdentity, and forbiddenEffectsObserved=[]. Cleanup markers additionally include cleanup={state:'verified',removedWrites,remainingWrites:0} only after read-back. The cleanup spec must remove only the labeled test identity's reversible writes. A customer charge or checkout, unrelated deletion, DNS/provider configuration, bulk/cold send, recipient outside the test identity, or irreversible publication is forbidden. The seed's generic post-deploy-readonly surface check is never journey proof.",
+  "launch.reviewProduct": "Perform the second and final normal product-build call as an independent reviewer. Exercise the primary journey and inspect proposition clarity, venture-specific design, responsive/mobile behavior, accessibility, truthfulness, labeled samples, relevant event privacy and exact displayed-price recording. Run direct affected checks, repair only observed defects, and do not broaden product scope or mutate dependency manifests/lockfiles. Return typed evidence for the reviewed core journey, affected tests, design implementation, and event instrumentation. For a canonical web Launch Contract, independently read tests/e2e/primary-journey.contract.json, confirm its journeyId and ordered steps exactly match config/launch-contract.yaml, and run both tests/e2e/primary-journey.spec.ts and tests/e2e/primary-journey-cleanup.spec.ts directly. Confirm production uses only the labeled test identity, the bounded authorized effects, and cleanup read-back; no model-authored step may widen authority. Keep the seed's generic post-deploy-readonly check separate. If a blocker remains, state it exactly instead of claiming completion.",
   "launch.designDirection": "Create and implement an original, accessible visual direction for the smallest core journey. Record the design thesis, tokens, responsive composition, accessibility constraints, and anti-template audit. Do not copy a reference identity or fabricate product proof.",
   "launch.buildCoreJourney": "Implement the smallest useful core journey declared by the brief on the selected rail. Add affected tests, label sample or synthetic data, keep public claims within PRODUCT_TRUTH, and avoid unrelated features.",
   "launch.configureEventPack": "Resolve and wire only the capability-driven analytics event packs needed by this core journey. Keep private form/search/user content out of analytics, require consent for third-party analytics, and include exact displayed prices on price-bearing evidence events.",
@@ -24636,6 +28390,7 @@ var AGENT_TASKS = {
   "launch.prepareConciergeOperations": "Define the smallest honest concierge delivery workflow. Specify capacity, privacy boundaries, service limits, failure escalation, human handoffs, evidence capture, and which work remains intentionally manual. Do not imply automation that does not exist.",
   "launch.defineUsageProof": "Connect the real core journey to bounded activation, usage, retention, quality, failure, and deletion evidence. Prefer first-party behavioral evidence, keep private content out of analytics, and do not infer causation from release timing alone."
 };
+var PRIMARY_JOURNEY_OBSERVER_INSTRUCTIONS = " The journey contract production block must also declare readBack={method:'GET',path:'/api/<venture-specific-path>',protocol:'venture_harness_primary_journey_v1'}. Implement that read-only endpoint so the locked harness observer can independently query the exact runId, nonce, journeyId, and test-identity label after the journey and after cleanup. Journey read-back must return the exact ordered completedSteps and at least one labeled reversible write with a stable ID and verified/published state; cleanup read-back must return zero writes plus the exact removed write IDs. Wrap every immutable Launch Contract step in test.step(step) in order and perform a real browser navigation/input/control action and assertion for it; a visit plus a trivial assertion or stdout markers alone is not evidence.";
 var QUALITY_COMMANDS = {
   "launch.verifyLocal": ["verify:fast"],
   "launch.verifyMvp": ["verify:mvp"]
@@ -24648,16 +28403,303 @@ var CHILD_DEPENDENCY_INSTALL_ARGS = [
   "--prod=false"
 ];
 var DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION = 1;
-var POST_DEPLOY_TEST_ARGS = [
+var NO_FOLLOW5 = "O_NOFOLLOW" in constants7 ? constants7.O_NOFOLLOW : 0;
+var NonRegularFileError = class extends Error {
+};
+var POST_DEPLOY_SURFACE_TEST_ARGS = [
   "exec",
   "playwright",
   "test",
-  "tests/e2e/post-deploy-readonly.spec.ts"
+  "tests/e2e/post-deploy-readonly.spec.ts",
+  "--retries=0"
 ];
+var POST_DEPLOY_SURFACE_SPEC_PATH = "tests/e2e/post-deploy-readonly.spec.ts";
+var POST_DEPLOY_PRIMARY_JOURNEY_ARGS = [
+  "exec",
+  "playwright",
+  "test",
+  PRIMARY_JOURNEY_SPEC_PATH,
+  "--retries=0",
+  "--trace=on"
+];
+var POST_DEPLOY_PRIMARY_CLEANUP_ARGS = [
+  "exec",
+  "playwright",
+  "test",
+  PRIMARY_JOURNEY_CLEANUP_SPEC_PATH,
+  "--retries=0",
+  "--trace=on"
+];
+var POST_DEPLOY_PRIMARY_OBSERVER_ARGS = [
+  "exec",
+  "playwright",
+  "test",
+  POST_DEPLOY_SURFACE_SPEC_PATH,
+  "--retries=0"
+];
+var productionJourneyOperationCheckpointSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  kind: external_exports.literal("production_primary_journey"),
+  deploymentUrl: external_exports.string().url(),
+  runId: external_exports.string().min(1).max(128),
+  nonce: external_exports.string().regex(/^[a-f0-9]{48}$/u),
+  journeyId: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+  identityLabel: external_exports.string().trim().min(1).max(200)
+}).strict();
+var PRIMARY_JOURNEY_FORBIDDEN_EFFECTS = [
+  "customer_charge",
+  "checkout",
+  "external_delete",
+  "dns_or_provider_configuration",
+  "bulk_or_cold_send",
+  "recipient_outside_test_identity",
+  "irreversible_publication"
+];
+var primaryJourneyTestContractSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  scope: external_exports.literal("product_specific_end_to_end"),
+  journeyId: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+  steps: external_exports.array(external_exports.string().trim().min(1).max(1e3)).min(1).max(20),
+  specPath: external_exports.literal(PRIMARY_JOURNEY_SPEC_PATH),
+  cleanupSpecPath: external_exports.literal(PRIMARY_JOURNEY_CLEANUP_SPEC_PATH),
+  launchContractPath: external_exports.literal("config/launch-contract.yaml"),
+  production: external_exports.object({
+    effect: external_exports.literal("reversible_external_write"),
+    identity: external_exports.object({
+      kind: external_exports.literal("labeled_test_identity"),
+      label: external_exports.string().trim().min(1).max(200)
+    }).strict(),
+    cleanup: external_exports.literal("required_and_verified"),
+    readBack: external_exports.object({
+      method: external_exports.literal("GET"),
+      path: external_exports.string().regex(/^\/api\/[a-z0-9][a-z0-9/_-]{0,199}$/u),
+      protocol: external_exports.literal("venture_harness_primary_journey_v1")
+    }).strict(),
+    allowedEffects: external_exports.array(external_exports.enum(["reversible_external_write", "transactional_email"])).min(1).max(2),
+    forbiddenEffects: external_exports.array(
+      external_exports.enum([
+        "customer_charge",
+        "checkout",
+        "external_delete",
+        "dns_or_provider_configuration",
+        "bulk_or_cold_send",
+        "recipient_outside_test_identity",
+        "irreversible_publication"
+      ])
+    ).length(PRIMARY_JOURNEY_FORBIDDEN_EFFECTS.length)
+  }).strict().superRefine((value, context2) => {
+    if (!value.allowedEffects.includes(value.effect)) {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["allowedEffects"],
+        message: "must contain the declared reversible_external_write effect"
+      });
+    }
+    if (JSON.stringify([...new Set(value.forbiddenEffects)].sort()) !== JSON.stringify([...PRIMARY_JOURNEY_FORBIDDEN_EFFECTS].sort())) {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["forbiddenEffects"],
+        message: "must be the unique complete canonical forbidden-effect set"
+      });
+    }
+  })
+}).strict();
+var PRIMARY_JOURNEY_MARKER_PREFIX = "VH_PRIMARY_JOURNEY_RESULT ";
+var DEPLOYMENT_SURFACE_MARKER_PREFIX = "VH_DEPLOYMENT_SURFACE_RESULT ";
+var PRIMARY_JOURNEY_OBSERVER_MARKER_PREFIX = "VH_PRIMARY_JOURNEY_OBSERVER_RESULT ";
+var PRIMARY_JOURNEY_RUN_ID_ENV = "VH_PRIMARY_JOURNEY_RUN_ID";
+var PRIMARY_JOURNEY_NONCE_ENV = "VH_PRIMARY_JOURNEY_NONCE";
+var PRIMARY_JOURNEY_TEST_IDENTITY_ENV = "VH_PRIMARY_JOURNEY_TEST_IDENTITY";
+var PRIMARY_JOURNEY_OBSERVER_PHASE_ENV = "VH_PRIMARY_JOURNEY_OBSERVER_PHASE";
+var productionJourneyMarkerSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  phase: external_exports.enum(["journey", "cleanup"]),
+  runId: external_exports.string().min(1).max(128),
+  nonce: external_exports.string().regex(/^[a-f0-9]{48}$/u),
+  journeyId: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+  steps: external_exports.array(external_exports.string().trim().min(1).max(1e3)).min(1).max(20),
+  project: external_exports.enum(["desktop-chromium", "mobile-chromium"]),
+  identity: external_exports.object({ kind: external_exports.literal("labeled_test_identity"), label: external_exports.string().min(1).max(200) }).strict(),
+  observedEffects: external_exports.array(external_exports.enum(["reversible_external_write", "transactional_email"])).max(2),
+  recipientCount: external_exports.number().int().nonnegative(),
+  recipientsAllMatchTestIdentity: external_exports.boolean(),
+  forbiddenEffectsObserved: external_exports.array(external_exports.never()).length(0),
+  cleanup: external_exports.object({
+    state: external_exports.literal("verified"),
+    removedWrites: external_exports.number().int().nonnegative(),
+    remainingWrites: external_exports.literal(0)
+  }).strict().optional()
+}).strict().superRefine((value, context2) => {
+  if (value.phase === "cleanup" && !value.cleanup) {
+    context2.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["cleanup"], message: "required" });
+  }
+  if (value.phase === "journey" && value.cleanup) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["cleanup"],
+      message: "journey marker cannot claim cleanup"
+    });
+  }
+});
+var deploymentSurfaceMarkerSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  project: external_exports.enum(["desktop-chromium", "mobile-chromium"]),
+  rawServerHtml: external_exports.literal(true),
+  accessibilityAxe: external_exports.literal(true),
+  accessibleNamesAndLandmarks: external_exports.literal(true),
+  keyboardFocus: external_exports.literal(true),
+  responsiveOverflow: external_exports.literal(true)
+}).strict();
+var primaryJourneyObserverMarkerSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  phase: external_exports.enum(["journey_readback", "cleanup_readback"]),
+  runId: external_exports.string().min(1).max(128),
+  nonce: external_exports.string().regex(/^[a-f0-9]{48}$/u),
+  journeyId: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+  identityLabel: external_exports.string().trim().min(1).max(200),
+  completedSteps: external_exports.array(external_exports.string().trim().min(1).max(1e3)).min(1).max(20),
+  project: external_exports.enum(["desktop-chromium", "mobile-chromium"]),
+  writes: external_exports.array(
+    external_exports.object({
+      id: external_exports.string().trim().min(1).max(200),
+      label: external_exports.string().trim().min(1).max(200),
+      state: external_exports.enum(["verified", "published"])
+    }).strict()
+  ),
+  removedWriteIds: external_exports.array(external_exports.string().trim().min(1).max(200)),
+  remainingWrites: external_exports.number().int().nonnegative()
+}).strict();
+var productionJourneyRuntimeEvidenceSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  scope: external_exports.literal("product_specific_end_to_end"),
+  runId: external_exports.string().min(1).max(128),
+  journeyId: external_exports.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+  steps: external_exports.array(external_exports.string().trim().min(1).max(1e3)).min(1).max(20),
+  identity: external_exports.object({ kind: external_exports.literal("labeled_test_identity"), label: external_exports.string().min(1).max(200) }).strict(),
+  journeyProjects: external_exports.tuple([external_exports.literal("desktop-chromium"), external_exports.literal("mobile-chromium")]),
+  cleanupProjects: external_exports.tuple([external_exports.literal("desktop-chromium"), external_exports.literal("mobile-chromium")]),
+  traceFiles: external_exports.array(
+    external_exports.object({
+      path: external_exports.string().trim().min(1).max(1e3),
+      sha256: external_exports.string().regex(/^[a-f0-9]{64}$/u),
+      bytes: external_exports.number().int().min(1e3)
+    }).strict()
+  ).min(4),
+  stateReadBack: external_exports.object({
+    observer: external_exports.literal(POST_DEPLOY_SURFACE_SPEC_PATH),
+    journeyProjects: external_exports.tuple([external_exports.literal("desktop-chromium"), external_exports.literal("mobile-chromium")]),
+    cleanupProjects: external_exports.tuple([external_exports.literal("desktop-chromium"), external_exports.literal("mobile-chromium")]),
+    writeIds: external_exports.array(external_exports.string().trim().min(1).max(200)).min(1),
+    completedSteps: external_exports.array(external_exports.string().trim().min(1).max(1e3)).min(1).max(20),
+    remainingWrites: external_exports.literal(0)
+  }).strict(),
+  observedEffects: external_exports.array(external_exports.enum(["reversible_external_write", "transactional_email"])).max(2),
+  recipientCount: external_exports.number().int().nonnegative(),
+  recipientsAllMatchTestIdentity: external_exports.literal(true),
+  forbiddenEffectsObserved: external_exports.array(external_exports.never()).length(0),
+  cleanup: external_exports.object({
+    state: external_exports.literal("verified"),
+    removedWrites: external_exports.number().int().nonnegative(),
+    remainingWrites: external_exports.literal(0)
+  }).strict()
+}).strict();
+var launchProductionVerificationOutputSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  runId: external_exports.string().min(1).max(128),
+  evidenceRef: external_exports.string().trim().min(1).max(1e3),
+  deploymentUrl: external_exports.string().url(),
+  target: external_exports.enum(["verified_provider_production_url", "verified_custom_domain"]),
+  customDomain: external_exports.object({
+    state: external_exports.enum(["not_configured", "waiting", "verified"]),
+    origin: external_exports.string().url().nullable()
+  }).strict(),
+  deploymentSurface: external_exports.object({
+    scope: external_exports.literal("generic_read_only_deployment_surface"),
+    command: external_exports.array(external_exports.string().min(1)).min(1),
+    exitCode: external_exports.literal(0),
+    verified: external_exports.literal(true)
+  }).strict(),
+  primaryJourneyEvidence: launchReceiptPrimaryJourneyEvidenceSchema,
+  runtimeEvidence: productionJourneyRuntimeEvidenceSchema,
+  accessibility: external_exports.object({
+    state: external_exports.enum(["verified", "fixture"]),
+    projects: external_exports.tuple([external_exports.literal("desktop-chromium"), external_exports.literal("mobile-chromium")]),
+    evidenceRef: external_exports.string().trim().min(1).max(1e3)
+  }).strict(),
+  rawHtml: external_exports.object({
+    state: external_exports.enum(["verified", "fixture"]),
+    evidenceRef: external_exports.string().trim().min(1).max(1e3)
+  }).strict(),
+  cleanup: external_exports.object({
+    state: external_exports.literal("verified"),
+    evidenceRef: external_exports.string().trim().min(1).max(1e3)
+  }).strict()
+}).strict().superRefine((value, context2) => {
+  for (const [path, reference] of [
+    [["primaryJourneyEvidence", "evidenceRef"], value.primaryJourneyEvidence.evidenceRef],
+    [["accessibility", "evidenceRef"], value.accessibility.evidenceRef],
+    [["rawHtml", "evidenceRef"], value.rawHtml.evidenceRef],
+    [["cleanup", "evidenceRef"], value.cleanup.evidenceRef]
+  ]) {
+    if (reference !== value.evidenceRef) {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: [...path],
+        message: "must reference this exact run-scoped production evidence artifact"
+      });
+    }
+  }
+});
+function sameRunLaunchReceiptVerification(state, customDomainConfigured) {
+  const customDomainNode = state.nodes["verify-custom-domain"];
+  const planned = { accessibility: "planned", rawHtml: "planned" };
+  if (customDomainConfigured && customDomainNode && customDomainNode.attempts > 0 && customDomainNode.state !== "succeeded") {
+    return planned;
+  }
+  const nodeId = customDomainConfigured && customDomainNode?.state === "succeeded" ? "verify-custom-domain" : "verify-production";
+  const node = state.nodes[nodeId];
+  const expectedArtifact = `reports/launch/${state.runId}/product/${nodeId}.json`;
+  if (!node || node.state !== "succeeded" || !node.effectVerified || node.evidenceArtifact !== expectedArtifact) {
+    return planned;
+  }
+  const parsed = launchProductionVerificationOutputSchema.safeParse(node.output);
+  if (!parsed.success || parsed.data.runId !== state.runId || parsed.data.evidenceRef !== expectedArtifact) {
+    return planned;
+  }
+  return {
+    accessibility: parsed.data.accessibility.state,
+    rawHtml: parsed.data.rawHtml.state,
+    primaryJourneyEvidence: parsed.data.primaryJourneyEvidence,
+    deploymentEvidence: {
+      state: parsed.data.primaryJourneyEvidence.state === "fixture" ? "fixture" : "verified",
+      productionUrl: parsed.data.deploymentUrl,
+      customDomain: parsed.data.target === "verified_custom_domain" ? parsed.data.customDomain.origin : null,
+      evidenceRef: parsed.data.evidenceRef
+    }
+  };
+}
 var COMPLETION_POLICIES = {
   "launch.prepareRepository": {
-    requiredArtifactRoles: ["repository_scaffold", "managed_manifest"],
-    relevantValidator: /(?:scaffold|manifest|harness[-:]?lock|validate:configs|verify:(?:fast|mvp)|test[^\n]*(?:config|scaffold))/i
+    requiredArtifactRoles: [
+      "repository_scaffold",
+      "managed_manifest",
+      "design_record",
+      "design_implementation",
+      "core_journey",
+      "affected_test",
+      "event_contract",
+      "event_instrumentation"
+    ],
+    relevantValidator: /(?:journey|e2e|playwright|design|accessib|responsive|analytics|event|consent|pii|\btest\b|verify:(?:fast|mvp)|\bbuild\b)/i
+  },
+  "launch.reviewProduct": {
+    requiredArtifactRoles: [
+      "design_implementation",
+      "core_journey",
+      "affected_test",
+      "event_instrumentation"
+    ],
+    relevantValidator: /(?:journey|e2e|playwright|design|accessib|responsive|analytics|event|consent|pii|\btest\b|verify:(?:fast|mvp)|\bbuild\b)/i
   },
   "launch.designDirection": {
     requiredArtifactRoles: ["design_record", "design_implementation"],
@@ -24681,23 +28723,42 @@ var SNAPSHOT_IGNORED_DIRECTORIES = /* @__PURE__ */ new Set([
   "node_modules",
   "reports"
 ]);
+var MODEL_PROTECTED_CONTROL_PATHS = /* @__PURE__ */ new Set([
+  "harness.lock",
+  "venture.manifest.json",
+  "config/connectors.json",
+  "config/launch-contract.yaml",
+  "config/launch.yaml",
+  "config/mobile.yaml",
+  "config/offer.yaml",
+  "config/policies.yaml",
+  "config/providers.yaml",
+  "config/venture.yaml",
+  "docs/product/PRODUCT_CONSTITUTION.md",
+  "docs/product/idea.md"
+]);
+var LOCK_PROTECTED_OWNERSHIPS = /* @__PURE__ */ new Set(["core_owned", "harness", "generated"]);
+var MODEL_ALLOWED_VOLATILE_PATH_PREFIXES = [
+  ".venture/test-results",
+  ".venture/private/test-results"
+];
 function inside5(root, path) {
-  const absolute = resolve16(root, path);
-  const rel = relative11(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep11}`) && rel !== ".." && !rel.startsWith(sep11)) {
+  const absolute = resolve19(root, path);
+  const rel = relative13(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep13}`) && rel !== ".." && !rel.startsWith(sep13)) {
     return absolute;
   }
   throw new WorkflowExecutionError("UNSAFE_ARTIFACT_PATH", `Path escapes venture root: ${path}`);
 }
 function repositoryReference(root, path) {
-  if (isAbsolute4(path) || path.includes("\\") || path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
+  if (isAbsolute5(path) || path.includes("\\") || path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
       `Build-agent path must be a canonical repository-relative reference: ${path}`
     );
   }
   const absolute = inside5(root, path);
-  const reference = relative11(root, absolute).split(sep11).join("/");
+  const reference = relative13(root, absolute).split(sep13).join("/");
   if (reference !== path) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -24706,8 +28767,430 @@ function repositoryReference(root, path) {
   }
   return { absolute, reference };
 }
+function readRegularFile3(path, encoding) {
+  let descriptor2;
+  try {
+    descriptor2 = openSync7(path, constants7.O_RDONLY | NO_FOLLOW5);
+    if (!fstatSync7(descriptor2).isFile()) {
+      throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
+    }
+    return encoding === "utf8" ? readFileSync13(descriptor2, encoding) : readFileSync13(descriptor2);
+  } catch (error) {
+    if (error.code === "ELOOP") {
+      throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
+    }
+    throw error;
+  } finally {
+    if (descriptor2 !== void 0) closeSync7(descriptor2);
+  }
+}
+function unavailableRegularFile(error) {
+  return error instanceof NonRegularFileError || ["ENOENT", "ENOTDIR"].includes(error.code ?? "");
+}
 function sha2564(path) {
-  return createHash12("sha256").update(readFileSync11(path)).digest("hex");
+  return createHash13("sha256").update(readRegularFile3(path)).digest("hex");
+}
+function sha256IfRegular(path) {
+  try {
+    return sha2564(path);
+  } catch (error) {
+    if (unavailableRegularFile(error)) return null;
+    throw error;
+  }
+}
+function assertCoreOwnedSurfaceSpec(root) {
+  let lock;
+  let actual;
+  try {
+    lock = loadHarnessLock(inside5(root, "harness.lock"));
+    actual = sha2564(inside5(root, POST_DEPLOY_SURFACE_SPEC_PATH));
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "DEPLOYMENT_SURFACE_CONTRACT_INVALID",
+      `Core-owned deployment-surface contract or harness.lock is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+  const entry = lock.managed_files.find(({ path }) => path === POST_DEPLOY_SURFACE_SPEC_PATH);
+  if (entry?.ownership !== "core_owned" || entry.sha256 === null || entry.sha256 !== actual) {
+    throw new WorkflowExecutionError(
+      "DEPLOYMENT_SURFACE_CONTRACT_TAMPERED",
+      `${POST_DEPLOY_SURFACE_SPEC_PATH} must match its exact core-owned harness.lock digest before execution.`,
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+}
+function zipEntries(archive) {
+  let end = archive.length - 22;
+  while (end >= 0 && archive.readUInt32LE(end) !== 101010256) end -= 1;
+  if (end < 0) throw new Error("trace archive has no ZIP directory");
+  const count2 = archive.readUInt16LE(end + 10);
+  let cursor = archive.readUInt32LE(end + 16);
+  const entries = /* @__PURE__ */ new Map();
+  for (let index = 0; index < count2; index += 1) {
+    if (archive.readUInt32LE(cursor) !== 33639248) throw new Error("invalid ZIP directory");
+    const method = archive.readUInt16LE(cursor + 10);
+    const compressedSize = archive.readUInt32LE(cursor + 20);
+    const fileNameLength = archive.readUInt16LE(cursor + 28);
+    const extraLength = archive.readUInt16LE(cursor + 30);
+    const commentLength = archive.readUInt16LE(cursor + 32);
+    const localOffset = archive.readUInt32LE(cursor + 42);
+    const name = archive.subarray(cursor + 46, cursor + 46 + fileNameLength).toString("utf8");
+    if (archive.readUInt32LE(localOffset) !== 67324752) throw new Error("invalid ZIP entry");
+    const localNameLength = archive.readUInt16LE(localOffset + 26);
+    const localExtraLength = archive.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = archive.subarray(dataStart, dataStart + compressedSize);
+    entries.set(
+      name,
+      method === 0 ? Buffer.from(compressed) : method === 8 ? inflateRawSync(compressed) : (() => {
+        throw new Error(`unsupported ZIP compression method ${method}`);
+      })()
+    );
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+function traceProvesBrowserJourney(traces, expectedOrigin, steps, phase) {
+  const events = traces.flatMap((trace) => trace.toString("utf8").split(/\r?\n/u)).flatMap((line) => {
+    if (!line) return [];
+    try {
+      return [JSON.parse(line)];
+    } catch {
+      return [];
+    }
+  });
+  const serialized = events.map((event) => JSON.stringify(event)).join("\n");
+  if (!serialized.includes(expectedOrigin)) return false;
+  const beforeById = new Map(
+    events.filter(({ type, callId }) => type === "before" && typeof callId === "string").map((event) => [event.callId, event])
+  );
+  const succeeded = new Set(
+    events.filter(
+      ({ type, callId, error }) => type === "after" && typeof callId === "string" && error === void 0
+    ).map(({ callId }) => callId)
+  );
+  const successfulAssertions = [...beforeById.entries()].filter(
+    ([callId, event]) => succeeded.has(callId) && /expect|assert/iu.test(JSON.stringify(event))
+  );
+  const successfulActions = [...beforeById.entries()].filter(
+    ([callId, event]) => succeeded.has(callId) && /navigate|goto|click|fill|check|press|select|tap|request\.(?:get|post|put|patch|delete)/iu.test(
+      JSON.stringify(event)
+    )
+  );
+  if (successfulAssertions.length < 1 || successfulActions.length < 1) return false;
+  if (phase === "cleanup") return true;
+  const parentContainsStep = (event, step) => {
+    let parentId = typeof event.parentId === "string" ? event.parentId : null;
+    const seen = /* @__PURE__ */ new Set();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = beforeById.get(parentId);
+      if (!parent) return false;
+      if (parent.title === step) return true;
+      parentId = typeof parent.parentId === "string" ? parent.parentId : null;
+    }
+    return false;
+  };
+  return steps.every(
+    (step) => [...beforeById.values()].some(({ title }) => title === step) && successfulActions.some(([, event]) => parentContainsStep(event, step)) && successfulAssertions.some(([, event]) => parentContainsStep(event, step))
+  );
+}
+function playwrightTraceEvidence(root, outputReference, deploymentUrl, contract) {
+  const outputRoot = inside5(root, outputReference);
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync4(directory, { withFileTypes: true })) {
+      const absolute = resolve19(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.isFile() && entry.name === "trace.zip") {
+        const stat2 = lstatSync7(absolute);
+        if (stat2.size < 1e3) continue;
+        const entries = zipEntries(readRegularFile3(absolute));
+        const traces = [...entries.entries()].filter(([name]) => name.endsWith(".trace") || name.endsWith(".network")).map(([, content]) => content);
+        const normalized = relative13(outputRoot, absolute).split(sep13).join("/");
+        const phase = normalized.startsWith("journey/") ? "journey" : normalized.startsWith("cleanup/") ? "cleanup" : null;
+        if (!phase || !traceProvesBrowserJourney(traces, deploymentUrl, contract.steps, phase)) {
+          continue;
+        }
+        files.push({
+          path: relative13(root, absolute).split(sep13).join("/"),
+          sha256: sha2564(absolute),
+          bytes: stat2.size
+        });
+      }
+    }
+  };
+  try {
+    if (!lstatSync7(outputRoot).isDirectory()) throw new Error("not a directory");
+    visit(outputRoot);
+  } catch {
+  }
+  const phases = files.map(
+    ({ path }) => path.includes("/journey/") ? "journey" : path.includes("/cleanup/") ? "cleanup" : "other"
+  );
+  if (phases.filter((phase) => phase === "journey").length < 2 || phases.filter((phase) => phase === "cleanup").length < 2) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_TRACE_EVIDENCE_MISSING",
+      "Marker-only output is not journey proof: product journey and cleanup must produce current-run Playwright traces for desktop and mobile."
+    );
+  }
+  return { traceFiles: files.sort((left, right) => left.path.localeCompare(right.path)) };
+}
+function primaryJourneyTestContract(root, launchContract) {
+  if (!launchContract) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_MISSING",
+      "A canonical Launch Contract is required before the product-specific primary journey can be verified."
+    );
+  }
+  const contractPath = inside5(root, PRIMARY_JOURNEY_CONTRACT_PATH);
+  const specPath = inside5(root, PRIMARY_JOURNEY_SPEC_PATH);
+  const cleanupSpecPath = inside5(root, PRIMARY_JOURNEY_CLEANUP_SPEC_PATH);
+  let parsed;
+  let spec;
+  let cleanupSpec;
+  try {
+    parsed = primaryJourneyTestContractSchema.parse(
+      JSON.parse(readRegularFile3(contractPath, "utf8"))
+    );
+    spec = readRegularFile3(specPath, "utf8");
+    cleanupSpec = readRegularFile3(cleanupSpecPath, "utf8");
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_INVALID",
+      `The product build must provide regular non-symlink ${PRIMARY_JOURNEY_SPEC_PATH}, ${PRIMARY_JOURNEY_CLEANUP_SPEC_PATH}, and ${PRIMARY_JOURNEY_CONTRACT_PATH} files: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (parsed.journeyId !== launchContract.decision.primarySuccessSignal || JSON.stringify(parsed.steps) !== JSON.stringify(launchContract.product.primaryJourney)) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_MISMATCH",
+      "The product-specific Playwright binding does not exactly match the Launch Contract primary success signal and ordered journey steps."
+    );
+  }
+  const requiredRuntimeBindings = [
+    "primary-journey.contract.json",
+    PRIMARY_JOURNEY_RUN_ID_ENV,
+    PRIMARY_JOURNEY_NONCE_ENV,
+    PRIMARY_JOURNEY_TEST_IDENTITY_ENV,
+    PRIMARY_JOURNEY_MARKER_PREFIX.trim()
+  ];
+  if (requiredRuntimeBindings.some((binding) => !spec.includes(binding)) || !spec.includes("test.step")) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_SPEC_UNBOUND",
+      `${PRIMARY_JOURNEY_SPEC_PATH} must read its machine-readable contract and emit run-, nonce-, identity-, and project-bound runtime evidence.`
+    );
+  }
+  if (requiredRuntimeBindings.some((binding) => !cleanupSpec.includes(binding)) || !cleanupSpec.includes("test.step")) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CLEANUP_UNBOUND",
+      `${PRIMARY_JOURNEY_CLEANUP_SPEC_PATH} must read the same contract and emit verified cleanup read-back for only the labeled test identity.`
+    );
+  }
+  return parsed;
+}
+function primaryJourneyEvidence(contract, state, evidenceRef) {
+  return launchReceiptPrimaryJourneyEvidenceSchema.parse({
+    scope: contract.scope,
+    journeyId: contract.journeyId,
+    steps: contract.steps,
+    state,
+    evidenceRef
+  });
+}
+function assertProductionJourneyAuthorization(authorization, context2, now) {
+  if (!authorization) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_AUTHORIZATION_MISSING",
+      "Production primary-journey verification requires the current run authorization envelope."
+    );
+  }
+  if (authorization.run_id !== context2.runId || Date.parse(authorization.expires_at) <= now.getTime() || !authorization.allowed_capabilities.includes("product.primary_journey.verify") || !authorization.allowed_side_effect_classes.includes("reversible_external_write") || !authorization.environments.includes("production") || authorization.profile === "read_only" || authorization.profile === "build_local" || authorization.profile === "preview_launch") {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_AUTHORIZATION_INVALID",
+      "The current run envelope does not authorize bounded reversible production primary-journey verification."
+    );
+  }
+  return authorization;
+}
+function productionJourneyMarkers(output) {
+  try {
+    return output.split(/\r?\n/u).flatMap((line) => {
+      const markerIndex = line.indexOf(PRIMARY_JOURNEY_MARKER_PREFIX);
+      if (markerIndex < 0) return [];
+      return [
+        productionJourneyMarkerSchema.parse(
+          JSON.parse(line.slice(markerIndex + PRIMARY_JOURNEY_MARKER_PREFIX.length))
+        )
+      ];
+    });
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RUNTIME_EVIDENCE_INVALID",
+      `Product-specific production journey marker is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+function validatedDeploymentSurfaceMarkers(output) {
+  try {
+    const markers = output.split(/\r?\n/u).flatMap((line) => {
+      const markerIndex = line.indexOf(DEPLOYMENT_SURFACE_MARKER_PREFIX);
+      if (markerIndex < 0) return [];
+      return [
+        deploymentSurfaceMarkerSchema.parse(
+          JSON.parse(line.slice(markerIndex + DEPLOYMENT_SURFACE_MARKER_PREFIX.length))
+        )
+      ];
+    });
+    const projects = markers.map(({ project }) => project).sort();
+    if (JSON.stringify(projects) !== JSON.stringify(["desktop-chromium", "mobile-chromium"])) {
+      throw new Error("expected one exact marker from desktop-chromium and mobile-chromium");
+    }
+    return markers;
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_SURFACE_EVIDENCE_INVALID",
+      `The deployment surface did not emit exact raw-HTML and accessibility-baseline evidence: ${error instanceof Error ? error.message : String(error)}`,
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+}
+function primaryJourneyObserverMarkers(output) {
+  try {
+    return output.split(/\r?\n/u).flatMap((line) => {
+      const markerIndex = line.indexOf(PRIMARY_JOURNEY_OBSERVER_MARKER_PREFIX);
+      if (markerIndex < 0) return [];
+      return [
+        primaryJourneyObserverMarkerSchema.parse(
+          JSON.parse(line.slice(markerIndex + PRIMARY_JOURNEY_OBSERVER_MARKER_PREFIX.length))
+        )
+      ];
+    });
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_STATE_READBACK_INVALID",
+      `The locked observer emitted invalid product-state read-back: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+function validatedPrimaryJourneyStateReadBack(journeyOutput, cleanupOutput, runId2, nonce, contract) {
+  const journey = primaryJourneyObserverMarkers(journeyOutput);
+  const cleanup = primaryJourneyObserverMarkers(cleanupOutput);
+  const expectedProjects = ["desktop-chromium", "mobile-chromium"];
+  const commonInvalid = (marker) => marker.runId !== runId2 || marker.nonce !== nonce || marker.journeyId !== contract.journeyId || marker.identityLabel !== contract.production.identity.label || JSON.stringify(marker.completedSteps) !== JSON.stringify(contract.steps);
+  if (JSON.stringify(journey.map(({ project }) => project).sort()) !== JSON.stringify(expectedProjects) || JSON.stringify(cleanup.map(({ project }) => project).sort()) !== JSON.stringify(expectedProjects) || journey.some(
+    (marker) => commonInvalid(marker) || marker.phase !== "journey_readback" || marker.writes.length < 1 || marker.removedWriteIds.length !== 0 || marker.remainingWrites !== marker.writes.length || marker.writes.some(({ label }) => label !== contract.production.identity.label)
+  ) || cleanup.some(
+    (marker) => commonInvalid(marker) || marker.phase !== "cleanup_readback" || marker.writes.length !== 0 || marker.remainingWrites !== 0
+  )) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_STATE_READBACK_MISMATCH",
+      "The locked observer must independently read back the exact contract steps and labeled writes after the journey, then zero remaining writes after cleanup on desktop and mobile."
+    );
+  }
+  const writeIds = [...new Set(journey.flatMap(({ writes }) => writes.map(({ id }) => id)))].sort();
+  const removedWriteIds = [...new Set(cleanup.flatMap(({ removedWriteIds: ids }) => ids))].sort();
+  if (writeIds.length < 1 || journey.some(
+    ({ writes }) => JSON.stringify([...new Set(writes.map(({ id }) => id))].sort()) !== JSON.stringify(writeIds)
+  ) || cleanup.some(
+    ({ removedWriteIds: ids }) => JSON.stringify([...new Set(ids)].sort()) !== JSON.stringify(writeIds)
+  ) || JSON.stringify(removedWriteIds) !== JSON.stringify(writeIds)) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_STATE_CLEANUP_MISMATCH",
+      "Cleanup read-back must remove the exact stable write IDs independently observed after the journey."
+    );
+  }
+  return {
+    observer: POST_DEPLOY_SURFACE_SPEC_PATH,
+    journeyProjects: expectedProjects,
+    cleanupProjects: expectedProjects,
+    writeIds,
+    completedSteps: contract.steps,
+    remainingWrites: 0
+  };
+}
+function validatedReconciliationCleanupReadBack(output, runId2, nonce, contract) {
+  const markers = primaryJourneyObserverMarkers(output);
+  if (JSON.stringify(markers.map(({ project }) => project).sort()) !== JSON.stringify(["desktop-chromium", "mobile-chromium"]) || markers.some(
+    (marker) => marker.phase !== "cleanup_readback" || marker.runId !== runId2 || marker.nonce !== nonce || marker.journeyId !== contract.journeyId || marker.identityLabel !== contract.production.identity.label || JSON.stringify(marker.completedSteps) !== JSON.stringify(contract.steps) || marker.writes.length !== 0 || marker.remainingWrites !== 0
+  )) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RECONCILIATION_READBACK_MISMATCH",
+      "The locked observer did not independently confirm zero labeled writes after reconciliation cleanup on desktop and mobile."
+    );
+  }
+}
+function validatedCleanupMarkers(output, runId2, nonce, contract) {
+  const markers = productionJourneyMarkers(output);
+  const projects = markers.map(({ project }) => project).sort();
+  if (JSON.stringify(projects) !== JSON.stringify(["desktop-chromium", "mobile-chromium"]) || markers.some(
+    (marker) => marker.phase !== "cleanup" || marker.runId !== runId2 || marker.nonce !== nonce || marker.journeyId !== contract.journeyId || JSON.stringify(marker.steps) !== JSON.stringify(contract.steps) || marker.identity.kind !== contract.production.identity.kind || marker.identity.label !== contract.production.identity.label || marker.recipientsAllMatchTestIdentity !== true || marker.cleanup?.state !== "verified" || marker.cleanup.remainingWrites !== 0
+  )) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CLEANUP_EVIDENCE_MISMATCH",
+      "Cleanup must emit one exact run-, nonce-, identity-, contract-, and project-bound zero-remaining-write read-back for desktop and mobile."
+    );
+  }
+  return markers;
+}
+function validateProductionJourneyMarkers(primaryOutput, cleanupOutput, runId2, nonce, contract, authorization, fixture, traceEvidence, stateReadBack) {
+  const primaryMarkers = productionJourneyMarkers(primaryOutput);
+  const cleanupMarkers = validatedCleanupMarkers(cleanupOutput, runId2, nonce, contract);
+  const expectedProjects = ["desktop-chromium", "mobile-chromium"];
+  const allMarkers = [...primaryMarkers, ...cleanupMarkers];
+  const invalidBinding = allMarkers.some(
+    (marker) => marker.runId !== runId2 || marker.nonce !== nonce || marker.journeyId !== contract.journeyId || JSON.stringify(marker.steps) !== JSON.stringify(contract.steps) || marker.identity.kind !== contract.production.identity.kind || marker.identity.label !== contract.production.identity.label
+  );
+  const primaryProjects = primaryMarkers.map(({ project }) => project).sort();
+  const cleanupProjects = cleanupMarkers.map(({ project }) => project).sort();
+  if (invalidBinding || primaryMarkers.some(({ phase }) => phase !== "journey") || cleanupMarkers.some(({ phase }) => phase !== "cleanup") || JSON.stringify(primaryProjects) !== JSON.stringify([...expectedProjects].sort()) || JSON.stringify(cleanupProjects) !== JSON.stringify([...expectedProjects].sort())) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RUNTIME_EVIDENCE_MISMATCH",
+      "Production journey markers must contain exactly one run-, nonce-, identity-, contract-, and project-bound journey and cleanup result for desktop and mobile."
+    );
+  }
+  const observedEffects = [
+    ...new Set(primaryMarkers.flatMap(({ observedEffects: effects }) => effects))
+  ];
+  if (!fixture && !observedEffects.includes(journeyContractEffect(contract)) || observedEffects.some(
+    (effect) => !contract.production.allowedEffects.includes(effect) || !authorization.allowed_side_effect_classes.includes(effect)
+  ) || observedEffects.includes("transactional_email") && !authorization.transactional_test_email_allowed) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_EFFECT_OUTSIDE_AUTHORIZATION",
+      "The product journey reported an effect outside both its reviewed contract and the current run envelope."
+    );
+  }
+  const recipientCount = Math.max(...primaryMarkers.map(({ recipientCount: recipientCount2 }) => recipientCount2), 0);
+  if (allMarkers.some(({ recipientsAllMatchTestIdentity }) => !recipientsAllMatchTestIdentity) || recipientCount > authorization.max_email_recipients || !observedEffects.includes("transactional_email") && recipientCount !== 0) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RECIPIENT_OUTSIDE_AUTHORIZATION",
+      "Production journey recipients must be bounded by the envelope and match only the labeled test identity."
+    );
+  }
+  const cleanupRemovedWrites = Math.max(
+    ...cleanupMarkers.map(({ cleanup }) => cleanup?.removedWrites ?? 0),
+    0
+  );
+  return productionJourneyRuntimeEvidenceSchema.parse({
+    schemaVersion: 1,
+    scope: contract.scope,
+    runId: runId2,
+    journeyId: contract.journeyId,
+    steps: contract.steps,
+    identity: contract.production.identity,
+    journeyProjects: expectedProjects,
+    cleanupProjects: expectedProjects,
+    traceFiles: traceEvidence.traceFiles,
+    stateReadBack,
+    observedEffects,
+    recipientCount,
+    recipientsAllMatchTestIdentity: true,
+    forbiddenEffectsObserved: [],
+    cleanup: { state: "verified", removedWrites: cleanupRemovedWrites, remainingWrites: 0 }
+  });
+}
+function journeyContractEffect(contract) {
+  return contract.production.effect;
 }
 function dependencyInstallCheckpoint(value) {
   if (!value || Array.isArray(value) || typeof value !== "object") return null;
@@ -24726,7 +29209,9 @@ function dependencyInstallCheckpoint(value) {
 function readDependencyInstallState(root, expected) {
   const packagePath = inside5(root, expected.packageManifest);
   const lockPath = inside5(root, expected.lockfile);
-  if (!existsSync9(packagePath) || !lstatSync7(packagePath).isFile() || !existsSync9(lockPath) || !lstatSync7(lockPath).isFile()) {
+  const currentPackageSha256 = sha256IfRegular(packagePath);
+  const currentLockSha256 = sha256IfRegular(lockPath);
+  if (currentPackageSha256 === null || currentLockSha256 === null) {
     return {
       ...expected,
       state: "input_mismatch",
@@ -24736,8 +29221,6 @@ function readDependencyInstallState(root, expected) {
       message: "The checkpointed package manifest or lockfile is missing or not a regular file."
     };
   }
-  const currentPackageSha256 = sha2564(packagePath);
-  const currentLockSha256 = sha2564(lockPath);
   if (currentPackageSha256 !== expected.packageManifestSha256 || currentLockSha256 !== expected.lockfileSha256) {
     return {
       ...expected,
@@ -24751,10 +29234,10 @@ function readDependencyInstallState(root, expected) {
   const modulesPath = inside5(root, "node_modules");
   const installedModulesReadBack = existsSync9(modulesPath) && lstatSync7(modulesPath).isDirectory();
   const installedLockPath = inside5(root, "node_modules/.pnpm/lock.yaml");
-  const installedLockfileReadBack = installedModulesReadBack && existsSync9(installedLockPath) && lstatSync7(installedLockPath).isFile() && sha2564(installedLockPath) === expected.lockfileSha256;
+  const installedLockfileReadBack = installedModulesReadBack && sha256IfRegular(installedLockPath) === expected.lockfileSha256;
   const binaryDirectory = inside5(root, "node_modules/.bin");
   const commandInstalled = (name) => [name, `${name}.cmd`, `${name}.ps1`].some(
-    (candidate) => existsSync9(resolve16(binaryDirectory, candidate))
+    (candidate) => existsSync9(resolve19(binaryDirectory, candidate))
   );
   const requiredToolingReadBack = installedModulesReadBack && commandInstalled("tsc") && commandInstalled("playwright");
   return {
@@ -24769,17 +29252,17 @@ function readDependencyInstallState(root, expected) {
 function repositorySnapshot(root) {
   const snapshot = /* @__PURE__ */ new Map();
   const visit = (directory) => {
-    for (const entry of readdirSync3(directory, { withFileTypes: true }).sort(
+    for (const entry of readdirSync4(directory, { withFileTypes: true }).sort(
       (left, right) => left.name.localeCompare(right.name)
     )) {
       if (entry.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
-      const absolute = resolve16(directory, entry.name);
+      const absolute = resolve19(directory, entry.name);
       if (entry.isDirectory()) {
         visit(absolute);
         continue;
       }
       if (!entry.isFile()) continue;
-      const reference = relative11(root, absolute).split(sep11).join("/");
+      const reference = relative13(root, absolute).split(sep13).join("/");
       snapshot.set(reference, sha2564(absolute));
     }
   };
@@ -24792,6 +29275,109 @@ function repositoryChanges(before, after) {
     const afterSha256 = after.get(path) ?? null;
     return beforeSha256 === afterSha256 ? [] : [{ path, beforeSha256, afterSha256 }];
   });
+}
+function protectedPathState(root, reference) {
+  const segments = reference.split("/");
+  let cursor = root;
+  for (const [index, segment] of segments.entries()) {
+    cursor = resolve19(cursor, segment);
+    let metadata;
+    try {
+      metadata = lstatSync7(cursor);
+    } catch (error) {
+      if (["ENOENT", "ENOTDIR"].includes(error.code ?? "")) {
+        return "missing";
+      }
+      throw error;
+    }
+    if (metadata.isSymbolicLink()) return `symbolic_link:${index}`;
+    if (index < segments.length - 1) {
+      if (!metadata.isDirectory()) return `non_directory_component:${index}`;
+      continue;
+    }
+    if (metadata.isDirectory()) return "directory";
+    if (metadata.isFile()) return `file:${sha2564(cursor)}`;
+    return "non_regular";
+  }
+  return "missing";
+}
+function lockDeclaredProtectedPaths(root) {
+  const lockPath = inside5(root, "harness.lock");
+  let value;
+  try {
+    value = parse3(readRegularFile3(lockPath, "utf8"));
+  } catch {
+    return [];
+  }
+  if (!value || Array.isArray(value) || typeof value !== "object") return [];
+  const managedFiles = value.managed_files;
+  if (!Array.isArray(managedFiles)) return [];
+  return managedFiles.flatMap((entry) => {
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") return [];
+    const record3 = entry;
+    if (typeof record3.path !== "string" || typeof record3.ownership !== "string" || !LOCK_PROTECTED_OWNERSHIPS.has(record3.ownership)) {
+      return [];
+    }
+    return [repositoryReference(root, record3.path).reference];
+  });
+}
+function protectedInputSnapshot(root, handler) {
+  const protectedPaths = /* @__PURE__ */ new Set([
+    ...MODEL_PROTECTED_CONTROL_PATHS,
+    ...lockDeclaredProtectedPaths(root),
+    ...handler === "launch.prepareRepository" ? [] : ["package.json", "pnpm-lock.yaml"]
+  ]);
+  for (const entry of readdirSync4(root, { withFileTypes: true })) {
+    if (/^\.env(?:\.|$)/u.test(entry.name) || entry.name === ".npmrc") {
+      protectedPaths.add(entry.name);
+    }
+  }
+  const entries = /* @__PURE__ */ new Map();
+  for (const reference of [...protectedPaths].sort()) {
+    entries.set(reference, protectedPathState(root, reference));
+  }
+  const allowedVolatileRoot = (reference) => MODEL_ALLOWED_VOLATILE_PATH_PREFIXES.some((prefix) => reference === prefix);
+  const visitProtectedTree = (reference) => {
+    const state = protectedPathState(root, reference);
+    const volatileParent = reference === ".venture" || reference === ".venture/private" || allowedVolatileRoot(reference);
+    entries.set(
+      reference,
+      volatileParent && (state === "missing" || state === "directory") ? "allowed_directory" : state
+    );
+    protectedPaths.add(reference);
+    if (allowedVolatileRoot(reference)) return;
+    if (state !== "directory") return;
+    const directory = inside5(root, reference);
+    for (const entry of readdirSync4(directory, { withFileTypes: true }).sort(
+      (left, right) => left.name.localeCompare(right.name)
+    )) {
+      visitProtectedTree(`${reference}/${entry.name}`);
+    }
+  };
+  visitProtectedTree(".venture");
+  for (const reference of [".venture/private", ...MODEL_ALLOWED_VOLATILE_PATH_PREFIXES]) {
+    if (entries.has(reference)) continue;
+    const state = protectedPathState(root, reference);
+    entries.set(
+      reference,
+      state === "missing" || state === "directory" ? "allowed_directory" : state
+    );
+    protectedPaths.add(reference);
+  }
+  visitProtectedTree("reports");
+  return { entries, protectedPaths };
+}
+function protectedInputViolations(before, after, reportedPaths) {
+  const protectedPaths = /* @__PURE__ */ new Set([...before.protectedPaths, ...after.protectedPaths]);
+  const observed = [.../* @__PURE__ */ new Set([...before.entries.keys(), ...after.entries.keys()])].filter(
+    (path) => before.entries.get(path) !== after.entries.get(path)
+  );
+  const reported = reportedPaths.filter(
+    (path) => !MODEL_ALLOWED_VOLATILE_PATH_PREFIXES.some(
+      (prefix) => path === prefix || path.startsWith(`${prefix}/`)
+    ) && (protectedPaths.has(path) || path === ".venture" || path.startsWith(".venture/") || path === "reports" || path.startsWith("reports/") || /^\.env(?:\.|$)/u.test(path) || path === ".npmrc")
+  );
+  return [.../* @__PURE__ */ new Set([...observed, ...reported])].sort();
 }
 function artifactRoleAllowsPath(role, path) {
   const productSource = /^(?:app|components|mobile|pages|public|src)\//.test(path);
@@ -24848,14 +29434,14 @@ function safeSegment(value, label) {
   return value;
 }
 function writeJsonAtomic(path, value) {
-  mkdirSync7(dirname9(path), { recursive: true, mode: 448 });
+  mkdirSync8(dirname10(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync7(temporary, `${JSON.stringify(value, null, 2)}
+  writeFileSync8(temporary, `${JSON.stringify(value, null, 2)}
 `, {
     encoding: "utf8",
     mode: 384
   });
-  renameSync5(temporary, path);
+  renameSync6(temporary, path);
 }
 function artifactPaths(root, context2) {
   const runId2 = safeSegment(context2.runId, "run ID");
@@ -24877,10 +29463,9 @@ function dependencyReconciliationEvidencePaths(root, runIdInput, nodeIdInput) {
 }
 function checkpointFromInstallEvidence(root, runId2, nodeId) {
   const paths = dependencyInstallEvidencePaths(root, runId2, nodeId);
-  if (!existsSync9(paths.absolute) || !lstatSync7(paths.absolute).isFile()) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync11(paths.absolute, "utf8"));
+    parsed = JSON.parse(readRegularFile3(paths.absolute, "utf8"));
   } catch {
     return null;
   }
@@ -24915,7 +29500,7 @@ function verifiedChangedFiles(root, changedFiles) {
     return reference;
   });
 }
-function validateAgentCompletion(root, handler, result2, before, after) {
+function validateAgentCompletion(root, handler, result2, before, after, launchContract) {
   if (!result2.completion) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -24983,6 +29568,21 @@ function validateAgentCompletion(root, handler, result2, before, after) {
       );
     }
   }
+  if (launchContract && ["launch.prepareRepository", "launch.reviewProduct"].includes(handler)) {
+    for (const path of [
+      PRIMARY_JOURNEY_SPEC_PATH,
+      PRIMARY_JOURNEY_CLEANUP_SPEC_PATH,
+      PRIMARY_JOURNEY_CONTRACT_PATH
+    ]) {
+      if (!artifacts.some((artifact) => artifact.role === "affected_test" && artifact.path === path)) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_EVIDENCE_INVALID",
+          `Build agent completion for ${handler} must report ${path} as an affected_test artifact.`
+        );
+      }
+    }
+    primaryJourneyTestContract(root, launchContract);
+  }
   if (result2.completion.outcome === "changed" && !artifacts.some(({ path }) => reportedPaths.has(path))) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -25015,7 +29615,7 @@ function validateAgentCompletion(root, handler, result2, before, after) {
 function persistEvidence(root, context2, evidence, redactor) {
   const paths = artifactPaths(root, context2);
   writeJsonAtomic(paths.absolute, redactor.redact(evidence));
-  const readBack = JSON.parse(readFileSync11(paths.absolute, "utf8"));
+  const readBack = JSON.parse(readRegularFile3(paths.absolute, "utf8"));
   if (readBack.runId !== context2.runId || readBack.nodeId !== context2.node.id) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -25038,7 +29638,12 @@ function hostOutput(result2) {
 }
 function configuredMobileScaffold(root, brief, explicit) {
   const configPath = inside5(root, "config/mobile.yaml");
-  const configured = existsSync9(configPath) ? mobileSchema.parse(parse3(readFileSync11(configPath, "utf8"))).mobile : void 0;
+  let configured;
+  try {
+    configured = mobileSchema.parse(parse3(readRegularFile3(configPath, "utf8"))).mobile;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   return {
     bundleIdentifier: explicit?.bundleIdentifier ?? configured?.bundle_identifier ?? brief.bundle_identifier ?? void 0,
     appScheme: explicit?.appScheme ?? configured?.app_scheme ?? brief.app_scheme ?? brief.id,
@@ -25145,7 +29750,26 @@ async function runAgentTask(options, instructions, context2) {
   const startedAt = options.now().toISOString();
   const handler = context2.node.handler ?? context2.node.id;
   const policy = COMPLETION_POLICIES[handler];
+  const contextManifest = createBuildContextManifest({
+    rootDir: options.rootDir,
+    brief: options.brief,
+    runId: context2.runId,
+    nodeId: context2.node.id,
+    capabilitiesRequired: options.decision?.capabilities,
+    paymentProvider: options.decision?.payment.provider,
+    requireCanonicalContract: options.launchContract !== void 0,
+    agentNative: options.launchContract?.agentNative
+  });
+  const contextManifestReference = `reports/launch/${safeSegment(
+    context2.runId,
+    "run ID"
+  )}/context/${safeSegment(context2.node.id, "node ID")}.json`;
+  writeJsonAtomic(
+    inside5(options.rootDir, contextManifestReference),
+    options.redactor.redact(contextManifest)
+  );
   const before = repositorySnapshot(options.rootDir);
+  const protectedBefore = protectedInputSnapshot(options.rootDir, handler);
   let result2;
   try {
     result2 = options.redactor.redact(
@@ -25167,13 +29791,17 @@ async function runAgentTask(options, instructions, context2) {
             requiredArtifactRoles: policy.requiredArtifactRoles,
             validator: "one relevant direct passed check with observed evidence"
           } : null,
-          dependencyOutputs: context2.dependencyOutputs
+          contextManifest,
+          contextManifestArtifact: contextManifestReference
         },
         signal: context2.signal
       })
     );
   } catch (error) {
-    const changes = repositoryChanges(before, repositorySnapshot(options.rootDir));
+    const after2 = repositorySnapshot(options.rootDir);
+    const changes = repositoryChanges(before, after2);
+    const protectedAfter2 = protectedInputSnapshot(options.rootDir, handler);
+    const protectedViolations2 = protectedInputViolations(protectedBefore, protectedAfter2, []);
     const evidenceArtifact2 = persistEvidence(
       options.rootDir,
       context2,
@@ -25187,12 +29815,19 @@ async function runAgentTask(options, instructions, context2) {
         finishedAt: options.now().toISOString(),
         status: "failed",
         repositoryChanges: changes,
+        protectedInputViolations: protectedViolations2,
         error: options.redactor.redactText(error instanceof Error ? error.message : String(error)),
         rawPromptPersisted: false,
         rawJsonlPersisted: false
       },
       options.redactor
     );
+    if (protectedViolations2.length > 0) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_PROTECTED_INPUT_MUTATION",
+        `Build agent changed protected launch input(s) during ${context2.node.id}: ${protectedViolations2.join(", ")}. No source or provider node may continue; inspect ${evidenceArtifact2}.`
+      );
+    }
     throw new WorkflowExecutionError(
       "BUILD_AGENT_FAILED",
       `Build agent failed ${context2.node.id}; inspect ${evidenceArtifact2}.`
@@ -25200,6 +29835,38 @@ async function runAgentTask(options, instructions, context2) {
   }
   const after = repositorySnapshot(options.rootDir);
   const observedChanges = repositoryChanges(before, after);
+  const protectedAfter = protectedInputSnapshot(options.rootDir, handler);
+  const protectedViolations = protectedInputViolations(
+    protectedBefore,
+    protectedAfter,
+    result2.changedFiles
+  );
+  if (protectedViolations.length > 0) {
+    const evidenceArtifact2 = persistEvidence(
+      options.rootDir,
+      context2,
+      {
+        schemaVersion: 1,
+        runId: context2.runId,
+        nodeId: context2.node.id,
+        handler: context2.node.handler,
+        host: options.agentHost.id,
+        startedAt,
+        finishedAt: options.now().toISOString(),
+        status: "protected_input_mutation",
+        result: hostOutput(result2),
+        repositoryChanges: observedChanges,
+        protectedInputViolations: protectedViolations,
+        rawPromptPersisted: false,
+        rawJsonlPersisted: false
+      },
+      options.redactor
+    );
+    throw new WorkflowExecutionError(
+      "BUILD_AGENT_PROTECTED_INPUT_MUTATION",
+      `Build agent changed or reported protected launch input(s) during ${context2.node.id}: ${protectedViolations.join(", ")}. No source or provider node may continue; inspect ${evidenceArtifact2}.`
+    );
+  }
   if (result2.status === "blocked" || result2.checks.some((check) => check.status === "failed")) {
     const evidenceArtifact2 = persistEvidence(
       options.rootDir,
@@ -25221,7 +29888,12 @@ async function runAgentTask(options, instructions, context2) {
       },
       options.redactor
     );
-    context2.trace({ host: options.agentHost.id, evidenceArtifact: evidenceArtifact2, status: result2.status });
+    context2.trace({
+      host: options.agentHost.id,
+      evidenceArtifact: evidenceArtifact2,
+      contextManifestArtifact: contextManifestReference,
+      status: result2.status
+    });
     throw new WorkflowExecutionError(
       "BUILD_AGENT_BLOCKED",
       `Build agent did not complete ${context2.node.id}; inspect ${evidenceArtifact2}.`
@@ -25229,7 +29901,14 @@ async function runAgentTask(options, instructions, context2) {
   }
   let validation;
   try {
-    validation = validateAgentCompletion(options.rootDir, handler, result2, before, after);
+    validation = validateAgentCompletion(
+      options.rootDir,
+      handler,
+      result2,
+      before,
+      after,
+      options.launchContract
+    );
   } catch (error) {
     const evidenceArtifact2 = persistEvidence(
       options.rootDir,
@@ -25283,30 +29962,56 @@ async function runAgentTask(options, instructions, context2) {
     },
     options.redactor
   );
-  context2.trace({ host: options.agentHost.id, evidenceArtifact, status: result2.status });
+  context2.trace({
+    host: options.agentHost.id,
+    evidenceArtifact,
+    contextManifestArtifact: contextManifestReference,
+    status: result2.status
+  });
   const meteredTokens = result2.usage ? result2.usage.inputTokens + result2.usage.outputTokens : 0;
+  const observedUsageCost = result2.usage ? {
+    kind: "model",
+    category: context2.node.cost.unit === "tokens" ? context2.node.budgetCategory : "launch.observed_model_tokens",
+    amount: meteredTokens,
+    unit: "tokens",
+    budgeted: context2.node.cost.unit === "tokens",
+    inputTokens: result2.usage.inputTokens,
+    outputTokens: result2.usage.outputTokens,
+    tool: options.agentHost.id,
+    ...result2.usage.model ? { model: result2.usage.model } : {},
+    metadata: {
+      usageObservation: true,
+      cachedInputTokens: result2.usage.cachedInputTokens,
+      contextFileCount: contextManifest.selectedFiles.length,
+      contextEstimatedTokens: contextManifest.estimatedTotalTokens,
+      contextTokenCap: contextManifest.tokenCap,
+      contextSelectionTruncated: contextManifest.selectionTruncated,
+      ...result2.usage.toolCalls === void 0 ? {} : { toolCalls: result2.usage.toolCalls },
+      ...result2.usage.failedCommands === void 0 ? {} : { failedCommands: result2.usage.failedCommands }
+    }
+  } : null;
+  const costs = [];
+  if (context2.node.cost.unit !== "tokens") {
+    costs.push({
+      kind: "model",
+      category: context2.node.budgetCategory,
+      amount: context2.node.cost.amount,
+      unit: context2.node.cost.unit,
+      budgeted: true
+    });
+  }
+  if (observedUsageCost) costs.push(observedUsageCost);
   return {
     output,
     effectVerified: true,
     evidenceArtifact,
-    ...context2.node.cost.unit === "tokens" && meteredTokens > 0 ? {
-      costs: [
-        {
-          kind: "model",
-          category: context2.node.budgetCategory,
-          amount: meteredTokens,
-          unit: "tokens",
-          inputTokens: result2.usage.inputTokens,
-          outputTokens: result2.usage.outputTokens,
-          tool: options.agentHost.id,
-          metadata: { cachedInputTokens: result2.usage.cachedInputTokens }
-        }
-      ]
-    } : {}
+    ...costs.length > 0 ? { costs } : {}
   };
 }
 async function runQualityCommand(options, args, context2) {
   const startedAt = options.now().toISOString();
+  const isMvp = args.length === 1 && args[0] === "verify:mvp";
+  const journeyContract = isMvp ? primaryJourneyTestContract(options.rootDir, options.launchContract) : null;
   const result2 = await options.commandRunner.run({
     command: "pnpm",
     args,
@@ -25324,6 +30029,15 @@ async function runQualityCommand(options, args, context2) {
       startedAt,
       finishedAt: options.now().toISOString(),
       command: ["pnpm", ...args],
+      ...journeyContract ? {
+        primaryJourneyContract: {
+          scope: journeyContract.scope,
+          journeyId: journeyContract.journeyId,
+          steps: journeyContract.steps,
+          specPath: journeyContract.specPath,
+          cleanupSpecPath: journeyContract.cleanupSpecPath
+        }
+      } : {},
       exitCode: result2.exitCode,
       stdoutExcerpt: options.redactor.redactText(result2.stdout).slice(-4e3),
       stderrExcerpt: options.redactor.redactText(result2.stderr).slice(-4e3)
@@ -25338,7 +30052,11 @@ async function runQualityCommand(options, args, context2) {
     );
   }
   return {
-    output: { command: ["pnpm", ...args], exitCode: result2.exitCode },
+    output: {
+      command: ["pnpm", ...args],
+      exitCode: result2.exitCode,
+      ...journeyContract ? { primaryJourneyContractChecked: true } : {}
+    },
     evidenceArtifact
   };
 }
@@ -25355,14 +30073,14 @@ async function runDependencyInstall(options, context2) {
   let requiredToolingReadBack = false;
   let checkpoint = null;
   try {
-    if (!existsSync9(packagePath) || !lstatSync7(packagePath).isFile()) {
+    packageManifestSha256 = sha256IfRegular(packagePath);
+    if (packageManifestSha256 === null) {
       throw new Error("package.json is missing or is not a regular file");
     }
-    if (!existsSync9(lockPath) || !lstatSync7(lockPath).isFile()) {
+    lockfileSha256 = sha256IfRegular(lockPath);
+    if (lockfileSha256 === null) {
       throw new Error("pnpm-lock.yaml is missing or is not a regular file");
     }
-    packageManifestSha256 = sha2564(packagePath);
-    lockfileSha256 = sha2564(lockPath);
     checkpoint = {
       schemaVersion: DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION,
       packageManifest: "package.json",
@@ -25389,7 +30107,7 @@ async function runDependencyInstall(options, context2) {
       }
       if (readBack.state !== "verified") {
         throw new Error(
-          "pnpm exited successfully but the exact locked modules and required development tools were absent on read-back"
+          `pnpm exited successfully but dependency read-back was incomplete (modules=${readBack.installedModulesReadBack}, installedLock=${readBack.installedLockfileReadBack}, requiredTooling=${readBack.requiredToolingReadBack})`
         );
       }
     }
@@ -25478,7 +30196,7 @@ function persistDependencyReconciliationEvidence(root, context2, readBack, redac
       ...readBack
     })
   );
-  const persisted = JSON.parse(readFileSync11(paths.absolute, "utf8"));
+  const persisted = JSON.parse(readRegularFile3(paths.absolute, "utf8"));
   if (persisted.runId !== context2.runId || persisted.nodeId !== context2.node.id || persisted.state !== readBack.state) {
     throw new WorkflowExecutionError(
       "DEPENDENCY_RECONCILIATION_EVIDENCE_INVALID",
@@ -25608,6 +30326,50 @@ async function ensureCurrentDependencyInstall(options, context2) {
     );
   }
 }
+function safeHttpsOrigin(value) {
+  try {
+    const url = new URL(value);
+    const privateIpv4 = /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(
+      url.hostname
+    );
+    if (url.protocol !== "https:" || url.username || url.password || url.port || privateIpv4 || url.hostname === "localhost" || url.hostname === "::1" || url.hostname.endsWith(".local")) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+function verifiedCustomDomain(context2, domain) {
+  const expected = new URL(`https://${domain}`).origin;
+  if (expected !== `https://${domain}`) {
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_DOMAIN_INVALID",
+      "The Launch Contract custom domain is not one canonical HTTPS hostname.",
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+  const project = context2.dependencyOutputs["vercel-project"];
+  const dns = context2.dependencyOutputs["dns-records"];
+  const refs = project && typeof project === "object" && !Array.isArray(project) ? project.resourceRefs : null;
+  const attached = Array.isArray(refs) && refs.some((reference) => {
+    if (typeof reference !== "string") return false;
+    const separator = reference.indexOf("=");
+    if (separator < 0 || !["domain", "site_url", "url"].includes(reference.slice(0, separator))) {
+      return false;
+    }
+    const value = reference.slice(separator + 1);
+    return value === domain || safeHttpsOrigin(value) === expected;
+  });
+  if (!attached || !dns || typeof dns !== "object" || Array.isArray(dns)) {
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_CUSTOM_DOMAIN_UNVERIFIED",
+      "Custom-domain verification requires same-run Vercel attachment and DNS propagation read-back before any journey is attempted.",
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+  return expected;
+}
 function productionDeploymentUrl(context2) {
   const dependency = context2.dependencyOutputs["production-deploy"];
   if (!dependency || typeof dependency !== "object" || Array.isArray(dependency)) {
@@ -25626,17 +30388,8 @@ function productionDeploymentUrl(context2) {
   const origins = /* @__PURE__ */ new Set();
   for (const reference of resourceRefs) {
     if (typeof reference !== "string" || !reference.startsWith("url=")) continue;
-    try {
-      const url = new URL(reference.slice("url=".length));
-      const privateIpv4 = /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(
-        url.hostname
-      );
-      if (url.protocol !== "https:" || url.username || url.password || url.port || privateIpv4 || url.hostname === "localhost" || url.hostname === "::1" || url.hostname.endsWith(".local")) {
-        continue;
-      }
-      origins.add(url.origin);
-    } catch {
-    }
+    const origin = safeHttpsOrigin(reference.slice("url=".length));
+    if (origin) origins.add(origin);
   }
   if (origins.size !== 1) {
     throw new WorkflowExecutionError(
@@ -25648,17 +30401,218 @@ function productionDeploymentUrl(context2) {
 }
 async function runPostDeployVerification(options, context2) {
   const startedAt = options.now().toISOString();
-  const deploymentUrl = productionDeploymentUrl(context2);
-  const result2 = await options.commandRunner.run({
+  const customDomainVerification = context2.node.id === "verify-custom-domain";
+  const deploymentUrl = customDomainVerification ? verifiedCustomDomain(context2, options.brief.domain ?? "") : productionDeploymentUrl(context2);
+  const target = customDomainVerification ? "verified_custom_domain" : "verified_provider_production_url";
+  const customDomain = {
+    state: customDomainVerification ? "verified" : options.brief.domain ? "waiting" : "not_configured",
+    origin: customDomainVerification ? deploymentUrl : null
+  };
+  const journeyContract = primaryJourneyTestContract(options.rootDir, options.launchContract);
+  assertCoreOwnedSurfaceSpec(options.rootDir);
+  const authorization = assertProductionJourneyAuthorization(
+    options.authorization,
+    context2,
+    options.now()
+  );
+  if (journeyContract.production.allowedEffects.some(
+    (effect) => !authorization.allowed_side_effect_classes.includes(effect) || effect === "transactional_email" && !authorization.transactional_test_email_allowed
+  )) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_OUTSIDE_AUTHORIZATION",
+      "The reviewed product journey contract requests an effect outside the current run envelope.",
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+  const nonce = randomBytes6(24).toString("hex");
+  const traceOutputReference = `.venture/private/test-results/${safeSegment(
+    context2.runId,
+    "run ID"
+  )}/${safeSegment(context2.node.id, "node ID")}-${nonce}`;
+  const commandEnvironment = {
+    PLAYWRIGHT_BASE_URL: deploymentUrl,
+    [PRIMARY_JOURNEY_RUN_ID_ENV]: context2.runId,
+    [PRIMARY_JOURNEY_NONCE_ENV]: nonce,
+    [PRIMARY_JOURNEY_TEST_IDENTITY_ENV]: journeyContract.production.identity.label,
+    EXPECTED_PUBLIC_ORIGIN: deploymentUrl
+  };
+  const surfaceResult = await options.commandRunner.run({
     command: "pnpm",
-    args: POST_DEPLOY_TEST_ARGS,
+    args: POST_DEPLOY_SURFACE_TEST_ARGS,
     cwd: options.rootDir,
-    env: {
-      PLAYWRIGHT_BASE_URL: deploymentUrl,
-      ...options.brief.domain ? { EXPECTED_PUBLIC_ORIGIN: `https://${options.brief.domain}` } : {}
-    },
+    env: { ...commandEnvironment, PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/surface` },
     signal: context2.signal
   });
+  let surfaceEvidenceError = null;
+  if (surfaceResult.exitCode === 0) {
+    try {
+      validatedDeploymentSurfaceMarkers(surfaceResult.stdout);
+    } catch (error) {
+      surfaceEvidenceError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (surfaceResult.exitCode !== 0 || surfaceEvidenceError !== null) {
+    const evidenceArtifact2 = persistEvidence(
+      options.rootDir,
+      context2,
+      {
+        schemaVersion: 1,
+        runId: context2.runId,
+        nodeId: context2.node.id,
+        handler: context2.node.handler,
+        startedAt,
+        finishedAt: options.now().toISOString(),
+        deploymentUrl,
+        target,
+        customDomain,
+        deploymentSurface: {
+          scope: "generic_read_only_deployment_surface",
+          command: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+          exitCode: surfaceResult.exitCode,
+          stdoutExcerpt: options.redactor.redactText(surfaceResult.stdout).slice(-4e3),
+          stderrExcerpt: options.redactor.redactText(surfaceResult.stderr).slice(-4e3),
+          evidenceError: surfaceEvidenceError === null ? null : options.redactor.redactText(surfaceEvidenceError)
+        },
+        primaryJourney: { state: "not_run", reason: "deployment surface failed" }
+      },
+      options.redactor
+    );
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_SURFACE_VERIFICATION_FAILED",
+      `The generic production surface, raw-HTML, and desktop/mobile accessibility baseline did not produce exact passing evidence; inspect ${evidenceArtifact2}.`,
+      { details: { effectOutcome: "confirmed_no_write" } }
+    );
+  }
+  const operationCheckpoint = {
+    schemaVersion: 1,
+    kind: "production_primary_journey",
+    deploymentUrl,
+    runId: context2.runId,
+    nonce,
+    journeyId: journeyContract.journeyId,
+    identityLabel: journeyContract.production.identity.label
+  };
+  context2.checkpointOperation?.(operationCheckpoint);
+  context2.checkpointExternalEffect?.(operationCheckpoint);
+  let primaryResult = null;
+  let primaryError;
+  try {
+    primaryResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_JOURNEY_ARGS,
+      cwd: options.rootDir,
+      env: { ...commandEnvironment, PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/journey` },
+      signal: context2.signal
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+  let journeyReadBackResult = null;
+  try {
+    assertCoreOwnedSurfaceSpec(options.rootDir);
+    journeyReadBackResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_OBSERVER_ARGS,
+      cwd: options.rootDir,
+      env: {
+        ...commandEnvironment,
+        [PRIMARY_JOURNEY_OBSERVER_PHASE_ENV]: "journey_readback",
+        PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/journey-readback`
+      },
+      signal: context2.signal
+    });
+  } catch (error) {
+    primaryError ??= error;
+  }
+  let cleanupResult = null;
+  let cleanupError;
+  try {
+    cleanupResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_CLEANUP_ARGS,
+      cwd: options.rootDir,
+      env: { ...commandEnvironment, PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/cleanup` }
+    });
+  } catch (error) {
+    cleanupError = error;
+  }
+  let cleanupReadBackResult = null;
+  if (cleanupResult?.exitCode === 0) {
+    try {
+      assertCoreOwnedSurfaceSpec(options.rootDir);
+      cleanupReadBackResult = await options.commandRunner.run({
+        command: "pnpm",
+        args: POST_DEPLOY_PRIMARY_OBSERVER_ARGS,
+        cwd: options.rootDir,
+        env: {
+          ...commandEnvironment,
+          [PRIMARY_JOURNEY_OBSERVER_PHASE_ENV]: "cleanup_readback",
+          PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/cleanup-readback`
+        },
+        signal: context2.signal
+      });
+    } catch (error) {
+      cleanupError ??= error;
+    }
+  }
+  const evidenceReference = artifactPaths(options.rootDir, context2).reference;
+  let runtimeEvidence = null;
+  let runtimeEvidenceError = null;
+  if (primaryResult?.exitCode === 0 && journeyReadBackResult?.exitCode === 0 && cleanupResult?.exitCode === 0 && cleanupReadBackResult?.exitCode === 0) {
+    try {
+      const traceEvidence = playwrightTraceEvidence(
+        options.rootDir,
+        traceOutputReference,
+        deploymentUrl,
+        journeyContract
+      );
+      const stateReadBack = validatedPrimaryJourneyStateReadBack(
+        journeyReadBackResult.stdout,
+        cleanupReadBackResult.stdout,
+        context2.runId,
+        nonce,
+        journeyContract
+      );
+      runtimeEvidence = validateProductionJourneyMarkers(
+        primaryResult.stdout,
+        cleanupResult.stdout,
+        context2.runId,
+        nonce,
+        journeyContract,
+        authorization,
+        options.brief.synthetic ?? false,
+        traceEvidence,
+        stateReadBack
+      );
+    } catch (error) {
+      runtimeEvidenceError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const evidenceState = options.brief.synthetic ? "fixture" : "verified";
+  const journeyEvidence = runtimeEvidence ? primaryJourneyEvidence(journeyContract, evidenceState, evidenceReference) : null;
+  const output = runtimeEvidence && journeyEvidence ? launchProductionVerificationOutputSchema.parse({
+    schemaVersion: 1,
+    runId: context2.runId,
+    evidenceRef: evidenceReference,
+    deploymentUrl,
+    target,
+    customDomain,
+    deploymentSurface: {
+      scope: "generic_read_only_deployment_surface",
+      command: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+      exitCode: 0,
+      verified: true
+    },
+    primaryJourneyEvidence: journeyEvidence,
+    runtimeEvidence,
+    accessibility: {
+      state: evidenceState,
+      projects: ["desktop-chromium", "mobile-chromium"],
+      evidenceRef: evidenceReference
+    },
+    rawHtml: { state: evidenceState, evidenceRef: evidenceReference },
+    cleanup: { state: "verified", evidenceRef: evidenceReference }
+  }) : null;
   const evidenceArtifact = persistEvidence(
     options.rootDir,
     context2,
@@ -25670,38 +30624,201 @@ async function runPostDeployVerification(options, context2) {
       startedAt,
       finishedAt: options.now().toISOString(),
       deploymentUrl,
-      command: ["pnpm", ...POST_DEPLOY_TEST_ARGS],
-      checks: ["HTTPS response", "desktop read-only journey", "mobile read-only journey"],
-      exitCode: result2.exitCode,
-      stdoutExcerpt: options.redactor.redactText(result2.stdout).slice(-4e3),
-      stderrExcerpt: options.redactor.redactText(result2.stderr).slice(-4e3),
+      target,
+      customDomain,
+      deploymentSurface: {
+        scope: "generic_read_only_deployment_surface",
+        command: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+        exitCode: surfaceResult.exitCode,
+        verifiedChecks: {
+          rawServerHtml: true,
+          accessibilityAxe: true,
+          accessibleNamesAndLandmarks: true,
+          keyboardFocus: true,
+          responsiveOverflow: true,
+          projects: ["desktop-chromium", "mobile-chromium"]
+        },
+        stdoutExcerpt: options.redactor.redactText(surfaceResult.stdout).slice(-4e3),
+        stderrExcerpt: options.redactor.redactText(surfaceResult.stderr).slice(-4e3)
+      },
+      primaryJourney: {
+        command: ["pnpm", ...POST_DEPLOY_PRIMARY_JOURNEY_ARGS],
+        exitCode: primaryResult?.exitCode ?? null,
+        stdoutExcerpt: options.redactor.redactText(primaryResult?.stdout ?? "").slice(-4e3),
+        stderrExcerpt: options.redactor.redactText(primaryResult?.stderr ?? "").slice(-4e3),
+        runnerError: primaryError === void 0 ? null : options.redactor.redactText(
+          primaryError instanceof Error ? primaryError.message : String(primaryError)
+        ),
+        evidence: journeyEvidence
+      },
+      cleanup: {
+        command: ["pnpm", ...POST_DEPLOY_PRIMARY_CLEANUP_ARGS],
+        exitCode: cleanupResult?.exitCode ?? null,
+        stdoutExcerpt: options.redactor.redactText(cleanupResult?.stdout ?? "").slice(-4e3),
+        stderrExcerpt: options.redactor.redactText(cleanupResult?.stderr ?? "").slice(-4e3),
+        runnerError: cleanupError === void 0 ? null : options.redactor.redactText(
+          cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        )
+      },
+      stateReadBack: {
+        observerCommand: ["pnpm", ...POST_DEPLOY_PRIMARY_OBSERVER_ARGS],
+        journeyExitCode: journeyReadBackResult?.exitCode ?? null,
+        cleanupExitCode: cleanupReadBackResult?.exitCode ?? null,
+        journeyStdoutExcerpt: options.redactor.redactText(journeyReadBackResult?.stdout ?? "").slice(-4e3),
+        cleanupStdoutExcerpt: options.redactor.redactText(cleanupReadBackResult?.stdout ?? "").slice(-4e3)
+      },
+      runtimeEvidence,
+      runtimeEvidenceError: runtimeEvidenceError === null ? null : options.redactor.redactText(runtimeEvidenceError),
+      output,
       limitations: [
-        "This is a read-only post-deploy smoke and critical-surface check; it does not prove provider uptime or conversion behavior."
+        "The generic read-only check proves only deployment surface, raw server HTML, responsive semantics, canonical metadata, and crawlability; it is not primary-journey evidence.",
+        "A passing product-specific journey proves only the declared path in this tested environment; it does not prove customer demand, provider uptime, or conversion behavior."
       ]
     },
     options.redactor
   );
   context2.trace({
-    command: ["pnpm", ...POST_DEPLOY_TEST_ARGS],
+    surfaceCommand: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+    primaryJourneyCommand: ["pnpm", ...POST_DEPLOY_PRIMARY_JOURNEY_ARGS],
+    cleanupCommand: ["pnpm", ...POST_DEPLOY_PRIMARY_CLEANUP_ARGS],
     deploymentUrl,
-    exitCode: result2.exitCode,
+    target,
+    customDomain,
+    surfaceExitCode: surfaceResult.exitCode,
+    primaryJourneyExitCode: primaryResult?.exitCode ?? null,
+    cleanupExitCode: cleanupResult?.exitCode ?? null,
+    journeyReadBackExitCode: journeyReadBackResult?.exitCode ?? null,
+    cleanupReadBackExitCode: cleanupReadBackResult?.exitCode ?? null,
     evidenceArtifact
   });
-  if (result2.exitCode !== 0) {
+  if (!primaryResult || primaryResult.exitCode !== 0 || !cleanupResult || cleanupResult.exitCode !== 0 || !journeyReadBackResult || journeyReadBackResult.exitCode !== 0 || !cleanupReadBackResult || cleanupReadBackResult.exitCode !== 0 || !journeyEvidence || !runtimeEvidence || !output) {
+    const cleanupVerified = (() => {
+      if (cleanupResult?.exitCode !== 0) return false;
+      try {
+        validatedCleanupMarkers(cleanupResult.stdout, context2.runId, nonce, journeyContract);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
     throw new WorkflowExecutionError(
-      "POST_DEPLOY_VERIFICATION_FAILED",
-      `Read-only production journey checks exited ${result2.exitCode}; inspect ${evidenceArtifact}.`
+      "POST_DEPLOY_PRIMARY_JOURNEY_FAILED",
+      `The product-specific production journey or its cleanup did not produce exact verified runtime evidence; inspect ${evidenceArtifact}.`,
+      cleanupVerified ? { details: { effectOutcome: "confirmed_no_write" } } : { retryable: true, details: { effectOutcome: "unknown" } }
     );
   }
   return {
-    output: {
-      deploymentUrl,
-      command: ["pnpm", ...POST_DEPLOY_TEST_ARGS],
-      exitCode: 0,
-      verified: true
-    },
+    output,
+    effectVerified: true,
     evidenceArtifact
   };
+}
+async function reconcilePostDeployVerification(options, context2) {
+  if (!context2.operation.checkpoint) return { status: "not_applied" };
+  let checkpoint;
+  let contract;
+  try {
+    checkpoint = productionJourneyOperationCheckpointSchema.parse(context2.operation.checkpoint);
+    contract = primaryJourneyTestContract(options.rootDir, options.launchContract);
+    assertProductionJourneyAuthorization(options.authorization, context2, options.now());
+  } catch (error) {
+    return {
+      status: "failed",
+      code: error instanceof WorkflowExecutionError ? error.code : "PRIMARY_JOURNEY_RECONCILIATION_INVALID",
+      message: error instanceof Error ? error.message : String(error),
+      effectState: "unknown"
+    };
+  }
+  if (checkpoint.runId !== context2.runId || checkpoint.journeyId !== contract.journeyId || checkpoint.identityLabel !== contract.production.identity.label) {
+    return {
+      status: "failed",
+      code: "PRIMARY_JOURNEY_RECONCILIATION_MISMATCH",
+      message: "Refusing cleanup because the persisted operation target no longer matches the immutable journey contract.",
+      effectState: "unknown"
+    };
+  }
+  const reconciliationEnvironment = {
+    PLAYWRIGHT_BASE_URL: checkpoint.deploymentUrl,
+    EXPECTED_PUBLIC_ORIGIN: checkpoint.deploymentUrl,
+    [PRIMARY_JOURNEY_RUN_ID_ENV]: checkpoint.runId,
+    [PRIMARY_JOURNEY_NONCE_ENV]: checkpoint.nonce,
+    [PRIMARY_JOURNEY_TEST_IDENTITY_ENV]: checkpoint.identityLabel
+  };
+  const result2 = await options.commandRunner.run({
+    command: "pnpm",
+    args: POST_DEPLOY_PRIMARY_CLEANUP_ARGS,
+    cwd: options.rootDir,
+    env: reconciliationEnvironment,
+    signal: context2.signal
+  });
+  context2.trace({
+    command: ["pnpm", ...POST_DEPLOY_PRIMARY_CLEANUP_ARGS],
+    exitCode: result2.exitCode,
+    reconciliation: true
+  });
+  if (result2.exitCode !== 0) {
+    return {
+      status: "partially_applied",
+      message: `Production primary-journey cleanup exited ${result2.exitCode}; no replay is permitted until cleanup read-back succeeds.`
+    };
+  }
+  try {
+    validatedCleanupMarkers(result2.stdout, checkpoint.runId, checkpoint.nonce, contract);
+    assertCoreOwnedSurfaceSpec(options.rootDir);
+  } catch (error) {
+    return {
+      status: "partially_applied",
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+  let observerResult;
+  try {
+    observerResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_OBSERVER_ARGS,
+      cwd: options.rootDir,
+      env: {
+        ...reconciliationEnvironment,
+        [PRIMARY_JOURNEY_OBSERVER_PHASE_ENV]: "cleanup_readback",
+        PLAYWRIGHT_OUTPUT_DIR: `.venture/private/test-results/${safeSegment(
+          context2.runId,
+          "run ID"
+        )}/${safeSegment(context2.node.id, "node ID")}-${checkpoint.nonce}/reconcile-readback`
+      },
+      signal: context2.signal
+    });
+  } catch (error) {
+    return {
+      status: "partially_applied",
+      message: `Locked cleanup observer failed: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+  context2.trace({
+    command: ["pnpm", ...POST_DEPLOY_PRIMARY_OBSERVER_ARGS],
+    exitCode: observerResult.exitCode,
+    phase: "cleanup_readback",
+    reconciliation: true
+  });
+  if (observerResult.exitCode !== 0) {
+    return {
+      status: "partially_applied",
+      message: `Locked cleanup observer exited ${observerResult.exitCode}; replay remains forbidden.`
+    };
+  }
+  try {
+    validatedReconciliationCleanupReadBack(
+      observerResult.stdout,
+      checkpoint.runId,
+      checkpoint.nonce,
+      contract
+    );
+  } catch (error) {
+    return {
+      status: "partially_applied",
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+  return { status: "not_applied" };
 }
 async function assertBuildAgentHostAvailable(host) {
   const inspection = await host.inspect();
@@ -25713,7 +30830,7 @@ async function assertBuildAgentHostAvailable(host) {
   }
 }
 function createLaunchProductBindings(options) {
-  const rootDir = resolve16(options.rootDir);
+  const rootDir = resolve19(options.rootDir);
   const redactor = options.redactor ?? new Redactor();
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const handlers = {};
@@ -25728,8 +30845,16 @@ function createLaunchProductBindings(options) {
         );
       }
       return runAgentTask(
-        { rootDir, brief: options.brief, agentHost: options.agentHost, redactor, now },
-        instructions,
+        {
+          rootDir,
+          brief: options.brief,
+          agentHost: options.agentHost,
+          redactor,
+          now,
+          ...options.decision ? { decision: options.decision } : {},
+          ...options.launchContract ? { launchContract: options.launchContract } : {}
+        },
+        ["launch.prepareRepository", "launch.reviewProduct"].includes(handler) ? instructions + PRIMARY_JOURNEY_OBSERVER_INSTRUCTIONS : instructions,
         context2
       );
     };
@@ -25767,7 +30892,14 @@ function createLaunchProductBindings(options) {
         );
       }
       return runQualityCommand(
-        { rootDir, commandRunner: options.commandRunner, redactor, now },
+        {
+          rootDir,
+          commandRunner: options.commandRunner,
+          brief: options.brief,
+          ...options.launchContract ? { launchContract: options.launchContract } : {},
+          redactor,
+          now
+        },
         args,
         context2
       );
@@ -25781,10 +30913,28 @@ function createLaunchProductBindings(options) {
       );
     }
     return runPostDeployVerification(
-      { rootDir, commandRunner: options.commandRunner, brief: options.brief, redactor, now },
+      {
+        rootDir,
+        commandRunner: options.commandRunner,
+        brief: options.brief,
+        ...options.launchContract ? { launchContract: options.launchContract } : {},
+        ...options.authorization ? { authorization: options.authorization } : {},
+        redactor,
+        now
+      },
       context2
     );
   };
+  reconcilers["launch.verifyProduction"] = (context2) => reconcilePostDeployVerification(
+    {
+      rootDir,
+      commandRunner: options.commandRunner,
+      ...options.launchContract ? { launchContract: options.launchContract } : {},
+      ...options.authorization ? { authorization: options.authorization } : {},
+      now
+    },
+    context2
+  );
   return { handlers, reconcilers };
 }
 
@@ -26022,7 +31172,7 @@ var NativeHttpFetcher = class {
       return { status: response.status, headers: response.headers, bytes };
     }
     const pinned = validated.addresses[0];
-    return new Promise((resolve27, reject) => {
+    return new Promise((resolve30, reject) => {
       const nativeRequest = httpsRequest(
         validated.url,
         {
@@ -26054,7 +31204,7 @@ var NativeHttpFetcher = class {
                 value.forEach((entry) => responseHeaderBag.append(name, entry));
               else if (value !== void 0) responseHeaderBag.set(name, String(value));
             }
-            resolve27({
+            resolve30({
               status: response.statusCode ?? 0,
               headers: responseHeaderBag,
               bytes: Uint8Array.from(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
@@ -26130,13 +31280,15 @@ var NativeHttpFetcher = class {
 };
 
 // lib/runtime/provider-bindings.ts
-import { createHash as createHash13 } from "node:crypto";
+import { createHash as createHash14 } from "node:crypto";
 var ProviderPlanFactoryPrerequisiteError = class extends Error {
-  code = "provider_factory_prerequisite";
-  constructor(message) {
+  constructor(message, waitKind) {
     super(message);
+    this.waitKind = waitKind;
     this.name = "ProviderPlanFactoryPrerequisiteError";
   }
+  waitKind;
+  code = "provider_factory_prerequisite";
 };
 function createOfficialProviderTransports(options) {
   const transports = [
@@ -26283,11 +31435,16 @@ async function promoteVerifiedOperations(ledger, operations) {
 var SAFE_RESOURCE_KEYS = {
   accountId: "account_id",
   account_id: "account_id",
+  amountMinor: "amount_minor",
+  amount_minor: "amount_minor",
+  unitAmount: "amount_minor",
+  unit_amount: "amount_minor",
   appId: "app_id",
   app_id: "app_id",
   appStoreAppId: "app_id",
   appVersion: "app_version",
   appBuildVersion: "build_number",
+  branch: "branch",
   branchId: "branch_id",
   branch_id: "branch_id",
   buildId: "build_id",
@@ -26296,6 +31453,9 @@ var SAFE_RESOURCE_KEYS = {
   build_number: "build_number",
   bundleId: "bundle_id",
   bundle_id: "bundle_id",
+  commitOid: "commit_oid",
+  commit_oid: "commit_oid",
+  currency: "currency",
   databaseId: "database_id",
   database_id: "database_id",
   databaseName: "database_name",
@@ -26307,6 +31467,9 @@ var SAFE_RESOURCE_KEYS = {
   entitlement_id: "entitlement_id",
   measurementId: "measurement_id",
   measurement_id: "measurement_id",
+  livemode: "livemode",
+  lookupKey: "lookup_key",
+  lookup_key: "lookup_key",
   html_url: "url",
   nameWithOwner: "repository",
   offeringId: "offering_id",
@@ -26338,12 +31501,17 @@ var SAFE_RESOURCE_KEYS = {
   team_id: "team_id",
   testflightGroupId: "testflight_group_id",
   testflight_group_id: "testflight_group_id",
+  treeOid: "tree_oid",
+  tree_oid: "tree_oid",
   url: "url",
+  visibility: "visibility",
   webhookId: "webhook_id",
   webhook_id: "webhook_id"
 };
 function safeResourceValue(value, redactor) {
-  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+    return null;
+  }
   let text2 = String(value).trim();
   if (text2.length === 0 || text2.length > 500 || text2.startsWith("cred://") || text2.includes("[REDACTED]") || looksLikeCredentialValue(text2) || redactor.redactText(text2) !== text2) {
     return null;
@@ -26381,6 +31549,14 @@ function collectSafeResourceRefs(value, redactor, refs = /* @__PURE__ */ new Map
     (left, right) => left.type.localeCompare(right.type) || left.value.localeCompare(right.value)
   ).slice(0, 100);
 }
+function topLevelValuesForKey(value, key) {
+  const records = Array.isArray(value) ? value : [value];
+  return records.flatMap((candidate) => {
+    if (!candidate || Array.isArray(candidate) || typeof candidate !== "object") return [];
+    const record3 = candidate;
+    return Object.prototype.hasOwnProperty.call(record3, key) ? [record3[key]] : [];
+  });
+}
 function canonicalJson2(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map((item) => canonicalJson2(item)).join(",")}]`;
@@ -26405,10 +31581,10 @@ function providerPlanSnapshot(target, plan) {
   );
 }
 function snapshotDigest(snapshot) {
-  return createHash13("sha256").update(canonicalJson2(snapshot)).digest("hex");
+  return createHash14("sha256").update(canonicalJson2(snapshot)).digest("hex");
 }
 function ledgerBinding(identity) {
-  return createHash13("sha256").update(identity).digest("hex");
+  return createHash14("sha256").update(identity).digest("hex");
 }
 function providerPlanCheckpoint(target, plan, ledgerIdentity) {
   const snapshot = providerPlanSnapshot(target, plan);
@@ -26460,6 +31636,12 @@ async function prepareProviderPlan(workflow, target, options) {
   try {
     plan = adapter.plan(target.request);
   } catch (error) {
+    if (error instanceof ProviderPlanFactoryPrerequisiteError && error.waitKind) {
+      throw new WorkflowExecutionError(
+        error.waitKind === "auth" ? "AUTH_REQUIRED" : "EXTERNAL_ACTION_REQUIRED",
+        error.message
+      );
+    }
     throw new WorkflowExecutionError(
       "provider_plan_failed",
       context2.redactor.redactText(error instanceof Error ? error.message : String(error))
@@ -26626,6 +31808,15 @@ async function verifiedProviderResult(workflow, target, options, context2, plan,
     ],
     context2.redactor
   );
+  for (const execution of report.operations.filter(
+    ({ operation: operation2 }) => operation2.provider === "vercel" && operation2.capability === "deployment"
+  )) {
+    const evidence2 = verification.checks.filter(({ operationId: operationId2 }) => operationId2 === execution.operation.id).map(({ evidence: value }) => value);
+    for (const candidate of topLevelValuesForKey([execution.result.output, ...evidence2], "id")) {
+      const value = safeResourceValue(candidate, context2.redactor);
+      if (value !== null) resourceRefs.push({ type: "deployment_id", value });
+    }
+  }
   const publicOutputs = collectProviderPublicOutputs({
     provider: target.provider,
     requestInputs: target.request.inputs,
@@ -26819,6 +32010,13 @@ async function resolveProviderTarget(handler, factory, workflow) {
   try {
     return await factory(workflow);
   } catch (error) {
+    if (error instanceof ProviderPlanFactoryPrerequisiteError && error.waitKind) {
+      throw new WorkflowExecutionError(
+        error.waitKind === "auth" ? "AUTH_REQUIRED" : "EXTERNAL_ACTION_REQUIRED",
+        error.message,
+        { details: { effectOutcome: "confirmed_no_write" } }
+      );
+    }
     throw new WorkflowExecutionError(
       "provider_plan_factory_failed",
       error instanceof ProviderPlanFactoryPrerequisiteError ? error.message : `Provider plan factory "${handler}" failed without producing a safe request`
@@ -27019,23 +32217,29 @@ function createProviderWorkflowBindings(options) {
 }
 
 // lib/runtime/provider-lifecycle-store.ts
-import { randomBytes as randomBytes4 } from "node:crypto";
-import { mkdir as mkdir5, open as open3, readFile as readFile4, rename as rename4 } from "node:fs/promises";
-import { dirname as dirname10, resolve as resolve17 } from "node:path";
+import { randomBytes as randomBytes7 } from "node:crypto";
+import { mkdir as mkdir6, open as open4, readFile as readFile5, rename as rename5 } from "node:fs/promises";
+import { dirname as dirname11, resolve as resolve20 } from "node:path";
 var providerResourceTypes = [
   "account_id",
+  "amount_minor",
   "app_id",
   "app_version",
   "apple_build_id",
+  "branch",
   "branch_id",
   "build_id",
   "build_number",
   "bundle_id",
+  "commit_oid",
+  "currency",
   "database_id",
   "database_name",
   "deployment_id",
   "domain",
   "entitlement_id",
+  "livemode",
+  "lookup_key",
   "measurement_id",
   "offering_id",
   "price_id",
@@ -27052,7 +32256,9 @@ var providerResourceTypes = [
   "submission_id",
   "team_id",
   "testflight_group_id",
+  "tree_oid",
   "url",
+  "visibility",
   "webhook_id"
 ];
 var ProviderLifecycleStoreError = class extends Error {
@@ -27139,7 +32345,7 @@ var FileProviderLifecycleStore = class {
   queue = Promise.resolve();
   path;
   constructor(path) {
-    this.path = resolve17(path);
+    this.path = resolve20(path);
   }
   async list() {
     await this.queue;
@@ -27172,7 +32378,7 @@ var FileProviderLifecycleStore = class {
   async read() {
     let raw;
     try {
-      raw = await readFile4(this.path, "utf8");
+      raw = await readFile5(this.path, "utf8");
     } catch (error) {
       if (error.code === "ENOENT") return [];
       throw new ProviderLifecycleStoreError(`Provider lifecycle state could not be read`);
@@ -27188,10 +32394,10 @@ var FileProviderLifecycleStore = class {
     return parseProviderLifecycleDocument(value);
   }
   async write(records) {
-    const directory = dirname10(this.path);
-    await mkdir5(directory, { recursive: true, mode: 448 });
-    const temporary = `${this.path}.${process.pid}.${randomBytes4(6).toString("hex")}.tmp`;
-    const handle = await open3(temporary, "wx", 384);
+    const directory = dirname11(this.path);
+    await mkdir6(directory, { recursive: true, mode: 448 });
+    const temporary = `${this.path}.${process.pid}.${randomBytes7(6).toString("hex")}.tmp`;
+    const handle = await open4(temporary, "wx", 384);
     try {
       await handle.writeFile(`${JSON.stringify({ schemaVersion: 1, records }, null, 2)}
 `, "utf8");
@@ -27199,12 +32405,181 @@ var FileProviderLifecycleStore = class {
     } finally {
       await handle.close();
     }
-    await rename4(temporary, this.path);
+    await rename5(temporary, this.path);
   }
 };
 
+// lib/runtime/dogfood-evidence-bundle.ts
+import {
+  closeSync as closeSync8,
+  constants as constants8,
+  existsSync as existsSync10,
+  fstatSync as fstatSync8,
+  lstatSync as lstatSync8,
+  mkdirSync as mkdirSync9,
+  openSync as openSync8,
+  readFileSync as readFileSync14,
+  realpathSync as realpathSync9,
+  readdirSync as readdirSync5,
+  renameSync as renameSync7,
+  rmSync as rmSync3,
+  statSync,
+  writeFileSync as writeFileSync9
+} from "node:fs";
+import { parse as parseYaml3 } from "yaml";
+var NO_FOLLOW6 = "O_NOFOLLOW" in constants8 ? constants8.O_NOFOLLOW : 0;
+var SHA256 = /^[a-f0-9]{64}$/u;
+var GIT_SHA = /^[a-f0-9]{40}$/u;
+var RUN_ID2 = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+var SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u;
+var dogfoodEvidenceArtifactRoles = [
+  "canonical_launch_contract",
+  "harness_lock",
+  "venture_manifest",
+  "launch_grant",
+  "launch_metadata",
+  "workflow_state",
+  "workflow_events",
+  "provider_lifecycle",
+  "launch_report",
+  "launch_receipt",
+  "provider_evidence",
+  "production_verification"
+];
+var dogfoodArtifactSchema = external_exports.object({
+  role: external_exports.enum(dogfoodEvidenceArtifactRoles),
+  nodeId: external_exports.string().regex(SAFE_PATH_SEGMENT).optional(),
+  provider: external_exports.enum(providerIds).optional(),
+  path: external_exports.string().min(1).max(1e3),
+  sourcePath: external_exports.string().min(1).max(1e3),
+  bytes: external_exports.number().int().positive(),
+  sha256: external_exports.string().regex(SHA256)
+}).strict().superRefine((value, context2) => {
+  if (value.role === "provider_evidence" && (!value.nodeId || !value.provider)) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      message: "provider evidence requires an exact nodeId and provider"
+    });
+  }
+  if (value.role !== "provider_evidence" && value.provider !== void 0) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      message: "only provider evidence may carry a provider field"
+    });
+  }
+});
+var dogfoodEvidenceBundleManifestSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  generatedAt: external_exports.string().datetime({ offset: true }),
+  ventureId: external_exports.string().regex(/^[a-z][a-z0-9-]{1,62}$/u),
+  runId: external_exports.string().regex(RUN_ID2),
+  harnessSourceSha: external_exports.string().regex(GIT_SHA),
+  launchContractDigest: external_exports.string().regex(SHA256),
+  graphFingerprint: external_exports.string().regex(SHA256),
+  source: external_exports.object({
+    repository: external_exports.string().min(1).max(1e3),
+    branch: external_exports.string().min(1).max(300),
+    commitSha: external_exports.string().regex(GIT_SHA),
+    treeSha: external_exports.string().regex(GIT_SHA),
+    clean: external_exports.literal(true)
+  }).strict(),
+  artifacts: external_exports.array(dogfoodArtifactSchema).min(10).max(200)
+}).strict();
+var verifiedProviderEvidenceSchema = external_exports.object({
+  provider: external_exports.enum(providerIds),
+  planId: external_exports.string().regex(/^plan\.[a-z][a-z0-9_-]*\.[a-z0-9]+$/u),
+  state: external_exports.literal("verified"),
+  environments: external_exports.array(external_exports.string().min(1).max(100)).min(1).max(20),
+  capabilities: external_exports.array(external_exports.string().min(1).max(200)).min(1).max(100),
+  operations: external_exports.array(
+    external_exports.object({
+      id: external_exports.string().min(1).max(300),
+      action: external_exports.string().min(1).max(300),
+      capability: external_exports.string().min(1).max(200),
+      environment: external_exports.string().min(1).max(100),
+      status: external_exports.literal("matched")
+    }).strict()
+  ).min(1).max(100),
+  resourceRefs: external_exports.array(external_exports.string().min(1).max(1e3)).max(100),
+  publicOutputs: providerPublicOutputsSchema,
+  checks: external_exports.array(
+    external_exports.object({
+      operationId: external_exports.string().min(1).max(300),
+      status: external_exports.literal("matched")
+    }).strict()
+  ).min(1).max(100)
+}).strict();
+var launchMetadataSchema = external_exports.object({
+  schemaVersion: external_exports.literal(2),
+  brief: founderBriefSchema,
+  decision: external_exports.custom(
+    (value) => Boolean(value && typeof value === "object" && !Array.isArray(value))
+  ),
+  activeEventPacks: external_exports.array(external_exports.string().min(1).max(200)).max(100),
+  routerVersion: external_exports.literal("0.2.0"),
+  definition: external_exports.custom(
+    (value) => Boolean(value && typeof value === "object" && !Array.isArray(value))
+  ),
+  authorization: authorizationEnvelopeSchema,
+  launchGrant: external_exports.custom(
+    (value) => Boolean(value && typeof value === "object" && !Array.isArray(value))
+  ),
+  launchContract: launchContractSchema,
+  launchContractDigest: external_exports.string().regex(SHA256),
+  founderLaunchGaps: external_exports.array(external_exports.unknown()).optional()
+}).strict();
+var ventureManifestSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  ventureId: external_exports.string().min(1).max(100),
+  ventureName: external_exports.string().min(1).max(200),
+  ventureSlug: external_exports.string().min(1).max(100),
+  ownerOrganizationId: external_exports.string().min(1).max(500),
+  repository: external_exports.object({
+    owner: external_exports.string().min(1).max(300),
+    name: external_exports.string().min(1).max(300),
+    visibility: external_exports.enum(["private", "public"])
+  }).strict(),
+  seed: external_exports.object({ id: external_exports.string(), version: external_exports.string() }).strict(),
+  stackProfile: external_exports.object({ id: external_exports.string(), version: external_exports.string() }).strict(),
+  rail: external_exports.enum(["web", "ios", "hybrid"]),
+  coreVersion: external_exports.string().min(1).max(100),
+  launchContractDigest: external_exports.string().regex(SHA256),
+  launchContractPath: external_exports.literal("config/launch-contract.yaml"),
+  serviceBlueprints: external_exports.array(external_exports.string()).optional(),
+  connectorManifest: external_exports.string().min(1),
+  agentSurface: external_exports.object({
+    cli: external_exports.string(),
+    mcpPrefix: external_exports.string(),
+    sdkPackage: external_exports.string(),
+    restPrefix: external_exports.string()
+  }).strict().optional(),
+  companyResourcesOwnedBy: external_exports.string().min(1),
+  advertisingSpendAuthorized: external_exports.literal(false)
+}).strict();
+var providerCheckpointSchema = external_exports.object({
+  schemaVersion: external_exports.literal(2),
+  kind: external_exports.literal("provider_plan"),
+  provider: external_exports.enum(providerIds),
+  digest: external_exports.string().regex(SHA256),
+  ledgerBinding: external_exports.string().regex(SHA256),
+  snapshot: external_exports.object({
+    target: external_exports.object({
+      provider: external_exports.enum(providerIds),
+      request: external_exports.record(external_exports.unknown()),
+      operationBudget: external_exports.unknown().optional()
+    }).strict(),
+    plan: external_exports.object({
+      id: external_exports.string().min(1).max(300),
+      provider: external_exports.enum(providerIds),
+      environment: external_exports.string().min(1).max(100),
+      dryRun: external_exports.literal(false),
+      operations: external_exports.array(external_exports.record(external_exports.unknown())).min(1).max(100)
+    }).strict()
+  }).strict()
+}).strict();
+
 // lib/upgrade/engine.ts
-import { createHash as createHash14 } from "node:crypto";
+import { createHash as createHash15 } from "node:crypto";
 import { stringify as stringify4 } from "yaml";
 
 // lib/upgrade/types.ts
@@ -27249,7 +32624,7 @@ var harnessReleaseSchema = external_exports.object({
 
 // lib/upgrade/engine.ts
 function sha2565(content) {
-  return createHash14("sha256").update(content).digest("hex");
+  return createHash15("sha256").update(content).digest("hex");
 }
 function mergeLines(base, current, next) {
   const baseLines = base.split("\n");
@@ -27361,15 +32736,15 @@ async function planUpgrade(options) {
 }
 
 // lib/upgrade/local-release.ts
-import { createHash as createHash15 } from "node:crypto";
-import { lstat as lstat2, readFile as readFile5, realpath, stat } from "node:fs/promises";
-import { isAbsolute as isAbsolute5, relative as relative12, resolve as resolve18, sep as sep12 } from "node:path";
+import { createHash as createHash16 } from "node:crypto";
+import { lstat as lstat2, readFile as readFile6, realpath, stat } from "node:fs/promises";
+import { isAbsolute as isAbsolute6, relative as relative14, resolve as resolve21, sep as sep14 } from "node:path";
 function sha2566(content) {
-  return createHash15("sha256").update(content).digest("hex");
+  return createHash16("sha256").update(content).digest("hex");
 }
 function isInside(root, candidate) {
-  const rel = relative12(root, candidate);
-  return rel === "" || !rel.startsWith(`..${sep12}`) && rel !== ".." && !isAbsolute5(rel);
+  const rel = relative14(root, candidate);
+  return rel === "" || !rel.startsWith(`..${sep14}`) && rel !== ".." && !isAbsolute6(rel);
 }
 function rejectRemoteLocator(locator) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
@@ -27380,18 +32755,18 @@ function rejectRemoteLocator(locator) {
 }
 async function locateLocalHarnessRelease(options) {
   rejectRemoteLocator(options.locator);
-  const requestedRoot = resolve18(options.baseDir ?? process.cwd(), options.locator);
+  const requestedRoot = resolve21(options.baseDir ?? process.cwd(), options.locator);
   const requestedStat = await stat(requestedRoot).catch(() => null);
   if (!requestedStat?.isDirectory()) {
     throw new Error(`Local release directory does not exist: ${options.locator}`);
   }
   const releaseRoot = await realpath(requestedRoot);
-  const lockPath = resolve18(releaseRoot, "harness.lock");
+  const lockPath = resolve21(releaseRoot, "harness.lock");
   const lockRealPath = await realpath(lockPath).catch(() => null);
   if (lockRealPath === null || !isInside(releaseRoot, lockRealPath)) {
     throw new Error("Local release must contain a non-escaping harness.lock");
   }
-  const lock = parseHarnessLock(await readFile5(lockRealPath, "utf8"));
+  const lock = parseHarnessLock(await readFile6(lockRealPath, "utf8"));
   if (lock.source.kind !== "release" || lock.source.ref !== `v${lock.harness_version}`) {
     throw new Error(
       `Local release lock must declare source release/v${lock.harness_version}; found ${lock.source.kind}/${lock.source.ref ?? "null"}`
@@ -27409,7 +32784,7 @@ async function locateLocalHarnessRelease(options) {
       files.push({ path: entry.path, ownership: entry.ownership, content: "" });
       continue;
     }
-    const candidate = resolve18(releaseRoot, entry.path);
+    const candidate = resolve21(releaseRoot, entry.path);
     const fileStat = await lstat2(candidate).catch(() => null);
     if (fileStat === null || !fileStat.isFile() || fileStat.isSymbolicLink()) {
       throw new Error(`Local release managed file is missing or not a regular file: ${entry.path}`);
@@ -27418,7 +32793,7 @@ async function locateLocalHarnessRelease(options) {
     if (!isInside(releaseRoot, realCandidate)) {
       throw new Error(`Local release managed file escapes its root: ${entry.path}`);
     }
-    const content = await readFile5(realCandidate, "utf8");
+    const content = await readFile6(realCandidate, "utf8");
     if (sha2566(content) !== entry.sha256) {
       throw new Error(`Local release managed hash mismatch: ${entry.path}`);
     }
@@ -27433,10 +32808,10 @@ async function locateLocalHarnessRelease(options) {
 }
 
 // lib/upgrade/operational.ts
-import { createHash as createHash16 } from "node:crypto";
+import { createHash as createHash17 } from "node:crypto";
 import { stringify as stringify5, parse as parse4 } from "yaml";
 function sha2567(content) {
-  return createHash16("sha256").update(content).digest("hex");
+  return createHash17("sha256").update(content).digest("hex");
 }
 function safeMessage(error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -27985,7 +33360,7 @@ function probeFor(provider, secret, connection) {
 function createDefaultFounderCredentialTesters(options) {
   const testers = {};
   for (const provider of ["neon", "stripe", "revenuecat", "brevo", "google", "bing"]) {
-    testers[provider] = async (secret, reference) => {
+    testers[provider] = async (secret, reference, context2) => {
       const probe = probeFor(provider, secret, options.connection ?? null);
       if (!probe || reference.provider !== provider) {
         return { ok: false, message: `${provider} credential metadata does not match the probe` };
@@ -27995,7 +33370,8 @@ function createDefaultFounderCredentialTesters(options) {
         url: probe.url,
         headers: probe.headers,
         sensitiveHeaders: probe.sensitiveHeaders,
-        sensitiveUrl: probe.sensitiveUrl ?? false
+        sensitiveUrl: probe.sensitiveUrl ?? false,
+        signal: context2?.signal
       };
       try {
         const response = await options.fetcher.fetch(request2);
@@ -28007,6 +33383,24 @@ function createDefaultFounderCredentialTesters(options) {
             message: responseAccepted ? `${provider} credential cannot access the exact Founder Stack account` : `${provider} credential probe returned HTTP ${response.status}`
           };
         }
+        if (provider === "stripe") {
+          const balance = await options.fetcher.fetch({
+            ...request2,
+            url: "https://api.stripe.com/v1/balance"
+          });
+          if (balance.status < 200 || balance.status >= 300) {
+            return {
+              ok: false,
+              message: `stripe credential test-mode probe returned HTTP ${balance.status}`
+            };
+          }
+          if (record2(balance.body)?.livemode !== false) {
+            return {
+              ok: false,
+              message: "stripe credential did not prove test mode"
+            };
+          }
+        }
         return {
           ok: true,
           // Organization/project/property targets prove access to the selected
@@ -28015,6 +33409,7 @@ function createDefaultFounderCredentialTesters(options) {
           // account identity recorded at login instead of overwriting it with
           // a differently scoped provider resource identifier.
           ...(provider === "stripe" || provider === "brevo") && probe.accountId ? { accountId: probe.accountId } : {},
+          ...provider === "stripe" ? { providerMode: "test" } : {},
           message: `${provider} credential passed a read-only official API probe`
         };
       } catch {
@@ -28026,12 +33421,16 @@ function createDefaultFounderCredentialTesters(options) {
 }
 
 // lib/cli/default-provider-runtime.ts
-import { existsSync as existsSync10, readFileSync as readFileSync12 } from "node:fs";
-import { resolve as resolve19 } from "node:path";
+import { existsSync as existsSync11, readFileSync as readFileSync15 } from "node:fs";
+import { isIP as isIP2 } from "node:net";
+import { resolve as resolve22 } from "node:path";
 import { parse as parse5 } from "yaml";
 var ProviderFactoryPrerequisiteError = class extends ProviderPlanFactoryPrerequisiteError {
-  constructor(handler, message) {
-    super(`${handler}: ${message}; no partial plan was returned and no provider request was made.`);
+  constructor(handler, message, waitKind) {
+    super(
+      `${handler}: ${message}; no partial plan was returned and no provider request was made.`,
+      waitKind
+    );
     this.handler = handler;
     this.name = "ProviderFactoryPrerequisiteError";
   }
@@ -28044,6 +33443,8 @@ var DEFAULT_PROVIDER_TARGETS = {
   "provider.brevo-domain-verification": { provider: "brevo", environment: "preview" },
   "provider.brevo-email": { provider: "brevo", environment: "preview" },
   "provider.stripe-commerce": { provider: "stripe", environment: "sandbox" },
+  "provider.stripe-callbacks": { provider: "stripe", environment: "sandbox" },
+  "provider.stripe-domain-callbacks": { provider: "stripe", environment: "sandbox" },
   "provider.google-analytics-property": { provider: "google", environment: "preview" },
   "provider.google-analytics-stream": { provider: "google", environment: "preview" },
   "provider.google-site-dns-record": { provider: "google", environment: "preview" },
@@ -28051,11 +33452,22 @@ var DEFAULT_PROVIDER_TARGETS = {
   "provider.google-search-console": { provider: "google", environment: "preview" },
   "provider.bing-discovery": { provider: "bing", environment: "preview" },
   "provider.vercel-project": { provider: "vercel", environment: "preview" },
-  "provider.vercel-database-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-stripe-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-stripe-webhook-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-brevo-environment": { provider: "vercel", environment: "preview" },
-  "provider.vercel-ga-environment": { provider: "vercel", environment: "preview" },
+  "provider.vercel-database-environment": { provider: "vercel", environment: "production" },
+  "provider.vercel-stripe-environment": { provider: "vercel", environment: "production" },
+  "provider.vercel-stripe-webhook-environment": {
+    provider: "vercel",
+    environment: "production"
+  },
+  "provider.vercel-stripe-price-environment": {
+    provider: "vercel",
+    environment: "production"
+  },
+  "provider.vercel-stripe-price-lookup-environment": {
+    provider: "vercel",
+    environment: "production"
+  },
+  "provider.vercel-brevo-environment": { provider: "vercel", environment: "production" },
+  "provider.vercel-ga-environment": { provider: "vercel", environment: "production" },
   "provider.dns-records": { provider: "dns", environment: "production" },
   "provider.revenuecat-entitlements": { provider: "revenuecat", environment: "sandbox" },
   "provider.eas-build": { provider: "eas", environment: "testflight" },
@@ -28064,7 +33476,10 @@ var DEFAULT_PROVIDER_TARGETS = {
     provider: "app_store_connect",
     environment: "testflight"
   },
-  "provider.production-deploy": { provider: "vercel", environment: "production" }
+  "provider.production-deploy": { provider: "vercel", environment: "production" },
+  "provider.initial-production-deploy": { provider: "vercel", environment: "production" },
+  "provider.analytics-production-redeploy": { provider: "vercel", environment: "production" },
+  "provider.email-production-redeploy": { provider: "vercel", environment: "production" }
 };
 var ADAPTER_CAPABILITIES = {
   vercel: {
@@ -28110,13 +33525,13 @@ var CLI_IDS_BY_PROVIDER = {
   eas: ["eas"]
 };
 function readYaml(path) {
-  return parse5(readFileSync12(path, "utf8"));
+  return parse5(readFileSync15(path, "utf8"));
 }
 function loadDefaultProviderConfig(rootDir) {
-  const root = resolve19(rootDir);
+  const root = resolve22(rootDir);
   const load = (relativePath, parseConfig) => {
-    const path = resolve19(root, relativePath);
-    if (!existsSync10(path)) {
+    const path = resolve22(root, relativePath);
+    if (!existsSync11(path)) {
       throw new ProviderPlanFactoryPrerequisiteError(
         `Missing ${relativePath}. Next: restore the v0.2 typed config or run vh upgrade before planning provider effects`
       );
@@ -28147,7 +33562,15 @@ function loadDefaultProviderConfig(rootDir) {
 function currentBrief(value) {
   return typeof value === "function" ? value() : value;
 }
-function providerState(snapshot, provider) {
+function immutableConfigSnapshot(snapshot) {
+  return {
+    providers: providersSchema.parse(snapshot.providers),
+    venture: ventureSchema.parse(snapshot.venture),
+    mobile: mobileSchema.parse(snapshot.mobile),
+    offer: offerSchema.parse(snapshot.offer)
+  };
+}
+function providerState2(snapshot, provider) {
   const state = snapshot.providers.providers[provider];
   if (!state) {
     throw new Error(`config/providers.yaml has no providers.${provider} entry`);
@@ -28170,15 +33593,34 @@ function requireExternal(handler, state, key, nextAction2) {
   );
 }
 function requireCredential(handler, provider, value, path = `config/providers.yaml providers.${provider}.credential_ref`) {
-  const ref = requireValue(
-    handler,
-    value,
-    path,
-    `run vh auth login ${provider}, then record the registered cred:// reference in that field`
-  );
-  return credentialReferenceSchema.parse(ref);
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      `missing ${path}. Next: run vh auth login ${provider}, then record the registered cred:// reference in that field`,
+      "auth"
+    );
+  }
+  try {
+    return credentialReferenceSchema.parse(value);
+  } catch {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      `${path} is not a valid cred:// reference. Next: run vh auth login ${provider} and record its registered reference`,
+      "auth"
+    );
+  }
 }
-function requireVerifiedExisting(handler, provider, state, resource, lifecycleRecords, requiredCapabilities, requiredResources) {
+function requireCustomDomain(handler, brief, purpose) {
+  if (!brief.domain) {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      `missing canonical custom domain for ${purpose}. Next: keep the provider production URL live and resume this optional integration after a domain is reviewed`,
+      "external"
+    );
+  }
+  return brief.domain;
+}
+function requireVerifiedExisting(handler, provider, state, resource2, lifecycleRecords, requiredCapabilities, requiredResources) {
   const verifiedCapabilities = new Set(lifecycleRecords.map(({ capability }) => capability));
   const scopedResourceRefs = lifecycleRecords.filter(({ capability }) => requiredCapabilities.includes(capability)).flatMap(({ resourceRefs }) => resourceRefs);
   if (state.state !== "verified" && (!requiredCapabilities.every((capability) => verifiedCapabilities.has(capability)) || !requiredResources.every(
@@ -28186,7 +33628,7 @@ function requireVerifiedExisting(handler, provider, state, resource, lifecycleRe
   ))) {
     fail(
       handler,
-      `providers.${provider}.state is ${state.state}, and no matching verified lifecycle record proves the existing ${resource}. Next: verify it with provider read-back in the same environment, set last_verified_at and evidence_artifact_ref, or inject a complete typed factory that can create and verify it`
+      `providers.${provider}.state is ${state.state}, and no matching verified lifecycle record proves the existing ${resource2}. Next: verify it with provider read-back in the same environment, set last_verified_at and evidence_artifact_ref, or inject a complete typed factory that can create and verify it`
     );
   }
 }
@@ -28200,9 +33642,9 @@ function resourceReferencesMatch(left, right) {
     return left.value === right.value;
   }
 }
-function lifecycleProvesExisting(lifecycleRecords, capability, resource) {
+function lifecycleProvesExisting(lifecycleRecords, capability, resource2) {
   return lifecycleRecords.some(
-    (record3) => record3.capability === capability && record3.resourceRefs.some((reference) => resourceReferencesMatch(reference, resource))
+    (record3) => record3.capability === capability && record3.resourceRefs.some((reference) => resourceReferencesMatch(reference, resource2))
   );
 }
 function lifecycleResourceValue(lifecycleRecords, type, capabilities) {
@@ -28214,7 +33656,7 @@ function lifecycleResourceValue(lifecycleRecords, type, capabilities) {
 }
 function withLifecycleResources(handler, snapshot, lifecycleRecords) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, target.provider);
+  const state = providerState2(snapshot, target.provider);
   const reuse = target.provider === "github" ? { repository: ["repository", "repository_settings"] } : target.provider === "vercel" ? { project: ["project"] } : target.provider === "neon" ? {
     project_id: ["project", "database"],
     branch_id: ["database"],
@@ -28254,7 +33696,7 @@ function request(target, credentialRef2, capabilities, inputs) {
 }
 function githubRequest(handler, snapshot, lifecycleRecords, rootDir) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "github");
+  const state = providerState2(snapshot, "github");
   const credentialRef2 = requireCredential(handler, "github", state.credential_ref);
   const repository = requireExternal(
     handler,
@@ -28289,7 +33731,7 @@ function githubRequest(handler, snapshot, lifecycleRecords, rootDir) {
   if (intent === "create_from_source" || intent === "create_from_template") {
     return request(target, credentialRef2, ["repository"], {
       repository,
-      sourceDirectory: resolve19(rootDir),
+      sourceDirectory: resolve22(rootDir),
       visibility: snapshot.venture.venture.repository_visibility
     });
   }
@@ -28313,9 +33755,9 @@ function githubRequest(handler, snapshot, lifecycleRecords, rootDir) {
     `unsupported repository_intent ${intent}. Next: choose create_from_source or use_verified; create_from_template is accepted only as a deprecated compatibility alias that still publishes verified local source`
   );
 }
-function vercelRequest(handler, snapshot, lifecycleRecords) {
+function vercelRequest(handler, snapshot, lifecycleRecords, authorizedDomain) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "vercel");
+  const state = providerState2(snapshot, "vercel");
   const credentialRef2 = requireCredential(handler, "vercel", state.credential_ref);
   const project = requireExternal(
     handler,
@@ -28329,7 +33771,7 @@ function vercelRequest(handler, snapshot, lifecycleRecords) {
     "config/providers.yaml providers.vercel.team_id or account_id",
     "record the exact Vercel team/account scope so the active CLI account is never inferred"
   );
-  if (handler === "provider.production-deploy") {
+  if (handler === "provider.production-deploy" || handler === "provider.initial-production-deploy" || handler === "provider.analytics-production-redeploy" || handler === "provider.email-production-redeploy") {
     requireVerifiedExisting(
       handler,
       "vercel",
@@ -28339,7 +33781,11 @@ function vercelRequest(handler, snapshot, lifecycleRecords) {
       ["project"],
       [{ type: "project", value: project }]
     );
-    return request(target, credentialRef2, ["deployment"], { project, scope });
+    return request(target, credentialRef2, ["deployment"], {
+      project,
+      scope,
+      deploymentPhase: handler === "provider.initial-production-deploy" ? "initial_production_origin" : handler === "provider.analytics-production-redeploy" ? "analytics_configured_production" : handler === "provider.email-production-redeploy" ? "email_configured_production" : "final_configured_production"
+    });
   }
   const lifecycleProjectExists = lifecycleProvesExisting(lifecycleRecords, "project", {
     type: "project",
@@ -28377,18 +33823,18 @@ function vercelRequest(handler, snapshot, lifecycleRecords) {
   return request(
     target,
     credentialRef2,
-    ["project", "deployment", ...snapshot.venture.venture.domain ? ["domain"] : []],
+    ["project", "deployment", ...authorizedDomain ? ["domain"] : []],
     {
       project,
       scope,
       projectIntent,
-      ...snapshot.venture.venture.domain ? { domain: snapshot.venture.venture.domain } : {}
+      ...authorizedDomain ? { domain: authorizedDomain } : {}
     }
   );
 }
 function vercelEnvironmentRequest(handler, snapshot) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "vercel");
+  const state = providerState2(snapshot, "vercel");
   const credentialRef2 = requireCredential(handler, "vercel", state.credential_ref);
   const project = requireExternal(
     handler,
@@ -28422,16 +33868,11 @@ function vercelEnvironmentRequest(handler, snapshot) {
       name: "BREVO_API_KEY",
       provider: "brevo",
       path: "credential_ref"
-    },
-    "provider.vercel-ga-environment": {
-      name: "NEXT_PUBLIC_GA_MEASUREMENT_ID",
-      provider: "google",
-      path: "measurement_id_credential_ref"
     }
   };
   const selected = binding[handler];
   if (!selected) fail(handler, "unknown Vercel environment binding");
-  const source = providerState(snapshot, selected.provider);
+  const source = providerState2(snapshot, selected.provider);
   const valueRef = selected.path === "credential_ref" ? source.credential_ref : source.external_resource_ids[selected.path];
   const environmentValueCredentialRef = requireCredential(
     handler,
@@ -28447,9 +33888,82 @@ function vercelEnvironmentRequest(handler, snapshot) {
     environmentValueCredentialRef
   });
 }
+function vercelPublicStripeEnvironmentRequest(handler, snapshot, brief, workflow, launchContract) {
+  const target = DEFAULT_PROVIDER_TARGETS[handler];
+  const state = providerState2(snapshot, "vercel");
+  const credentialRef2 = requireCredential(handler, "vercel", state.credential_ref);
+  const project = requireExternal(
+    handler,
+    state,
+    "project",
+    "record the exact Vercel project slug to configure"
+  );
+  const scope = requireValue(
+    handler,
+    state.team_id ?? state.account_id,
+    "config/providers.yaml providers.vercel.team_id or account_id",
+    "record the exact Vercel team/account scope"
+  );
+  let environmentVariableName;
+  let environmentPublicValue;
+  if (handler === "provider.vercel-stripe-price-environment") {
+    environmentVariableName = "STRIPE_PRICE_ID";
+    environmentPublicValue = dependencyIdentifier(handler, workflow, "stripe-commerce", "price_id");
+  } else if (handler === "provider.vercel-stripe-price-lookup-environment") {
+    environmentVariableName = "STRIPE_PRICE_LOOKUP_KEY";
+    const price = launchContract ? contractStripePrice(handler, launchContract) : configuredStripePrice(handler, snapshot);
+    const unitAmount = exactMinorUnits(handler, price.amount, price.path);
+    environmentPublicValue = stripePriceLookupKey(
+      brief.id,
+      price.currency,
+      unitAmount,
+      price.interval
+    );
+  } else {
+    return fail(handler, "unknown public Stripe application binding");
+  }
+  return request(target, credentialRef2, ["environment_variable"], {
+    project,
+    scope,
+    environmentVariableName,
+    environmentTarget: "production",
+    environmentPublicValue
+  });
+}
+function vercelPublicGoogleEnvironmentRequest(handler, snapshot, workflow) {
+  const target = DEFAULT_PROVIDER_TARGETS[handler];
+  const state = providerState2(snapshot, "vercel");
+  return request(
+    target,
+    requireCredential(handler, "vercel", state.credential_ref),
+    ["environment_variable"],
+    {
+      project: requireExternal(
+        handler,
+        state,
+        "project",
+        "record the exact Vercel project slug to configure"
+      ),
+      scope: requireValue(
+        handler,
+        state.team_id ?? state.account_id,
+        "config/providers.yaml providers.vercel.team_id or account_id",
+        "record the exact Vercel team/account scope"
+      ),
+      environmentVariableName: "NEXT_PUBLIC_GA_MEASUREMENT_ID",
+      environmentTarget: "production",
+      environmentPublicValue: dependencyIdentifier(
+        handler,
+        workflow,
+        "google-analytics-stream",
+        "measurement_id"
+      )
+    }
+  );
+}
 function neonRequest(handler, snapshot, lifecycleRecords, rootDir) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "neon");
+  const state = providerState2(snapshot, "neon");
   const credentialRef2 = requireCredential(handler, "neon", state.credential_ref);
   const projectIntent = state.external_resource_ids.project_intent ?? "use_verified";
   if (projectIntent === "create") {
@@ -28486,7 +34000,7 @@ function neonRequest(handler, snapshot, lifecycleRecords, rootDir) {
         projectName,
         regionId,
         databaseCredentialRef: databaseCredentialRef2,
-        workingDirectory: resolve19(rootDir)
+        workingDirectory: resolve22(rootDir)
       }
     );
   }
@@ -28538,7 +34052,7 @@ function neonRequest(handler, snapshot, lifecycleRecords, rootDir) {
     branchId,
     databaseName,
     databaseCredentialRef,
-    workingDirectory: resolve19(rootDir)
+    workingDirectory: resolve22(rootDir)
   });
 }
 function exactMinorUnits(handler, amount, path) {
@@ -28551,10 +34065,144 @@ function exactMinorUnits(handler, amount, path) {
   }
   return minorUnits2;
 }
-function stripeRequest(handler, snapshot) {
+function safeVerifiedVercelOrigin(handler, workflow, purpose = "domainless Stripe callbacks", dependencyId = "initial-production-deploy") {
+  const dependency = workflow.dependencyOutputs[dependencyId];
+  if (!dependency || Array.isArray(dependency) || typeof dependency !== "object" || dependency.provider !== "vercel" || dependency.state !== "verified" || !Array.isArray(dependency.environments) || !dependency.environments.includes("production") || !Array.isArray(dependency.capabilities) || !dependency.capabilities.includes("deployment") || !Array.isArray(dependency.resourceRefs)) {
+    return fail(
+      handler,
+      `${purpose} requires same-run verified ${dependencyId} output with one exact production deployment URL. Next: resume after that production deployment read-back`
+    );
+  }
+  const origins = /* @__PURE__ */ new Set();
+  for (const reference of dependency.resourceRefs) {
+    if (typeof reference !== "string" || !reference.startsWith("url=")) continue;
+    try {
+      const url = new URL(reference.slice("url=".length));
+      const hostname = url.hostname.toLowerCase();
+      if (url.protocol !== "https:" || url.username || url.password || url.port || isIP2(hostname) !== 0 || !hostname.includes(".") || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+        continue;
+      }
+      origins.add(url.origin);
+    } catch {
+    }
+  }
+  if (origins.size !== 1) {
+    return fail(
+      handler,
+      `${dependencyId} read-back must contain one exact safe HTTPS production origin for ${purpose}; found ${origins.size}. Next: reconcile the production deployment before configuring it`
+    );
+  }
+  return [...origins][0];
+}
+function verifiedCustomDomainOrigin(handler, brief, workflow) {
+  const domain = requireValue(
+    handler,
+    brief.domain,
+    "canonical founder brief domain",
+    "record a reviewed custom domain before requesting callback rebinding"
+  );
+  let expected;
+  try {
+    const url = new URL(`https://${domain}`);
+    if (url.origin !== `https://${domain}` || url.username || url.password || url.port || isIP2(url.hostname) !== 0 || !url.hostname.includes(".") || url.hostname.endsWith(".local") || url.hostname.endsWith(".internal")) {
+      return fail(handler, "the canonical custom domain is not one safe HTTPS hostname");
+    }
+    expected = url.origin;
+  } catch {
+    return fail(handler, "the canonical custom domain is not one safe HTTPS hostname");
+  }
+  const project = workflow.dependencyOutputs["vercel-project"];
+  const dns = workflow.dependencyOutputs["dns-records"];
+  const verification = workflow.dependencyOutputs["verify-custom-domain"];
+  const projectRefs = project && !Array.isArray(project) && typeof project === "object" && project.provider === "vercel" && project.state === "verified" && Array.isArray(project.capabilities) && project.capabilities.includes("domain") && Array.isArray(project.resourceRefs) ? project.resourceRefs : [];
+  const attached = projectRefs.some((reference) => {
+    if (typeof reference !== "string") return false;
+    const separator = reference.indexOf("=");
+    if (separator < 0 || !["domain", "site_url", "url"].includes(reference.slice(0, separator))) {
+      return false;
+    }
+    const value = reference.slice(separator + 1);
+    if (value === domain) return true;
+    try {
+      return new URL(value).origin === expected;
+    } catch {
+      return false;
+    }
+  });
+  const dnsVerified = dns !== void 0 && dns !== null && !Array.isArray(dns) && typeof dns === "object" && (dns.mode === "manual_dns" && Array.isArray(dns.propagation_checks) && dns.propagation_checks.length >= 2 && dns.propagation_checks.every(
+    (check) => check && !Array.isArray(check) && typeof check === "object" && check.status === "matched"
+  ) || dns.provider === "dns" && dns.state === "verified" && Array.isArray(dns.capabilities) && dns.capabilities.includes("record"));
+  const journeyVerified = verification !== void 0 && verification !== null && !Array.isArray(verification) && typeof verification === "object" && verification.target === "verified_custom_domain" && verification.deploymentUrl === expected && verification.customDomain !== null && typeof verification.customDomain === "object" && !Array.isArray(verification.customDomain) && verification.customDomain.state === "verified" && verification.customDomain.origin === expected;
+  if (!attached || !dnsVerified || !journeyVerified) {
+    throw new ProviderFactoryPrerequisiteError(
+      handler,
+      "custom-domain callbacks require same-run verified Vercel attachment, authoritative DNS, and exact-origin product-journey evidence. Next: finish the custom-domain verification node, then resume callback rebinding",
+      "external"
+    );
+  }
+  return expected;
+}
+function contractStripePrice(handler, contract) {
+  if (contract.business.paymentProvider !== "stripe" || contract.business.priceHypothesis === null) {
+    return fail(handler, "the canonical Launch Contract does not authorize one Stripe price");
+  }
+  if (!["subscription", "one_time", "service"].includes(contract.business.model)) {
+    return fail(
+      handler,
+      `Launch Contract pricing model ${contract.business.model} has no deterministic built-in Stripe price shape. Next: select a supported exact subscription, one-time, or service price or inject a reviewed typed factory`
+    );
+  }
+  return {
+    amount: contract.business.priceHypothesis,
+    interval: contract.business.model === "subscription" ? "month" : null,
+    currency: contract.business.currency,
+    path: "canonical Launch Contract business.priceHypothesis"
+  };
+}
+function configuredStripePrice(handler, snapshot) {
+  const configuredPrices = [
+    snapshot.offer.pricing.monthly_price === null ? null : {
+      amount: snapshot.offer.pricing.monthly_price,
+      interval: "month",
+      currency: snapshot.offer.pricing.currency,
+      path: "config/offer.yaml pricing.monthly_price"
+    },
+    snapshot.offer.pricing.annual_price === null ? null : {
+      amount: snapshot.offer.pricing.annual_price,
+      interval: "year",
+      currency: snapshot.offer.pricing.currency,
+      path: "config/offer.yaml pricing.annual_price"
+    },
+    snapshot.offer.pricing.one_time_price === null ? null : {
+      amount: snapshot.offer.pricing.one_time_price,
+      interval: null,
+      currency: snapshot.offer.pricing.currency,
+      path: "config/offer.yaml pricing.one_time_price"
+    }
+  ].filter(
+    (value) => value !== null
+  );
+  if (configuredPrices.length !== 1) {
+    return fail(
+      handler,
+      configuredPrices.length === 0 ? "no approved recurring or one-time price exists in config/offer.yaml. Next: record the exact displayed price before planning Stripe" : "multiple launch prices are active, but the built-in node cannot yet prove multiple immutable Stripe price resources without omitting one. Next: select one launch price or inject a multi-price factory"
+    );
+  }
+  return configuredPrices[0];
+}
+function stripePriceLookupKey(ventureSlug, currency, unitAmount, interval) {
+  return `vh_${ventureSlug.replaceAll("-", "_")}_${currency.toLowerCase()}_${unitAmount}_${interval ?? "once"}`;
+}
+function stripeRequest(handler, snapshot, brief, workflow, launchContract) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "stripe");
+  const state = providerState2(snapshot, "stripe");
   const credentialRef2 = requireCredential(handler, "stripe", state.credential_ref);
+  const stripeAccountId = requireValue(
+    handler,
+    state.account_id,
+    "config/providers.yaml providers.stripe.account_id",
+    "record the exact Stripe account proven by the restricted test credential"
+  );
   const mode = requireExternal(
     handler,
     state,
@@ -28567,51 +34215,45 @@ function stripeRequest(handler, snapshot) {
       `Stripe mode is ${mode}. Next: use an explicitly registered test-mode credential and set providers.stripe.external_resource_ids.mode to test; the default launch node never creates live prices`
     );
   }
-  const configuredPrices = [
-    snapshot.offer.pricing.monthly_price === null ? null : {
-      amount: snapshot.offer.pricing.monthly_price,
-      interval: "month",
-      path: "config/offer.yaml pricing.monthly_price"
-    },
-    snapshot.offer.pricing.annual_price === null ? null : {
-      amount: snapshot.offer.pricing.annual_price,
-      interval: "year",
-      path: "config/offer.yaml pricing.annual_price"
-    }
-  ].filter((value) => value !== null);
-  if (configuredPrices.length !== 1) {
-    fail(
-      handler,
-      configuredPrices.length === 0 ? "no approved monthly or annual price exists in config/offer.yaml. Next: record the exact displayed price before planning Stripe" : "both monthly and annual prices are active, but the built-in node cannot yet prove two immutable Stripe price resources without omitting one. Next: select one launch price or inject a multi-price factory"
-    );
+  const productName = launchContract?.venture.name ?? brief.name;
+  const stripeMode = requireExternal(
+    handler,
+    state,
+    "mode",
+    "record Stripe test mode in the Founder Stack profile"
+  );
+  if (stripeMode !== "test") {
+    fail(handler, "dogfood Stripe provisioning is restricted to test mode");
   }
-  const [configuredPrice] = configuredPrices;
-  const domain = requireValue(
-    handler,
-    snapshot.venture.venture.domain,
-    "config/venture.yaml venture.domain",
-    "record the exact callback domain before creating the Stripe webhook"
-  );
-  const productName = requireValue(
-    handler,
-    snapshot.venture.venture.name,
-    "config/venture.yaml venture.name",
-    "record the exact product name"
-  );
+  if (handler === "provider.stripe-commerce") {
+    const configuredPrice = launchContract ? contractStripePrice(handler, launchContract) : configuredStripePrice(handler, snapshot);
+    return request(target, credentialRef2, ["product", "price"], {
+      ventureSlug: brief.id,
+      stripeAccountId,
+      stripeMode,
+      productName,
+      ...launchContract ? { productDescription: launchContract.venture.oneSentenceThesis } : snapshot.offer.offer.sentence ? { productDescription: snapshot.offer.offer.sentence } : {},
+      productId: "{dependency.product.id}",
+      currency: configuredPrice.currency.toLowerCase(),
+      unitAmount: exactMinorUnits(handler, configuredPrice.amount, configuredPrice.path),
+      ...configuredPrice.interval ? { recurringInterval: configuredPrice.interval } : {}
+    });
+  }
+  if (handler !== "provider.stripe-callbacks" && handler !== "provider.stripe-domain-callbacks") {
+    return fail(handler, "unknown staged Stripe handler");
+  }
+  const callbackOrigin = handler === "provider.stripe-domain-callbacks" ? verifiedCustomDomainOrigin(handler, brief, workflow) : safeVerifiedVercelOrigin(handler, workflow, "Stripe callbacks");
   const webhookSecretCredentialRef = requireCredential(
     handler,
     "stripe",
     state.external_resource_ids.webhook_secret_credential_ref,
     "config/providers.yaml providers.stripe.external_resource_ids.webhook_secret_credential_ref"
   );
-  return request(target, credentialRef2, ["product", "price", "webhook", "billing_portal"], {
-    productName,
-    ...snapshot.offer.offer.sentence ? { productDescription: snapshot.offer.offer.sentence } : {},
-    productId: "{dependency.product.id}",
-    currency: snapshot.offer.pricing.currency.toLowerCase(),
-    unitAmount: exactMinorUnits(handler, configuredPrice.amount, configuredPrice.path),
-    recurringInterval: configuredPrice.interval,
-    webhookUrl: `https://${domain}/api/stripe/webhook`,
+  return request(target, credentialRef2, ["webhook", "billing_portal"], {
+    ventureSlug: brief.id,
+    stripeAccountId,
+    stripeMode,
+    webhookUrl: `${callbackOrigin}/api/stripe/webhook`,
     webhookSecretCredentialRef,
     enabledEvents: [
       "checkout.session.completed",
@@ -28619,12 +34261,13 @@ function stripeRequest(handler, snapshot) {
       "customer.subscription.deleted",
       "invoice.payment_failed"
     ],
-    headline: `Manage ${productName}`
+    headline: `Manage ${productName}`,
+    portalReturnUrl: `${callbackOrigin}/account`
   });
 }
 function brevoRequest(handler, snapshot, workflow) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "brevo");
+  const state = providerState2(snapshot, "brevo");
   const credentialRef2 = requireCredential(handler, "brevo", state.credential_ref);
   const senderName = requireExternal(
     handler,
@@ -28705,18 +34348,10 @@ function dependencyIdentifier(handler, workflow, dependency, type) {
     `resume the same run after ${dependency} has provider read-back evidence with one exact ${type}`
   );
 }
-function googleRequest(handler, snapshot, workflow) {
+function googleRequest(handler, snapshot, brief, workflow) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "google");
+  const state = providerState2(snapshot, "google");
   const credentialRef2 = requireCredential(handler, "google", state.credential_ref);
-  const domain = requireValue(
-    handler,
-    snapshot.venture.venture.domain,
-    "config/venture.yaml venture.domain",
-    "record the exact production domain before Google setup"
-  );
-  const siteUrl = state.external_resource_ids.site_url ?? `sc-domain:${domain}`;
-  const sitemapUrl = state.external_resource_ids.sitemap_url ?? `https://${domain}/sitemap.xml`;
   switch (handler) {
     case "provider.google-analytics-property": {
       const analyticsAccountId = requireExternal(
@@ -28738,7 +34373,14 @@ function googleRequest(handler, snapshot, workflow) {
         currencyCode: snapshot.venture.venture.currency
       });
     }
-    case "provider.google-analytics-stream":
+    case "provider.google-analytics-stream": {
+      const originDependency = workflow.node.dependencies.includes("initial-production-deploy") ? "initial-production-deploy" : "production-deploy";
+      const productionOrigin = safeVerifiedVercelOrigin(
+        handler,
+        workflow,
+        "the GA4 web stream",
+        originDependency
+      );
       return request(target, credentialRef2, ["analytics_web_stream"], {
         analyticsPropertyId: dependencyIdentifier(
           handler,
@@ -28746,8 +34388,8 @@ function googleRequest(handler, snapshot, workflow) {
           "google-analytics-property",
           "property_id"
         ),
-        streamDisplayName: state.external_resource_ids.stream_display_name ?? `${domain} web`,
-        defaultUri: `https://${domain}/`,
+        streamDisplayName: state.external_resource_ids.stream_display_name ?? `${new URL(productionOrigin).hostname} web`,
+        defaultUri: `${productionOrigin}/`,
         measurementIdCredentialRef: requireCredential(
           handler,
           "google",
@@ -28755,49 +34397,56 @@ function googleRequest(handler, snapshot, workflow) {
           "config/providers.yaml providers.google.external_resource_ids.measurement_id_credential_ref"
         )
       });
-    case "provider.google-site-dns-record":
-      return request(target, credentialRef2, ["site_verification_token"], {
-        siteIdentifier: domain,
-        siteType: "INET_DOMAIN",
-        verificationMethod: "DNS_TXT",
-        dnsTtl: 3600
-      });
-    case "provider.google-site-verification": {
-      const dns = workflow.dependencyOutputs["dns-records"];
-      const records = dns && !Array.isArray(dns) && typeof dns === "object" && Array.isArray(dns.records) ? dns.records : [];
-      if (!records.some(
-        (record3) => record3 && !Array.isArray(record3) && typeof record3 === "object" && record3.source_provider === "google"
-      )) {
-        fail(
-          handler,
-          "the same-run DNS evidence does not contain the Google token record. Next: complete the consolidated DNS node with its exact typed output"
-        );
-      }
-      return request(target, credentialRef2, ["site_verification"], {
-        siteIdentifier: domain,
-        siteType: "INET_DOMAIN",
-        verificationMethod: "DNS_TXT"
-      });
     }
-    case "provider.google-search-console":
-      return request(target, credentialRef2, ["search_console_site", "search_console_sitemap"], {
-        siteUrl,
-        sitemapUrl
-      });
-    default:
-      return fail(handler, "unknown staged Google handler");
+    default: {
+      const domain = requireCustomDomain(
+        handler,
+        brief,
+        "Google site verification or search setup"
+      );
+      const siteUrl = state.external_resource_ids.site_url ?? `sc-domain:${domain}`;
+      const sitemapUrl = state.external_resource_ids.sitemap_url ?? `https://${domain}/sitemap.xml`;
+      switch (handler) {
+        case "provider.google-site-dns-record":
+          return request(target, credentialRef2, ["site_verification_token"], {
+            siteIdentifier: domain,
+            siteType: "INET_DOMAIN",
+            verificationMethod: "DNS_TXT",
+            dnsTtl: 3600
+          });
+        case "provider.google-site-verification": {
+          const dns = workflow.dependencyOutputs["dns-records"];
+          const records = dns && !Array.isArray(dns) && typeof dns === "object" && Array.isArray(dns.records) ? dns.records : [];
+          if (!records.some(
+            (record3) => record3 && !Array.isArray(record3) && typeof record3 === "object" && record3.source_provider === "google"
+          )) {
+            fail(
+              handler,
+              "the same-run DNS evidence does not contain the Google token record. Next: complete the consolidated DNS node with its exact typed output"
+            );
+          }
+          return request(target, credentialRef2, ["site_verification"], {
+            siteIdentifier: domain,
+            siteType: "INET_DOMAIN",
+            verificationMethod: "DNS_TXT"
+          });
+        }
+        case "provider.google-search-console":
+          return request(target, credentialRef2, ["search_console_site", "search_console_sitemap"], {
+            siteUrl,
+            sitemapUrl
+          });
+        default:
+          return fail(handler, "unknown staged Google handler");
+      }
+    }
   }
 }
-function bingRequest(handler, snapshot, lifecycleRecords) {
+function bingRequest(handler, snapshot, brief, lifecycleRecords) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "bing");
+  const state = providerState2(snapshot, "bing");
   const credentialRef2 = requireCredential(handler, "bing", state.credential_ref);
-  const domain = requireValue(
-    handler,
-    snapshot.venture.venture.domain,
-    "config/venture.yaml venture.domain",
-    "record the exact verified production domain"
-  );
+  const domain = requireCustomDomain(handler, brief, "Bing site and sitemap setup");
   const authMode = requireExternal(
     handler,
     state,
@@ -28840,7 +34489,7 @@ function bingRequest(handler, snapshot, lifecycleRecords) {
 }
 function easRequest(handler, snapshot, workflow, rootDir) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "eas");
+  const state = providerState2(snapshot, "eas");
   const projectId = requireValue(
     handler,
     snapshot.mobile.mobile.eas.project_id,
@@ -28857,7 +34506,7 @@ function easRequest(handler, snapshot, workflow, rootDir) {
     handler,
     "config/mobile.yaml mobile.eas.build_profiles does not contain production. Next: add a reviewed production build profile"
   );
-  const projectDirectory = resolve19(rootDir, "mobile/expo");
+  const projectDirectory = resolve22(rootDir, "mobile/expo");
   if (handler === "provider.eas-build") {
     return request(target, credentialRef2, ["ios_build"], {
       projectId,
@@ -28899,7 +34548,7 @@ function easRequest(handler, snapshot, workflow, rootDir) {
 }
 function testflightRequest(handler, snapshot, workflow) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
-  const state = providerState(snapshot, "app_store_connect");
+  const state = providerState2(snapshot, "app_store_connect");
   const credentialRef2 = requireCredential(
     handler,
     "app_store_connect",
@@ -28938,7 +34587,7 @@ function unsupportedRequest(handler, snapshot) {
   const target = DEFAULT_PROVIDER_TARGETS[handler];
   void snapshot.offer;
   void snapshot.mobile;
-  void providerState(snapshot, target.provider);
+  void providerState2(snapshot, target.provider);
   const reasons = {
     "provider.stripe-commerce": "the adapter cannot feed a newly read-back Stripe product id into exact-price, portal, checkout, and webhook operations in one node. Next: complete config/offer.yaml pricing and inject a staged typed factory that verifies each test-mode resource",
     "provider.dns-records": "the complete additive record set is produced by upstream provider read-back and cannot be inferred from a single configured value. Next: use the compiled manual DNS node or inject a record-set factory that preserves mail records and verifies authoritative DNS",
@@ -28949,23 +34598,38 @@ function unsupportedRequest(handler, snapshot) {
     reasons[handler] ?? `no complete built-in composition is registered for ${target.provider}. Next: inject a typed factory with apply and read-back coverage`
   );
 }
-function buildDefaultRequest(handler, snapshot, lifecycleRecords, workflow, rootDir) {
+function buildDefaultRequest(handler, snapshot, brief, lifecycleRecords, workflow, rootDir, launchContract) {
   switch (handler) {
     case "provider.github-repository":
       return githubRequest(handler, snapshot, lifecycleRecords, rootDir);
     case "provider.vercel-project":
+    case "provider.initial-production-deploy":
+    case "provider.analytics-production-redeploy":
+    case "provider.email-production-redeploy":
     case "provider.production-deploy":
-      return vercelRequest(handler, snapshot, lifecycleRecords);
+      return vercelRequest(handler, snapshot, lifecycleRecords, brief.domain ?? null);
     case "provider.vercel-database-environment":
     case "provider.vercel-stripe-environment":
     case "provider.vercel-stripe-webhook-environment":
     case "provider.vercel-brevo-environment":
-    case "provider.vercel-ga-environment":
       return vercelEnvironmentRequest(handler, snapshot);
+    case "provider.vercel-ga-environment":
+      return vercelPublicGoogleEnvironmentRequest(handler, snapshot, workflow);
+    case "provider.vercel-stripe-price-environment":
+    case "provider.vercel-stripe-price-lookup-environment":
+      return vercelPublicStripeEnvironmentRequest(
+        handler,
+        snapshot,
+        brief,
+        workflow,
+        launchContract
+      );
     case "provider.neon-database":
       return neonRequest(handler, snapshot, lifecycleRecords, rootDir);
     case "provider.stripe-commerce":
-      return stripeRequest(handler, snapshot);
+    case "provider.stripe-callbacks":
+    case "provider.stripe-domain-callbacks":
+      return stripeRequest(handler, snapshot, brief, workflow, launchContract);
     case "provider.brevo-sending-domain":
     case "provider.brevo-domain-verification":
     case "provider.brevo-email":
@@ -28975,9 +34639,9 @@ function buildDefaultRequest(handler, snapshot, lifecycleRecords, workflow, root
     case "provider.google-site-dns-record":
     case "provider.google-site-verification":
     case "provider.google-search-console":
-      return googleRequest(handler, snapshot, workflow);
+      return googleRequest(handler, snapshot, brief, workflow);
     case "provider.bing-discovery":
-      return bingRequest(handler, snapshot, lifecycleRecords);
+      return bingRequest(handler, snapshot, brief, lifecycleRecords);
     case "provider.eas-build":
     case "provider.eas-submit":
       return easRequest(handler, snapshot, workflow, rootDir);
@@ -28988,6 +34652,14 @@ function buildDefaultRequest(handler, snapshot, lifecycleRecords, workflow, root
   }
 }
 function createDefaultProviderPlanFactories(options) {
+  if (options.configSnapshot && options.loadConfig) {
+    throw new Error("Default provider factories accept configSnapshot or loadConfig, not both");
+  }
+  const brief = founderBriefSchema.parse(currentBrief(options.brief));
+  const launchContract = options.launchContract ? launchContractSchema.parse(options.launchContract) : void 0;
+  const capturedConfig = immutableConfigSnapshot(
+    options.configSnapshot ?? (options.loadConfig ? options.loadConfig() : loadDefaultProviderConfig(options.rootDir))
+  );
   const handlers = options.definition.nodes.filter((node) => node.kind === "provider" && node.handler).map((node) => node.handler);
   return Object.fromEntries(
     handlers.map((handler) => {
@@ -29004,14 +34676,13 @@ function createDefaultProviderPlanFactories(options) {
             `factory was invoked for ${workflow.node.handler ?? workflow.node.id}. Next: fix the runtime handler map`
           );
         }
-        const brief = currentBrief(options.brief);
         if (brief.id !== options.definition.id.replace(/^launch-/, "")) {
           fail(
             handler,
             `founder brief ${brief.id} does not match graph ${options.definition.id}. Next: recreate the launch plan from the current brief`
           );
         }
-        const snapshot = (options.loadConfig ?? (() => loadDefaultProviderConfig(options.rootDir)))();
+        const snapshot = immutableConfigSnapshot(capturedConfig);
         let lifecycleRecords = [];
         if (options.lifecycleStore) {
           try {
@@ -29020,7 +34691,7 @@ function createDefaultProviderPlanFactories(options) {
                 const target = DEFAULT_PROVIDER_TARGETS[handler];
                 if (provider !== target.provider) return false;
                 if (environment === target.environment) return true;
-                return handler === "provider.production-deploy" && provider === "vercel" && target.environment === "production" && environment === "preview" && capability === "project";
+                return (handler === "provider.production-deploy" || handler === "provider.initial-production-deploy" || handler === "provider.analytics-production-redeploy" || handler === "provider.email-production-redeploy") && provider === "vercel" && target.environment === "production" && environment === "preview" && capability === "project";
               }
             );
           } catch {
@@ -29033,9 +34704,11 @@ function createDefaultProviderPlanFactories(options) {
         return buildDefaultRequest(
           handler,
           withLifecycleResources(handler, snapshot, lifecycleRecords),
+          brief,
           lifecycleRecords,
           workflow,
-          options.rootDir
+          options.rootDir,
+          launchContract
         );
       };
       return [handler, factory];
@@ -29079,7 +34752,7 @@ function missingKinds(provider, capabilities, inspections, registry) {
   ];
 }
 function authenticated(inspection) {
-  return inspection.status === "available" && (inspection.kind === "cli_session" && inspection.backend === "cli_session" || inspection.testStatus === "passed" && inspection.testedAt !== void 0);
+  return inspection.status === "available" && (inspection.kind === "cli_session" && inspection.backend === "cli_session" || inspection.testStatus === "passed" && inspection.testedAt !== void 0 && (inspection.provider !== "stripe" || inspection.providerMode === "test"));
 }
 function dummyHandlerContext(node) {
   return {
@@ -29132,14 +34805,15 @@ async function inspectProviderPlan(provider, registry, launch) {
   if (nodes.length === 0) {
     return { handlers: [], availability: planAvailability(false, "not_required") };
   }
-  const factories = launch.factories ?? createDefaultProviderPlanFactories({
-    rootDir: "",
-    brief: launch.brief,
-    definition: launch.definition,
-    loadConfig: () => {
-      throw new Error("doctor factory config loader was not initialized");
-    }
-  });
+  if (!launch.factories) {
+    return {
+      handlers: nodes.map((node) => node.handler),
+      availability: planAvailability(false, "blocked", [
+        "Provider doctor has no immutable config-bound plan factories for this launch."
+      ])
+    };
+  }
+  const factories = launch.factories;
   const blockers = [];
   for (const node of nodes) {
     const factory = factories[node.handler];
@@ -29294,8 +34968,8 @@ async function inspectDefaultProviderDoctor(options) {
 }
 
 // lib/cli/default-learning-runtime.ts
-import { existsSync as existsSync11, readFileSync as readFileSync13 } from "node:fs";
-import { resolve as resolve20 } from "node:path";
+import { existsSync as existsSync12, readFileSync as readFileSync16 } from "node:fs";
+import { resolve as resolve23 } from "node:path";
 import { parse as parse6 } from "yaml";
 var normalizedScalarSchema2 = external_exports.union([external_exports.string(), external_exports.number().finite(), external_exports.boolean(), external_exports.null()]);
 var dataSourceSchema = external_exports.enum(DATA_SOURCE_IDS);
@@ -29379,22 +35053,22 @@ var persistedDataSyncSchema = external_exports.object({
   });
 });
 function readYaml2(path) {
-  return parse6(readFileSync13(path, "utf8"));
+  return parse6(readFileSync16(path, "utf8"));
 }
 function loadLoops(rootDir) {
-  const path = resolve20(rootDir, "config/loops.yaml");
-  return existsSync11(path) ? loopsSchema.parse(readYaml2(path)) : createDefaultLoopsConfig();
+  const path = resolve23(rootDir, "config/loops.yaml");
+  return existsSync12(path) ? loopsSchema.parse(readYaml2(path)) : createDefaultLoopsConfig();
 }
 function loadProviders(rootDir) {
-  const path = resolve20(rootDir, "config/providers.yaml");
-  return existsSync11(path) ? providersSchema.parse(readYaml2(path)) : null;
+  const path = resolve23(rootDir, "config/providers.yaml");
+  return existsSync12(path) ? providersSchema.parse(readYaml2(path)) : null;
 }
 function loadProviderLifecycle(rootDir) {
-  const path = resolve20(rootDir, ".venture/provider-lifecycle.json");
-  if (!existsSync11(path)) return [];
+  const path = resolve23(rootDir, ".venture/provider-lifecycle.json");
+  if (!existsSync12(path)) return [];
   let value;
   try {
-    value = JSON.parse(readFileSync13(path, "utf8"));
+    value = JSON.parse(readFileSync16(path, "utf8"));
   } catch {
     throw new Error(
       "Provider lifecycle state is corrupt JSON; restore verified evidence before data sync."
@@ -29403,8 +35077,8 @@ function loadProviderLifecycle(rootDir) {
   return parseProviderLifecycleDocument(value);
 }
 function activeExperimentState(rootDir) {
-  const path = resolve20(rootDir, "config/experiments.yaml");
-  if (!existsSync11(path)) return { hypotheses: [], experiments: [] };
+  const path = resolve23(rootDir, "config/experiments.yaml");
+  if (!existsSync12(path)) return { hypotheses: [], experiments: [] };
   const config = experimentsSchema.parse(readYaml2(path));
   const active = config.experiments.filter(
     (experiment) => ["approved", "running"].includes(experiment.status)
@@ -29415,8 +35089,8 @@ function activeExperimentState(rootDir) {
   };
 }
 function loadTimezone(rootDir) {
-  const path = resolve20(rootDir, "config/venture.yaml");
-  if (!existsSync11(path)) return "UTC";
+  const path = resolve23(rootDir, "config/venture.yaml");
+  if (!existsSync12(path)) return "UTC";
   return ventureSchema.parse(readYaml2(path)).venture.timezone;
 }
 function mergeRequirements(loops, injected) {
@@ -29924,6 +35598,7 @@ function mergeBindings(...bindings) {
     validators: Object.assign({}, ...bindings.map((binding) => binding.validators ?? {})),
     conditions: Object.assign({}, ...bindings.map((binding) => binding.conditions ?? {})),
     compensators: Object.assign({}, ...bindings.map((binding) => binding.compensators ?? {})),
+    reconcilers: Object.assign({}, ...bindings.map((binding) => binding.reconcilers ?? {})),
     interruptEvidenceVerifier,
     checkpointEvidenceVerifier,
     secrets: [...new Set(bindings.flatMap((binding) => binding.secrets ?? []))]
@@ -29933,40 +35608,83 @@ function providerHandlerNames(definition2) {
   return definition2.nodes.filter((node) => node.kind === "provider" && node.handler).map((node) => node.handler).sort();
 }
 function productHandlerNames(definition2) {
-  return definition2.nodes.filter((node) => node.handler && node.kind !== "provider" && node.handler !== "launch.report").map((node) => node.handler).sort();
+  return [
+    ...new Set(
+      definition2.nodes.filter(
+        (node) => node.handler && node.kind !== "provider" && node.handler !== "launch.report"
+      ).map((node) => node.handler)
+    )
+  ].sort();
 }
 function inside6(root, path) {
-  const absolute = resolve21(root, path);
-  const rel = relative13(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep13}`) && rel !== ".." && !rel.startsWith(sep13)) {
+  const absolute = resolve24(root, path);
+  const rel = relative15(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep15}`) && rel !== ".." && !rel.startsWith(sep15)) {
     return absolute;
   }
   throw new Error(`Path escapes the venture root: ${path}`);
 }
 function writeJsonAtomic2(path, value) {
-  mkdirSync8(dirname11(path), { recursive: true, mode: 448 });
+  mkdirSync10(dirname12(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync8(temporary, `${JSON.stringify(value, null, 2)}
+  writeFileSync10(temporary, `${JSON.stringify(value, null, 2)}
 `, {
     encoding: "utf8",
     mode: 384
   });
-  renameSync6(temporary, path);
+  renameSync8(temporary, path);
 }
 function writeTextAtomic(path, content) {
-  mkdirSync8(dirname11(path), { recursive: true, mode: 448 });
+  mkdirSync10(dirname12(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
-  writeFileSync8(temporary, content, {
+  writeFileSync10(temporary, content, {
     encoding: "utf8",
     mode: 384
   });
-  renameSync6(temporary, path);
+  renameSync8(temporary, path);
 }
 function writeYamlAtomic(path, value) {
   writeTextAtomic(path, stringify6(value, { lineWidth: 100 }));
 }
+function safeIdeaOutputPath(root, requested, boundary) {
+  if (!requested || isAbsolute7(requested) || !requested.toLowerCase().endsWith(".md")) {
+    throw new Error("vh idea sharpen --output must be a project-relative Markdown path");
+  }
+  const canonicalRoot3 = realpathSync10(root);
+  const lexicalTarget = resolve24(canonicalRoot3, requested);
+  const child = relative15(canonicalRoot3, lexicalTarget);
+  if (child === "" || child === ".." || child.startsWith(`..${sep15}`) || isAbsolute7(child)) {
+    throw new Error("vh idea sharpen --output escapes the working directory");
+  }
+  const lexicalParent = dirname12(lexicalTarget);
+  const parentRelative = relative15(canonicalRoot3, lexicalParent);
+  if (parentRelative) {
+    resolveVentureOutputWithinRoot(canonicalRoot3, parentRelative);
+  }
+  const parentIdentity = boundary.ensureDirectory(
+    lexicalParent,
+    "vh idea sharpen output directory"
+  );
+  const canonicalParent = realpathSync10(lexicalParent);
+  const parentChild = relative15(canonicalRoot3, canonicalParent);
+  if (parentChild === ".." || parentChild.startsWith(`..${sep15}`) || isAbsolute7(parentChild)) {
+    throw new Error("vh idea sharpen --output resolves through a directory outside the workspace");
+  }
+  const target = resolve24(canonicalParent, lexicalTarget.slice(dirname12(lexicalTarget).length + 1));
+  if (existsSync13(target)) {
+    const metadata = lstatSync9(target);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error("vh idea sharpen --output must be a regular non-symlink Markdown file");
+    }
+  }
+  if (lexicalTarget !== target) {
+    throw new Error("vh idea sharpen --output resolves through an unexpected path");
+  }
+  boundary.assertDirectory(canonicalParent, parentIdentity, "vh idea sharpen output directory");
+  return target;
+}
 function readStructured(path) {
-  const text2 = readFileSync14(path, "utf8");
+  const text2 = readFileSync17(path, "utf8");
   return path.endsWith(".json") ? JSON.parse(text2) : parse7(text2);
 }
 function stableJson2(value) {
@@ -29977,7 +35695,7 @@ function stableJson2(value) {
   return JSON.stringify(value) ?? "undefined";
 }
 function sha256Json(value) {
-  return createHash17("sha256").update(stableJson2(value)).digest("hex");
+  return createHash18("sha256").update(stableJson2(value)).digest("hex");
 }
 function founderLaunchTransactionPath(root) {
   return inside6(root, ".venture/founder-launch.json");
@@ -30014,7 +35732,7 @@ function parseFounderLaunchTransaction(value) {
 }
 function loadFounderLaunchTransaction(root) {
   const path = founderLaunchTransactionPath(root);
-  if (!existsSync12(path)) {
+  if (!existsSync13(path)) {
     throw new Error(
       "Existing founder venture has no durable launch transaction; choose a new --output or inspect it manually before any retry."
     );
@@ -30028,7 +35746,7 @@ function validateFounderLaunchContinuation(input) {
   const transaction = loadFounderLaunchTransaction(input.childRoot);
   const grantPath = inside6(input.childRoot, ".venture/launch-grant.json");
   const founderInputPath = inside6(input.childRoot, ".venture/founder-input.json");
-  if (!existsSync12(grantPath) || !existsSync12(founderInputPath)) {
+  if (!existsSync13(grantPath) || !existsSync13(founderInputPath)) {
     throw new Error(
       "Existing founder venture is missing its immutable input or Launch Grant; no continuation was attempted."
     );
@@ -30055,7 +35773,7 @@ function validateFounderLaunchContinuation(input) {
   );
   const persistedProject = loadProject(input.childRoot);
   const expectedRunId = `launch-${grant.ventureSlug}-${grant.grantId.slice(3, 15)}`;
-  if (transaction.sourceHash !== input.preparation.idea.sourceHash || transaction.stackConnectionHash !== input.stackConnectionHash || transaction.stackProfile !== input.preparation.stackProfile || transaction.grantId !== grant.grantId || transaction.runId !== expectedRunId || transaction.createdAt !== grant.createdAt || founderInput.sourceHash !== transaction.sourceHash || founderInput.stackProfile !== transaction.stackProfile || grant.ideaDigest !== transaction.sourceHash || grant.ventureSlug !== input.preparation.idea.brief.id || grant.ventureName !== input.preparation.idea.brief.name || grant.repository.owner !== input.preparation.repository.owner || grant.repository.name !== input.preparation.repository.name || grant.repository.visibility !== input.preparation.repository.visibility || !isDeepStrictEqual2(persistedBrief, input.preparation.idea.brief) || !isDeepStrictEqual2(persistedProject.brief, input.preparation.idea.brief)) {
+  if (transaction.sourceHash !== input.preparation.idea.sourceHash || transaction.stackConnectionHash !== input.stackConnectionHash || transaction.stackProfile !== input.preparation.stackProfile || transaction.grantId !== grant.grantId || transaction.runId !== expectedRunId || transaction.createdAt !== grant.createdAt || founderInput.sourceHash !== transaction.sourceHash || founderInput.stackProfile !== transaction.stackProfile || grant.ideaDigest !== (input.preparation.idea.launchContract ? launchContractDigest(input.preparation.idea.launchContract) : input.preparation.idea.sourceHash) || grant.ventureSlug !== input.preparation.idea.brief.id || grant.ventureName !== input.preparation.idea.brief.name || grant.repository.owner !== input.preparation.repository.owner || grant.repository.name !== input.preparation.repository.name || grant.repository.visibility !== input.preparation.repository.visibility || !isDeepStrictEqual2(persistedBrief, input.preparation.idea.brief) || !isDeepStrictEqual2(persistedProject.brief, input.preparation.idea.brief)) {
     throw new Error(
       "Existing founder venture does not match the current idea, Stack connection, repository, or immutable Launch Grant; no continuation was attempted."
     );
@@ -30102,7 +35820,7 @@ function learningSourcesFor(decision, activeEventPacks) {
 function synchronizeBriefContracts(root, brief, decision, activeEventPacks, synchronizedAt) {
   const pendingWrites = [];
   const venturePath = inside6(root, "config/venture.yaml");
-  if (existsSync12(venturePath)) {
+  if (existsSync13(venturePath)) {
     const current = ventureSchema.parse(readStructured(venturePath));
     const next = ventureSchema.parse({
       ...current,
@@ -30145,7 +35863,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: venturePath, reference: "config/venture.yaml", value: next });
   }
   const launchConfigPath = inside6(root, "config/launch.yaml");
-  if (existsSync12(launchConfigPath)) {
+  if (existsSync13(launchConfigPath)) {
     const current = launchSchema.parse(readStructured(launchConfigPath));
     const factorRationale = (factor, level) => `${factor.replaceAll("_", " ")} was supplied as ${level} in the selected founder brief.`;
     const next = launchSchema.parse({
@@ -30189,7 +35907,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     });
   }
   const mobilePath = inside6(root, "config/mobile.yaml");
-  if (existsSync12(mobilePath)) {
+  if (existsSync13(mobilePath)) {
     const current = mobileSchema.parse(readStructured(mobilePath));
     const mobile = decision.rail.mobileStack !== "none";
     if (mobile && current.mobile.app_store_connect.first_app_record.state === "complete" && brief.bundle_identifier && current.mobile.bundle_identifier && current.mobile.bundle_identifier !== brief.bundle_identifier) {
@@ -30218,7 +35936,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: mobilePath, reference: "config/mobile.yaml", value: next });
   }
   const analyticsPath = inside6(root, "config/analytics.yaml");
-  if (existsSync12(analyticsPath)) {
+  if (existsSync13(analyticsPath)) {
     const current = analyticsSchema.parse(readStructured(analyticsPath));
     const activeJourneys = new Set(resolveActiveCoreJourneys(activeEventPacks));
     const coreJourneys = Object.fromEntries(
@@ -30248,7 +35966,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     });
   }
   const loopsPath = inside6(root, "config/loops.yaml");
-  if (existsSync12(loopsPath)) {
+  if (existsSync13(loopsPath)) {
     const current = loopsSchema.parse(readStructured(loopsPath));
     const sources = learningSourcesFor(decision, activeEventPacks);
     const freshnessHours = { daily: 36, weekly: 192, biweekly: 384, monthly: 800 };
@@ -30274,7 +35992,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: loopsPath, reference: "config/loops.yaml", value: next });
   }
   const originals = new Map(
-    pendingWrites.map(({ path }) => [path, readFileSync14(path, "utf8")])
+    pendingWrites.map(({ path }) => [path, readFileSync17(path, "utf8")])
   );
   const written = [];
   try {
@@ -30325,17 +36043,107 @@ function projectPath(root) {
 function launchPath(root, runId2) {
   return inside6(root, `.venture/launches/${runId2}.json`);
 }
+var CANONICAL_LAUNCH_CONTRACT_PATH = "config/launch-contract.yaml";
+var CANONICAL_PRODUCT_CONSTITUTION_PATH = "docs/product/PRODUCT_CONSTITUTION.md";
+var CANONICAL_FOUNDER_IDEA_PATH = "docs/product/idea.md";
+function readRegularBoundFile(root, reference, label) {
+  const canonicalRoot3 = realpathSync10(root);
+  const target = inside6(canonicalRoot3, reference);
+  const relation = relative15(canonicalRoot3, target);
+  let cursor = canonicalRoot3;
+  for (const component of relation.split(sep15).filter(Boolean)) {
+    cursor = resolve24(cursor, component);
+    if (!existsSync13(cursor)) throw new Error(`${label} is missing at ${reference}`);
+    const metadata = lstatSync9(cursor);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
+    }
+    if (cursor === target) {
+      if (!metadata.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
+      const content = readFileSync17(cursor, "utf8");
+      const after = lstatSync9(cursor);
+      if (after.isSymbolicLink() || after.dev !== metadata.dev || after.ino !== metadata.ino) {
+        throw new Error(`${label} changed while it was being read: ${reference}`);
+      }
+      return content;
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(`${label} has a non-directory path component: ${reference}`);
+    }
+  }
+  throw new Error(`${label} is missing at ${reference}`);
+}
+function persistCanonicalLaunchContract(root, contract) {
+  writeTextAtomic(inside6(root, CANONICAL_LAUNCH_CONTRACT_PATH), renderLaunchContractYaml(contract));
+  writeTextAtomic(
+    inside6(root, CANONICAL_PRODUCT_CONSTITUTION_PATH),
+    renderProductConstitution(contract)
+  );
+  writeTextAtomic(inside6(root, CANONICAL_FOUNDER_IDEA_PATH), renderFounderIdea(contract));
+  return [
+    CANONICAL_LAUNCH_CONTRACT_PATH,
+    CANONICAL_PRODUCT_CONSTITUTION_PATH,
+    CANONICAL_FOUNDER_IDEA_PATH
+  ];
+}
+function assertCanonicalLaunchContractBinding(root, embedded, storedDigest) {
+  const expectedDigest = launchContractDigest(embedded);
+  if (storedDigest !== expectedDigest) {
+    throw new Error(
+      "Persisted Launch Contract digest does not match the embedded project or launch contract"
+    );
+  }
+  const diskContract = launchContractSchema.parse(
+    parse7(readRegularBoundFile(root, CANONICAL_LAUNCH_CONTRACT_PATH, "Canonical Launch Contract"))
+  );
+  if (launchContractDigest(diskContract) !== expectedDigest || !isDeepStrictEqual2(diskContract, embedded)) {
+    throw new Error("Canonical on-disk Launch Contract does not match persisted launch state");
+  }
+  const constitution = readRegularBoundFile(
+    root,
+    CANONICAL_PRODUCT_CONSTITUTION_PATH,
+    "Product Constitution"
+  );
+  if (constitution !== renderProductConstitution(embedded)) {
+    throw new Error("Product Constitution does not match the canonical Launch Contract");
+  }
+  const idea = compileFounderIdea(
+    readRegularBoundFile(root, CANONICAL_FOUNDER_IDEA_PATH, "Canonical founder idea")
+  );
+  if (!idea.launchContract || !isDeepStrictEqual2(idea.launchContract, embedded)) {
+    throw new Error("Canonical founder idea does not contain the persisted Launch Contract");
+  }
+  const manifestPath = inside6(root, "venture.manifest.json");
+  if (existsSync13(manifestPath)) {
+    const manifest = JSON.parse(
+      readRegularBoundFile(root, "venture.manifest.json", "Venture Manifest")
+    );
+    if (manifest.launchContractPath !== CANONICAL_LAUNCH_CONTRACT_PATH || manifest.launchContractDigest !== expectedDigest) {
+      throw new Error("Venture Manifest does not bind the canonical Launch Contract digest");
+    }
+  }
+  return expectedDigest;
+}
 function loadProject(root) {
   const path = projectPath(root);
-  if (!existsSync12(path)) {
+  if (!existsSync13(path)) {
     throw new Error("No founder brief is selected. Next: run vh create --brief <file>.");
   }
-  const value = JSON.parse(readFileSync14(path, "utf8"));
+  const value = JSON.parse(readFileSync17(path, "utf8"));
   if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error("Unsupported .venture/project.json version.");
   }
   const brief = founderBriefSchema.parse(value.brief);
-  const canonicalDecision = routeLaunch(brief);
+  const launchContract = value.schemaVersion === 2 && value.launchContract ? launchContractSchema.parse(value.launchContract) : void 0;
+  const contractDigest = launchContract ? assertCanonicalLaunchContractBinding(
+    root,
+    launchContract,
+    value.schemaVersion === 2 ? value.launchContractDigest : void 0
+  ) : void 0;
+  if (launchContract && !isDeepStrictEqual2(brief, founderBriefFromLaunchContract(launchContract))) {
+    throw new Error("Project Launch Contract does not match its selected founder brief");
+  }
+  const canonicalDecision = launchContract ? launchDecisionFromContract(launchContract) : routeLaunch(brief);
   const canonicalPacks = eventPacksFor(brief, canonicalDecision);
   if (value.schemaVersion === 1) {
     return {
@@ -30357,16 +36165,23 @@ function loadProject(root) {
       "Project routing snapshot does not match its selected brief and router version; restore or recreate the project state before launch."
     );
   }
-  return { ...value, brief, decision: value.decision, activeEventPacks: canonicalPacks };
+  return {
+    ...value,
+    brief,
+    decision: value.decision,
+    activeEventPacks: canonicalPacks,
+    ...launchContract ? { launchContract } : {},
+    ...contractDigest ? { launchContractDigest: contractDigest } : {}
+  };
 }
 function loadLaunch(root, runId2) {
   const path = launchPath(root, runId2);
-  if (!existsSync12(path)) {
+  if (!existsSync13(path)) {
     throw new Error(
       `Launch definition for ${runId2} is missing; restore .venture/launches metadata.`
     );
   }
-  const value = JSON.parse(readFileSync14(path, "utf8"));
+  const value = JSON.parse(readFileSync17(path, "utf8"));
   if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error(`Unsupported launch metadata for ${runId2}.`);
   }
@@ -30374,7 +36189,16 @@ function loadLaunch(root, runId2) {
   const authorization = authorizationEnvelopeSchema.parse(value.authorization);
   const launchGrant = "launchGrant" in value && value.launchGrant ? parseLaunchGrant(value.launchGrant) : void 0;
   validateWorkflow(value.definition);
-  const canonicalDecision = routeLaunch(brief);
+  const launchContract = value.schemaVersion === 2 && value.launchContract ? launchContractSchema.parse(value.launchContract) : void 0;
+  const contractDigest = launchContract ? assertCanonicalLaunchContractBinding(
+    root,
+    launchContract,
+    value.schemaVersion === 2 ? value.launchContractDigest : void 0
+  ) : void 0;
+  if (launchContract && !isDeepStrictEqual2(brief, founderBriefFromLaunchContract(launchContract))) {
+    throw new Error(`Launch ${runId2} Launch Contract does not match its selected founder brief`);
+  }
+  const canonicalDecision = launchContract ? launchDecisionFromContract(launchContract) : routeLaunch(brief);
   const canonicalPacks = eventPacksFor(brief, canonicalDecision);
   if (value.schemaVersion === 1) {
     return {
@@ -30393,7 +36217,15 @@ function loadLaunch(root, runId2) {
       `Launch ${runId2} has an invalid or unsupported routing snapshot; restore the persisted launch metadata before resuming.`
     );
   }
-  return { ...value, brief, authorization, launchGrant, activeEventPacks: canonicalPacks };
+  return {
+    ...value,
+    brief,
+    authorization,
+    launchGrant,
+    activeEventPacks: canonicalPacks,
+    ...launchContract ? { launchContract } : {},
+    ...contractDigest ? { launchContractDigest: contractDigest } : {}
+  };
 }
 function providerIds2(definition2) {
   return [
@@ -30404,7 +36236,7 @@ function providerIds2(definition2) {
     )
   ];
 }
-function requiredLaunchGrantEffects(brief) {
+function requiredLaunchGrantEffects(brief, paymentProvider) {
   const effects = /* @__PURE__ */ new Set([
     "repository.create",
     "company_stack.provision",
@@ -30413,7 +36245,7 @@ function requiredLaunchGrantEffects(brief) {
     "production.deploy"
   ]);
   if (brief.domain) effects.add("domain.configure");
-  if (brief.monetization_model !== "none") effects.add("commerce.configure");
+  if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
 }
@@ -30489,6 +36321,7 @@ function requiredGrantDestinations(definition2, providers) {
     for (const capability of node.authorization.scopes) {
       const externalAccountId = configuredProviderDestination(providers, provider, capability);
       if (!externalAccountId) {
+        if (launchOptionalProviderNodeIds.has(node.id)) continue;
         throw new Error(
           `Launch Grant cannot bind ${provider}/${capability} without an exact configured account, team, organization, or registrar destination`
         );
@@ -30515,7 +36348,10 @@ function assertLaunchGrantBindsGraph(input) {
   if (grant.ventureSlug !== input.brief.id || grant.ventureName !== input.brief.name) {
     throw new Error("Launch Grant venture identity does not match the selected founder brief");
   }
-  const expectedSeed = input.brief.app_kind === "web" ? "agentic-web-saas" : input.brief.app_kind === "hybrid" ? "hybrid-agentic-service" : "agentic-ios-subscription";
+  if (input.launchContract && grant.ideaDigest !== launchContractDigest(input.launchContract)) {
+    throw new Error("Launch Grant idea digest does not match the canonical Launch Contract");
+  }
+  const expectedSeed = founderSeedFor(input.brief, input.launchContract ?? null);
   if (grant.seed.id !== expectedSeed || grant.seed.version !== "0.2.0") {
     throw new Error("Launch Grant seed does not match the selected product rail");
   }
@@ -30548,7 +36384,10 @@ function assertLaunchGrantBindsGraph(input) {
       "Launch Grant provider/capability/account destinations do not exactly match the compiled graph and current Founder Stack configuration"
     );
   }
-  const requiredEffects = requiredLaunchGrantEffects(input.brief).sort();
+  const requiredEffects = requiredLaunchGrantEffects(
+    input.brief,
+    input.decision.payment.provider
+  ).sort();
   const grantedEffects = [...grant.allowedExternalEffects].sort();
   if (!isDeepStrictEqual2(requiredEffects, grantedEffects)) {
     throw new Error("Launch Grant external effects do not exactly match the compiled launch");
@@ -30585,8 +36424,10 @@ function assertLaunchGrantBindsGraph(input) {
   if (input.brief.domain && !grant.permissions.domainConfiguration) {
     throw new Error("Launch Grant does not authorize the requested domain configuration");
   }
-  if (input.brief.monetization_model !== "none" && !grant.permissions.liveCommerceConfiguration) {
-    throw new Error("Launch Grant does not authorize the requested commerce configuration");
+  if (grant.permissions.liveCommerceConfiguration !== (input.decision.payment.provider !== "none")) {
+    throw new Error(
+      "Launch Grant commerce permission does not match the selected payment provider"
+    );
   }
   return grant;
 }
@@ -30598,7 +36439,154 @@ function assertExactPlanInput(target, key, expected) {
     );
   }
 }
+function requireExactPlanInput(target, key, expected) {
+  if (target.request.inputs[key] !== expected) {
+    throw new Error(
+      `Launch provider request ${target.provider}.${key} does not match its immutable Launch Contract/Grant value`
+    );
+  }
+}
+function founderProductionOrigin(dependencyOutputs, dependencyId = "initial-production-deploy") {
+  const dependency = dependencyOutputs[dependencyId];
+  if (!dependency || Array.isArray(dependency) || typeof dependency !== "object" || dependency.provider !== "vercel" || dependency.state !== "verified" || !Array.isArray(dependency.environments) || !dependency.environments.includes("production") || !Array.isArray(dependency.capabilities) || !dependency.capabilities.includes("deployment") || !Array.isArray(dependency.resourceRefs)) {
+    throw new Error(
+      `Provider origin binding requires same-run verified ${dependencyId} production deployment evidence`
+    );
+  }
+  const origins = /* @__PURE__ */ new Set();
+  for (const reference of dependency.resourceRefs) {
+    if (typeof reference !== "string" || !reference.startsWith("url=")) continue;
+    try {
+      const url = new URL(reference.slice("url=".length));
+      const hostname = url.hostname.toLowerCase();
+      if (url.protocol !== "https:" || url.username || url.password || url.port || isIP3(hostname) !== 0 || !hostname.includes(".") || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+        continue;
+      }
+      origins.add(url.origin);
+    } catch {
+    }
+  }
+  if (origins.size !== 1) {
+    throw new Error(
+      `Provider origin binding requires exactly one safe same-run ${dependencyId} production origin`
+    );
+  }
+  return [...origins][0];
+}
+function founderVerifiedCustomOrigin(brief, dependencyOutputs) {
+  if (!brief.domain) throw new Error("Stripe custom-domain rebinding has no canonical domain");
+  const origin = `https://${brief.domain}`;
+  const project = dependencyOutputs["vercel-project"];
+  const dns = dependencyOutputs["dns-records"];
+  const verification = dependencyOutputs["verify-custom-domain"];
+  const attached = project && !Array.isArray(project) && typeof project === "object" && project.provider === "vercel" && project.state === "verified" && Array.isArray(project.capabilities) && project.capabilities.includes("domain") && Array.isArray(project.resourceRefs) && project.resourceRefs.some((reference) => {
+    if (typeof reference !== "string") return false;
+    const separator = reference.indexOf("=");
+    if (separator < 0 || !["domain", "site_url", "url"].includes(reference.slice(0, separator))) {
+      return false;
+    }
+    const value = reference.slice(separator + 1);
+    if (value === brief.domain) return true;
+    try {
+      return new URL(value).origin === origin;
+    } catch {
+      return false;
+    }
+  });
+  const dnsVerified = dns && !Array.isArray(dns) && typeof dns === "object" && (dns.mode === "manual_dns" && Array.isArray(dns.propagation_checks) && dns.propagation_checks.length >= 2 && dns.propagation_checks.every(
+    (check) => check && !Array.isArray(check) && typeof check === "object" && check.status === "matched"
+  ) || dns.provider === "dns" && dns.state === "verified");
+  const exactJourney = verification && !Array.isArray(verification) && typeof verification === "object" && verification.target === "verified_custom_domain" && verification.deploymentUrl === origin;
+  if (!attached || !dnsVerified || !exactJourney) {
+    throw new Error(
+      "Stripe custom-domain rebinding requires same-run Vercel attachment, DNS, and exact-origin journey evidence"
+    );
+  }
+  return origin;
+}
+function assertFounderProviderInputSnapshot(launch, snapshot) {
+  if (!launch.launchGrant) return;
+  const venture = snapshot.venture.venture;
+  const expectedDomain = launch.brief.domain ?? null;
+  if (venture.name !== launch.brief.name || (venture.domain ?? null) !== expectedDomain || venture.currency !== (launch.brief.currency ?? venture.currency) || snapshot.offer.pricing.currency !== venture.currency || venture.repository_visibility !== launch.launchGrant.repository.visibility) {
+    throw new Error(
+      "Founder provider snapshot does not match the immutable Launch Contract/Grant venture name, domain, currency, or repository visibility; no source or provider action was started."
+    );
+  }
+  if (!isDeepStrictEqual2(
+    [...venture.capabilities.active].sort(),
+    [...launch.decision.capabilities].sort()
+  )) {
+    throw new Error(
+      "Founder provider snapshot capabilities do not match the immutable compiled launch graph; no source or provider action was started."
+    );
+  }
+  const requiredDestinations = requiredGrantDestinations(launch.definition, snapshot.providers).map(
+    providerDestinationKey
+  );
+  const grantedDestinations = launch.launchGrant.providerAccounts.map(providerDestinationKey);
+  if (!isDeepStrictEqual2([...requiredDestinations].sort(), [...grantedDestinations].sort())) {
+    throw new Error(
+      "Founder provider snapshot destinations do not match the immutable Launch Grant; no source or provider action was started."
+    );
+  }
+  if (!launch.launchContract) return;
+  const contract = launchContractSchema.parse(launch.launchContract);
+  const expectedPricing = {
+    currency: contract.business.currency,
+    monthly_price: contract.business.model === "subscription" ? contract.business.priceHypothesis : null,
+    annual_price: null,
+    one_time_price: contract.business.model === "one_time" || contract.business.model === "service" ? contract.business.priceHypothesis : null
+  };
+  const actualPricing = {
+    currency: snapshot.offer.pricing.currency,
+    monthly_price: snapshot.offer.pricing.monthly_price,
+    annual_price: snapshot.offer.pricing.annual_price,
+    one_time_price: snapshot.offer.pricing.one_time_price
+  };
+  if (!isDeepStrictEqual2(actualPricing, expectedPricing)) {
+    throw new Error(
+      "Founder offer price does not match the immutable Launch Contract; no Stripe, source, or provider action was started."
+    );
+  }
+}
+function immutableFounderStripePrice(input) {
+  if (input.launchContract) {
+    const contract = launchContractSchema.parse(input.launchContract);
+    const amount = contract.business.priceHypothesis;
+    const unitAmount2 = amount === null ? Number.NaN : amount * 100;
+    if (!Number.isSafeInteger(unitAmount2) || unitAmount2 < 1) {
+      throw new Error("Canonical Launch Contract has no exact Stripe minor-unit amount");
+    }
+    return {
+      productName: contract.venture.name,
+      currency: contract.business.currency.toLowerCase(),
+      unitAmount: unitAmount2,
+      ...contract.business.model === "subscription" ? { recurringInterval: "month" } : {}
+    };
+  }
+  const pricing = input.providerConfig.offer.pricing;
+  const candidates = input.brief.monetization_model === "subscription" ? [
+    pricing.monthly_price === null ? null : { amount: pricing.monthly_price, recurringInterval: "month" },
+    pricing.annual_price === null ? null : { amount: pricing.annual_price, recurringInterval: "year" }
+  ] : input.brief.monetization_model === "one_time" || input.brief.monetization_model === "services" ? [pricing.one_time_price === null ? null : { amount: pricing.one_time_price }] : [];
+  const selected = candidates.filter(
+    (candidate) => candidate !== null
+  );
+  const unitAmount = selected.length === 1 ? selected[0].amount * 100 : Number.NaN;
+  if (!Number.isSafeInteger(unitAmount) || unitAmount < 1) {
+    throw new Error("Immutable founder offer snapshot has no single exact Stripe price");
+  }
+  return {
+    productName: input.brief.name,
+    currency: pricing.currency.toLowerCase(),
+    unitAmount,
+    ...selected[0].recurringInterval ? { recurringInterval: selected[0].recurringInterval } : {}
+  };
+}
 function bindFounderProviderFactories(input) {
+  const grant = parseLaunchGrant(input.grant);
+  const providers = providersSchema.parse(input.providerConfig.providers);
   const nodeByHandler = new Map(
     input.definition.nodes.filter((node) => node.kind === "provider" && node.handler).map((node) => [node.handler, node])
   );
@@ -30618,14 +36606,12 @@ function bindFounderProviderFactories(input) {
           );
         }
         const capabilities = [...new Set(target.request.capabilities)];
-        if (capabilities.length === 0 || capabilities.length !== target.request.capabilities.length || capabilities.some((capability) => !node.authorization.scopes.includes(capability))) {
+        const authorizedScopes = new Set(node.authorization.scopes);
+        if (capabilities.length === 0 || capabilities.length !== target.request.capabilities.length || capabilities.some((capability) => !authorizedScopes.has(capability))) {
           throw new Error(
-            `Launch provider factory ${handler} returned a capability outside its immutable graph scope`
+            `Launch provider factory ${handler} requested duplicate, empty, or out-of-scope capabilities`
           );
         }
-        const providers = providersSchema.parse(
-          readStructured(inside6(input.root, "config/providers.yaml"))
-        );
         const configured = providers.providers[target.provider];
         if (!configured) {
           throw new Error(`Launch provider ${target.provider} has no typed configuration`);
@@ -30647,6 +36633,11 @@ function bindFounderProviderFactories(input) {
               `Launch provider ${target.provider} credential account does not match the configured account`
             );
           }
+          if (target.provider === "stripe" && (!configured.account_id || reference.accountId !== configured.account_id || reference.testStatus !== "passed" || reference.testedAt === void 0 || reference.providerMode !== "test")) {
+            throw new Error(
+              "Founder Stripe apply requires durable read-only proof that the exact restricted API credential is authenticated for the configured account in test mode. Next: run vh auth test stripe --ref " + reference.ref
+            );
+          }
         }
         for (const capability of capabilities) {
           const externalAccountId = configuredProviderDestination(
@@ -30654,7 +36645,7 @@ function bindFounderProviderFactories(input) {
             target.provider,
             capability
           );
-          if (!externalAccountId || !input.grant.providerAccounts.some(
+          if (!externalAccountId || !grant.providerAccounts.some(
             (destination) => destination.provider === target.provider && destination.capability === capability && destination.externalAccountId === externalAccountId
           )) {
             throw new Error(
@@ -30666,15 +36657,43 @@ function bindFounderProviderFactories(input) {
           assertExactPlanInput(
             target,
             "repository",
-            `${input.grant.repository.owner}/${input.grant.repository.name}`
+            `${grant.repository.owner}/${grant.repository.name}`
           );
-          assertExactPlanInput(target, "visibility", input.grant.repository.visibility);
-          assertExactPlanInput(target, "sourceDirectory", resolve21(input.root));
+          assertExactPlanInput(target, "visibility", grant.repository.visibility);
+          assertExactPlanInput(target, "sourceDirectory", resolve24(input.root));
         }
         if (target.provider === "vercel") {
           const scope = configured.team_id ?? configured.account_id;
           if (scope) assertExactPlanInput(target, "scope", scope);
-          assertExactPlanInput(target, "project", input.grant.repository.name);
+          assertExactPlanInput(target, "project", grant.repository.name);
+          if (handler === "provider.vercel-project") {
+            if (input.brief.domain) {
+              requireExactPlanInput(target, "domain", input.brief.domain);
+            } else if (target.request.inputs.domain !== void 0) {
+              throw new Error(
+                "Launch provider request introduced a domain outside the immutable founder brief"
+              );
+            }
+          }
+          if (handler === "provider.vercel-stripe-price-environment") {
+            const priceId = publicIdentifier(
+              workflow.dependencyOutputs["stripe-commerce"],
+              "price_id"
+            );
+            if (!priceId) {
+              throw new Error(
+                "Stripe price application binding requires one same-run verified price identifier"
+              );
+            }
+            requireExactPlanInput(target, "environmentVariableName", "STRIPE_PRICE_ID");
+            requireExactPlanInput(target, "environmentPublicValue", priceId);
+          }
+          if (handler === "provider.vercel-stripe-price-lookup-environment") {
+            const terms = immutableFounderStripePrice(input);
+            const lookupKey = `vh_${input.brief.id.replaceAll("-", "_")}_${terms.currency}_${terms.unitAmount}_${terms.recurringInterval ?? "once"}`;
+            requireExactPlanInput(target, "environmentVariableName", "STRIPE_PRICE_LOOKUP_KEY");
+            requireExactPlanInput(target, "environmentPublicValue", lookupKey);
+          }
         }
         if (target.provider === "neon" && capabilities.includes("project")) {
           const organizationId = configured.external_resource_ids.organization_id;
@@ -30685,11 +36704,58 @@ function bindFounderProviderFactories(input) {
           }
           assertExactPlanInput(target, "organizationId", organizationId);
         }
+        if (target.provider === "stripe") {
+          const accountId = configured.account_id;
+          if (!accountId || target.request.inputs.stripeAccountId !== accountId) {
+            throw new Error(
+              "Launch provider stripe has no exact request-bound configured account destination"
+            );
+          }
+          requireExactPlanInput(target, "ventureSlug", input.brief.id);
+          requireExactPlanInput(target, "stripeMode", "test");
+          if (handler === "provider.stripe-commerce") {
+            const terms = immutableFounderStripePrice(input);
+            requireExactPlanInput(target, "productName", terms.productName);
+            requireExactPlanInput(target, "currency", terms.currency);
+            requireExactPlanInput(target, "unitAmount", terms.unitAmount);
+            const interval = target.request.inputs.recurringInterval;
+            if (interval !== terms.recurringInterval) {
+              throw new Error(
+                "Launch provider request Stripe interval does not match the immutable Launch Contract"
+              );
+            }
+          } else if (handler === "provider.stripe-callbacks" || handler === "provider.stripe-domain-callbacks") {
+            const origin = handler === "provider.stripe-domain-callbacks" ? founderVerifiedCustomOrigin(input.brief, workflow.dependencyOutputs) : founderProductionOrigin(workflow.dependencyOutputs);
+            requireExactPlanInput(target, "webhookUrl", `${origin}/api/stripe/webhook`);
+            requireExactPlanInput(target, "portalReturnUrl", `${origin}/account`);
+            const expectedWebhookRef = configured.external_resource_ids.webhook_secret_credential_ref;
+            if (!expectedWebhookRef || target.request.inputs.webhookSecretCredentialRef !== expectedWebhookRef) {
+              throw new Error(
+                "Launch provider request Stripe webhook secret target does not match the immutable Founder Stack snapshot"
+              );
+            }
+          }
+        }
         if (target.provider === "google" && capabilities.includes("analytics_property")) {
           const analyticsAccount = configured.external_resource_ids.analytics_account_id;
           if (analyticsAccount) {
             assertExactPlanInput(target, "analyticsAccountId", analyticsAccount);
           }
+        }
+        if (target.provider === "google" && capabilities.includes("analytics_web_stream")) {
+          const dependencyId = node.dependencies.includes("initial-production-deploy") ? "initial-production-deploy" : "production-deploy";
+          const origin = founderProductionOrigin(workflow.dependencyOutputs, dependencyId);
+          requireExactPlanInput(target, "defaultUri", `${origin}/`);
+          const propertyId = publicIdentifier(
+            workflow.dependencyOutputs["google-analytics-property"],
+            "property_id"
+          );
+          if (!propertyId) {
+            throw new Error(
+              "GA4 stream binding requires one same-run verified analytics property identifier"
+            );
+          }
+          requireExactPlanInput(target, "analyticsPropertyId", propertyId);
         }
         return {
           ...target,
@@ -30697,7 +36763,7 @@ function bindFounderProviderFactories(input) {
             maxOperations: Math.max(1, node.authorization.scopes.length),
             missingCostClassification: {
               basis: "reviewed_known_zero_direct_charge",
-              currency: input.grant.providerOperationBudget.currency,
+              currency: grant.providerOperationBudget.currency,
               ongoingAccountPlanUsageCovered: false,
               allowedOperations: FOUNDER_REVIEWED_ZERO_DIRECT_CHARGE_OPERATIONS.filter(
                 ([provider, capability]) => provider === target.provider && capabilities.includes(capability)
@@ -30833,7 +36899,8 @@ function configureFounderOffer(root, preparation) {
       ...current.pricing,
       currency: preparation.idea.commercialTerms.currency,
       monthly_price: preparation.idea.commercialTerms.monthlyPrice,
-      annual_price: preparation.idea.commercialTerms.annualPrice
+      annual_price: preparation.idea.commercialTerms.annualPrice,
+      one_time_price: preparation.idea.commercialTerms.oneTimePrice
     }
   });
   writeYamlAtomic(path, next);
@@ -30871,6 +36938,7 @@ function publicFounderPreparation(preparation, extra = {}) {
     },
     graphDryRun: preparation.graphDryRun,
     blockers: preparation.blockers,
+    launchGaps: preparation.launchGaps,
     exactFinalCommand: preparation.exactFinalCommand,
     externalEffectsOccurred: false,
     ...extra
@@ -30916,8 +36984,73 @@ function credentialKind(value, backend) {
   }
   return selected;
 }
+function mergeFounderStackRoleRepair(current, next, request2) {
+  if (!current || request2.updatedRoles === void 0) return parseFounderStackConnection(next);
+  if (next.ownerOrganizationId !== current.ownerOrganizationId && next.ownerOrganizationId !== "founder") {
+    throw new Error("Founder Stack profile belongs to another organization");
+  }
+  const updated = new Set(request2.updatedRoles);
+  const roles = Object.fromEntries(
+    Object.keys(founderStackRoleDefinitions).map((role) => [
+      role,
+      updated.has(role) ? next.roles[role] : current.roles[role]
+    ])
+  );
+  const selectedOptionalRoles = request2.replaceOptionalRoles ? next.selectedOptionalRoles : [
+    .../* @__PURE__ */ new Set([
+      ...current.selectedOptionalRoles,
+      ...next.selectedOptionalRoles.filter((role) => updated.has(role))
+    ])
+  ];
+  return parseFounderStackConnection({
+    ...current,
+    inspectedCliSessions: next.inspectedCliSessions,
+    roles,
+    selectedOptionalRoles,
+    writableCredentialBackend: request2.updateWritableCredentialBackend ? next.writableCredentialBackend : current.writableCredentialBackend,
+    launchDefaults: {
+      neon: updated.has("database.postgres") ? next.launchDefaults.neon : current.launchDefaults.neon,
+      stripe: updated.has("commerce.web") ? next.launchDefaults.stripe : current.launchDefaults.stripe,
+      brevo: updated.has("email.transactional") ? next.launchDefaults.brevo : current.launchDefaults.brevo,
+      google: updated.has("growth.google") ? next.launchDefaults.google : current.launchDefaults.google,
+      bing: updated.has("search.bing") ? next.launchDefaults.bing : current.launchDefaults.bing,
+      dns: updated.has("dns.records") ? next.launchDefaults.dns : current.launchDefaults.dns
+    }
+  });
+}
+function validateFounderStackCredentialWrites(request2, connection) {
+  const permittedRoles = new Set(
+    request2.updatedRoles ?? Object.keys(founderStackRoleDefinitions)
+  );
+  const seen = /* @__PURE__ */ new Set();
+  for (const pending of request2.credentialWrites ?? []) {
+    if (seen.has(pending.reference)) {
+      throw new Error(`Duplicate Stack credential write for ${pending.reference}`);
+    }
+    seen.add(pending.reference);
+    const role = Object.keys(founderStackRoleDefinitions).find(
+      (candidate) => permittedRoles.has(candidate) && founderStackRoleDefinitions[candidate].providerId === pending.provider && connection.roles[candidate].credentialRef === pending.reference
+    );
+    if (!role) {
+      throw new Error(
+        `Stack credential write ${pending.reference} is not bound to one refreshed provider role`
+      );
+    }
+    const expectedKind = pending.provider === "stripe" ? "restricted_api_key" : pending.provider === "google" ? "oauth" : "api_key";
+    if (pending.kind !== expectedKind) {
+      throw new Error(`Stack credential write for ${role} has the wrong credential kind`);
+    }
+    const metadata = connection.roles[role];
+    if (pending.accountId !== void 0 && pending.accountId !== metadata.accountId) {
+      throw new Error("Stack credential write has mismatched account metadata for " + role);
+    }
+    if (pending.scopes.length !== metadata.scopes.length || pending.scopes.some((scope) => !metadata.scopes.includes(scope))) {
+      throw new Error("Stack credential write has mismatched scope metadata for " + role);
+    }
+  }
+}
 function createDefaultCliServices(options = {}) {
-  const root = resolve21(options.rootDir ?? process.cwd());
+  const root = resolve24(options.rootDir ?? process.cwd());
   const store = options.store ?? new FileWorkflowStore({ rootDir: inside6(root, ".venture/runs") });
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
   const providerLifecycleStore = new FileProviderLifecycleStore(
@@ -30927,7 +37060,7 @@ function createDefaultCliServices(options = {}) {
     options.founderStackRoot ?? (options.rootDir ? inside6(root, ".venture/founder-stacks") : defaultFounderStackStateRoot())
   );
   const requirements = options.dataRequirements ?? [];
-  const catalogPath = resolve21(
+  const catalogPath = resolve24(
     options.credentialCatalogPath ?? (options.rootDir ? inside6(root, ".venture/credentials.json") : defaultCredentialCatalogPath())
   );
   let credentialCatalog = loadCredentialCatalog(catalogPath);
@@ -30942,6 +37075,10 @@ function createDefaultCliServices(options = {}) {
   ]);
   if (process.platform === "darwin") supportedBackends.add("macos_keychain");
   const credentialBroker = options.credentialBroker ?? defaultBroker;
+  const credentialTestTimeoutMs = options.credentialTestTimeoutMs ?? 15e3;
+  if (!Number.isSafeInteger(credentialTestTimeoutMs) || credentialTestTimeoutMs < 1 || credentialTestTimeoutMs > 6e4) {
+    throw new Error("Credential test timeout must be an integer from 1 to 60000 milliseconds");
+  }
   const catalogIssues = [];
   for (const reference of credentialCatalog.references) {
     if (!options.credentialBroker && !supportedBackends.has(reference.backend)) {
@@ -30958,6 +37095,26 @@ function createDefaultCliServices(options = {}) {
   }
   const httpFetcher = options.dataHttpFetcher ?? new NativeHttpFetcher({ redactor: credentialBroker.redactor });
   const defaultCredentialTesters = (connection) => createDefaultFounderCredentialTesters({ fetcher: httpFetcher, connection });
+  const boundedCredentialTester = (provider, tester) => {
+    return async (secret, reference) => {
+      const controller = new AbortController();
+      let timeout;
+      const failed = (message) => ({ ok: false, message });
+      const result2 = Promise.resolve().then(() => tester(secret, reference, { signal: controller.signal })).catch(() => failed(`${provider} credential read-only probe was unavailable`));
+      const deadline = new Promise((resolve30) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve30(failed(`${provider} credential read-only probe timed out`));
+        }, credentialTestTimeoutMs);
+      });
+      try {
+        return await Promise.race([result2, deadline]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    };
+  };
+  const testCredential = (ref, provider, tester) => credentialBroker.test(ref, boundedCredentialTester(provider, tester));
   const testFounderStackCredentials = async (connection) => {
     const testers = defaultCredentialTesters(connection);
     const refs = [
@@ -30971,7 +37128,7 @@ function createDefaultCliServices(options = {}) {
       const reference = credentialBroker.getReference(ref);
       if (!reference || reference.kind === "cli_session") continue;
       const tester = options.credentialTesters?.[reference.provider] ?? testers[reference.provider];
-      if (tester) await credentialBroker.test(ref, tester);
+      if (tester) await testCredential(ref, reference.provider, tester);
     }
     for (const reference of credentialBroker.list()) {
       credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
@@ -30988,11 +37145,15 @@ function createDefaultCliServices(options = {}) {
     now
   });
   const productRuntimeHome = inside6(root, ".venture/product-command-home");
-  mkdirSync8(productRuntimeHome, { recursive: true, mode: 448 });
+  mkdirSync10(productRuntimeHome, { recursive: true, mode: 448 });
   const productCommandRunner = options.productCommandRunner ?? new NodeCommandRunner({ env: productCommandEnvironment(process.env, productRuntimeHome) });
   const buildAgentHost = options.buildAgentHost ?? new CodexCliBuildAgentHost({
     rootDir: root,
     runner: new NodeCommandRunner({ env: codexBuildAgentEnvironment(process.env) }),
+    redactor: credentialBroker.redactor
+  });
+  const ideaSharpenerHost = options.ideaSharpenerHost ?? new CodexCliIdeaSharpenerHost({
+    runner: new NodeCommandRunner({ env: ideaSharpenerEnvironment(process.env) }),
     redactor: credentialBroker.redactor
   });
   const defaultProviderRuntimeContext = createOfficialProviderContext({
@@ -31013,7 +37174,8 @@ function createDefaultCliServices(options = {}) {
     rootDir: root,
     brief: launch.brief,
     definition: launch.definition,
-    authorization: launch.authorization
+    authorization: launch.authorization,
+    ...launch.launchContract ? { launchContract: launch.launchContract } : {}
   });
   const reportCredentialReferences = (launch) => {
     const activeProviders = new Set(providerIds2(launch.definition));
@@ -31026,35 +37188,28 @@ function createDefaultCliServices(options = {}) {
       accountId: reference.accountId
     }));
   };
-  const qualityReportLines = () => {
+  const qualityReportLines = (state) => {
     const lines = [];
     const limitations = [];
-    for (const profile2 of ["fast", "mvp", "release"]) {
-      const path = inside6(root, `.venture/reports/quality/${profile2}-latest.json`);
-      if (!existsSync12(path)) continue;
-      try {
-        const report = JSON.parse(readFileSync14(path, "utf8"));
-        for (const result2 of report.results ?? []) {
-          if (typeof result2.id !== "string" || !["PASS", "FAIL", "SKIP", "NOT_APPLICABLE"].includes(String(result2.status))) {
-            throw new Error("result has an invalid id or status");
-          }
-          const detail = typeof result2.detail === "string" ? `; ${result2.detail}` : "";
-          const gap = result2.gap;
-          const prerequisite = gap && typeof gap.missing === "string" && typeof gap.exact_command === "string" ? `; missing ${gap.missing}; run ${gap.exact_command}; evidence ${typeof gap.expected_evidence === "string" ? gap.expected_evidence : "not recorded"}` : "";
-          lines.push(`${profile2}/${result2.id}: ${String(result2.status)}${detail}${prerequisite}`);
-        }
-      } catch (error) {
-        limitations.push(
-          `${profile2} quality artifact could not be parsed; no check state was inferred (${error instanceof Error ? error.message : String(error)}).`
-        );
+    for (const nodeId of ["verify-local", "verify-mvp", "verify-launch", "verify-production"]) {
+      const node = state.nodes[nodeId];
+      if (!node) continue;
+      const output = node.output;
+      const command = output && typeof output === "object" && !Array.isArray(output) && Array.isArray(output.command) ? output.command.filter((part) => typeof part === "string").join(" ") : null;
+      lines.push(
+        `${nodeId}: ${node.state}${command ? `; ${command}` : ""}${node.evidenceArtifact ? `; evidence ${node.evidenceArtifact}` : ""}`
+      );
+      if (node.state !== "succeeded") {
+        limitations.push(`${nodeId} did not succeed in this run; no quality pass was inferred.`);
       }
     }
+    if (lines.length === 0) limitations.push("No same-run quality node output was recorded.");
     return { lines, limitations };
   };
   const reportInputFor = (launch, state) => {
     const decision = launch.decision;
     const loopsPath = inside6(root, "config/loops.yaml");
-    const loops = existsSync12(loopsPath) ? loopsSchema.parse(readStructured(loopsPath)) : createDefaultLoopsConfig();
+    const loops = existsSync13(loopsPath) ? loopsSchema.parse(readStructured(loopsPath)) : createDefaultLoopsConfig();
     const configuredLoops = Object.entries(loops.loops).map(([id, loop2]) => {
       const sources = loop2.inputs.length > 0 ? loop2.inputs.map(
         (input) => `${input.source}:${input.freshness_hours}h:${input.required ? "required" : "optional"}`
@@ -31063,7 +37218,7 @@ function createDefaultCliServices(options = {}) {
     });
     const nextReviews = Object.entries(loops.loops).filter(([, loop2]) => ["daily", "weekly", "biweekly", "monthly"].includes(loop2.cadence)).map(([id, loop2]) => `${id}: ${loop2.next_run_at ?? "not scheduled"}`);
     const providerConfigPath = inside6(root, "config/providers.yaml");
-    const providerMetadata = existsSync12(providerConfigPath) ? Object.fromEntries(
+    const providerMetadata = existsSync13(providerConfigPath) ? Object.fromEntries(
       Object.entries(providersSchema.parse(readStructured(providerConfigPath)).providers).map(
         ([provider, configured]) => [
           provider,
@@ -31076,8 +37231,8 @@ function createDefaultCliServices(options = {}) {
       )
     ) : {};
     const cadencePath = inside6(root, "reports/learning/operating-cadence.json");
-    if (existsSync12(cadencePath)) {
-      const cadence = JSON.parse(readFileSync14(cadencePath, "utf8"));
+    if (existsSync13(cadencePath)) {
+      const cadence = JSON.parse(readFileSync17(cadencePath, "utf8"));
       for (const hypothesis of cadence.activeHypotheses ?? []) {
         nextReviews.push(`active hypothesis: ${hypothesis}`);
       }
@@ -31088,7 +37243,7 @@ function createDefaultCliServices(options = {}) {
         nextReviews.push(`active blocker: ${blocker}`);
       }
     }
-    const quality = qualityReportLines();
+    const quality = qualityReportLines(state);
     return createLaunchReportInputFromRun({
       generatedAt: now().toISOString(),
       state,
@@ -31104,7 +37259,17 @@ function createDefaultCliServices(options = {}) {
         paymentProvider: decision.payment.provider,
         entitlementSource: decision.payment.entitlementSource,
         activeEventPacks: launch.activeEventPacks,
-        consentMode: "strict"
+        consentMode: "strict",
+        ...launch.launchContract ? {
+          firstValidationAction: {
+            action: launch.launchContract.distribution.firstValidationAction,
+            channel: launch.launchContract.distribution.firstChannel,
+            userHabitat: launch.launchContract.distribution.firstUserHabitat,
+            state: "planned",
+            execution: "human_gated",
+            evidenceRequired: "Founder-reviewed evidence that the action was performed; no outreach, response, demand, or conversion result is inferred."
+          }
+        } : {}
       },
       authorization: {
         profile: launch.authorization.profile,
@@ -31124,6 +37289,9 @@ function createDefaultCliServices(options = {}) {
         ...launch.launchGrant?.modelExecutionPolicy ? [
           launch.launchGrant.modelExecutionPolicy.mode === "chatgpt_subscription_non_metered" ? `Build-agent execution is bounded to ${launch.launchGrant.modelExecutionPolicy.maxBuildAgentTasks} ChatGPT-subscription tasks; token usage is observational and no token or monetary hard ceiling is claimed.` : `Fixture build execution is bounded to ${launch.launchGrant.modelExecutionPolicy.maxBuildAgentTasks} deterministic tasks and attests that no model was invoked.`
         ] : [],
+        ...(launch.founderLaunchGaps ?? []).map(
+          (gap) => `${gap.code}: ${gap.message} Next: ${gap.nextAction}. State: ${gap.state}; blocksLaunch=false.`
+        ),
         ...quality.limitations
       ],
       sections: {
@@ -31133,17 +37301,38 @@ function createDefaultCliServices(options = {}) {
       }
     });
   };
-  const persistStateReport = async (launch, state, runtimeContext) => persistLaunchReport(
-    renderLaunchReport(reportInputFor(launch, state), {
+  const receiptVerification = (launch, state) => sameRunLaunchReceiptVerification(state, Boolean(launch.brief.domain));
+  const persistStateReport = async (launch, state, runtimeContext) => {
+    const outputDirectory = inside6(root, `reports/launch/${state.runId}`);
+    const report = renderLaunchReport(reportInputFor(launch, state), {
       redactor: runtimeContext.redactor
-    }),
-    inside6(root, `reports/launch/${state.runId}`)
-  );
+    });
+    const persistedReport = await persistLaunchReport(report, outputDirectory);
+    const receipt = createLaunchReceipt(
+      {
+        state,
+        report: persistedReport.document,
+        decision: launch.decision,
+        launchContract: launch.launchContract,
+        launchGrant: launch.launchGrant,
+        launchGaps: launch.founderLaunchGaps,
+        verification: receiptVerification(launch, state)
+      },
+      { redactor: runtimeContext.redactor }
+    );
+    const persistedReceipt = await persistLaunchReceipt(receipt, outputDirectory);
+    return { report: persistedReport, receipt: persistedReceipt };
+  };
   const bindingsFor = async (launch) => {
     const launchContext = launchContextFor(launch);
+    const providerConfigSnapshot = launch.launchGrant ? loadDefaultProviderConfig(root) : void 0;
+    if (providerConfigSnapshot) assertFounderProviderInputSnapshot(launch, providerConfigSnapshot);
     const productBindings = options.launchBindings ? await options.launchBindings(launchContext) : (await (launch.launchGrant ? assertFounderBuildAgentHostPolicy(buildAgentHost, launch.launchGrant) : assertBuildAgentHostAvailable(buildAgentHost)), createLaunchProductBindings({
       rootDir: root,
       brief: launch.brief,
+      decision: launch.decision,
+      launchContract: launch.launchContract,
+      authorization: launch.authorization,
       agentHost: buildAgentHost,
       commandRunner: productCommandRunner,
       redactor: credentialBroker.redactor,
@@ -31167,14 +37356,19 @@ function createDefaultCliServices(options = {}) {
     }
     const unboundedProviderPlanFactories = options.providerPlanFactories ? typeof options.providerPlanFactories === "function" ? await options.providerPlanFactories(launchContext) : options.providerPlanFactories : createDefaultProviderPlanFactories({
       rootDir: root,
-      brief: () => launch.brief,
+      brief: launch.brief,
       definition: launch.definition,
+      ...providerConfigSnapshot ? { configSnapshot: providerConfigSnapshot } : {},
+      ...launch.launchContract ? { launchContract: launch.launchContract } : {},
       lifecycleStore: providerLifecycleStore
     });
     const providerPlanFactories = launch.launchGrant ? bindFounderProviderFactories({
       factories: unboundedProviderPlanFactories,
       definition: launch.definition,
       grant: launch.launchGrant,
+      providerConfig: providerConfigSnapshot,
+      brief: launch.brief,
+      ...launch.launchContract ? { launchContract: launch.launchContract } : {},
       root,
       broker: credentialBroker
     }) : unboundedProviderPlanFactories;
@@ -31240,7 +37434,104 @@ function createDefaultCliServices(options = {}) {
     };
   };
   return {
+    async ideaSharpen(request2) {
+      const boundary = new OwnerPathLock(root, {
+        label: "vh idea sharpen",
+        lockName: ".vh-idea-sharpen.lock"
+      });
+      try {
+        const source = request2.input === "-" ? readFileSync17(0, "utf8") : boundary.readRegularFile(inside6(root, request2.input), {
+          label: "vh idea sharpen --input",
+          maxBytes: 1e5
+        });
+        const outputPath = safeIdeaOutputPath(root, request2.output, boundary);
+        const outputReference = relative15(realpathSync10(root), outputPath);
+        const baseOutput = outputReference.slice(0, -3);
+        const constitutionPath = safeIdeaOutputPath(
+          root,
+          `${baseOutput}.product-constitution.md`,
+          boundary
+        );
+        const usagePath = inside6(root, `${baseOutput}.usage.json`);
+        const contractPath = inside6(root, `${baseOutput}.launch-contract.yaml`);
+        let result2;
+        try {
+          result2 = await sharpenIdea(source, { host: ideaSharpenerHost, now });
+        } catch (error) {
+          if (error instanceof IdeaSharpenError) {
+            boundary.writeFileAtomic(
+              usagePath,
+              `${JSON.stringify(
+                {
+                  schemaVersion: 1,
+                  command: "idea.sharpen",
+                  status: "failed",
+                  sourceDigest: createHash18("sha256").update(source).digest("hex"),
+                  ...error.accounting,
+                  transcriptStored: false,
+                  providerEffects: false
+                },
+                null,
+                2
+              )}
+`,
+              "vh idea sharpen failed usage"
+            );
+          }
+          throw error;
+        }
+        boundary.writeFileAtomic(outputPath, result2.ideaMarkdown, "vh idea sharpen output");
+        boundary.writeFileAtomic(
+          constitutionPath,
+          result2.productConstitutionMarkdown,
+          "vh idea sharpen Product Constitution"
+        );
+        boundary.writeFileAtomic(
+          contractPath,
+          renderLaunchContractYaml(result2.launchContract),
+          "vh idea sharpen Launch Contract"
+        );
+        boundary.writeFileAtomic(
+          usagePath,
+          `${JSON.stringify(
+            {
+              schemaVersion: 1,
+              command: "idea.sharpen",
+              status: result2.status,
+              sourceDigest: createHash18("sha256").update(source).digest("hex"),
+              output: outputReference,
+              productConstitution: `${baseOutput}.product-constitution.md`,
+              launchContract: `${baseOutput}.launch-contract.yaml`,
+              ...result2.accounting,
+              transcriptStored: false,
+              providerEffects: false
+            },
+            null,
+            2
+          )}
+`,
+          "vh idea sharpen usage"
+        );
+        return {
+          schemaVersion: 1,
+          status: result2.status,
+          output: outputReference,
+          productConstitution: `${baseOutput}.product-constitution.md`,
+          launchContract: `${baseOutput}.launch-contract.yaml`,
+          usage: `${baseOutput}.usage.json`,
+          ...result2.accounting,
+          transcriptStored: false,
+          providerEffects: false,
+          repositoryCreated: false,
+          deploymentCreated: false,
+          nextAction: `Review ${baseOutput}.launch-contract.yaml, then run vh launch --idea ${outputReference} --stack founder-default --production --dry-run --non-interactive --json.`
+        };
+      } finally {
+        boundary.release();
+      }
+    },
     async founderLaunch(request2) {
+      let founderPathBoundary = null;
       const connection = founderStackStore.load(request2.stackProfile);
       if (!connection) {
         return {
@@ -31269,156 +37560,129 @@ function createDefaultCliServices(options = {}) {
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
       const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
       if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
-      const preparation = compileFounderLaunchPreparation({
-        ideaSource,
-        ideaPath: request2.idea,
-        stack: connection,
-        stackDoctor,
-        baseDir: resolve21(venturesRoot),
-        output: request2.output,
-        workflowRefSha,
-        executionMode: request2.mode,
-        production: request2.production,
-        nonInteractive: request2.nonInteractive,
-        at: now(),
-        allowFixtureStack: options.allowFixtureFounderStack ?? false
-      });
-      if (request2.mode === "dry-run" || preparation.status === "blocked") {
-        return publicFounderPreparation(preparation);
-      }
-      const childRoot = preparation.repository.localDirectory;
-      const stagingRoot = `${childRoot}.vh-staging-${preparation.launchGrant.grantId.slice(3, 15)}`;
-      const stackConnectionHash = sha256Json(connection);
-      const childOptions = (child) => ({
-        rootDir: child,
-        founderStackRoot: founderStackStore.rootDir,
-        founderOutputRoot: options.founderOutputRoot,
-        founderWorkflowRefSha: options.founderWorkflowRefSha,
-        allowFixtureFounderStack: options.allowFixtureFounderStack,
-        launchBindings: options.launchBindings,
-        buildAgentHost: options.buildAgentHost,
-        productCommandRunner: options.productCommandRunner,
-        providerCommandRunner: options.providerCommandRunner,
-        dataCommandRunner: options.dataCommandRunner,
-        dataHttpFetcher: options.dataHttpFetcher,
-        upgradeCommandRunner: options.upgradeCommandRunner,
-        providerPlanFactories: options.providerPlanFactories,
-        providerRuntimeContext: options.providerRuntimeContext,
-        credentialBroker,
-        credentialCatalogPath: catalogPath,
-        credentialTesters: options.credentialTesters,
-        interactiveCliLogin: options.interactiveCliLogin,
-        providerRegistry: options.providerRegistry,
-        providerContext: options.providerContext,
-        dataConnectors: options.dataConnectors,
-        dataRequirements: options.dataRequirements,
-        release: options.release,
-        now
-      });
-      let effectivePreparation = preparation;
-      let materialized2;
-      let transaction;
-      let workflow = null;
-      let buildHostPreflighted = false;
-      let writableTargetsRegistered = false;
-      let pendingFounderGrantRenewal = false;
-      const childStore = new FileWorkflowStore({ rootDir: inside6(childRoot, ".venture/runs") });
-      if (existsSync12(childRoot)) {
-        const continuation = validateFounderLaunchContinuation({
-          childRoot,
-          preparation,
-          stackConnectionHash,
-          workflowRefSha
+      const canonicalVenturesRoot = realpathSync10(resolve24(venturesRoot));
+      founderPathBoundary = request2.mode === "apply" ? new OwnerPathLock(canonicalVenturesRoot, {
+        label: "Founder venture operation"
+      }) : null;
+      try {
+        const preparation = compileFounderLaunchPreparation({
+          ideaSource,
+          ideaPath: request2.idea,
+          stack: connection,
+          stackDoctor,
+          baseDir: canonicalVenturesRoot,
+          output: request2.output,
+          workflowRefSha,
+          executionMode: request2.mode,
+          production: request2.production,
+          nonInteractive: request2.nonInteractive,
+          at: now(),
+          allowFixtureStack: options.allowFixtureFounderStack ?? false
         });
-        transaction = continuation.transaction;
-        effectivePreparation = {
-          ...preparation,
-          launchGrant: continuation.grant,
-          materialization: continuation.plan
-        };
-        materialized2 = {
-          status: "materialized",
-          files: continuation.plan.files.map(({ path }) => path),
-          planDigest: continuation.plan.planDigest
-        };
-        if (childStore.exists(transaction.runId)) {
-          workflow = childStore.load(transaction.runId);
-        } else if (transaction.status !== "launch_pending") {
-          throw new Error(
-            `Founder launch transaction is ${transaction.status} but workflow ${transaction.runId} is missing; no continuation was attempted.`
-          );
-        } else if (now().getTime() >= Date.parse(continuation.grant.expiresAt)) {
-          pendingFounderGrantRenewal = true;
+        if (request2.mode === "dry-run" || preparation.status === "blocked") {
+          return publicFounderPreparation(preparation);
         }
-      } else {
-        if (existsSync12(stagingRoot)) {
-          throw new Error(
-            `Founder launch staging directory already exists: ${stagingRoot}. Inspect that interrupted local materialization before retrying; no provider effect was started by this invocation.`
-          );
+        if (!founderPathBoundary) {
+          throw new Error("Founder apply requires an active ventures-root owner lock");
         }
-        if (!options.launchBindings) {
-          await assertFounderBuildAgentHostPolicy(buildAgentHost, preparation.launchGrant);
-          buildHostPreflighted = true;
-        }
-        const registeredTargets = await registerFounderStackWritableCredentialRefs(
-          connection,
-          {
-            ventureSlug: preparation.idea.brief.id,
-            domain: preparation.idea.brief.domain
-          },
-          credentialBroker
+        const childRoot = resolveVentureOutputWithinRoot(
+          canonicalVenturesRoot,
+          relative15(canonicalVenturesRoot, preparation.repository.localDirectory)
         );
-        for (const target of registeredTargets.inspections) {
-          const reference = credentialBroker.getReference(target.ref);
-          if (reference) {
-            credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
-          }
-        }
-        saveCredentialCatalog(credentialCatalog, catalogPath);
-        writableTargetsRegistered = true;
-        materialized2 = await materializeFounderVenture(preparation, stagingRoot);
-        const briefArtifact = ".venture/input/founder-brief.yaml";
-        writeYamlAtomic(inside6(stagingRoot, briefArtifact), preparation.idea.brief);
-        writeJsonAtomic2(inside6(stagingRoot, ".venture/founder-input.json"), {
-          schemaVersion: 1,
-          compiledAt: preparation.launchGrant.createdAt,
-          sourceHash: preparation.idea.sourceHash,
-          briefArtifact,
-          assumptions: preparation.idea.assumptionsAdded,
-          stackProfile: preparation.stackProfile
+        const stagingRoot = `${childRoot}.vh-staging-${preparation.launchGrant.grantId.slice(3, 15)}`;
+        const stackConnectionHash = sha256Json(connection);
+        const childOptions = (child) => ({
+          rootDir: child,
+          founderStackRoot: founderStackStore.rootDir,
+          founderOutputRoot: options.founderOutputRoot,
+          founderWorkflowRefSha: options.founderWorkflowRefSha,
+          allowFixtureFounderStack: options.allowFixtureFounderStack,
+          launchBindings: options.launchBindings,
+          buildAgentHost: options.buildAgentHost,
+          ideaSharpenerHost: options.ideaSharpenerHost,
+          productCommandRunner: options.productCommandRunner,
+          providerCommandRunner: options.providerCommandRunner,
+          dataCommandRunner: options.dataCommandRunner,
+          dataHttpFetcher: options.dataHttpFetcher,
+          upgradeCommandRunner: options.upgradeCommandRunner,
+          providerPlanFactories: options.providerPlanFactories,
+          providerRuntimeContext: options.providerRuntimeContext,
+          credentialBroker,
+          credentialCatalogPath: catalogPath,
+          credentialTesters: options.credentialTesters,
+          interactiveCliLogin: options.interactiveCliLogin,
+          providerRegistry: options.providerRegistry,
+          providerContext: options.providerContext,
+          dataConnectors: options.dataConnectors,
+          dataRequirements: options.dataRequirements,
+          release: options.release,
+          now,
+          pathSecurityHook: options.pathSecurityHook
         });
-        writeJsonAtomic2(inside6(stagingRoot, ".venture/launch-grant.json"), preparation.launchGrant);
-        transaction = {
-          schemaVersion: 1,
-          status: "launch_pending",
-          sourceHash: preparation.idea.sourceHash,
-          stackProfile: preparation.stackProfile,
-          stackConnectionHash,
-          grantId: preparation.launchGrant.grantId,
-          runId: `launch-${preparation.idea.brief.id}-${preparation.launchGrant.grantId.slice(3, 15)}`,
-          planDigest: preparation.materialization.planDigest,
-          createdAt: preparation.launchGrant.createdAt,
-          updatedAt: now().toISOString()
-        };
-        saveFounderLaunchTransaction(stagingRoot, transaction);
-        const stagingServices = createDefaultCliServices(childOptions(stagingRoot));
-        if (!stagingServices.create) throw new Error("Founder child create service is unavailable");
-        await stagingServices.create({ brief: briefArtifact, json: true });
-        configureFounderProviderTargets(stagingRoot, connection, preparation);
-        configureFounderOffer(stagingRoot, preparation);
-        mkdirSync8(dirname11(childRoot), { recursive: true, mode: 448 });
-        renameSync6(stagingRoot, childRoot);
-      }
-      if (!workflow) {
-        if (!options.launchBindings && !buildHostPreflighted) {
-          await assertFounderBuildAgentHostPolicy(buildAgentHost, effectivePreparation.launchGrant);
-        }
-        if (!writableTargetsRegistered) {
+        let effectivePreparation = preparation;
+        let materialized2;
+        let transaction;
+        let workflow = null;
+        let buildHostPreflighted = false;
+        let writableTargetsRegistered = false;
+        let pendingFounderGrantRenewal = false;
+        let childIdentity = existsSync13(childRoot) ? founderPathBoundary.captureDirectory(childRoot, "Founder venture child") : null;
+        const childStore = new FileWorkflowStore({ rootDir: inside6(childRoot, ".venture/runs") });
+        resolveVentureOutputWithinRoot(
+          canonicalVenturesRoot,
+          relative15(canonicalVenturesRoot, childRoot)
+        );
+        if (existsSync13(childRoot)) {
+          options.pathSecurityHook?.("before-founder-continuation", childRoot);
+          founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          const continuation = validateFounderLaunchContinuation({
+            childRoot,
+            preparation,
+            stackConnectionHash,
+            workflowRefSha
+          });
+          founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          transaction = continuation.transaction;
+          effectivePreparation = {
+            ...preparation,
+            launchGrant: continuation.grant,
+            materialization: continuation.plan
+          };
+          materialized2 = {
+            status: "materialized",
+            files: continuation.plan.files.map(({ path }) => path),
+            planDigest: continuation.plan.planDigest
+          };
+          if (childStore.exists(transaction.runId)) {
+            founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+            workflow = childStore.load(transaction.runId);
+            founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          } else if (transaction.status !== "launch_pending") {
+            throw new Error(
+              `Founder launch transaction is ${transaction.status} but workflow ${transaction.runId} is missing; no continuation was attempted.`
+            );
+          } else if (now().getTime() >= Date.parse(continuation.grant.expiresAt)) {
+            pendingFounderGrantRenewal = true;
+          }
+        } else {
+          resolveVentureOutputWithinRoot(
+            canonicalVenturesRoot,
+            relative15(canonicalVenturesRoot, stagingRoot)
+          );
+          if (existsSync13(stagingRoot)) {
+            throw new Error(
+              `Founder launch staging directory already exists: ${stagingRoot}. Inspect that interrupted local materialization before retrying; no provider effect was started by this invocation.`
+            );
+          }
+          if (!options.launchBindings) {
+            await assertFounderBuildAgentHostPolicy(buildAgentHost, preparation.launchGrant);
+            buildHostPreflighted = true;
+          }
           const registeredTargets = await registerFounderStackWritableCredentialRefs(
             connection,
             {
-              ventureSlug: effectivePreparation.idea.brief.id,
-              domain: effectivePreparation.idea.brief.domain
+              ventureSlug: preparation.idea.brief.id,
+              domain: preparation.idea.brief.domain
             },
             credentialBroker
           );
@@ -31429,78 +37693,184 @@ function createDefaultCliServices(options = {}) {
             }
           }
           saveCredentialCatalog(credentialCatalog, catalogPath);
-        }
-      }
-      const authorization = effectivePreparation.idea.brief.app_kind !== "web" && effectivePreparation.idea.brief.app_kind !== "hybrid" ? "mobile-testflight" : effectivePreparation.idea.brief.monetization_model === "none" ? "standard-launch" : "live-commerce-launch";
-      const runId2 = transaction.runId;
-      if (!workflow) {
-        const childServices = createDefaultCliServices(childOptions(childRoot));
-        if (!childServices.launch) throw new Error("Founder child launch service is unavailable");
-        try {
-          workflow = await childServices.launch({
-            mode: "apply",
-            authorization,
-            runId: runId2,
-            json: true,
-            launchGrant: effectivePreparation.launchGrant,
-            ...pendingFounderGrantRenewal ? { pendingFounderGrantRenewal: true } : {}
+          writableTargetsRegistered = true;
+          materialized2 = await materializeFounderVenture(preparation, stagingRoot);
+          const stagingIdentity = founderPathBoundary.captureDirectory(
+            stagingRoot,
+            "Founder venture staging directory"
+          );
+          const briefArtifact = ".venture/input/founder-brief.yaml";
+          writeYamlAtomic(inside6(stagingRoot, briefArtifact), preparation.idea.brief);
+          const contractArtifact = preparation.idea.launchContract ? "config/launch-contract.yaml" : null;
+          if (preparation.idea.launchContract && contractArtifact) {
+            writeTextAtomic(
+              inside6(stagingRoot, contractArtifact),
+              renderLaunchContractYaml(preparation.idea.launchContract)
+            );
+            writeTextAtomic(
+              inside6(stagingRoot, "docs/product/PRODUCT_CONSTITUTION.md"),
+              renderProductConstitution(preparation.idea.launchContract)
+            );
+            writeTextAtomic(
+              inside6(stagingRoot, "docs/product/idea.md"),
+              renderFounderIdea(preparation.idea.launchContract)
+            );
+          }
+          writeJsonAtomic2(inside6(stagingRoot, ".venture/founder-input.json"), {
+            schemaVersion: 1,
+            compiledAt: preparation.launchGrant.createdAt,
+            sourceHash: preparation.idea.sourceHash,
+            briefArtifact,
+            assumptions: preparation.idea.assumptionsAdded,
+            stackProfile: preparation.stackProfile
           });
-        } catch (error) {
-          if (childStore.exists(runId2)) {
-            const persisted = childStore.load(runId2);
-            const persistedStatus = persisted.status === "succeeded" ? "succeeded" : persisted.status === "waiting" ? "waiting_external_action" : ["failed", "cancelled", "superseded"].includes(persisted.status) ? "failed" : "launch_pending";
-            transaction = {
-              ...transaction,
-              status: persistedStatus,
-              updatedAt: new Date(
-                Math.max(Date.parse(transaction.updatedAt), now().getTime())
-              ).toISOString()
-            };
-            saveFounderLaunchTransaction(childRoot, transaction);
-          }
-          throw error;
-        } finally {
-          for (const reference of credentialBroker.list()) {
-            credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
-          }
-          saveCredentialCatalog(credentialCatalog, catalogPath);
+          writeJsonAtomic2(
+            inside6(stagingRoot, ".venture/launch-grant.json"),
+            preparation.launchGrant
+          );
+          transaction = {
+            schemaVersion: 1,
+            status: "launch_pending",
+            sourceHash: preparation.idea.sourceHash,
+            stackProfile: preparation.stackProfile,
+            stackConnectionHash,
+            grantId: preparation.launchGrant.grantId,
+            runId: `launch-${preparation.idea.brief.id}-${preparation.launchGrant.grantId.slice(3, 15)}`,
+            planDigest: preparation.materialization.planDigest,
+            createdAt: preparation.launchGrant.createdAt,
+            updatedAt: now().toISOString()
+          };
+          saveFounderLaunchTransaction(stagingRoot, transaction);
+          const stagingServices = createDefaultCliServices(childOptions(stagingRoot));
+          if (!stagingServices.create)
+            throw new Error("Founder child create service is unavailable");
+          await stagingServices.create({ brief: contractArtifact ?? briefArtifact, json: true });
+          configureFounderProviderTargets(stagingRoot, connection, preparation);
+          configureFounderOffer(stagingRoot, preparation);
+          mkdirSync10(dirname12(childRoot), { recursive: true, mode: 448 });
+          resolveVentureOutputWithinRoot(
+            canonicalVenturesRoot,
+            relative15(canonicalVenturesRoot, childRoot)
+          );
+          resolveVentureOutputWithinRoot(
+            canonicalVenturesRoot,
+            relative15(canonicalVenturesRoot, stagingRoot)
+          );
+          options.pathSecurityHook?.("before-founder-staging-rename", childRoot);
+          childIdentity = founderPathBoundary.renameDirectory(
+            stagingRoot,
+            childRoot,
+            stagingIdentity,
+            "Founder venture staging commit"
+          );
         }
+        if (!workflow) {
+          founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          if (!options.launchBindings && !buildHostPreflighted) {
+            await assertFounderBuildAgentHostPolicy(
+              buildAgentHost,
+              effectivePreparation.launchGrant
+            );
+          }
+          if (!writableTargetsRegistered) {
+            const registeredTargets = await registerFounderStackWritableCredentialRefs(
+              connection,
+              {
+                ventureSlug: effectivePreparation.idea.brief.id,
+                domain: effectivePreparation.idea.brief.domain
+              },
+              credentialBroker
+            );
+            for (const target of registeredTargets.inspections) {
+              const reference = credentialBroker.getReference(target.ref);
+              if (reference) {
+                credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+              }
+            }
+            saveCredentialCatalog(credentialCatalog, catalogPath);
+          }
+        }
+        const authorization = effectivePreparation.idea.brief.app_kind !== "web" && effectivePreparation.idea.brief.app_kind !== "hybrid" ? "mobile-testflight" : effectivePreparation.graphDryRun.decision.payment.provider === "none" ? "standard-launch" : "live-commerce-launch";
+        const runId2 = transaction.runId;
+        if (!workflow) {
+          founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          const childServices = createDefaultCliServices(childOptions(childRoot));
+          if (!childServices.launch) throw new Error("Founder child launch service is unavailable");
+          try {
+            workflow = await childServices.launch({
+              mode: "apply",
+              authorization,
+              runId: runId2,
+              json: true,
+              launchGrant: effectivePreparation.launchGrant,
+              founderLaunchGaps: effectivePreparation.launchGaps,
+              ...pendingFounderGrantRenewal ? { pendingFounderGrantRenewal: true } : {}
+            });
+          } catch (error) {
+            if (childStore.exists(runId2)) {
+              const persisted = childStore.load(runId2);
+              const persistedStatus = persisted.status === "succeeded" ? "succeeded" : persisted.status === "waiting" ? "waiting_external_action" : ["failed", "cancelled", "superseded"].includes(persisted.status) ? "failed" : "launch_pending";
+              transaction = {
+                ...transaction,
+                status: persistedStatus,
+                updatedAt: new Date(
+                  Math.max(Date.parse(transaction.updatedAt), now().getTime())
+                ).toISOString()
+              };
+              saveFounderLaunchTransaction(childRoot, transaction);
+            }
+            throw error;
+          } finally {
+            for (const reference of credentialBroker.list()) {
+              credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+            }
+            saveCredentialCatalog(credentialCatalog, catalogPath);
+          }
+        }
+        const transactionStatus = workflow.status === "succeeded" ? "succeeded" : workflow.status === "waiting" ? "waiting_external_action" : ["failed", "cancelled", "superseded"].includes(workflow.status) ? "failed" : "launch_pending";
+        transaction = {
+          ...transaction,
+          status: transactionStatus,
+          updatedAt: new Date(
+            Math.max(Date.parse(transaction.updatedAt), now().getTime())
+          ).toISOString()
+        };
+        founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+        saveFounderLaunchTransaction(childRoot, transaction);
+        const status = workflow.status === "waiting" ? "waiting_external_action" : workflow.status;
+        const nextAction2 = workflow.status === "waiting" ? `From ${childRoot}, run vh resume ${runId2} with the exact evidence or renewed authorization shown in the launch report.` : workflow.status === "succeeded" ? `Read reports/launch/${runId2}/final.md inside ${childRoot}.` : `From ${childRoot}, inspect vh status ${runId2} and the launch report before retrying.`;
+        return publicFounderPreparation(effectivePreparation, {
+          status,
+          childRoot,
+          runId: runId2,
+          workflowStatus: workflow.status,
+          materialized: {
+            status: materialized2.status,
+            planDigest: materialized2.planDigest,
+            fileCount: materialized2.files.length
+          },
+          launchReport: {
+            json: `reports/launch/${runId2}/final.json`,
+            markdown: `reports/launch/${runId2}/final.md`
+          },
+          launchReceipt: {
+            json: `reports/launch/${runId2}/receipt.json`,
+            markdown: `reports/launch/${runId2}/receipt.md`
+          },
+          externalEffectsOccurred: Object.keys(workflow.verifiedEffects).length > 0,
+          nextAction: nextAction2
+        });
+      } finally {
+        founderPathBoundary?.release();
       }
-      const transactionStatus = workflow.status === "succeeded" ? "succeeded" : workflow.status === "waiting" ? "waiting_external_action" : ["failed", "cancelled", "superseded"].includes(workflow.status) ? "failed" : "launch_pending";
-      transaction = {
-        ...transaction,
-        status: transactionStatus,
-        updatedAt: new Date(
-          Math.max(Date.parse(transaction.updatedAt), now().getTime())
-        ).toISOString()
-      };
-      saveFounderLaunchTransaction(childRoot, transaction);
-      const status = workflow.status === "waiting" ? "waiting_external_action" : workflow.status;
-      const nextAction2 = workflow.status === "waiting" ? `From ${childRoot}, run vh resume ${runId2} with the exact evidence or renewed authorization shown in the launch report.` : workflow.status === "succeeded" ? `Read reports/launch/${runId2}/final.md inside ${childRoot}.` : `From ${childRoot}, inspect vh status ${runId2} and the launch report before retrying.`;
-      return publicFounderPreparation(effectivePreparation, {
-        status,
-        childRoot,
-        runId: runId2,
-        workflowStatus: workflow.status,
-        materialized: {
-          status: materialized2.status,
-          planDigest: materialized2.planDigest,
-          fileCount: materialized2.files.length
-        },
-        launchReport: {
-          json: `reports/launch/${runId2}/final.json`,
-          markdown: `reports/launch/${runId2}/final.md`
-        },
-        externalEffectsOccurred: Object.keys(workflow.verifiedEffects).length > 0,
-        nextAction: nextAction2
-      });
     },
     create(request2) {
-      const source = isAbsolute6(request2.brief) ? request2.brief : resolve21(root, request2.brief);
-      const brief = founderBriefSchema.parse(readStructured(source));
-      const decision = routeLaunch(brief);
+      const source = isAbsolute7(request2.brief) ? request2.brief : resolve24(root, request2.brief);
+      const compiledIdea = compileFounderIdea(readFileSync17(source, "utf8"));
+      const brief = compiledIdea.brief;
+      const decision = compiledIdea.launchContract ? launchDecisionFromContract(compiledIdea.launchContract) : routeLaunch(brief);
       const activeEventPacks = eventPacksFor(brief, decision);
-      const existing = existsSync12(projectPath(root)) ? loadProject(root) : null;
+      const existing = existsSync13(projectPath(root)) ? loadProject(root) : null;
       if (existing && existing.brief.id !== brief.id) {
         throw new Error(
           `This working directory already contains venture ${existing.brief.id}; refusing to retain its run, provider, mobile, and learning state for different brief ${brief.id}. Next: create the new venture in a fresh child directory, or archive and remove .venture only after reviewing its external-resource evidence.`
@@ -31514,19 +37884,23 @@ function createDefaultCliServices(options = {}) {
         activeEventPacks,
         synchronizedAt
       );
+      const canonicalArtifacts = compiledIdea.launchContract ? persistCanonicalLaunchContract(root, compiledIdea.launchContract) : [];
+      const contractDigest = compiledIdea.launchContract ? launchContractDigest(compiledIdea.launchContract) : void 0;
       const state = {
         schemaVersion: 2,
         createdAt: existing?.createdAt ?? synchronizedAt.toISOString(),
         brief,
         decision,
         activeEventPacks,
-        routerVersion: LAUNCH_ROUTER_VERSION
+        routerVersion: LAUNCH_ROUTER_VERSION,
+        ...compiledIdea.launchContract ? { launchContract: compiledIdea.launchContract } : {},
+        ...contractDigest ? { launchContractDigest: contractDigest } : {}
       };
       writeJsonAtomic2(projectPath(root), state);
       return {
         status: "created",
         projectState: ".venture/project.json",
-        updatedContracts,
+        updatedContracts: [...updatedContracts, ...canonicalArtifacts],
         briefId: brief.id,
         synthetic: brief.synthetic ?? false,
         selectedMode: decision.mode.selectedMode,
@@ -31538,17 +37912,21 @@ function createDefaultCliServices(options = {}) {
       };
     },
     plan(request2) {
-      const brief = request2.brief ? founderBriefSchema.parse(
-        readStructured(
-          isAbsolute6(request2.brief) ? request2.brief : resolve21(root, request2.brief)
-        )
-      ) : loadProject(root).brief;
-      return compileLaunchDryRun(brief);
+      if (request2.brief) {
+        const source = isAbsolute7(request2.brief) ? request2.brief : resolve24(root, request2.brief);
+        const idea = compileFounderIdea(readFileSync17(source, "utf8"));
+        return compileLaunchDryRun(
+          idea.brief,
+          idea.launchContract ? launchDecisionFromContract(idea.launchContract) : void 0
+        );
+      }
+      const project = loadProject(root);
+      return compileLaunchDryRun(project.brief, project.decision);
     },
     async launch(request2) {
       const project = loadProject(root);
       const brief = project.brief;
-      const dryRun = compileLaunchDryRun(brief);
+      const dryRun = compileLaunchDryRun(brief, project.decision);
       if (request2.mode === "dry-run") return dryRun;
       const runId2 = request2.runId ?? generatedRunId(brief, now());
       if (store.exists(runId2)) {
@@ -31580,6 +37958,8 @@ function createDefaultCliServices(options = {}) {
       const launchGrant = request2.launchGrant ? assertLaunchGrantBindsGraph({
         grant: request2.launchGrant,
         brief,
+        decision: project.decision,
+        ...project.launchContract ? { launchContract: project.launchContract } : {},
         definition: definition2,
         providers,
         at: launchAt,
@@ -31587,7 +37967,7 @@ function createDefaultCliServices(options = {}) {
       }) : void 0;
       if (launchGrant) {
         definition2 = bindWorkflowBudgetsToLaunchGrant(definition2, launchGrant);
-        const expectedProfile = brief.app_kind !== "web" && brief.app_kind !== "hybrid" ? "mobile_testflight" : brief.monetization_model === "none" ? "standard_launch" : "live_commerce_launch";
+        const expectedProfile = brief.app_kind !== "web" && brief.app_kind !== "hybrid" ? "mobile_testflight" : project.decision.payment.provider === "none" ? "standard_launch" : "live_commerce_launch";
         if (request2.authorization.replaceAll("-", "_") !== expectedProfile) {
           throw new Error(
             `One-prompt Launch Grant requires authorization profile ${expectedProfile.replaceAll("_", "-")}`
@@ -31615,7 +37995,10 @@ function createDefaultCliServices(options = {}) {
         routerVersion: project.routerVersion,
         definition: definition2,
         authorization,
-        ...launchGrant ? { launchGrant } : {}
+        ...launchGrant ? { launchGrant } : {},
+        ...request2.founderLaunchGaps ? { founderLaunchGaps: request2.founderLaunchGaps } : {},
+        ...project.launchContract ? { launchContract: project.launchContract } : {},
+        ...project.launchContractDigest ? { launchContractDigest: project.launchContractDigest } : {}
       };
       if (launchGrant && request2.pendingFounderGrantRenewal && pendingFounderTransaction) {
         const authorizationDigest = sha256Json(authorization);
@@ -31666,6 +38049,8 @@ function createDefaultCliServices(options = {}) {
           assertLaunchGrantBindsGraph({
             grant: launch.launchGrant,
             brief: launch.brief,
+            decision: launch.decision,
+            ...launch.launchContract ? { launchContract: launch.launchContract } : {},
             definition: launch.definition,
             providers,
             at: renewedAt,
@@ -31731,7 +38116,7 @@ function createDefaultCliServices(options = {}) {
           let output;
           if (request2.outputFile) {
             output = readStructured(
-              isAbsolute6(request2.outputFile) ? request2.outputFile : resolve21(root, request2.outputFile)
+              isAbsolute7(request2.outputFile) ? request2.outputFile : resolve24(root, request2.outputFile)
             );
           } else if (request2.resolutionKind === "manual") {
             const evidence = readStructured(inside6(root, evidenceArtifact));
@@ -31773,6 +38158,48 @@ function createDefaultCliServices(options = {}) {
       return state;
     },
     async stack(request2) {
+      if (request2.action === "connect") {
+        if (!request2.connection) {
+          throw new Error("vh stack connect founder-default requires a credential-free draft");
+        }
+        const connection2 = mergeFounderStackRoleRepair(
+          founderStackStore.load(request2.profileId),
+          request2.connection,
+          request2
+        );
+        validateFounderStackCredentialWrites(request2, connection2);
+        for (const pending of request2.credentialWrites ?? []) {
+          if (pending.backend !== "macos_keychain" && pending.backend !== "onepassword") {
+            throw new Error("Stack credential writes require macos_keychain or onepassword");
+          }
+          const value = await pending.readValue();
+          if (!value) throw new Error(`No credential value was entered for ${pending.provider}`);
+          const reference = await credentialBroker.store({
+            ref: pending.reference,
+            provider: pending.provider,
+            kind: pending.kind,
+            backend: pending.backend,
+            scopes: pending.scopes,
+            ...pending.accountId ? { accountId: pending.accountId } : {},
+            value
+          });
+          credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+          saveCredentialCatalog(credentialCatalog, catalogPath);
+        }
+        const saved = founderStackStore.save(connection2);
+        for (const registration of founderStackCliSessionCredentialRegistrations(saved)) {
+          const reference = credentialBroker.register(registration);
+          credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+        }
+        saveCredentialCatalog(credentialCatalog, catalogPath);
+        await testFounderStackCredentials(saved);
+        return await doctorFounderStackConnection({
+          connection: saved,
+          context: { ...effectiveProviderContext, authorization: "dry_run" },
+          registry: effectiveProviderRegistry,
+          now
+        });
+      }
       if (request2.action === "create") {
         if (!request2.file) {
           throw new Error("vh stack create founder-default requires --file <connection.json>");
@@ -31803,8 +38230,8 @@ function createDefaultCliServices(options = {}) {
       });
     },
     doctor: async () => {
-      const project = existsSync12(projectPath(root)) ? loadProject(root) : null;
-      const definition2 = project ? compileLaunchGraph(project.brief) : null;
+      const project = existsSync13(projectPath(root)) ? loadProject(root) : null;
+      const definition2 = project ? compileLaunchGraph(project.brief, project.decision) : null;
       const providerInspection = await inspectDefaultProviderDoctor({
         rootDir: root,
         broker: credentialBroker,
@@ -31853,7 +38280,7 @@ function createDefaultCliServices(options = {}) {
               return {
                 ref: reference2.ref,
                 mode: "remote_tester",
-                result: await credentialBroker.test(reference2.ref, tester)
+                result: await testCredential(reference2.ref, reference2.provider, tester)
               };
             }
             return {
@@ -31864,6 +38291,10 @@ function createDefaultCliServices(options = {}) {
             };
           })
         );
+        const allPassed = tested.length > 0 && tested.every(({ mode, result: result2 }) => {
+          const outcome = result2;
+          return mode === "remote_tester" ? outcome.ok === true : mode === "official_cli_read" && outcome.status === "available";
+        });
         const adapter = provider ? effectiveProviderRegistry.list().find((item) => item.descriptor.id === provider) : void 0;
         const providerDoctor = adapter ? await adapter.doctor(
           { credentialRefs: references.map((reference2) => reference2.ref) },
@@ -31876,7 +38307,7 @@ function createDefaultCliServices(options = {}) {
           )
         };
         saveCredentialCatalog(credentialCatalog, catalogPath);
-        return { tested, providerDoctor, valuesExposed: false };
+        return { tested, allPassed, providerDoctor, valuesExposed: false };
       }
       if (action === "revoke") {
         if (!provider) throw new Error("vh auth revoke requires a provider.");
@@ -31918,7 +38349,7 @@ function createDefaultCliServices(options = {}) {
           nextAction: "Run vh auth login <provider>; add --backend/--kind when not using its official CLI."
         };
       }
-      const backend = request2.backend ?? (["github", "vercel", "eas"].includes(provider) && supportsInteractiveCliAuth(provider) ? "cli_session" : "environment");
+      const backend = request2.backend ?? (["github", "vercel", "eas"].includes(provider) && supportsInteractiveCliAuth(provider) ? "cli_session" : process.platform === "darwin" ? "macos_keychain" : "onepassword");
       if (!options.credentialBroker && !supportedBackends.has(backend)) {
         throw new Error(
           `Backend ${backend} is not available on this host. Choose: ${[...supportedBackends].sort().join(", ")}.`
@@ -31934,14 +38365,26 @@ function createDefaultCliServices(options = {}) {
       };
       if (backend === "cli_session") {
         await (options.interactiveCliLogin ?? runInteractiveCliLogin)(provider);
+        credentialBroker.register(reference);
+      } else if (backend === "macos_keychain" || backend === "onepassword") {
+        if (!request2.readValue) {
+          throw new Error(
+            `vh auth login ${provider} requires an interactive hidden prompt for backend ${backend}; rerun the same command in a terminal without --json.`
+          );
+        }
+        const value = await request2.readValue();
+        if (!value) throw new Error(`No credential value was entered for ${provider}.`);
+        await credentialBroker.store({ ...reference, value });
+      } else {
+        credentialBroker.register(reference);
       }
-      credentialBroker.register(reference);
-      credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+      const storedReference = credentialBroker.getReference(ref) ?? reference;
+      credentialCatalog = upsertCredentialReference(credentialCatalog, storedReference);
       saveCredentialCatalog(credentialCatalog, catalogPath);
-      references = [reference];
+      references = [storedReference];
       const inspection = await credentialBroker.inspect(ref);
       return {
-        status: inspection.status === "available" ? "authenticated" : "registered",
+        status: inspection.status !== "available" ? "registered" : backend === "cli_session" ? "authenticated" : "credential_stored_not_tested",
         reference: inspection,
         valuesExposed: false,
         nextAction: inspection.status === "available" ? `Run vh auth test ${provider}.` : backend === "environment" || backend === "ci" ? `Set ${environmentVariableForRef(ref)} in the process or CI secret store, then run vh auth test ${provider}.` : `Store ${ref} in backend ${backend} without placing the value in Git or argv, then run vh auth test ${provider}.`
@@ -31954,7 +38397,7 @@ function createDefaultCliServices(options = {}) {
     },
     learn(cadence) {
       const latestPath = inside6(root, ".venture/data/latest.json");
-      const sync = existsSync12(latestPath) ? JSON.parse(readFileSync14(latestPath, "utf8")) : learningRuntime.missingArtifact(cadence);
+      const sync = existsSync13(latestPath) ? JSON.parse(readFileSync17(latestPath, "utf8")) : learningRuntime.missingArtifact(cadence);
       const { definition: definition2, report } = learningRuntime.learn(cadence, sync);
       const artifacts = persistLearningReport({ rootDir: root, definition: definition2, report });
       const operatingCadence = learningRuntime.operatingCadence(sync);
@@ -31972,7 +38415,7 @@ function createDefaultCliServices(options = {}) {
     async upgrade({ dryRun, releasePath }) {
       const fileSystem = createNodeMigrationFileSystem(root);
       const lockPath = inside6(root, "harness.lock");
-      const lock = existsSync12(lockPath) ? loadHarnessLock(lockPath) : void 0;
+      const lock = existsSync13(lockPath) ? loadHarnessLock(lockPath) : void 0;
       const release = releasePath ? await locateLocalHarnessRelease({ locator: releasePath, baseDir: root }) : options.release;
       if (!release && !lock) return migrateV01ToV02({ fileSystem, dryRun, clock: now });
       if (!release) {
@@ -32019,13 +38462,13 @@ var FOUNDER_STACK_PLAN = [
     provider: "neon",
     authStyle: "api_key",
     required: true,
-    identifiers: ["accountId", "organizationId"],
+    identifiers: ["organizationId"],
     scopes: []
   },
   {
     role: "commerce.web",
     provider: "stripe",
-    authStyle: "api_key",
+    authStyle: "cli_session_with_api_key",
     required: true,
     identifiers: ["accountId"],
     scopes: []
@@ -32035,7 +38478,7 @@ var FOUNDER_STACK_PLAN = [
     provider: "brevo",
     authStyle: "api_key",
     required: false,
-    identifiers: ["accountId"],
+    identifiers: [],
     scopes: []
   },
   {
@@ -32043,7 +38486,7 @@ var FOUNDER_STACK_PLAN = [
     provider: "google",
     authStyle: "api_key",
     required: false,
-    identifiers: ["accountId", "organizationId"],
+    identifiers: ["accountId"],
     scopes: []
   },
   {
@@ -32051,7 +38494,7 @@ var FOUNDER_STACK_PLAN = [
     provider: "bing",
     authStyle: "api_key",
     required: false,
-    identifiers: ["accountId"],
+    identifiers: [],
     scopes: []
   },
   {
@@ -32065,7 +38508,7 @@ var FOUNDER_STACK_PLAN = [
   {
     role: "dns.records",
     provider: "dns",
-    authStyle: "api_key",
+    authStyle: "manual",
     required: false,
     identifiers: [],
     scopes: []
@@ -32074,131 +38517,434 @@ var FOUNDER_STACK_PLAN = [
 function credentialRefFor(provider, profileId) {
   return `cred://${provider}/${profileId}`;
 }
-function assertReferenceOnly(value, label) {
-  if (!value.startsWith("cred://")) {
-    throw new Error(
-      `${label} must be a cred:// reference, never a credential value. Next: store the value in your credential backend and pass its reference.`
-    );
-  }
-}
 function assertNoSecretsInArgv(argv) {
   for (const argument of argv) {
     if (argument.startsWith("cred://")) continue;
     if (/^(?:sk|rk|pk)_(?:live|test)_/.test(argument) || /^xkeysib-/.test(argument) || /^gh[pousr]_/.test(argument) || /^napi_/.test(argument) || /^--(?:token|secret|api-key|password)=/.test(argument)) {
       throw new Error(
-        "vh stack connect never accepts a credential value as an argument, because arguments are visible to other processes and land in shell history. Next: rerun vh stack connect founder-default and paste the value at the hidden prompt."
+        "Venture Harness never accepts a credential value as an argument, because arguments are visible to other processes and land in shell history. Next: rerun the credential command without the value and paste it only at the hidden prompt."
       );
     }
   }
 }
-var CLI_LOGIN_COMMAND = {
-  github: "gh auth login",
-  vercel: "vercel login"
-};
-var API_KEY_HINT = {
-  neon: "Create a Neon API key at https://console.neon.tech/app/settings/api-keys",
-  stripe: "Copy the Stripe test-mode secret key from https://dashboard.stripe.com/test/apikeys",
-  brevo: "Create a Brevo API key at https://app.brevo.com/settings/keys/api",
-  google: "Create a Google service credential with Analytics and Search Console access",
-  bing: "Create a Bing Webmaster API key at https://www.bing.com/webmasters/apikeys",
-  revenuecat: "Create a RevenueCat secret API key in project settings",
-  dns: "Provide DNS adapter credentials, or leave DNS manual"
-};
-function planFounderStackConnection(input) {
-  const sessionByProvider = new Map(input.sessions.map((session) => [session.provider, session]));
-  const collectedByRole = new Map(input.collected.map((entry) => [entry.role, entry]));
-  const resolved = [];
-  const unresolved = [];
-  for (const plan of FOUNDER_STACK_PLAN) {
-    const collected = collectedByRole.get(plan.role);
-    const session = sessionByProvider.get(plan.provider);
-    if (plan.authStyle === "cli_session" && !session?.authenticated) {
-      unresolved.push({
-        role: plan.role,
-        provider: plan.provider,
-        why: `No authenticated ${plan.provider} CLI session was found.`,
-        command: CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login`,
-        blocksLaunch: plan.required
-      });
-      continue;
-    }
-    if (!collected) {
-      unresolved.push({
-        role: plan.role,
-        provider: plan.provider,
-        why: `No credential reference is recorded for ${plan.role}.`,
-        command: plan.authStyle === "cli_session" ? CLI_LOGIN_COMMAND[plan.provider] ?? `${plan.provider} login` : `vh stack connect founder-default  (${API_KEY_HINT[plan.provider] ?? "provide the provider credential"})`,
-        blocksLaunch: plan.required
-      });
-      continue;
-    }
-    assertReferenceOnly(collected.credentialRef, `${plan.role} credentialRef`);
-    const missing = plan.identifiers.filter((name) => !collected.identifiers[name]?.trim());
-    if (missing.length > 0) {
-      unresolved.push({
-        role: plan.role,
-        provider: plan.provider,
-        why: `${plan.role} is missing ${missing.join(" and ")}.`,
-        command: `vh stack connect founder-default  (supply the exact ${plan.provider} ${missing.join(" and ")})`,
-        blocksLaunch: plan.required
-      });
-      continue;
-    }
-    resolved.push(plan.role);
-  }
-  return {
-    resolved,
-    unresolved,
-    launchReady: unresolved.every((action) => !action.blocksLaunch)
-  };
-}
-function blockingActions(plan) {
-  return plan.unresolved.filter((action) => action.blocksLaunch);
-}
 
 // lib/founder-launch/stack-connect-shell.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-function tryCommand(command, args) {
+import { createInterface } from "node:readline";
+var MAX_PROBE_OUTPUT_BYTES = 64 * 1024;
+var SAFE_ACCOUNT_IDENTIFIER = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,199}$/u;
+var systemProbeRunner = {
+  run(command, args) {
+    try {
+      return execFileSync2(command, [...args], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 2e4,
+        maxBuffer: MAX_PROBE_OUTPUT_BYTES,
+        env: {
+          NODE_ENV: process.env.NODE_ENV ?? "production",
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+          NO_COLOR: "1"
+        }
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+};
+function tryCommand(runner, command, args) {
   try {
-    return execFileSync2(command, [...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2e4
-    }).trim();
+    const output = runner.run(command, args);
+    if (output === null || Buffer.byteLength(output, "utf8") > MAX_PROBE_OUTPUT_BYTES) return null;
+    return output.trim();
   } catch {
     return null;
   }
 }
-function detectGitHubSession() {
-  const login = tryCommand("gh", ["api", "user", "--jq", ".login"]);
+function safeAccount(value) {
+  const candidate = value?.trim();
+  return candidate && SAFE_ACCOUNT_IDENTIFIER.test(candidate) ? candidate : void 0;
+}
+function installed(runner, binary) {
+  return tryCommand(runner, binary, ["--version"]) !== null;
+}
+function detectGitHubSession(runner = systemProbeRunner) {
+  const cliInstalled = installed(runner, "gh");
+  const login = safeAccount(tryCommand(runner, "gh", ["api", "user", "--jq", ".login"]));
   if (!login) {
     return {
       provider: "github",
+      installed: cliInstalled,
       authenticated: false,
-      detail: "No usable GitHub CLI session."
+      detail: cliInstalled ? "GitHub CLI session needs login." : "GitHub CLI is not installed."
     };
   }
-  return { provider: "github", authenticated: true, account: login };
+  return { provider: "github", installed: true, authenticated: true, account: login };
 }
-function detectVercelSession() {
-  const who = tryCommand("vercel", ["whoami"]);
-  if (!who) {
+function detectVercelSession(runner = systemProbeRunner) {
+  const cliInstalled = installed(runner, "vercel");
+  const who = tryCommand(runner, "vercel", ["whoami"]);
+  const account = safeAccount(who?.split("\n").at(-1));
+  if (!account) {
     return {
       provider: "vercel",
+      installed: cliInstalled,
       authenticated: false,
-      detail: "No usable Vercel CLI session."
+      detail: cliInstalled ? "Vercel CLI session needs login." : "Vercel CLI is not installed."
     };
   }
-  return { provider: "vercel", authenticated: true, account: who.split("\n").at(-1)?.trim() };
+  return { provider: "vercel", installed: true, authenticated: true, account };
 }
-function detectSessions() {
-  return [detectGitHubSession(), detectVercelSession()];
+function parseJsonRecord(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
-function discoverGitHubOwner() {
-  return tryCommand("gh", ["api", "user", "--jq", ".login"]) ?? void 0;
+function detectStripeSession(runner = systemProbeRunner) {
+  const cliInstalled = installed(runner, "stripe");
+  if (!cliInstalled) {
+    return {
+      provider: "stripe",
+      installed: false,
+      authenticated: false,
+      detail: "Stripe CLI is not installed; use the official install command before login."
+    };
+  }
+  const accountResponse = parseJsonRecord(
+    tryCommand(runner, "stripe", ["get", "/v1/account", "--format", "json"])
+  );
+  const balanceResponse = parseJsonRecord(
+    tryCommand(runner, "stripe", ["get", "/v1/balance", "--format", "json"])
+  );
+  const account = safeAccount(
+    typeof accountResponse?.id === "string" ? accountResponse.id : void 0
+  );
+  if (!account || balanceResponse?.livemode !== false) {
+    return {
+      provider: "stripe",
+      installed: true,
+      authenticated: false,
+      detail: "Stripe CLI did not prove an authenticated test-mode session."
+    };
+  }
+  return {
+    provider: "stripe",
+    installed: true,
+    authenticated: true,
+    account,
+    mode: "test"
+  };
 }
-function discoverVercelScope() {
-  return tryCommand("vercel", ["whoami"])?.split("\n").at(-1)?.trim();
+function detectSessions(runner = systemProbeRunner) {
+  return [detectGitHubSession(runner), detectVercelSession(runner), detectStripeSession(runner)];
+}
+function collectedCliSessionRoles(sessions, profileId) {
+  const byProvider = new Map(sessions.map((session) => [session.provider, session]));
+  const github = byProvider.get("github");
+  const vercel = byProvider.get("vercel");
+  return [
+    ...github?.authenticated && github.account ? [
+      {
+        role: "source.repository",
+        credentialRef: credentialRefFor("github", profileId),
+        identifiers: { accountId: github.account, organizationId: github.account }
+      }
+    ] : [],
+    ...vercel?.authenticated && vercel.account ? [
+      {
+        role: "hosting.web",
+        credentialRef: credentialRefFor("vercel", profileId),
+        identifiers: { accountId: vercel.account, teamId: vercel.account }
+      }
+    ] : []
+  ];
+}
+function founderStackConnectionDraftRoles(collected, sessions) {
+  const sessionByProvider = new Map(
+    sessions.map((session) => [session.provider, session])
+  );
+  return collected.map((entry) => {
+    const rolePlan = FOUNDER_STACK_PLAN.find(({ role }) => role === entry.role);
+    const session = rolePlan ? sessionByProvider.get(rolePlan.provider) : void 0;
+    const accountId = entry.identifiers.accountId?.trim();
+    const cliVerified = rolePlan?.authStyle === "cli_session" && session?.authenticated === true && Boolean(session.account) && session.account === accountId;
+    return {
+      role: entry.role,
+      ...entry.credentialRef ? { credentialRef: entry.credentialRef } : {},
+      ...accountId ? { accountId } : {},
+      ...entry.identifiers.teamId?.trim() ? { teamId: entry.identifiers.teamId.trim() } : {},
+      ...entry.identifiers.organizationId?.trim() ? { organizationId: entry.identifiers.organizationId.trim() } : {},
+      scopes: [...rolePlan?.scopes ?? []],
+      ...cliVerified ? { verifiedBy: "official_cli" } : {}
+    };
+  });
+}
+function safeCliSessionMetadata(sessions, verifiedAt = (/* @__PURE__ */ new Date()).toISOString()) {
+  const byProvider = new Map(sessions.map((session) => [session.provider, session]));
+  const common = (provider) => {
+    const session = byProvider.get(provider);
+    if (!session) return null;
+    return {
+      installed: session.installed ?? session.authenticated,
+      authenticated: session.authenticated,
+      accountId: session.account ?? null,
+      verifiedAt: session.authenticated ? verifiedAt : null
+    };
+  };
+  const github = common("github");
+  const vercel = common("vercel");
+  const stripe = common("stripe");
+  return {
+    github: github ? { ...github, mode: null } : null,
+    vercel: vercel ? { ...vercel, mode: null } : null,
+    stripe: stripe ? { ...stripe, mode: byProvider.get("stripe")?.mode ?? null } : null
+  };
+}
+function systemFounderStackWizardPrompt() {
+  const isTty = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  const prompt = {
+    isTty,
+    write: (line) => process.stdout.write(line),
+    async readVisible(question) {
+      if (!isTty) throw new Error("Founder Stack answers require an interactive terminal");
+      const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+      try {
+        return await new Promise((resolve30) => {
+          rl.question(question, (answer) => resolve30(answer.trim()));
+        });
+      } finally {
+        rl.close();
+      }
+    },
+    readCredential: (question) => readHidden(question, prompt)
+  };
+  return prompt;
+}
+async function readHidden(question, io) {
+  if (!io.isTty) {
+    throw new Error(
+      "A credential value can only be collected from an interactive terminal. Next: run vh stack connect founder-default in a terminal, or store the value yourself and record only its cred:// reference."
+    );
+  }
+  io.write(question);
+  const input = process.stdin;
+  const rl = createInterface({ input, output: process.stdout, terminal: true });
+  const previouslyRaw = input.isRaw ?? false;
+  const originalWrite = rl._writeToOutput?.bind(rl);
+  rl._writeToOutput = (text2) => {
+    if (text2.includes("\n")) originalWrite?.("\n");
+  };
+  try {
+    return await new Promise((resolve30) => {
+      rl.question("", (answer) => resolve30(answer.trim()));
+    });
+  } finally {
+    rl.close();
+    if (input.isTTY && !previouslyRaw) input.setRawMode?.(false);
+  }
+}
+async function collectRoles(options) {
+  const collected = [];
+  const sessionByProvider = new Map(
+    options.sessions.map((session) => [session.provider, session])
+  );
+  for (const plan of FOUNDER_STACK_PLAN) {
+    if (!options.roles.includes(plan.role)) continue;
+    if (plan.authStyle === "cli_session" && !sessionByProvider.get(plan.provider)?.authenticated) {
+      continue;
+    }
+    const credentialRef2 = credentialRefFor(plan.provider, options.profileId);
+    if (plan.authStyle === "api_key" || plan.authStyle === "cli_session_with_api_key") {
+      try {
+        await options.writer.store({
+          reference: credentialRef2,
+          provider: plan.provider,
+          kind: plan.provider === "stripe" ? "restricted_api_key" : plan.provider === "google" ? "oauth" : "api_key",
+          backend: options.backend,
+          scopes: plan.scopes,
+          ...options.identifiers[plan.role]?.accountId ? { accountId: options.identifiers[plan.role].accountId } : {},
+          readValue: async () => {
+            const value = await (options.readCredential ?? readHidden)(
+              `${plan.provider} credential for ${plan.role} (input hidden): `,
+              options.io
+            );
+            if (!value) {
+              throw new Error(
+                `No value was entered for ${plan.role}. Next: rerun vh stack connect founder-default and paste the ${plan.provider} credential.`
+              );
+            }
+            return value;
+          }
+        });
+      } catch {
+        throw new Error(
+          `Could not store the credential for ${plan.role}. Next: check the configured credential backend and retry.`
+        );
+      }
+      const backendLabel = /^[A-Za-z0-9_.-]{1,64}$/u.test(options.writer.backendId) ? options.writer.backendId : "credential-backend";
+      options.io.write(
+        `stored ${credentialRef2} in ${backendLabel}; Venture Harness keeps only this reference
+`
+      );
+    }
+    collected.push({
+      role: plan.role,
+      ...plan.authStyle === "manual" ? {} : { credentialRef: credentialRef2 },
+      identifiers: options.identifiers[plan.role] ?? {}
+    });
+  }
+  return collected;
+}
+var GUIDED_OPTIONAL_ROLES = ["email.transactional", "growth.google", "search.bing"];
+async function requiredAnswer(prompt, question, label) {
+  const value = (await prompt.readVisible(question)).trim();
+  if (!value) throw new Error(`${label} is required; rerun the same Stack connection command.`);
+  return value;
+}
+async function selectedNow(prompt, role) {
+  const provider = FOUNDER_STACK_PLAN.find((entry) => entry.role === role)?.provider ?? role;
+  const answer = (await prompt.readVisible(`Configure optional ${provider} now? [y/N]: `)).trim().toLowerCase();
+  if (!answer) return false;
+  if (answer === "y" || answer === "yes") return true;
+  if (answer === "n" || answer === "no") return false;
+  throw new Error(`Answer yes or no for optional ${provider}, then rerun Stack connection.`);
+}
+async function collectFounderStackWizard(options) {
+  if (!options.prompt.isTty) {
+    throw new Error("Founder Stack credential collection requires an interactive terminal");
+  }
+  const configure = /* @__PURE__ */ new Set();
+  if (options.onlyRole) configure.add(options.onlyRole);
+  else {
+    configure.add("database.postgres");
+    configure.add("commerce.web");
+    for (const role of GUIDED_OPTIONAL_ROLES) {
+      if (await selectedNow(options.prompt, role)) configure.add(role);
+    }
+  }
+  const identifiers = {};
+  let launchDefaults = {};
+  if (configure.has("database.postgres")) {
+    const organizationId = await requiredAnswer(
+      options.prompt,
+      "Neon organization ID: ",
+      "Neon organization ID"
+    );
+    identifiers["database.postgres"] = { organizationId };
+    launchDefaults = {
+      ...launchDefaults,
+      neonRegion: await requiredAnswer(
+        options.prompt,
+        "Neon region ID (review data location first): ",
+        "Neon region ID"
+      )
+    };
+  }
+  if (configure.has("commerce.web")) {
+    const stripeAccount = options.sessions.find(
+      ({ provider, authenticated: authenticated2, mode, account }) => provider === "stripe" && authenticated2 && mode === "test" && account
+    )?.account;
+    identifiers["commerce.web"] = {
+      accountId: stripeAccount ?? await requiredAnswer(
+        options.prompt,
+        "Stripe test account ID (acct_\u2026): ",
+        "Stripe account ID"
+      )
+    };
+  }
+  if (configure.has("email.transactional")) {
+    identifiers["email.transactional"] = {};
+    launchDefaults = {
+      ...launchDefaults,
+      brevo: {
+        senderName: await requiredAnswer(
+          options.prompt,
+          "Brevo sender name: ",
+          "Brevo sender name"
+        ),
+        senderEmail: await requiredAnswer(
+          options.prompt,
+          "Brevo verified sender email: ",
+          "Brevo sender email"
+        ),
+        templateName: await requiredAnswer(
+          options.prompt,
+          "Brevo template name: ",
+          "Brevo template name"
+        ),
+        templateSubject: await requiredAnswer(
+          options.prompt,
+          "Brevo template subject: ",
+          "Brevo template subject"
+        ),
+        templateHtml: await requiredAnswer(
+          options.prompt,
+          "Brevo template HTML (one line): ",
+          "Brevo template HTML"
+        )
+      }
+    };
+  }
+  if (configure.has("growth.google")) {
+    const analyticsAccountId = await requiredAnswer(
+      options.prompt,
+      "Google Analytics account ID (digits only): ",
+      "Google Analytics account ID"
+    );
+    identifiers["growth.google"] = { accountId: analyticsAccountId };
+    launchDefaults = { ...launchDefaults, googleAnalyticsAccountId: analyticsAccountId };
+  }
+  if (configure.has("search.bing")) {
+    identifiers["search.bing"] = {};
+    launchDefaults = { ...launchDefaults, bingAuthMode: "api_key" };
+  }
+  if (configure.has("dns.records")) {
+    const adapter = await requiredAnswer(
+      options.prompt,
+      "DNS adapter (manual_generic or mijndomein_manual): ",
+      "DNS adapter"
+    );
+    if (adapter !== "manual_generic" && adapter !== "mijndomein_manual") {
+      throw new Error("DNS adapter must be manual_generic or mijndomein_manual.");
+    }
+    const registrarAccountId = await requiredAnswer(
+      options.prompt,
+      "DNS registrar/zone owner ID: ",
+      "DNS registrar/zone owner ID"
+    );
+    identifiers["dns.records"] = { organizationId: registrarAccountId };
+    launchDefaults = { ...launchDefaults, dns: { adapter, registrarAccountId } };
+  }
+  const collected = await collectRoles({
+    profileId: options.profileId,
+    io: options.prompt,
+    writer: options.writer,
+    sessions: options.sessions,
+    roles: [...configure],
+    identifiers,
+    backend: options.backend,
+    readCredential: (question) => options.prompt.readCredential(question)
+  });
+  const selectedOptionalRoles = options.onlyRole ? [options.onlyRole].filter(
+    (role) => GUIDED_OPTIONAL_ROLES.includes(role) || role === "dns.records"
+  ) : [
+    ...GUIDED_OPTIONAL_ROLES.filter((role) => configure.has(role)),
+    // DNS remains an explicit manual follow-up on the default web path; it
+    // is never silently treated as configured.
+    "dns.records"
+  ];
+  return {
+    collected,
+    selectedOptionalRoles,
+    writableCredentialBackend: { mode: "shared", backend: options.backend },
+    launchDefaults
+  };
 }
 
 // lib/fleet/controller.ts
@@ -32284,6 +39030,8 @@ Usage:
   vh config set ventures-root <absolute-path>
                                   Choose where independent ventures are materialized
   vh doctor                       Inspect local launch prerequisites
+  vh idea sharpen --input <idea.md|-> --output <idea.md>
+                                  Produce one bounded Launch Contract and Product Constitution
   vh create --brief <file>        Validate and persist one progressive-commitment brief
   vh plan [--brief <file>]        Compile a launch plan without side effects
   vh launch --dry-run             Show nodes, effects, approvals, cost, and manual work
@@ -32325,6 +39073,7 @@ function positional(args) {
     if (args[index].startsWith("-")) {
       if ([
         "--brief",
+        "--input",
         "--idea",
         "--stack",
         "--output",
@@ -32344,7 +39093,9 @@ function positional(args) {
         "--kind",
         "--scopes",
         "--file",
-        "--release"
+        "--release",
+        "--role",
+        "--credential-backend"
       ].includes(args[index]))
         index += 1;
       continue;
@@ -32367,6 +39118,10 @@ function founderLaunchExitCode(value, mode) {
   const status = value.status;
   return status === "blocked" || status === "failed" ? 1 : 0;
 }
+function authTestExitCode(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 1;
+  return value.allPassed === true ? 0 : 1;
+}
 function unsupported(io, command, nextAction2) {
   io.stderr(`${command} is not configured; no external action was taken.`);
   io.stderr(`Next: ${nextAction2}`);
@@ -32388,6 +39143,28 @@ async function runCli(args, options = {}) {
     return { exitCode: 0 };
   }
   try {
+    if (command === "idea") {
+      const usage = "Usage: vh idea sharpen --input <rough-idea.md|-> --output <idea.md>";
+      const values = positional(rest);
+      const unknownFlag = rest.find(
+        (value) => value.startsWith("-") && value !== "-" && !["--input", "--output", "--json"].includes(value)
+      );
+      const input = flagValue(rest, "--input");
+      const output = flagValue(rest, "--output");
+      if (unknownFlag || values.length !== 1 || values[0] !== "sharpen" || !input || !output || !output.toLowerCase().endsWith(".md")) {
+        io.stderr(usage);
+        return { exitCode: 2 };
+      }
+      if (!services.ideaSharpen) {
+        return unsupported(
+          io,
+          "vh idea sharpen",
+          "install and authenticate the Codex CLI, then rerun the same command"
+        );
+      }
+      emit(io, await services.ideaSharpen({ input, output, json: json2 }), json2);
+      return { exitCode: 0 };
+    }
     if (command === "create") {
       const brief = flagValue(rest, "--brief");
       if (!brief) {
@@ -32424,57 +39201,114 @@ async function runCli(args, options = {}) {
         return { exitCode: 2 };
       }
       const values = positional(rest);
-      if (values.length !== 2 || values[1] !== "founder-default") {
-        io.stderr("Usage: vh stack connect founder-default");
+      const unknownStackFlag = rest.find(
+        (value) => value.startsWith("-") && !["--role", "--credential-backend", "--json"].includes(value)
+      );
+      const missingStackFlagValue = ["--role", "--credential-backend"].find((flag4) => {
+        const value = flagValue(rest, flag4);
+        return rest.includes(flag4) && (!value || value.startsWith("-"));
+      });
+      if (values.length !== 2 || values[1] !== "founder-default" || unknownStackFlag || missingStackFlagValue) {
+        io.stderr(
+          "Usage: vh stack connect founder-default [--role database.postgres|commerce.web|email.transactional|growth.google|search.bing|dns.records] [--credential-backend macos_keychain|onepassword]"
+        );
         return { exitCode: 2 };
       }
-      const sessions = detectSessions();
-      const collected = [];
-      const githubOwner = discoverGitHubOwner();
-      const vercelScope = discoverVercelScope();
-      if (githubOwner) {
-        collected.push({
-          role: "source.repository",
-          credentialRef: credentialRefFor("github", "founder-default"),
-          identifiers: { accountId: githubOwner, organizationId: githubOwner }
-        });
+      const sessions = [...options.stackSessions ?? detectSessions()];
+      const collected = [...collectedCliSessionRoles(sessions, "founder-default")];
+      const prompt = options.stackPrompt ?? systemFounderStackWizardPrompt();
+      const requestedRole = flagValue(rest, "--role");
+      const allowedRoles = /* @__PURE__ */ new Set([
+        "database.postgres",
+        "commerce.web",
+        "email.transactional",
+        "growth.google",
+        "search.bing",
+        "dns.records"
+      ]);
+      if (requestedRole && !allowedRoles.has(requestedRole)) {
+        io.stderr(
+          "--role must be database.postgres, commerce.web, email.transactional, growth.google, search.bing, or dns.records"
+        );
+        return { exitCode: 2 };
       }
-      if (vercelScope) {
-        collected.push({
-          role: "hosting.web",
-          credentialRef: credentialRefFor("vercel", "founder-default"),
-          identifiers: { accountId: vercelScope, teamId: vercelScope }
-        });
+      const requestedBackend = flagValue(rest, "--credential-backend");
+      const backend = requestedBackend ?? (process.platform === "darwin" ? "macos_keychain" : "onepassword");
+      if (backend !== "macos_keychain" && backend !== "onepassword") {
+        io.stderr("--credential-backend must be macos_keychain or onepassword");
+        return { exitCode: 2 };
       }
-      const plan = planFounderStackConnection({
-        profileId: "founder-default",
+      const credentialWrites = [];
+      let selectedOptionalRoles = [
+        "email.transactional",
+        "growth.google",
+        "search.bing",
+        "dns.records"
+      ];
+      let launchDefaults;
+      let writableCredentialBackend = { mode: "shared", backend };
+      if (prompt.isTty && !json2) {
+        const guided = await collectFounderStackWizard({
+          profileId: "founder-default",
+          sessions,
+          prompt,
+          backend,
+          ...requestedRole ? { onlyRole: requestedRole } : {},
+          writer: {
+            backendId: backend,
+            async store(request2) {
+              credentialWrites.push(request2);
+            }
+          }
+        });
+        collected.push(...guided.collected);
+        selectedOptionalRoles = guided.selectedOptionalRoles;
+        launchDefaults = guided.launchDefaults;
+        writableCredentialBackend = guided.writableCredentialBackend;
+      }
+      const githubOwner = sessions.find(
+        ({ provider, authenticated: authenticated2, account }) => provider === "github" && authenticated2 && account
+      )?.account;
+      const connection = createFounderStackConnectionDraft({
         ownerOrganizationId: githubOwner ?? "founder",
-        sessions,
-        collected
+        roles: founderStackConnectionDraftRoles(collected, sessions),
+        inspectedCliSessions: safeCliSessionMetadata(sessions),
+        selectedOptionalRoles,
+        writableCredentialBackend,
+        launchDefaults
       });
+      const updatedRoles = [...new Set(collected.map(({ role }) => role))];
       const venturesRoot = loadFounderConfig().venturesRoot ?? null;
-      const blocking = blockingActions(plan);
+      if (!services.stack) {
+        return unsupported(
+          io,
+          "vh stack connect founder-default",
+          "configure the founder Stack metadata store and credential broker"
+        );
+      }
+      const diagnosed = await services.stack({
+        action: "connect",
+        profileId: "founder-default",
+        connection,
+        credentialWrites,
+        updatedRoles,
+        replaceOptionalRoles: prompt.isTty && !json2 && requestedRole === void 0,
+        updateWritableCredentialBackend: prompt.isTty && !json2 && (requestedRole === void 0 || requestedRole === "database.postgres" || requestedRole === "commerce.web" || requestedRole === "growth.google")
+      });
+      const doctor = diagnosed && typeof diagnosed === "object" && !Array.isArray(diagnosed) ? diagnosed : { status: "attention_required", launchReady: false, unresolvedActions: [] };
+      const providerActions = Array.isArray(doctor.unresolvedActions) ? doctor.unresolvedActions : [];
+      const launchReady = doctor.launchReady === true && venturesRoot !== null;
       emit(
         io,
         {
           command: "stack.connect",
           profileId: "founder-default",
-          sessions: sessions.map(({ provider, authenticated: authenticated2, account }) => ({
-            provider,
-            authenticated: authenticated2,
-            ...account ? { account } : {}
-          })),
-          resolved: plan.resolved,
+          saved: true,
+          ...doctor,
           venturesRoot,
-          launchReady: plan.launchReady && venturesRoot !== null,
+          launchReady,
           unresolvedActions: [
-            ...plan.unresolved.map((action) => ({
-              role: action.role,
-              provider: action.provider,
-              why: action.why,
-              command: action.command,
-              blocksLaunch: action.blocksLaunch
-            })),
+            ...providerActions,
             ...venturesRoot ? [] : [
               {
                 role: "workspace",
@@ -32488,7 +39322,7 @@ async function runCli(args, options = {}) {
         },
         json2
       );
-      return { exitCode: blocking.length === 0 && venturesRoot ? 0 : 1 };
+      return { exitCode: launchReady ? 0 : 1 };
     }
     if (command === "stack") {
       const unknownFlag = rest.find(
@@ -32765,8 +39599,22 @@ async function runCli(args, options = {}) {
       return { exitCode: 0 };
     }
     if (command === "auth") {
-      const [action, provider] = positional(rest);
-      if (!["login", "status", "test", "revoke"].includes(action)) {
+      try {
+        assertNoSecretsInArgv(rest);
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 2 };
+      }
+      const authValues = positional(rest);
+      const [action, provider] = authValues;
+      const unknownAuthFlag = rest.find(
+        (value) => value.startsWith("-") && !["--ref", "--backend", "--kind", "--scopes", "--json"].includes(value)
+      );
+      const missingAuthFlagValue = ["--ref", "--backend", "--kind", "--scopes"].find((flag4) => {
+        const value = flagValue(rest, flag4);
+        return rest.includes(flag4) && (!value || value.startsWith("-"));
+      });
+      if (authValues.length > 2 || unknownAuthFlag || missingAuthFlagValue || !["login", "status", "test", "revoke"].includes(action)) {
         io.stderr("Usage: vh auth login [provider] | status | test [provider] | revoke <provider>");
         return { exitCode: 2 };
       }
@@ -32780,19 +39628,31 @@ async function runCli(args, options = {}) {
           `vh auth ${action}`,
           "configure the credential broker/provider adapter; credential values must never enter Git"
         );
-      emit(
-        io,
-        await services.auth({
-          action,
-          provider,
-          ref: flagValue(rest, "--ref"),
-          backend: flagValue(rest, "--backend"),
-          kind: flagValue(rest, "--kind"),
-          scopes: flagValue(rest, "--scopes")?.split(",").map((scope) => scope.trim()).filter(Boolean)
-        }),
-        json2
-      );
-      return { exitCode: 0 };
+      const requestedBackend = flagValue(rest, "--backend");
+      const backend = action === "login" && provider ? requestedBackend ?? (["github", "vercel", "eas"].includes(provider) ? "cli_session" : process.platform === "darwin" ? "macos_keychain" : "onepassword") : requestedBackend;
+      const prompt = options.stackPrompt ?? systemFounderStackWizardPrompt();
+      const readValue = action === "login" && provider !== void 0 && (backend === "macos_keychain" || backend === "onepassword") && prompt.isTty && !json2 ? async () => {
+        const value = await prompt.readCredential(
+          `${provider} credential (input hidden; never argv or output): `
+        );
+        if (!value) {
+          throw new Error(
+            `No credential value was entered for ${provider}; rerun the same auth login command.`
+          );
+        }
+        return value;
+      } : void 0;
+      const result2 = await services.auth({
+        action,
+        provider,
+        ref: flagValue(rest, "--ref"),
+        backend,
+        kind: flagValue(rest, "--kind") ?? (action === "login" && provider === "stripe" ? "restricted_api_key" : action === "login" && provider === "google" ? "oauth" : void 0),
+        scopes: flagValue(rest, "--scopes")?.split(",").map((scope) => scope.trim()).filter(Boolean),
+        ...readValue ? { readValue } : {}
+      });
+      emit(io, result2, json2);
+      return { exitCode: action === "test" ? authTestExitCode(result2) : 0 };
     }
     if (command === "data" && positional(rest)[0] === "sync") {
       if (!services.dataSync)
@@ -32848,14 +39708,14 @@ async function runCli(args, options = {}) {
 }
 
 // packages/cli-generator/src/bin.ts
-import { realpathSync as realpathSync10 } from "node:fs";
-import { resolve as resolve25 } from "node:path";
+import { realpathSync as realpathSync14 } from "node:fs";
+import { resolve as resolve28 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // packages/audit/dist/index.js
-import { createHash as createHash18 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 function digest2(input, sequence, previousHash) {
-  return createHash18("sha256").update(stableJson({ ...input, sequence, previousHash })).digest("hex");
+  return createHash19("sha256").update(stableJson({ ...input, sequence, previousHash })).digest("hex");
 }
 var InMemoryAuditChain = class {
   durability = "fixture_only";
@@ -32903,7 +39763,7 @@ function assertActiveSubscription(subscription) {
 }
 
 // packages/command-bus/dist/index.js
-import { createHash as createHash19, randomUUID } from "node:crypto";
+import { createHash as createHash20, randomUUID } from "node:crypto";
 function upperCamel(parts) {
   return parts.map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join("");
 }
@@ -33101,7 +39961,7 @@ function commandRequestHash(contract, input) {
     commandVersion: contract.version,
     input
   });
-  return `sha256:${createHash19("sha256").update(canonical).digest("hex")}`;
+  return `sha256:${createHash20("sha256").update(canonical).digest("hex")}`;
 }
 var COMMAND_SECURITY_AUDIT_TENANT = Object.freeze({
   organizationId: "_venture_harness_security",
@@ -33247,7 +40107,7 @@ var CommandBus = class {
       }
       const requestHash2 = commandRequestHash(contract, parsed);
       const ledgerKey = `${tenantKey(options.context.tenant)}:${contract.id}:${options.idempotencyKey}`;
-      const completionKey = `command-completion:${createHash19("sha256").update(ledgerKey).digest("hex")}`;
+      const completionKey = `command-completion:${createHash20("sha256").update(ledgerKey).digest("hex")}`;
       const emitCompletionArtifacts = async (record3) => {
         await this.#hooks.events.append({
           eventId: `${completionKey}:event`,
@@ -33719,10 +40579,10 @@ var launchExecuteCommand = defineCommandContract({
 });
 
 // packages/agent-runtime/dist/operational.js
-import { createHash as createHash21, randomUUID as randomUUID2 } from "node:crypto";
-import { closeSync as closeSync4, constants as constants2, existsSync as existsSync13, fstatSync as fstatSync2, fsyncSync as fsyncSync3, lstatSync as lstatSync8, mkdirSync as mkdirSync9, openSync as openSync4, readFileSync as readFileSync15, realpathSync as realpathSync7, renameSync as renameSync7, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute7, join as join7, relative as relative14, resolve as resolve22, sep as sep14 } from "node:path";
-import { parse as parseYaml2 } from "yaml";
+import { createHash as createHash22, randomUUID as randomUUID2 } from "node:crypto";
+import { closeSync as closeSync9, constants as constants9, existsSync as existsSync14, fstatSync as fstatSync9, fsyncSync as fsyncSync4, lstatSync as lstatSync10, mkdirSync as mkdirSync11, openSync as openSync9, readFileSync as readFileSync18, realpathSync as realpathSync11, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname13, isAbsolute as isAbsolute8, join as join10, relative as relative16, resolve as resolve25, sep as sep16 } from "node:path";
+import { parse as parseYaml4 } from "yaml";
 
 // packages/agent-runtime/dist/quality.js
 var QUALITY_PROFILE_IDS = ["fast", "mvp", "release"];
@@ -34221,7 +41081,7 @@ function registerPlatformOperationCommands(bus, runtimes = {}) {
 }
 
 // packages/agent-runtime/dist/loop-operations.js
-import { createHash as createHash20 } from "node:crypto";
+import { createHash as createHash21 } from "node:crypto";
 var LEARNING_CADENCE_LOOP_IDS = Object.freeze({
   daily: "daily_early_signal",
   weekly: "weekly_growth",
@@ -34238,7 +41098,7 @@ function runId(input, handler) {
       ventureId: handler.context.tenant.ventureId
     }
   });
-  return `learn-${input.cadence}-${createHash20("sha256").update(binding).digest("hex").slice(0, 32)}`;
+  return `learn-${input.cadence}-${createHash21("sha256").update(binding).digest("hex").slice(0, 32)}`;
 }
 function sourceEvidenceRefs(run) {
   return [
@@ -34338,31 +41198,31 @@ var InMemoryOperationalStateStore = class {
 var FileOperationalStateStore = class {
   rootDir;
   path;
-  constructor(rootDir = resolve22(process.cwd(), ".venture-harness")) {
-    this.rootDir = resolve22(rootDir);
-    this.path = join7(this.rootDir, "operational-state.json");
+  constructor(rootDir = resolve25(process.cwd(), ".venture-harness")) {
+    this.rootDir = resolve25(rootDir);
+    this.path = join10(this.rootDir, "operational-state.json");
   }
   get description() {
     return this.path;
   }
   read() {
-    if (!existsSync13(this.path))
+    if (!existsSync14(this.path))
       return emptyState();
-    return parseState(JSON.parse(readFileSync15(this.path, "utf8")));
+    return parseState(JSON.parse(readFileSync18(this.path, "utf8")));
   }
   write(state) {
     assertNoSecrets(state);
-    mkdirSync9(dirname12(this.path), { recursive: true });
-    const temporary = join7(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
-    const handle = openSync4(temporary, "wx", 384);
+    mkdirSync11(dirname13(this.path), { recursive: true });
+    const temporary = join10(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
+    const handle = openSync9(temporary, "wx", 384);
     try {
-      writeFileSync9(handle, `${JSON.stringify(state, null, 2)}
+      writeFileSync11(handle, `${JSON.stringify(state, null, 2)}
 `, "utf8");
-      fsyncSync3(handle);
+      fsyncSync4(handle);
     } finally {
-      closeSync4(handle);
+      closeSync9(handle);
     }
-    renameSync7(temporary, this.path);
+    renameSync9(temporary, this.path);
   }
 };
 function exactObject2(value, name, allowed) {
@@ -34700,31 +41560,31 @@ function growthContractVersion(value) {
   return typeof version === "number" && Number.isInteger(version) ? version : null;
 }
 function pathEscapesRoot(root, candidate) {
-  const pathFromRoot = relative14(root, candidate);
-  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep14}`) || isAbsolute7(pathFromRoot);
+  const pathFromRoot = relative16(root, candidate);
+  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep16}`) || isAbsolute8(pathFromRoot);
 }
 function assertGrowthPath(root, inputPath) {
-  const candidate = resolve22(root.declaredPath, inputPath);
+  const candidate = resolve25(root.declaredPath, inputPath);
   if (pathEscapesRoot(root.declaredPath, candidate)) {
     throw new Error("growth contract path must stay within the configured root");
   }
-  const pathFromRoot = relative14(root.declaredPath, candidate);
+  const pathFromRoot = relative16(root.declaredPath, candidate);
   let current = root.declaredPath;
   try {
-    for (const component of pathFromRoot.split(sep14).filter(Boolean)) {
-      current = join7(current, component);
-      if (lstatSync8(current).isSymbolicLink()) {
+    for (const component of pathFromRoot.split(sep16).filter(Boolean)) {
+      current = join10(current, component);
+      if (lstatSync10(current).isSymbolicLink()) {
         throw new Error("growth contract path must not contain symbolic links");
       }
     }
-    const details = lstatSync8(candidate);
+    const details = lstatSync10(candidate);
     if (!details.isFile())
       throw new Error("growth contract path must reference a regular file");
-    const canonical = realpathSync7(candidate);
+    const canonical = realpathSync11(candidate);
     if (pathEscapesRoot(root.canonicalPath, canonical)) {
       throw new Error("growth contract path must stay within the configured root");
     }
-    return { path: canonical, displayPath: relative14(root.canonicalPath, canonical) };
+    return { path: canonical, displayPath: relative16(root.canonicalPath, canonical) };
   } catch (error) {
     if (error instanceof Error && (error.message.includes("symbolic links") || error.message.includes("regular file"))) {
       throw error;
@@ -34737,14 +41597,14 @@ function inspectGrowthContract(input, growthContractRoot) {
   let text2;
   let handle;
   try {
-    handle = openSync4(source.path, constants2.O_RDONLY | (constants2.O_NOFOLLOW ?? 0));
-    const details = fstatSync2(handle);
+    handle = openSync9(source.path, constants9.O_RDONLY | (constants9.O_NOFOLLOW ?? 0));
+    const details = fstatSync9(handle);
     if (!details.isFile())
       throw new Error("growth contract path must reference a regular file");
     if (details.size > MAX_GROWTH_CONTRACT_BYTES) {
       throw new Error("growth contract exceeds the 1 MiB inspection limit");
     }
-    text2 = readFileSync15(handle, "utf8");
+    text2 = readFileSync18(handle, "utf8");
   } catch (error) {
     if (error instanceof Error && (error.message.includes("1 MiB inspection limit") || error.message.includes("regular file"))) {
       throw error;
@@ -34752,14 +41612,14 @@ function inspectGrowthContract(input, growthContractRoot) {
     throw new Error("growth contract file could not be read");
   } finally {
     if (handle !== void 0)
-      closeSync4(handle);
+      closeSync9(handle);
   }
   if (Buffer.byteLength(text2, "utf8") > MAX_GROWTH_CONTRACT_BYTES) {
     throw new Error("growth contract exceeds the 1 MiB inspection limit");
   }
   let document2;
   try {
-    document2 = parseYaml2(text2);
+    document2 = parseYaml4(text2);
   } catch {
     throw new Error("growth contract YAML is invalid");
   }
@@ -34854,14 +41714,14 @@ function mutate(store, update) {
 function registerOperationalCommands(bus, options = {}) {
   const store = options.store ?? new InMemoryOperationalStateStore();
   const timestamp2 = () => (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
-  const declaredGrowthContractRoot = resolve22(options.growthContractRoot ?? process.cwd());
-  const rootDetails = lstatSync8(declaredGrowthContractRoot);
+  const declaredGrowthContractRoot = resolve25(options.growthContractRoot ?? process.cwd());
+  const rootDetails = lstatSync10(declaredGrowthContractRoot);
   if (rootDetails.isSymbolicLink() || !rootDetails.isDirectory()) {
     throw new Error("growth contract root must be a regular directory, not a symbolic link");
   }
   const growthContractRoot = {
     declaredPath: declaredGrowthContractRoot,
-    canonicalPath: realpathSync7(declaredGrowthContractRoot)
+    canonicalPath: realpathSync11(declaredGrowthContractRoot)
   };
   bus.register(systemDoctorCommand, (_input, handler) => {
     const state = store.read();
@@ -34966,7 +41826,7 @@ function registerOperationalCommands(bus, options = {}) {
   bus.register(ideaCompileCommand, (input, handler) => {
     const organizationId = handler.context.tenant.organizationId;
     const compiled = mutate(store, (state) => {
-      const sourceHash = `sha256:${createHash21("sha256").update(input.idea).digest("hex")}`;
+      const sourceHash = `sha256:${createHash22("sha256").update(input.idea).digest("hex")}`;
       const key = recordKey(organizationId, input.ventureId);
       const existing = state.ideas[key];
       if (existing) {
@@ -36268,8 +43128,8 @@ function createVentureRuntime(options) {
 }
 
 // packages/cli-generator/src/operational.ts
-import { createHash as createHash22 } from "node:crypto";
-import { readFileSync as readFileSync16 } from "node:fs";
+import { createHash as createHash23 } from "node:crypto";
+import { readFileSync as readFileSync19 } from "node:fs";
 var EMPTY_INPUT_COMMANDS = /* @__PURE__ */ new Set([
   "system.doctor",
   "org.list",
@@ -36403,7 +43263,7 @@ function inputFor(commandId, args) {
   const values = positionals(args);
   if (commandId === "idea.compile") {
     const brief = flag(args, "--brief");
-    const idea = flag(args, "--idea") ?? (brief ? readFileSync16(brief, "utf8") : values[2]);
+    const idea = flag(args, "--idea") ?? (brief ? readFileSync19(brief, "utf8") : values[2]);
     if (!idea) throw new Error("idea compile requires --idea <text> or --brief <file>");
     const name = flag(args, "--name") ?? "Local Venture";
     return { idea, ventureId: flag(args, "--venture-id") ?? slug3(name), name };
@@ -36486,7 +43346,7 @@ function inputFor(commandId, args) {
 }
 function invocation(commandId, input, args, options) {
   const supplied = flag(args, "--idempotency-key");
-  const digest3 = createHash22("sha256").update(stableJson({ commandId, input })).digest("hex").slice(0, 24);
+  const digest3 = createHash23("sha256").update(stableJson({ commandId, input })).digest("hex").slice(0, 24);
   return { context: options.context, idempotencyKey: supplied ?? `vh-local-${digest3}` };
 }
 function rendered(value, json2) {
@@ -36584,8 +43444,8 @@ async function invokeOperationalCli(bus, args, options) {
 // packages/cli-generator/src/quality-runner.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync14, lstatSync as lstatSync9, mkdirSync as mkdirSync10, readFileSync as readFileSync17, realpathSync as realpathSync8 } from "node:fs";
-import { basename, join as join8, relative as relative15, resolve as resolve23, sep as sep15 } from "node:path";
+import { existsSync as existsSync15, lstatSync as lstatSync11, mkdirSync as mkdirSync12, readFileSync as readFileSync20, realpathSync as realpathSync12 } from "node:fs";
+import { basename as basename2, join as join11, relative as relative17, resolve as resolve26, sep as sep17 } from "node:path";
 var SECRET_PATTERNS3 = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END|$)/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -36604,43 +43464,43 @@ function redact2(value) {
   return redacted;
 }
 function canonicalRoot(root) {
-  const declared = resolve23(root);
-  const details = lstatSync9(declared);
+  const declared = resolve26(root);
+  const details = lstatSync11(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("quality runner root must be a regular directory, not a symbolic link");
   }
-  return realpathSync8(declared);
+  return realpathSync12(declared);
 }
 function inside7(root, target) {
-  const child = relative15(root, target);
-  return child === "" || child !== ".." && !child.startsWith(`..${sep15}`);
+  const child = relative17(root, target);
+  return child === "" || child !== ".." && !child.startsWith(`..${sep17}`);
 }
 function assertNoSymlinkPath(root, target) {
   if (!inside7(root, target)) throw new Error("quality report path escapes the configured root");
-  const child = relative15(root, target);
+  const child = relative17(root, target);
   let cursor = root;
-  for (const segment of child.split(sep15).filter(Boolean)) {
-    cursor = join8(cursor, segment);
-    if (!existsSync14(cursor)) break;
-    if (lstatSync9(cursor).isSymbolicLink()) {
+  for (const segment of child.split(sep17).filter(Boolean)) {
+    cursor = join11(cursor, segment);
+    if (!existsSync15(cursor)) break;
+    if (lstatSync11(cursor).isSymbolicLink()) {
       throw new Error("quality report path must not contain symbolic links");
     }
   }
 }
 function reportPath(root, profile2) {
-  const directory = join8(root, ".venture", "reports", "quality");
+  const directory = join11(root, ".venture", "reports", "quality");
   assertNoSymlinkPath(root, directory);
-  mkdirSync10(directory, { recursive: true, mode: 448 });
-  const canonicalDirectory = realpathSync8(directory);
+  mkdirSync12(directory, { recursive: true, mode: 448 });
+  const canonicalDirectory = realpathSync12(directory);
   if (!inside7(root, canonicalDirectory)) throw new Error("quality report directory escapes root");
-  return join8(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
+  return join11(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
 }
 function assertCommand(command) {
   if (command.length === 0 || command.some((value) => typeof value !== "string" || !value)) {
     throw new Error("quality profile command must be a non-empty argv array");
   }
   const tokens = command.map((value) => value.toLowerCase());
-  const executable = basename(tokens[0]);
+  const executable = basename2(tokens[0]);
   if (executable === "vh" && tokens[1] === "verify" || tokens.some((token, index) => token === "vh" && tokens[index + 1] === "verify")) {
     throw new Error("quality profile command must not recurse into vh verify");
   }
@@ -36678,8 +43538,8 @@ function count(summary, field) {
   return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0;
 }
 function readReport(path, profile2) {
-  if (!existsSync14(path)) return null;
-  const raw = JSON.parse(readFileSync17(path, "utf8"));
+  if (!existsSync15(path)) return null;
+  const raw = JSON.parse(readFileSync20(path, "utf8"));
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("quality runner report must be a JSON object");
   }
@@ -36765,15 +43625,15 @@ function createProcessQualityProfileRunner(options) {
         command: command.map((value) => redact2(value)),
         stdout: stdout.value(),
         stderr: `${stderr.value()}${timedOut ? "\nquality profile timed out" : ""}`.trim(),
-        reportPath: relative15(root, targetReport)
+        reportPath: relative17(root, targetReport)
       };
     }
   });
 }
 function createRepositoryQualityProfileRunner(root) {
   const canonical = canonicalRoot(root);
-  const runnerPath = join8(canonical, "scripts", "run-quality-profile.ts");
-  const configured = existsSync14(runnerPath) && !lstatSync9(runnerPath).isSymbolicLink() && lstatSync9(runnerPath).isFile() && inside7(canonical, realpathSync8(runnerPath));
+  const runnerPath = join11(canonical, "scripts", "run-quality-profile.ts");
+  const configured = existsSync15(runnerPath) && !lstatSync11(runnerPath).isSymbolicLink() && lstatSync11(runnerPath).isFile() && inside7(canonical, realpathSync12(runnerPath));
   if (!configured) {
     return Object.freeze({
       async run(profile2) {
@@ -36806,58 +43666,58 @@ function createRepositoryQualityProfileRunner(root) {
 }
 
 // packages/cli-generator/src/runtime-module.ts
-import { existsSync as existsSync15, lstatSync as lstatSync10, realpathSync as realpathSync9 } from "node:fs";
-import { extname, join as join9, relative as relative16, resolve as resolve24, sep as sep16 } from "node:path";
+import { existsSync as existsSync16, lstatSync as lstatSync12, realpathSync as realpathSync13 } from "node:fs";
+import { extname, join as join12, relative as relative18, resolve as resolve27, sep as sep18 } from "node:path";
 import { pathToFileURL } from "node:url";
 function canonicalRoot2(root) {
-  const declared = resolve24(root);
-  const details = lstatSync10(declared);
+  const declared = resolve27(root);
+  const details = lstatSync12(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("runtime project root must be a regular directory, not a symbolic link");
   }
-  return realpathSync9(declared);
+  return realpathSync13(declared);
 }
 function inside8(root, target) {
-  const child = relative16(root, target);
-  return child === "" || child !== ".." && !child.startsWith(`..${sep16}`);
+  const child = relative18(root, target);
+  return child === "" || child !== ".." && !child.startsWith(`..${sep18}`);
 }
 function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
   if (!inside8(root, target)) throw new Error("runtime path must stay within the project root");
-  const child = relative16(root, target);
+  const child = relative18(root, target);
   let cursor = root;
-  for (const [index, segment] of child.split(sep16).filter(Boolean).entries()) {
-    cursor = join9(cursor, segment);
-    if (!existsSync15(cursor)) {
+  for (const [index, segment] of child.split(sep18).filter(Boolean).entries()) {
+    cursor = join12(cursor, segment);
+    if (!existsSync16(cursor)) {
       if (allowMissingLeaf) return;
       throw new Error("runtime module does not exist");
     }
-    if (lstatSync10(cursor).isSymbolicLink()) {
+    if (lstatSync12(cursor).isSymbolicLink()) {
       throw new Error("runtime path must not contain symbolic links");
     }
-    if (index < child.split(sep16).filter(Boolean).length - 1 && !lstatSync10(cursor).isDirectory()) {
+    if (index < child.split(sep18).filter(Boolean).length - 1 && !lstatSync12(cursor).isDirectory()) {
       throw new Error("runtime path parent must be a directory");
     }
   }
 }
 function projectOwnedFile(root, path) {
-  const target = resolve24(root, path);
+  const target = resolve27(root, path);
   assertNoSymlinkComponents(root, target, false);
-  const child = relative16(root, target);
-  const first = child.split(sep16)[0];
+  const child = relative18(root, target);
+  const first = child.split(sep18)[0];
   if (["node_modules", ".git", ".pnpm"].includes(first ?? "")) {
     throw new Error("runtime module must be a project-owned file outside dependency metadata");
   }
   if (![".js", ".mjs", ".cjs"].includes(extname(target))) {
     throw new Error("runtime module must be compiled JavaScript (.js, .mjs, or .cjs)");
   }
-  const details = lstatSync10(target);
+  const details = lstatSync12(target);
   if (!details.isFile()) throw new Error("runtime module must be a regular file");
-  const canonical = realpathSync9(target);
+  const canonical = realpathSync13(target);
   if (!inside8(root, canonical)) throw new Error("runtime module resolves outside the project root");
   return canonical;
 }
 function projectOwnedStateDirectory(root, path) {
-  const target = resolve24(root, path);
+  const target = resolve27(root, path);
   assertNoSymlinkComponents(root, target, true);
   return target;
 }
@@ -37009,13 +43869,13 @@ ${createCliSurface(localRuntime.bus).help}`
       return 0;
     }
     const runtimeModule = flag3(args, "--runtime-module");
-    const projectRoot = resolve25(options.cwd ?? process.cwd(), flag3(args, "--project-root") ?? ".");
+    const projectRoot = resolve28(options.cwd ?? process.cwd(), flag3(args, "--project-root") ?? ".");
     const stateDirectoryFlag = flag3(args, "--state-dir") ?? ".venture-harness";
     const invocationContext = context(args, Boolean(runtimeModule));
     if (runtimeModule && !flag3(args, "--idempotency-key")) {
       throw new Error("--idempotency-key is required with an explicit production runtime module");
     }
-    const stateDirectory = resolve25(projectRoot, stateDirectoryFlag);
+    const stateDirectory = resolve28(projectRoot, stateDirectoryFlag);
     const runtime = runtimeModule ? await loadProductionRuntimeModule({
       projectRoot,
       runtimeModule,
@@ -37087,12 +43947,12 @@ ${createCliSurface(localRuntime.bus).help}`
 }
 function isDirectGeneratedCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync10(fileURLToPath(import.meta.url));
+  const modulePath = realpathSync14(fileURLToPath(import.meta.url));
   if (!modulePath.replaceAll("\\", "/").includes("/cli-generator/")) return false;
   try {
-    return realpathSync10(resolve25(process.argv[1])) === modulePath;
+    return realpathSync14(resolve28(process.argv[1])) === modulePath;
   } catch {
-    return resolve25(process.argv[1]) === modulePath;
+    return resolve28(process.argv[1]) === modulePath;
   }
 }
 if (isDirectGeneratedCliEntry()) {
@@ -37104,7 +43964,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "55a10c58ebbe5664d5c901b46125841fbb672b29" : void 0;
+  const workflowRefSha = true ? "3beea5e1611d1c5f43745193217260eef29f3609" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
@@ -37122,6 +43982,7 @@ var FOUNDER_CORE_DOMAINS = /* @__PURE__ */ new Set([
   "create",
   "data",
   "doctor",
+  "idea",
   "launch",
   "learn",
   "plan",
@@ -37162,11 +44023,11 @@ async function runVhShell(inputArgs, options = {}) {
 }
 function isDirectRootCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync11(fileURLToPath2(import.meta.url));
+  const modulePath = realpathSync15(fileURLToPath2(import.meta.url));
   try {
-    return realpathSync11(resolve26(process.argv[1])) === modulePath;
+    return realpathSync15(resolve29(process.argv[1])) === modulePath;
   } catch {
-    return resolve26(process.argv[1]) === modulePath;
+    return resolve29(process.argv[1]) === modulePath;
   }
 }
 if (isDirectRootCliEntry()) {
