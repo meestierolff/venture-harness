@@ -25,13 +25,43 @@ const conciseList = (minimum = 0, maximum = 20) =>
     .max(maximum)
     .refine((values) => new Set(values).size === values.length, "values must be unique");
 
+const MINOR_UNIT_ROUNDING_ULPS = 8;
+
+/**
+ * Converts a validated decimal price to integer cents without treating normal
+ * IEEE-754 representation noise (for example 0.29 * 100) as a third decimal.
+ */
+export function decimalPriceToMinorUnits(amount: number): number {
+  const scaled = amount * 100;
+  const rounded = Math.round(scaled);
+  const roundingTolerance =
+    Number.EPSILON * Math.max(100, Math.abs(scaled)) * MINOR_UNIT_ROUNDING_ULPS;
+  if (
+    !Number.isFinite(amount) ||
+    amount < 0 ||
+    !Number.isSafeInteger(rounded) ||
+    Math.abs(scaled - rounded) > roundingTolerance
+  ) {
+    throw new Error("price must be a non-negative amount with at most two decimal places");
+  }
+  return rounded === 0 ? 0 : rounded;
+}
+
 export const launchContractPriceSchema = z
   .number()
   .positive()
   .finite()
-  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, {
-    message: "priceHypothesis must use at most two decimal places",
-  });
+  .refine(
+    (value) => {
+      try {
+        decimalPriceToMinorUnits(value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "priceHypothesis must use at most two decimal places" },
+  );
 
 const MAX_LAUNCH_CONTRACT_BYTES = 32_000;
 
@@ -467,33 +497,162 @@ export const launchContractSchema = z
 
 export type LaunchContract = z.infer<typeof launchContractSchema>;
 
+const LAUNCH_CONTRACT_SECTION_KEYS = Object.freeze([
+  "venture",
+  "product",
+  "business",
+  "distribution",
+  "decision",
+  "truth",
+  "agentNative",
+] as const);
+const LAUNCH_CONTRACT_SENTINEL_KEYS = Object.freeze([
+  "schemaVersion",
+  ...LAUNCH_CONTRACT_SECTION_KEYS,
+] as const);
+const LAUNCH_CONTRACT_EXPECTED_SHAPE =
+  "schemaVersion: 1 with required venture, product, business, distribution, decision, truth, and agentNative mappings";
+
+export class LaunchContractSourceError extends Error {
+  readonly code = "LAUNCH_CONTRACT_SOURCE_INVALID";
+
+  constructor(
+    readonly schemaVersion: string,
+    readonly invalidPath: string,
+    readonly validationProblem: string,
+    readonly expectedShape: string,
+    readonly remediation: string,
+  ) {
+    super(
+      `Malformed structured Launch Contract; schema version: ${schemaVersion}; invalid path: ${invalidPath}; validation problem: ${validationProblem}; expected v1 shape: ${expectedShape}; exact remediation: ${remediation}`,
+    );
+    this.name = "LaunchContractSourceError";
+  }
+}
+
 /** The canonical assertion used by zero-call, model, and decision paths. */
 export function assertLaunchContractSafe(contractInput: LaunchContract): LaunchContract {
   return launchContractSchema.parse(contractInput);
 }
 
-function frontMatter(source: string): unknown | undefined {
-  const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/u);
-  if (!match?.[1]) return undefined;
-  try {
-    return parseYaml(match[1]);
-  } catch {
-    return undefined;
+interface FrontMatterCandidate {
+  body: string;
+  closed: boolean;
+}
+
+function frontMatterCandidate(source: string): FrontMatterCandidate | undefined {
+  const opener = /^(?:\uFEFF)?---[ \t]*(?:\r?\n|$)/u.exec(source);
+  if (!opener) return undefined;
+  const bodyStart = opener[0].length;
+  const remainder = source.slice(bodyStart);
+  const closer = /^---[ \t]*\r?$/mu.exec(remainder);
+  if (!closer) return { body: remainder, closed: false };
+  return { body: remainder.slice(0, closer.index), closed: true };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function rawRootKeys(source: string): Set<string> {
+  const keys = new Set<string>();
+  const sentinel = LAUNCH_CONTRACT_SENTINEL_KEYS.join("|");
+  const matcher = new RegExp(`^(?:["']?(${sentinel})["']?)[ \\t]*:`, "gmu");
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(source)) !== null) {
+    if (match[1]) keys.add(match[1]);
   }
+  return keys;
+}
+
+function parsedRootKeys(value: unknown): Set<string> {
+  const record = recordValue(value);
+  return new Set(record ? Object.keys(record) : []);
+}
+
+function hasLaunchContractIntent(source: string, value?: unknown): boolean {
+  const keys = new Set([...rawRootKeys(source), ...parsedRootKeys(value)]);
+  return LAUNCH_CONTRACT_SENTINEL_KEYS.some((key) => keys.has(key));
+}
+
+function sourceSchemaVersion(source: string, value?: unknown): string {
+  const parsed = recordValue(value)?.schemaVersion;
+  if (parsed !== undefined) return JSON.stringify(parsed) ?? String(parsed);
+  const raw = /^schemaVersion[ \t]*:[ \t]*([^#\r\n]*)/mu.exec(source)?.[1]?.trim();
+  return raw ? raw : "missing";
+}
+
+function issuePath(path: readonly PropertyKey[]): string {
+  if (path.length === 0) return "$";
+  return path
+    .map((segment, index) =>
+      typeof segment === "number" ? `[${segment}]` : `${index === 0 ? "" : "."}${String(segment)}`,
+    )
+    .join("");
+}
+
+function exactRemediation(path: string): string {
+  return `correct ${path} in the YAML Launch Contract so it satisfies schemaVersion 1, preserve every reviewed contract field, and rerun the same command; if the input is genuinely prose, remove every root Launch Contract sentinel key`;
+}
+
+function invalidSource(input: {
+  source: string;
+  value?: unknown;
+  path: string;
+  problem: string;
+}): LaunchContractSourceError {
+  return new LaunchContractSourceError(
+    sourceSchemaVersion(input.source, input.value),
+    input.path,
+    input.problem,
+    LAUNCH_CONTRACT_EXPECTED_SHAPE,
+    exactRemediation(input.path),
+  );
+}
+
+function parseStructuredCandidate(source: string): LaunchContract | undefined {
+  let value: unknown;
+  try {
+    value = parseYaml(source);
+  } catch (error) {
+    if (!hasLaunchContractIntent(source)) return undefined;
+    const position = recordValue(error)?.linePos;
+    const firstPosition = Array.isArray(position) ? recordValue(position[0]) : undefined;
+    const line = typeof firstPosition?.line === "number" ? firstPosition.line : undefined;
+    const column = typeof firstPosition?.col === "number" ? firstPosition.col : undefined;
+    const path = line === undefined ? "$" : `$ (YAML line ${line}, column ${column ?? "unknown"})`;
+    throw invalidSource({ source, path, problem: "invalid YAML syntax" });
+  }
+
+  if (!hasLaunchContractIntent(source, value)) return undefined;
+  const parsed = launchContractSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0];
+  const path = issuePath(issue?.path ?? []);
+  throw invalidSource({
+    source,
+    value,
+    path,
+    problem: issue?.message ?? "input does not satisfy the Launch Contract v1 schema",
+  });
 }
 
 export function parseLaunchContractSource(source: string): LaunchContract | undefined {
-  const candidates: unknown[] = [frontMatter(source)];
-  try {
-    candidates.push(parseYaml(source));
-  } catch {
-    // A normal Markdown idea is not an error at this boundary.
+  const frontMatter = frontMatterCandidate(source);
+  if (frontMatter) {
+    if (!frontMatter.closed) {
+      if (!hasLaunchContractIntent(frontMatter.body)) return undefined;
+      throw invalidSource({
+        source: frontMatter.body,
+        path: "$frontMatter",
+        problem: "front matter is not closed with a standalone --- delimiter",
+      });
+    }
+    return parseStructuredCandidate(frontMatter.body);
   }
-  for (const candidate of candidates) {
-    const parsed = launchContractSchema.safeParse(candidate);
-    if (parsed.success) return parsed.data;
-  }
-  return undefined;
+  return parseStructuredCandidate(source);
 }
 
 function selectedText(contract: LaunchContract): string {

@@ -1,11 +1,15 @@
+import { format } from "prettier";
 import { describe, expect, it } from "vitest";
 import {
   compileFounderIdea,
+  decimalPriceToMinorUnits,
   founderBriefFromLaunchContract,
+  LaunchContractSourceError,
   launchContractSchema,
   launchDecisionFromContract,
   parseLaunchContractSource,
   renderFounderIdea,
+  renderLaunchContractYaml,
   renderProductConstitution,
 } from "@/lib/founder-launch";
 import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
@@ -17,6 +21,97 @@ describe("Launch Contract", () => {
 
     expect(parseLaunchContractSource(markdown)).toEqual(contract);
     expect(markdown).toContain("The YAML front matter is the canonical Launch Contract");
+  });
+
+  it("accepts valid bare YAML and leaves unambiguous prose on the bounded idea path", () => {
+    const contract = launchReceiptContract();
+    expect(parseLaunchContractSource(renderLaunchContractYaml(contract))).toEqual(contract);
+
+    const prose = [
+      "# Receipt helper",
+      "",
+      "A founder wants one careful receipt workflow.",
+      "The venture: should remain small, and the product: should prove one outcome.",
+    ].join("\n");
+    expect(parseLaunchContractSource(prose)).toBeUndefined();
+    expect(compileFounderIdea(prose).sourceKind).toBe("markdown_idea");
+  });
+
+  it("fails closed for unclosed canonical front matter instead of sharpening it as prose", () => {
+    const source = `---\n${renderLaunchContractYaml(launchReceiptContract())}`;
+
+    expect(() => parseLaunchContractSource(source)).toThrowError(LaunchContractSourceError);
+    expect(() => compileFounderIdea(source)).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        schemaVersion: "1",
+        invalidPath: "$frontMatter",
+        validationProblem: expect.stringContaining("not closed"),
+      }),
+    );
+  });
+
+  it("reports unsupported versions and missing required fields with exact repair context", () => {
+    const valid = renderLaunchContractYaml(launchReceiptContract());
+    const unsupported = valid.replace("schemaVersion: 1", "schemaVersion: 2");
+    expect(() => parseLaunchContractSource(unsupported)).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        schemaVersion: "2",
+        invalidPath: "schemaVersion",
+      }),
+    );
+
+    const missingCurrency = valid.replace(/^  currency: EUR\n/mu, "");
+    let caught: unknown;
+    try {
+      parseLaunchContractSource(missingCurrency);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(LaunchContractSourceError);
+    expect(caught).toMatchObject({
+      schemaVersion: "1",
+      invalidPath: "business.currency",
+      validationProblem: expect.any(String),
+      expectedShape: expect.stringContaining("schemaVersion: 1"),
+      remediation: expect.stringContaining("correct business.currency"),
+    });
+    expect((caught as Error).message).toMatch(
+      /schema version: 1; invalid path: business\.currency; validation problem: .+; expected v1 shape: .+; exact remediation: correct business\.currency/u,
+    );
+  });
+
+  it("rejects an invalid decimal price without losing the structured commercial terms", () => {
+    const malformed = renderLaunchContractYaml(launchReceiptContract()).replace(
+      "priceHypothesis: 9",
+      "priceHypothesis: 9.999",
+    );
+
+    expect(() => parseLaunchContractSource(malformed)).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        invalidPath: "business.priceHypothesis",
+        validationProblem: "priceHypothesis must use at most two decimal places",
+      }),
+    );
+    expect(() => compileFounderIdea(malformed)).toThrowError(LaunchContractSourceError);
+  });
+
+  it("preserves contracts across formatting and YAML multiline values", async () => {
+    const base = launchReceiptContract();
+    const contract = launchReceiptContract({
+      distribution: {
+        ...base.distribution,
+        initialMessage: "Publish one honest receipt.\nKeep every evidence caveat visible.",
+      },
+    });
+    const before = renderFounderIdea(contract);
+    const after = await format(before, { parser: "markdown" });
+
+    expect(parseLaunchContractSource(before)).toEqual(contract);
+    expect(parseLaunchContractSource(after)).toEqual(contract);
+    expect(parseLaunchContractSource(after)?.distribution.initialMessage).toContain("\n");
   });
 
   it("drives the existing brief, mode, payment, and capability router", () => {
@@ -211,6 +306,16 @@ describe("Launch Contract", () => {
         business: { ...launchReceiptContract().business, priceHypothesis: 0.29 },
       }),
     ).not.toThrow();
+    expect(decimalPriceToMinorUnits(0.29)).toBe(29);
+    expect(
+      compileFounderIdea(
+        renderFounderIdea(
+          launchReceiptContract({
+            business: { ...launchReceiptContract().business, priceHypothesis: 0.29 },
+          }),
+        ),
+      ).commercialTerms.monthlyPrice,
+    ).toBe(0.29);
     expect(() =>
       launchContractSchema.parse({
         ...launchReceiptContract(),
