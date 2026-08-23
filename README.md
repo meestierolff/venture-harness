@@ -426,9 +426,10 @@ for the detailed matrix.
 ## Synthetic Golden Path
 
 The labeled Exception Desk fixture supplies a realistic web SaaS idea, one
-test-mode price, a private repository destination, a manual DNS plan, and one
-primary journey. It crosses the real implementation boundaries without using a
-customer account or causing an external effect.
+test-mode price, a private repository destination, a requested custom domain,
+optional email/discovery integrations, and one primary journey. It crosses the
+real implementation boundaries without using a customer account or causing an
+external effect.
 
 ```bash
 pnpm exec vitest run --no-file-parallelism \
@@ -437,11 +438,15 @@ pnpm exec vitest run --no-file-parallelism \
   tests/founder-golden-path.test.ts --reporter=verbose
 ```
 
-One isolated current-tree run completed all three slices on 2026-08-12 outside
-the loopback-restricted sandbox. It exercised the public root dispatcher and
-exact founder command semantics while keeping every provider below the real
-transport boundary on labeled fixtures. Repeated final-commit runs and hosted
-CI evidence remain pending and are not yet a pass. See the
+One isolated three-slice run passed on 2026-08-12, and the current provider-URL
+root slice passed locally on 2026-08-23. The initial one-prompt graph selects
+GitHub, Neon, Stripe and Vercel, succeeds on a fixture-labeled stable Vercel URL,
+and leaves custom DNS plus Brevo, Google and Bing as deferred nonblocking work.
+Replaying the exact apply command reuses the run and Grant without another
+provider or product invocation. A separate Golden Path variant and direct CLI
+integration test own the real missing-provider-auth wait/resume boundary.
+Final-source repetitions and hosted CI evidence remain pending and are not yet a
+release pass. See the
 [synthetic proof contract](docs/public/SYNTHETIC_GOLDEN_PATH.md),
 [idea](fixtures/ideas/synthetic-founder-web.md), and
 [fixture-only Stack](fixtures/founder-stack/founder-default.json).
