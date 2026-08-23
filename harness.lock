@@ -3,7 +3,7 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: c6cef5ef6cb8ce14bc7d30460995f1d33215a75e
+  ref: 60bd89d852fad9d347a31c6139061836d7f76a29
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 21c716d50330846fa461b4844bc18293448a65445ddcb887bc8f19bc06beeda7
+    sha256: 01f7d752e682f7c5f586690fad9b5439b8f925356973c63a111ea93fa3b99648
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 0efb66c35c7b8cb9c0078eece0eaaedb2d0f235b19349b03c202b0ca545e2de3
+    sha256: 584e1d969d56fb50352e3d46d0f13b0054d59c27a4199756afab7424e400f7ae
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -997,7 +997,7 @@ managed_files:
     sha256: 5e147a875df7ffd0c5ef776aa10bb4fb551822b8c31ad7d1f3d8e11becae8852
   - path: scripts/run-local-e2e.mjs
     ownership: harness
-    sha256: c2001e9dda1efe96f45943a70e75c389ddde84d5d93bfd37cd20ae296b885dea
+    sha256: e1505eaa8b5aee461eb2ce37cdd2166ad033b6b784dda32ec40d617ec1cbeb14
   - path: scripts/run-local-raw-html.mjs
     ownership: harness
     sha256: b987a58637b1687af96126ab6703a052556b96ad86eb538112672a490682186a
@@ -1309,7 +1309,7 @@ managed_files:
     sha256: ec50416981b05ee498bf6fabf3e86ffe3e0d64c5189a90029d8f5161541163e7
   - path: tests/e2e/post-deploy-readonly.spec.ts
     ownership: harness
-    sha256: 695759a1cac6d4eae0ddcbda4996cfeba17cfb512734f1ebe930d46307f3dd72
+    sha256: 07d6a06b419d33d0c8d2548eed61c0312f8d023a0d6fec6a2b4481f77b339318
   - path: tests/e2e/responsive-screenshots.spec.ts
     ownership: harness
     sha256: 088c09be2f06df2bb70c3ce05abea91b282107546f8a550f89e83174af9ec41d
@@ -1534,7 +1534,7 @@ managed_files:
     sha256: 1c659085ebcb6aa0cd9aa73d4862e5c086689b703b8f9fafe3c74f311a186961
   - path: tests/security-release.test.ts
     ownership: harness
-    sha256: 8c94575ca89258e38ddf8078aa26a3db3544c38e09e433d26475efe966164bef
+    sha256: a2f86ef7f0c3004339ac954d2b79e63e85ca3e387f7921c9d97b4e0cdddaa13c
   - path: tests/stack-connect-shell.test.ts
     ownership: harness
     sha256: 95f460cab95458775c27968af9dc81b7393ee8adffef36835602e5bf52d4c4f7
