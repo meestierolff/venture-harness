@@ -131,8 +131,8 @@ function rejectUnredactedCredentialStrings(value: unknown, context: z.Refinement
   const visit = (candidate: unknown, path: (string | number)[]) => {
     if (typeof candidate === "string") {
       const withoutRedactionMarkers = candidate
-        .replaceAll("[REDACTED]", "redacted")
-        .replaceAll("[REDACTED PII]", "redacted-pii");
+        .replaceAll("[REDACTED]", "x")
+        .replaceAll("[REDACTED PII]", "x");
       if (looksLikeCredentialValue(withoutRedactionMarkers)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,

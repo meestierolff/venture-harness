@@ -23,9 +23,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <header className="site-header">
-          <Link href="/" className="wordmark">
-            venture-harness
-          </Link>
+          <nav aria-label="Main">
+            <Link href="/" className="wordmark">
+              venture-harness
+            </Link>
+          </nav>
         </header>
         <main>{children}</main>
         <footer className="site-footer">

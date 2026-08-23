@@ -6,6 +6,7 @@ import { Redactor } from "@/lib/credentials";
 import {
   createLaunchReportInputFromRun,
   createLaunchReportWorkflowBinding,
+  parseLaunchReportDocument,
   renderLaunchReport,
   type LaunchReportInput,
 } from "@/lib/runtime";
@@ -305,6 +306,27 @@ describe("sanitized launch report", () => {
     expect(`${report.json}\n${report.markdown}`).not.toContain("owner@example.test");
     expect(report.markdown).toContain("[REDACTED PII]");
     expect(report.json).toContain("token=[REDACTED]");
+  });
+
+  it("rejects an unredacted credential-shaped evidence reference", () => {
+    const secret = "schema-redaction-fixture";
+    const redactor = new Redactor();
+    redactor.addSecret(secret);
+    const safe = renderLaunchReport(reportInput(secret), { redactor }).document;
+
+    expect(() =>
+      parseLaunchReportDocument({
+        ...safe,
+        providers: safe.providers.map((provider, index) =>
+          index === 0
+            ? {
+                ...provider,
+                evidenceRef: "https://evidence.test/repo?token=unredacted-fixture-token",
+              }
+            : provider,
+        ),
+      }),
+    ).toThrow("unredacted credential material is forbidden in a Launch Report");
   });
 
   it("persists and reads back deterministic JSON and Markdown atomically through the workflow binding", async () => {
