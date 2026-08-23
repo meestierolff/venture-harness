@@ -26920,7 +26920,7 @@ import { join as join7, resolve as resolve16 } from "node:path";
 function rejectUnredactedCredentialStrings(value, context2) {
   const visit = (candidate, path) => {
     if (typeof candidate === "string") {
-      const withoutRedactionMarkers = candidate.replaceAll("[REDACTED]", "redacted").replaceAll("[REDACTED PII]", "redacted-pii");
+      const withoutRedactionMarkers = candidate.replaceAll("[REDACTED]", "x").replaceAll("[REDACTED PII]", "x");
       if (looksLikeCredentialValue(withoutRedactionMarkers)) {
         context2.addIssue({
           code: external_exports.ZodIssueCode.custom,
@@ -44293,7 +44293,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "f783aedc900bfebe6a43d6e0729175d11afc5ce8" : void 0;
+  const workflowRefSha = true ? "c6cef5ef6cb8ce14bc7d30460995f1d33215a75e" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(

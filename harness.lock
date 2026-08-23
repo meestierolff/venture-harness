@@ -3,7 +3,7 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: f783aedc900bfebe6a43d6e0729175d11afc5ce8
+  ref: c6cef5ef6cb8ce14bc7d30460995f1d33215a75e
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 240d647254a08ee427899037a911c9fd895dcf1c099b06d1e1fe63c0e6706d38
+    sha256: 21c716d50330846fa461b4844bc18293448a65445ddcb887bc8f19bc06beeda7
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 83dcc23fdb402a27aee5551b5a3a366452e21352b18a07f897d791a61a0f75ad
+    sha256: 0efb66c35c7b8cb9c0078eece0eaaedb2d0f235b19349b03c202b0ca545e2de3
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -694,7 +694,7 @@ managed_files:
     sha256: 4cb796b4c9b00e355bd403d1f16ed7c5f966f975e410944175c3c324ed00eb31
   - path: lib/runtime/launch-report.ts
     ownership: harness
-    sha256: 18aef685c62fb3e8ec970ce174cf04092a5b2a14013c6d6fa5ea207ac9cd2f01
+    sha256: 65634a1da16caa5ce0378ed9d207a87b0dc8ac5296d4dc320d54169cb541f4fc
   - path: lib/runtime/native-http-fetcher.ts
     ownership: harness
     sha256: 59fc5813a44ff04c784b0487ce6be7107daf01210157bd52c83a32313aec1b89
@@ -1522,7 +1522,7 @@ managed_files:
     sha256: 2ef14fa00f6572168e60a84825753077760c05dbac9800632df08c892a92886b
   - path: tests/runtime-provider-report.test.ts
     ownership: harness
-    sha256: 2798d7921b07c225634d3138e816987dabcf5785055a8ed068e452a6be8cb736
+    sha256: bcd8b4f71fdc82ff679d04b3625150a76e1faebaf10b01591637682f8d22a110
   - path: tests/runtime-provider-transports.test.ts
     ownership: harness
     sha256: 883f941f26d3c70d823ab0ac74bcc5872001065ea0a071f7c604d51bed3ade49
