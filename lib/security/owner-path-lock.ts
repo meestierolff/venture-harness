@@ -36,6 +36,13 @@ interface FileIdentity {
 export interface OwnerPathLockOptions {
   readonly label: string;
   readonly lockName?: string;
+  /**
+   * Permit a root-owned, world-writable sticky directory such as POSIX /tmp
+   * as the lock root. Sticky semantics protect entries owned by this process;
+   * every child path and the lock file remain subject to the normal owner-only
+   * checks. Callers must opt in explicitly.
+   */
+  readonly allowRootOwnedStickyDirectory?: boolean;
 }
 
 const noFollow = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
@@ -94,6 +101,27 @@ function assertDirectoryMetadata(metadata: Stats, label: string): void {
   assertOwnerControlled(metadata, label);
 }
 
+function assertBoundaryRootMetadata(
+  metadata: Stats,
+  label: string,
+  allowRootOwnedStickyDirectory: boolean,
+): void {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(`${label} must be a real non-symlink directory`);
+  }
+  try {
+    assertOwnerControlled(metadata, label);
+  } catch (error) {
+    const rootOwnedStickyDirectory =
+      allowRootOwnedStickyDirectory &&
+      currentUid() !== null &&
+      metadata.uid === 0 &&
+      (metadata.mode & 0o1000) !== 0 &&
+      (metadata.mode & 0o002) !== 0;
+    if (!rootOwnedStickyDirectory) throw error;
+  }
+}
+
 function assertRootRenameProtected(path: string, rootMetadata: Stats, label: string): void {
   const parent = dirname(path);
   if (parent === path) return;
@@ -138,6 +166,7 @@ export class OwnerPathLock {
   readonly #label: string;
   readonly #requestedRoot: string;
   readonly #lockDescriptor: number;
+  readonly #allowRootOwnedStickyDirectory: boolean;
   #lockIdentity: FileIdentity | null = null;
   #released = false;
 
@@ -145,7 +174,12 @@ export class OwnerPathLock {
     const requested = resolve(rootDir);
     const canonical = realpathSync(requested);
     const rootMetadata = lstatSync(canonical);
-    assertDirectoryMetadata(rootMetadata, `${options.label} root`);
+    this.#allowRootOwnedStickyDirectory = options.allowRootOwnedStickyDirectory ?? false;
+    assertBoundaryRootMetadata(
+      rootMetadata,
+      `${options.label} root`,
+      this.#allowRootOwnedStickyDirectory,
+    );
     assertRootRenameProtected(canonical, rootMetadata, `${options.label} root`);
     this.root = directoryIdentity(canonical, rootMetadata);
     this.#label = options.label;
@@ -210,7 +244,11 @@ export class OwnerPathLock {
   assertRoot(): void {
     if (this.#released) throw new Error(`${this.#label} lock has already been released`);
     const metadata = lstatSync(this.root.path);
-    assertDirectoryMetadata(metadata, `${this.#label} root`);
+    assertBoundaryRootMetadata(
+      metadata,
+      `${this.#label} root`,
+      this.#allowRootOwnedStickyDirectory,
+    );
     if (
       !sameDirectoryIdentity(metadata, this.root) ||
       realpathSync(this.root.path) !== this.root.path
@@ -275,6 +313,10 @@ export class OwnerPathLock {
   captureDirectory(path: string, label: string): LockedDirectoryIdentity {
     const absolute = this.#canonicalPath(path);
     this.#relative(absolute, label, true);
+    if (absolute === this.root.path) {
+      this.assertRoot();
+      return this.root;
+    }
     this.#assertExistingAncestors(absolute, label, true);
     const metadata = lstatSync(absolute);
     assertDirectoryMetadata(metadata, label);

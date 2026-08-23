@@ -415,7 +415,7 @@ describe("capability-aware quality profiles", () => {
   it("keeps CI staged, cancellable, and data-aware before weekly reporting", () => {
     const qualityWorkflow = readFileSync(".github/workflows/quality.yml", "utf8");
     const workflow = parseDocument(qualityWorkflow).toJS() as {
-      jobs: Record<string, { if?: string; needs?: string }>;
+      jobs: Record<string, { if?: string; needs?: string; steps?: Array<{ run?: string }> }>;
     };
     const weeklyWorkflow = readFileSync(".github/workflows/weekly-analysis.yml", "utf8");
     expect(qualityWorkflow).toContain("pnpm verify:fast");
@@ -425,6 +425,17 @@ describe("capability-aware quality profiles", () => {
     expect(qualityWorkflow).toContain('case "${command_exit}:${status}" in');
     expect(qualityWorkflow).toContain("0:PASS|1:INCOMPLETE");
     expect(qualityWorkflow).toContain("cancel-in-progress: true");
+    const fastCommands = (workflow.jobs.fast?.steps ?? []).flatMap((step) =>
+      step.run ? [step.run] : [],
+    );
+    const fastWorkspacePreparation = fastCommands.indexOf("pnpm workspace:prepare");
+    const fastSeedPreparation = fastCommands.indexOf("pnpm seed:fetch agentic-web-saas");
+    const fastVerification = fastCommands.findIndex((command) =>
+      command.startsWith("pnpm verify:fast"),
+    );
+    expect(fastWorkspacePreparation).toBeGreaterThanOrEqual(0);
+    expect(fastSeedPreparation).toBeGreaterThan(fastWorkspacePreparation);
+    expect(fastVerification).toBeGreaterThan(fastSeedPreparation);
     expect(workflow.jobs.release?.if).toBeUndefined();
     expect(workflow.jobs.release?.needs).toBe("mvp");
     expect(workflow.jobs).not.toHaveProperty("workspace-distribution");

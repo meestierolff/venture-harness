@@ -28,6 +28,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Prepare workspace packages
         run: pnpm workspace:prepare
+      # The fast changed-test router can select child materialization and
+      # Golden Path tests. Those children install their own frozen lockfile
+      # offline with --ignore-workspace, so prepare that distinct closure too.
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:fetch agentic-web-saas
       - name: Capability-aware fast profile
         env:
           QUALITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}

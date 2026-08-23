@@ -339,6 +339,7 @@ export async function ensureVerifiedGitHubWorkingRepository(
   const boundary = new OwnerPathLock(dirname(root), {
     label: "Verified child Git installation",
     lockName: `.git-install-${createHash("sha256").update(root).digest("hex").slice(0, 16)}.lock`,
+    allowRootOwnedStickyDirectory: true,
   });
   const rootIdentity = boundary.captureDirectory(root, "GitHub working repository root");
   const runner = dependencies.runner ?? new NativeDirectCommandRunner();

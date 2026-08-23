@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -264,7 +265,10 @@ describe("GitHub local-source publication", () => {
       commitOid: sourceCommitOid,
       treeOid: sourceTreeOid,
     });
-    const childRoot = mkdtempSync(join(tmpdir(), "vh-source-handoff-failure-"));
+    // Exercise the Linux CI shape explicitly: /tmp is normally root-owned,
+    // world-writable, and sticky rather than owned by the runner account.
+    const sharedTemporaryRoot = existsSync("/tmp") ? realpathSync("/tmp") : tmpdir();
+    const childRoot = mkdtempSync(join(sharedTemporaryRoot, "vh-source-handoff-failure-"));
     try {
       writeFileSync(join(childRoot, "README.md"), "# Verified venture\n", "utf8");
       await expect(
