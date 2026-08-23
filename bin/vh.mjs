@@ -13185,6 +13185,17 @@ function assertDirectoryMetadata(metadata, label) {
   }
   assertOwnerControlled(metadata, label);
 }
+function assertBoundaryRootMetadata(metadata, label, allowRootOwnedStickyDirectory) {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(`${label} must be a real non-symlink directory`);
+  }
+  try {
+    assertOwnerControlled(metadata, label);
+  } catch (error) {
+    const rootOwnedStickyDirectory = allowRootOwnedStickyDirectory && currentUid() !== null && metadata.uid === 0 && (metadata.mode & 512) !== 0 && (metadata.mode & 2) !== 0;
+    if (!rootOwnedStickyDirectory) throw error;
+  }
+}
 function assertRootRenameProtected(path, rootMetadata, label) {
   const parent = dirname2(path);
   if (parent === path) return;
@@ -13214,13 +13225,19 @@ var OwnerPathLock = class {
   #label;
   #requestedRoot;
   #lockDescriptor;
+  #allowRootOwnedStickyDirectory;
   #lockIdentity = null;
   #released = false;
   constructor(rootDir, options) {
     const requested = resolve5(rootDir);
     const canonical = realpathSync(requested);
     const rootMetadata = lstatSync(canonical);
-    assertDirectoryMetadata(rootMetadata, `${options.label} root`);
+    this.#allowRootOwnedStickyDirectory = options.allowRootOwnedStickyDirectory ?? false;
+    assertBoundaryRootMetadata(
+      rootMetadata,
+      `${options.label} root`,
+      this.#allowRootOwnedStickyDirectory
+    );
     assertRootRenameProtected(canonical, rootMetadata, `${options.label} root`);
     this.root = directoryIdentity(canonical, rootMetadata);
     this.#label = options.label;
@@ -13281,7 +13298,11 @@ var OwnerPathLock = class {
   assertRoot() {
     if (this.#released) throw new Error(`${this.#label} lock has already been released`);
     const metadata = lstatSync(this.root.path);
-    assertDirectoryMetadata(metadata, `${this.#label} root`);
+    assertBoundaryRootMetadata(
+      metadata,
+      `${this.#label} root`,
+      this.#allowRootOwnedStickyDirectory
+    );
     if (!sameDirectoryIdentity(metadata, this.root) || realpathSync(this.root.path) !== this.root.path) {
       throw new Error(`${this.#label} root changed while the owner lock was held`);
     }
@@ -13329,6 +13350,10 @@ var OwnerPathLock = class {
   captureDirectory(path, label) {
     const absolute = this.#canonicalPath(path);
     this.#relative(absolute, label, true);
+    if (absolute === this.root.path) {
+      this.assertRoot();
+      return this.root;
+    }
     this.#assertExistingAncestors(absolute, label, true);
     const metadata = lstatSync(absolute);
     assertDirectoryMetadata(metadata, label);
@@ -44293,7 +44318,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "5cfe2ca5838828fa670959067cb447653f4eb9bf" : void 0;
+  const workflowRefSha = true ? "52961c4ac9b40534a3a25297a7d4dae23f53910a" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
