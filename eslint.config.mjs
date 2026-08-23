@@ -14,6 +14,8 @@ const eslintConfig = [
       "examples/**",
       "coverage/**",
       "**/dist/**",
+      "**/.dist-build-*/**",
+      "bin/.vh-executable-*/**",
       "bin/vh.mjs",
       "next-env.d.ts",
     ],

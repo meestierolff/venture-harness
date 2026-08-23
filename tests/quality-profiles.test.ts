@@ -464,6 +464,10 @@ describe("capability-aware quality profiles", () => {
     expect(buildScript).toContain('entry.directory.startsWith(resolve(root, "packages"))');
     expect(buildScript).toContain("!packagesOnly &&");
 
+    const eslintConfig = readFileSync("eslint.config.mjs", "utf8");
+    expect(eslintConfig).toContain('"**/.dist-build-*/**"');
+    expect(eslintConfig).toContain('"bin/.vh-executable-*/**"');
+
     const workflowDirectory = ".github/workflows";
     const childWorkflow = "venture-verify.yml";
     const childWorkflowSource = readFileSync(`${workflowDirectory}/${childWorkflow}`, "utf8");
