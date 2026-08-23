@@ -6,7 +6,7 @@ var __export = (target, all) => {
 };
 
 // scripts/vh-bundle.ts
-import { realpathSync as realpathSync15 } from "node:fs";
+import { realpathSync as realpathSync14 } from "node:fs";
 import { resolve as resolve29 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
@@ -7146,15 +7146,19 @@ var FileWorkflowStore = class {
 // lib/cli/default-services.ts
 import { createHash as createHash18 } from "node:crypto";
 import {
+  closeSync as closeSync9,
+  constants as constants9,
   existsSync as existsSync13,
-  lstatSync as lstatSync9,
+  fstatSync as fstatSync9,
+  lstatSync as lstatSync8,
   mkdirSync as mkdirSync10,
-  readFileSync as readFileSync17,
-  realpathSync as realpathSync10,
+  openSync as openSync9,
+  readFileSync as readFileSync16,
+  realpathSync as realpathSync9,
   renameSync as renameSync8,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute7, relative as relative15, resolve as resolve24, sep as sep15 } from "node:path";
+import { dirname as dirname12, isAbsolute as isAbsolute7, relative as relative14, resolve as resolve24, sep as sep14 } from "node:path";
 import { isIP as isIP3 } from "node:net";
 import { isDeepStrictEqual as isDeepStrictEqual2 } from "node:util";
 import { parse as parse7, stringify as stringify6 } from "yaml";
@@ -13360,25 +13364,33 @@ var OwnerPathLock = class {
     const absolute = this.#canonicalPath(path);
     this.#relative(absolute, options.label);
     this.#assertExistingAncestors(absolute, options.label, false);
-    const pathMetadata = lstatSync(absolute);
-    if (pathMetadata.isSymbolicLink() || !pathMetadata.isFile()) {
-      throw new Error(`${options.label} must be a regular non-symlink file`);
+    let descriptor2;
+    try {
+      descriptor2 = openSync2(absolute, constants2.O_RDONLY | noFollow);
+    } catch (error) {
+      if (error.code === "ELOOP") {
+        throw new Error(`${options.label} must be a regular non-symlink file`);
+      }
+      throw error;
     }
-    assertOwnerControlled(pathMetadata, options.label);
-    if (options.maxBytes !== void 0 && pathMetadata.size > options.maxBytes) {
-      throw new Error(`${options.label} exceeds the ${options.maxBytes}-byte limit`);
-    }
-    const initial = fileIdentity(pathMetadata);
-    const descriptor2 = openSync2(absolute, constants2.O_RDONLY | noFollow);
     try {
       const opened = fstatSync2(descriptor2);
-      if (!sameFileIdentity(opened, initial)) {
-        throw new Error(`${options.label} changed while it was being opened`);
+      if (!opened.isFile()) {
+        throw new Error(`${options.label} must be a regular non-symlink file`);
       }
+      assertOwnerControlled(opened, options.label);
+      if (options.maxBytes !== void 0 && opened.size > options.maxBytes) {
+        throw new Error(`${options.label} exceeds the ${options.maxBytes}-byte limit`);
+      }
+      const initial = fileIdentity(opened);
       this.assertRoot();
       const canonical = realpathSync(absolute);
       this.#relative(canonical, options.label);
-      if (canonical !== absolute || !sameFileIdentity(lstatSync(absolute), initial)) {
+      const pathMetadata = lstatSync(absolute);
+      if (canonical !== absolute || pathMetadata.isSymbolicLink()) {
+        throw new Error(`${options.label} must be a regular non-symlink file`);
+      }
+      if (!sameFileIdentity(pathMetadata, initial)) {
         throw new Error(`${options.label} changed after validation`);
       }
       const content = readFileSync5(descriptor2, "utf8");
@@ -15912,7 +15924,7 @@ function buildManualDnsPlan(provider, request2) {
     const zone = inputString(request2, "zone");
     const recordType2 = inputString(request2, "recordType").toUpperCase();
     const recordName = inputString(request2, "recordName");
-    const recordValue = inputString(request2, "recordValue");
+    const recordValue2 = inputString(request2, "recordValue");
     const ttl = optionalNumber(request2, "ttl") ?? 3600;
     operations.push(
       operation(request2, {
@@ -15920,7 +15932,7 @@ function buildManualDnsPlan(provider, request2) {
         capability: "record",
         action: "dns_record.change_manual",
         title: `Set ${recordType2} ${recordName} in ${zone}`,
-        identity: { zone, recordType: recordType2, recordName, recordValue, ttl },
+        identity: { zone, recordType: recordType2, recordName, recordValue: recordValue2, ttl },
         riskClass: "critical",
         effectClass: "manual",
         reversibility: "manual",
@@ -15930,14 +15942,14 @@ function buildManualDnsPlan(provider, request2) {
           instructions: [
             `Open the authoritative DNS zone for ${zone}.`,
             `Check for an existing ${recordType2} record named ${recordName}; do not create a duplicate.`,
-            `Set the value exactly to ${recordValue} with TTL ${ttl}.`,
+            `Set the value exactly to ${recordValue2} with TTL ${ttl}.`,
             "Save the change, then query the authoritative nameservers until the exact record reads back."
           ],
           requiredFields: {
             zone,
             recordType: recordType2,
             recordName,
-            recordValue,
+            recordValue: recordValue2,
             ttl
           },
           completionEvidence: [
@@ -17204,13 +17216,16 @@ var capabilityProviders = {
   },
   eas: { provider: "eas", resource: "project, build profiles, build, and submit workflow" }
 };
+var providerUrlDeferredCapabilities = /* @__PURE__ */ new Set([
+  "transactional_email",
+  "lifecycle_email",
+  "ga4",
+  "gsc",
+  "bing_webmaster",
+  "vercel_analytics"
+]);
 var launchProviderCapabilitiesByNode = {
-  "github-repository": [
-    "repository",
-    "actions_secret",
-    "repository_settings",
-    "draft_pull_request"
-  ],
+  "github-repository": ["repository"],
   "neon-database": [
     "project",
     "branch",
@@ -17231,7 +17246,7 @@ var launchProviderCapabilitiesByNode = {
   "google-site-verification": ["site_verification"],
   "google-search-console": ["search_console_site", "search_console_sitemap"],
   "bing-discovery": ["site", "sitemap", "url_submission"],
-  "vercel-project": ["project", "environment_variable", "deployment", "domain", "web_analytics"],
+  "vercel-project": ["project", "deployment", "domain"],
   "vercel-database-environment": ["environment_variable"],
   "vercel-stripe-environment": ["environment_variable"],
   "vercel-stripe-webhook-environment": ["environment_variable"],
@@ -17298,10 +17313,19 @@ var launchOptionalProviderNodeIds = /* @__PURE__ */ new Set([
   "vercel-ga-environment",
   "analytics-production-redeploy",
   "email-production-redeploy",
+  "verify-custom-domain",
   "stripe-domain-callbacks"
 ]);
+var launchProviderOperationCeilingOverrides = Object.freeze({
+  // Vercel project planning performs a project lookup/create boundary plus the
+  // preview deployment while remaining inside the two exact capabilities.
+  "vercel-project": 3
+});
+function launchProviderNodeOperationCeiling(node) {
+  return launchProviderOperationCeilingOverrides[node.id] ?? Math.max(1, node.authorization.scopes.length);
+}
 function launchProviderOperationCeiling(definition2) {
-  return definition2.nodes.filter((node) => node.kind === "provider").reduce((total, node) => total + Math.max(1, node.authorization.scopes.length), 0);
+  return definition2.nodes.filter((node) => node.kind === "provider").reduce((total, node) => total + launchProviderNodeOperationCeiling(node), 0);
 }
 var launchBuildAgentHandlers = /* @__PURE__ */ new Set([
   "launch.prepareRepository",
@@ -17362,9 +17386,10 @@ function manualNode(id, purpose, capability, dependencies, authorizationProfile 
     }
   });
 }
-function compileLaunchGraph(briefInput, decisionInput) {
+function compileLaunchGraph(briefInput, decisionInput, options = {}) {
   const brief = founderBriefSchema.parse(briefInput);
   const decision = decisionInput ?? routeLaunch(brief);
+  const initialOrigin = options.initialOrigin ?? "provider_url";
   if (decision.capabilities.includes("file_storage")) {
     throw new Error(
       "file_storage was requested, but Venture Harness v0.2 has no selected storage provider, typed provider adapter, or manual evidence contract. Next: select and implement an explicit storage capability before compiling the launch graph; storage cannot be silently omitted."
@@ -17480,15 +17505,24 @@ function compileLaunchGraph(briefInput, decisionInput) {
       concurrencyGroup: "quality",
       evidence: { required: true, artifact: "reports/quality/launch-fast.json" }
     }),
+    workflowNode("verify-launch", {
+      purpose: "Run the complete local child MVP gate, including typecheck, production build, deterministic product checks, and the primary journey, before any provider effect is permitted.",
+      capability: "quality.mvp",
+      dependencies: ["verify-local"],
+      handler: "launch.verifyMvp",
+      idempotencyKey: `launch:${brief.id}:verify-mvp`,
+      concurrencyGroup: "quality",
+      evidence: { required: true, artifact: "reports/quality/launch-mvp.json" }
+    }),
     providerNode(
       "github-repository",
       "Publish the verified local source tree to the child GitHub repository and read the exact remote commit back.",
       "github_repository",
-      ["verify-local"]
+      ["verify-launch"]
     )
   ];
-  const completionDependencies = /* @__PURE__ */ new Set(["verify-local", "github-repository"]);
-  const preDeployDependencies = /* @__PURE__ */ new Set(["verify-local", "github-repository"]);
+  const completionDependencies = /* @__PURE__ */ new Set(["verify-launch", "github-repository"]);
+  const preDeployDependencies = /* @__PURE__ */ new Set(["verify-launch", "github-repository"]);
   const dnsDependencies = [];
   const has = (capability) => decision.capabilities.includes(capability);
   const needsBrevo = has("transactional_email") || has("lifecycle_email");
@@ -17500,7 +17534,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "neon-database",
         "Create or use an explicitly identified Neon database, capture a generated connection URI only behind a writable credential reference, apply the executable schema migration, and verify read/write health.",
         "database",
-        [repositoryReadyNodeId]
+        ["verify-launch"]
       )
     );
     completionDependencies.add("neon-database");
@@ -17512,7 +17546,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "brevo-sending-domain",
         "Create or locate the Brevo sending domain and read back its exact public DNS authentication record plan.",
         "transactional_email",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api"
       )
     );
@@ -17524,7 +17558,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "stripe-commerce",
         "Create and verify the test-mode product and one exact immutable price before any deployment callback is configured.",
         "stripe",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api"
       )
     );
@@ -17537,7 +17571,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "google-analytics-property",
         "Create or locate the GA4 property and read the exact property identifier back.",
         "google_discovery",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api"
       )
     );
@@ -17548,7 +17582,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "google-site-dns-record",
         "Request and read back the exact Google DNS verification token without claiming site ownership.",
         "google_discovery",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api"
       )
     );
@@ -17713,7 +17747,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "apple-first-app-record",
         "Create the first App Store Connect app record and return app name, bundle ID, SKU, language, Apple app ID, and team ID.",
         "app_store_connect",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "mobile_testflight"
       )
     );
@@ -17723,7 +17757,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
           "revenuecat-entitlements",
           "Configure Test Store app, products, entitlement, offering, packages, and webhook; keep Apple products pending until verified.",
           "revenuecat",
-          [repositoryReadyNodeId],
+          ["verify-launch"],
           "api"
         )
       );
@@ -17736,7 +17770,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
           "eas-build",
           "Configure EAS project/build profiles and produce a reproducible iOS build.",
           "eas",
-          ["review-product", "verify-local"],
+          ["verify-launch"],
           "cli",
           "mobile_testflight"
         ),
@@ -17761,17 +17795,6 @@ function compileLaunchGraph(briefInput, decisionInput) {
       preDeployDependencies.add("testflight-state");
     }
   }
-  nodes.push(
-    workflowNode("verify-launch", {
-      purpose: "Verify the built application, critical journey, and every provider prerequisite required before production deployment.",
-      capability: "quality.mvp",
-      dependencies: [...preDeployDependencies, "vercel-project"].sort(),
-      handler: "launch.verifyMvp",
-      idempotencyKey: `launch:${brief.id}:verify-mvp`,
-      concurrencyGroup: "quality",
-      evidence: { required: true, artifact: "reports/quality/launch-mvp.json" }
-    })
-  );
   const needsInitialProductionOrigin = has("stripe");
   if (needsInitialProductionOrigin) {
     nodes.push(
@@ -17779,7 +17802,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
         "initial-production-deploy",
         "Create and read back one initial production deployment so origin-dependent integrations bind to a real production URL, never a preview URL.",
         "public_website",
-        ["verify-launch"]
+        ["verify-launch", "vercel-project"]
       )
     );
     completionDependencies.add("initial-production-deploy");
@@ -17821,7 +17844,7 @@ function compileLaunchGraph(briefInput, decisionInput) {
       ...optionalIntegrationEnvironmentNodes.filter(({ id }) => id === "vercel-ga-environment")
     );
   }
-  const finalProductionDependencies = has("stripe") ? stripeEnvironmentNodes.map(({ id }) => id) : ["verify-launch"];
+  const finalProductionDependencies = has("stripe") ? [...stripeEnvironmentNodes, ...criticalPreOriginEnvironmentNodes].map(({ id }) => id) : ["verify-launch", "vercel-project", ...criticalPreOriginEnvironmentNodes.map(({ id }) => id)];
   nodes.push(
     providerNode(
       "production-deploy",
@@ -17929,24 +17952,38 @@ function compileLaunchGraph(briefInput, decisionInput) {
       evidence: { required: true, artifact: "reports/launch/final.json" }
     })
   );
+  const effectiveNodes = initialOrigin === "provider_url" ? nodes.filter((node) => !launchOptionalProviderNodeIds.has(node.id)).map(
+    (node) => node.id === "vercel-project" ? {
+      ...node,
+      purpose: "Create or link the explicitly scoped Vercel project, deploy preview, and read project and deployment state back without requesting a custom domain.",
+      authorization: {
+        ...node.authorization,
+        scopes: node.authorization.scopes.filter((scope) => scope !== "domain")
+      }
+    } : node
+  ) : nodes;
   const budgets = Object.fromEntries(
-    [...new Set(nodes.map((node) => node.budgetCategory))].map((category) => [category, 0])
+    [...new Set(effectiveNodes.map((node) => node.budgetCategory))].map((category) => [
+      category,
+      0
+    ])
   );
   return defineWorkflow({
     id: `launch-${brief.id}`,
     name: `Launch ${brief.name}`,
     version: "0.2.0",
-    nodes,
+    nodes: effectiveNodes,
     maxParallel: 4,
     // This is a scheduler safety bound, not a product-loop budget. A launch
     // graph can legitimately need several parallel batches plus resumptions.
-    maxIterations: Math.max(50, nodes.length * 4),
+    maxIterations: Math.max(50, effectiveNodes.length * 4),
     budgets,
     metadata: {
       synthetic: brief.synthetic ?? false,
       launchMode: decision.mode.selectedMode,
       appKind: decision.rail.appKind,
       paymentProvider: decision.payment.provider,
+      initialOrigin,
       activeEventPacks
     }
   });
@@ -17973,13 +18010,19 @@ function criticalPath(graph) {
   }
   return [...best.values()].sort((a, b) => b.length - a.length || a.join().localeCompare(b.join()))[0] ?? [];
 }
-function compileLaunchDryRun(briefInput, decisionInput) {
+function compileLaunchDryRun(briefInput, decisionInput, options = {}) {
   const brief = founderBriefSchema.parse(briefInput);
   const decision = decisionInput ?? routeLaunch(brief);
   if (decision.briefId !== brief.id) {
     throw new Error(`Launch decision for ${decision.briefId} cannot compile brief ${brief.id}`);
   }
-  const graph = compileLaunchGraph(brief, decision);
+  const graph = compileLaunchGraph(brief, decision, options);
+  const activeProviders = new Set(
+    graph.nodes.flatMap((node) => {
+      const provider = launchProviderByNode[node.id];
+      return provider ? [provider] : [];
+    })
+  );
   const eventPacks = resolveActiveEventPacks({
     capabilities: decision.capabilities,
     appKind: decision.rail.appKind,
@@ -17989,7 +18032,9 @@ function compileLaunchDryRun(briefInput, decisionInput) {
   const resources = [];
   for (const capability of decision.capabilities) {
     const mapped = capabilityProviders[capability];
-    if (!mapped) continue;
+    if (!mapped || !activeProviders.has(mapped.provider) || graph.metadata?.initialOrigin === "provider_url" && providerUrlDeferredCapabilities.has(capability) || capability === "vercel_analytics") {
+      continue;
+    }
     resources.push({
       provider: mapped.provider,
       resource: mapped.resource,
@@ -18142,9 +18187,27 @@ var boundedText = external_exports.string().trim().min(1).max(1e3);
 var conciseText = external_exports.string().trim().min(1).max(500);
 var textList = (minimum = 0, maximum = 20) => external_exports.array(boundedText).min(minimum).max(maximum).refine((values) => new Set(values).size === values.length, "values must be unique");
 var conciseList = (minimum = 0, maximum = 20) => external_exports.array(conciseText).min(minimum).max(maximum).refine((values) => new Set(values).size === values.length, "values must be unique");
-var launchContractPriceSchema = external_exports.number().positive().finite().refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, {
-  message: "priceHypothesis must use at most two decimal places"
-});
+var MINOR_UNIT_ROUNDING_ULPS = 8;
+function decimalPriceToMinorUnits(amount) {
+  const scaled = amount * 100;
+  const rounded = Math.round(scaled);
+  const roundingTolerance = Number.EPSILON * Math.max(100, Math.abs(scaled)) * MINOR_UNIT_ROUNDING_ULPS;
+  if (!Number.isFinite(amount) || amount < 0 || !Number.isSafeInteger(rounded) || Math.abs(scaled - rounded) > roundingTolerance) {
+    throw new Error("price must be a non-negative amount with at most two decimal places");
+  }
+  return rounded === 0 ? 0 : rounded;
+}
+var launchContractPriceSchema = external_exports.number().positive().finite().refine(
+  (value) => {
+    try {
+      decimalPriceToMinorUnits(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: "priceHypothesis must use at most two decimal places" }
+);
 var MAX_LAUNCH_CONTRACT_BYTES = 32e3;
 function indexedSafetyText(path, values) {
   return values.map((value, index) => ({ path: [...path, index], value }));
@@ -18443,29 +18506,135 @@ var launchContractSchema = external_exports.object({
     });
   }
 });
+var LAUNCH_CONTRACT_SECTION_KEYS = Object.freeze([
+  "venture",
+  "product",
+  "business",
+  "distribution",
+  "decision",
+  "truth",
+  "agentNative"
+]);
+var LAUNCH_CONTRACT_SENTINEL_KEYS = Object.freeze([
+  "schemaVersion",
+  ...LAUNCH_CONTRACT_SECTION_KEYS
+]);
+var LAUNCH_CONTRACT_EXPECTED_SHAPE = "schemaVersion: 1 with required venture, product, business, distribution, decision, truth, and agentNative mappings";
+var LaunchContractSourceError = class extends Error {
+  constructor(schemaVersion, invalidPath, validationProblem, expectedShape, remediation) {
+    super(
+      `Malformed structured Launch Contract; schema version: ${schemaVersion}; invalid path: ${invalidPath}; validation problem: ${validationProblem}; expected v1 shape: ${expectedShape}; exact remediation: ${remediation}`
+    );
+    this.schemaVersion = schemaVersion;
+    this.invalidPath = invalidPath;
+    this.validationProblem = validationProblem;
+    this.expectedShape = expectedShape;
+    this.remediation = remediation;
+    this.name = "LaunchContractSourceError";
+  }
+  schemaVersion;
+  invalidPath;
+  validationProblem;
+  expectedShape;
+  remediation;
+  code = "LAUNCH_CONTRACT_SOURCE_INVALID";
+};
 function assertLaunchContractSafe(contractInput) {
   return launchContractSchema.parse(contractInput);
 }
-function frontMatter(source) {
-  const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/u);
-  if (!match?.[1]) return void 0;
-  try {
-    return parseYaml(match[1]);
-  } catch {
-    return void 0;
+function frontMatterCandidate(source) {
+  const opener = /^(?:\uFEFF)?---[ \t]*(?:\r?\n|$)/u.exec(source);
+  if (!opener) return void 0;
+  const bodyStart = opener[0].length;
+  const remainder = source.slice(bodyStart);
+  const closer = /^---[ \t]*\r?$/mu.exec(remainder);
+  if (!closer) return { body: remainder, closed: false };
+  return { body: remainder.slice(0, closer.index), closed: true };
+}
+function recordValue(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function rawRootKeys(source) {
+  const keys = /* @__PURE__ */ new Set();
+  const sentinel = LAUNCH_CONTRACT_SENTINEL_KEYS.join("|");
+  const matcher = new RegExp(`^(?:["']?(${sentinel})["']?)[ \\t]*:`, "gmu");
+  let match;
+  while ((match = matcher.exec(source)) !== null) {
+    if (match[1]) keys.add(match[1]);
   }
+  return keys;
+}
+function parsedRootKeys(value) {
+  const record3 = recordValue(value);
+  return new Set(record3 ? Object.keys(record3) : []);
+}
+function hasLaunchContractIntent(source, value) {
+  const keys = /* @__PURE__ */ new Set([...rawRootKeys(source), ...parsedRootKeys(value)]);
+  return LAUNCH_CONTRACT_SENTINEL_KEYS.some((key) => keys.has(key));
+}
+function sourceSchemaVersion(source, value) {
+  const parsed = recordValue(value)?.schemaVersion;
+  if (parsed !== void 0) return JSON.stringify(parsed) ?? String(parsed);
+  const raw = /^schemaVersion[ \t]*:[ \t]*([^#\r\n]*)/mu.exec(source)?.[1]?.trim();
+  return raw ? raw : "missing";
+}
+function issuePath(path) {
+  if (path.length === 0) return "$";
+  return path.map(
+    (segment, index) => typeof segment === "number" ? `[${segment}]` : `${index === 0 ? "" : "."}${String(segment)}`
+  ).join("");
+}
+function exactRemediation(path) {
+  return `correct ${path} in the YAML Launch Contract so it satisfies schemaVersion 1, preserve every reviewed contract field, and rerun the same command; if the input is genuinely prose, remove every root Launch Contract sentinel key`;
+}
+function invalidSource(input) {
+  return new LaunchContractSourceError(
+    sourceSchemaVersion(input.source, input.value),
+    input.path,
+    input.problem,
+    LAUNCH_CONTRACT_EXPECTED_SHAPE,
+    exactRemediation(input.path)
+  );
+}
+function parseStructuredCandidate(source) {
+  let value;
+  try {
+    value = parseYaml(source);
+  } catch (error) {
+    if (!hasLaunchContractIntent(source)) return void 0;
+    const position = recordValue(error)?.linePos;
+    const firstPosition = Array.isArray(position) ? recordValue(position[0]) : void 0;
+    const line = typeof firstPosition?.line === "number" ? firstPosition.line : void 0;
+    const column = typeof firstPosition?.col === "number" ? firstPosition.col : void 0;
+    const path2 = line === void 0 ? "$" : `$ (YAML line ${line}, column ${column ?? "unknown"})`;
+    throw invalidSource({ source, path: path2, problem: "invalid YAML syntax" });
+  }
+  if (!hasLaunchContractIntent(source, value)) return void 0;
+  const parsed = launchContractSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0];
+  const path = issuePath(issue?.path ?? []);
+  throw invalidSource({
+    source,
+    value,
+    path,
+    problem: issue?.message ?? "input does not satisfy the Launch Contract v1 schema"
+  });
 }
 function parseLaunchContractSource(source) {
-  const candidates = [frontMatter(source)];
-  try {
-    candidates.push(parseYaml(source));
-  } catch {
+  const frontMatter2 = frontMatterCandidate(source);
+  if (frontMatter2) {
+    if (!frontMatter2.closed) {
+      if (!hasLaunchContractIntent(frontMatter2.body)) return void 0;
+      throw invalidSource({
+        source: frontMatter2.body,
+        path: "$frontMatter",
+        problem: "front matter is not closed with a standalone --- delimiter"
+      });
+    }
+    return parseStructuredCandidate(frontMatter2.body);
   }
-  for (const candidate of candidates) {
-    const parsed = launchContractSchema.safeParse(candidate);
-    if (parsed.success) return parsed.data;
-  }
-  return void 0;
+  return parseStructuredCandidate(source);
 }
 function selectedText(contract) {
   return [
@@ -18784,13 +18953,13 @@ function commercialTerms(source, brief) {
     annualPrice: annualPrice ?? (generalPrice !== null && (generalInterval === "annual" || generalInterval === "yearly") ? generalPrice : null)
   });
 }
-function frontMatter2(source) {
+function frontMatter(source) {
   const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/);
   return match?.[1] ? parseYaml2(match[1]) : void 0;
 }
 function structuredBrief(source) {
   const candidates = [
-    frontMatter2(source),
+    frontMatter(source),
     (() => {
       try {
         return parseYaml2(source);
@@ -19367,8 +19536,7 @@ async function sharpenIdea(source, options = {}) {
 // lib/founder-launch/orchestrator.ts
 import { createHash as createHash10 } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync as lstatSync4, readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
-import { isAbsolute as isAbsolute4, relative as relative7, resolve as resolve10, sep as sep7 } from "node:path";
+import { isAbsolute as isAbsolute4, resolve as resolve10 } from "node:path";
 
 // lib/materialization/grant.ts
 import { createHash as createHash7 } from "node:crypto";
@@ -21612,11 +21780,12 @@ export default function StatusPage() {
     "app/api/health/route.ts",
     "core_owned",
     `export function GET() {
+  const localServerNonce = process.env.VH_LOCAL_SERVER_NONCE;
   return Response.json({
     status: "ok",
     venture: "{{ventureSlug}}",
     evidence: "local_build_shape",
-    localServerNonce: process.env.VH_LOCAL_SERVER_NONCE ?? null,
+    ...(localServerNonce ? { localServerNonce } : {}),
   });
 }
 `
@@ -24384,7 +24553,6 @@ function effectsFor(brief, paymentProvider) {
     "preview.deploy",
     "production.deploy"
   ]);
-  if (brief.domain) effects.add("domain.configure");
   if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
@@ -24399,25 +24567,23 @@ function containedOutput(baseDir, requested, slug4) {
 }
 function loadFounderIdeaFile(file2, baseDir = process.cwd()) {
   if (!file2) throw new Error("Founder launch --idea requires a file path");
-  const root = realpathSync5(resolve10(baseDir));
-  const target = resolve10(root, file2);
-  const child = relative7(root, target);
-  if (child === "" || child === ".." || child.startsWith(`..${sep7}`) || isAbsolute4(child)) {
-    throw new Error("Founder launch --idea escapes the selected workspace");
+  const boundary = new OwnerPathLock(resolve10(baseDir), {
+    label: "Founder launch idea read",
+    lockName: ".founder-launch-idea.lock"
+  });
+  try {
+    return boundary.readRegularFile(resolve10(boundary.root.path, file2), {
+      label: "Founder launch --idea",
+      maxBytes: MAX_IDEA_BYTES
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("escapes the locked")) {
+      throw new Error("Founder launch --idea escapes the selected workspace", { cause: error });
+    }
+    throw error;
+  } finally {
+    boundary.release();
   }
-  const metadata = lstatSync4(target);
-  if (metadata.isSymbolicLink() || !metadata.isFile()) {
-    throw new Error("Founder launch --idea must be a regular non-symlink file");
-  }
-  const canonicalTarget = realpathSync5(target);
-  const canonicalChild = relative7(root, canonicalTarget);
-  if (canonicalChild === "" || canonicalChild === ".." || canonicalChild.startsWith(`..${sep7}`) || isAbsolute4(canonicalChild)) {
-    throw new Error("Founder launch --idea resolves outside the selected workspace");
-  }
-  if (metadata.size > MAX_IDEA_BYTES) {
-    throw new Error(`Founder launch --idea exceeds the ${MAX_IDEA_BYTES}-byte limit`);
-  }
-  return readFileSync9(canonicalTarget, "utf8");
 }
 function resolveFounderWorkflowRefSha(baseDir, explicit) {
   const candidate = explicit ?? process.env.VH_WORKFLOW_REF_SHA;
@@ -24554,6 +24720,61 @@ function readinessFor(compiled, paymentProvider, connection, roles, doctor, allo
       );
     }
   }
+  if (compiled.brief.domain) {
+    launchGaps.push({
+      code: "custom_domain_deferred",
+      role: "dns.records",
+      provider: "dns",
+      message: `The requested custom domain ${compiled.brief.domain} is deferred until Vercel attachment and authoritative DNS can be verified in a separately authorized action.`,
+      nextAction: `Attach ${compiled.brief.domain}, apply the consolidated additive DNS records, and verify authoritative DNS before selecting it as canonical.`,
+      state: "waiting_for_external_action",
+      blocksLaunch: false
+    });
+  }
+  if (compiled.brief.needs.transactional_email || compiled.brief.needs.lifecycle_email) {
+    launchGaps.push({
+      code: "optional_integration_deferred",
+      role: "email.transactional",
+      provider: "brevo",
+      message: "Transactional email is selected but deferred from the initial provider-URL launch.",
+      nextAction: "Authorize a separate Brevo action, verify the sending domain and sender, bind the credential reference, and redeploy before claiming email readiness.",
+      state: "waiting_for_external_action",
+      blocksLaunch: false
+    });
+  }
+  if (compiled.brief.needs.analytics) {
+    launchGaps.push({
+      code: "optional_integration_deferred",
+      role: "growth.google",
+      provider: "google",
+      message: "Google Analytics is selected but deferred from the initial provider-URL launch.",
+      nextAction: "Authorize a separate Google Analytics action, read the property and stream back, bind the public measurement identifier, and redeploy before claiming analytics readiness.",
+      state: "waiting_for_external_action",
+      blocksLaunch: false
+    });
+  }
+  if (compiled.brief.needs.search_discovery) {
+    launchGaps.push(
+      {
+        code: "optional_integration_deferred",
+        role: "growth.google",
+        provider: "google",
+        message: "Google Search Console verification is selected but deferred from the initial provider-URL launch.",
+        nextAction: "After the custom domain is authoritative, authorize Google ownership verification and read the property and sitemap submission back without inferring indexation.",
+        state: "waiting_for_external_action",
+        blocksLaunch: false
+      },
+      {
+        code: "optional_integration_deferred",
+        role: "search.bing",
+        provider: "bing",
+        message: "Bing Webmaster discovery is selected but deferred from the initial provider-URL launch.",
+        nextAction: "After the public origin is final, authorize Bing site and sitemap setup and read acceptance back without inferring indexation.",
+        state: "waiting_for_external_action",
+        blocksLaunch: false
+      }
+    );
+  }
   const unique2 = (items) => items.filter(
     (item, index, all) => all.findIndex(
       (candidate) => candidate.code === item.code && candidate.role === item.role && candidate.message === item.message
@@ -24571,8 +24792,18 @@ function compileFounderLaunchPreparation(input) {
   const connection = parseFounderStackConnection(input.stack);
   const idea = compileFounderIdea(input.ideaSource);
   const decision = idea.launchContract ? launchDecisionFromContract(idea.launchContract) : void 0;
-  const dryRun = compileLaunchDryRun(idea.brief, decision);
-  const roles = requiredRoles(idea.brief, dryRun.decision.payment.provider);
+  const dryRun = compileLaunchDryRun(idea.brief, decision, {
+    initialOrigin: "provider_url"
+  });
+  const activeProviders = new Set(
+    dryRun.graph.nodes.flatMap((node) => {
+      const provider = launchProviderByNode[node.id];
+      return provider ? [provider] : [];
+    })
+  );
+  const roles = requiredRoles(idea.brief, dryRun.decision.payment.provider).filter(
+    (role) => activeProviders.has(providerForRole(role))
+  );
   const outputDirectory = containedOutput(input.baseDir, input.output, idea.brief.id);
   const repositoryOwner = accountIdFor(connection, "source.repository") ?? connection.ownerOrganizationId;
   const allowedExternalEffects = effectsFor(idea.brief, dryRun.decision.payment.provider);
@@ -24613,7 +24844,7 @@ function compileFounderLaunchPreparation(input) {
     },
     permissions: {
       productionDeployment: input.production,
-      domainConfiguration: input.production && Boolean(idea.brief.domain),
+      domainConfiguration: false,
       liveCommerceConfiguration: input.production && dryRun.decision.payment.provider !== "none"
     },
     createdAt: input.at.toISOString(),
@@ -24700,7 +24931,7 @@ function compileFounderLaunchPreparation(input) {
       requested: idea.brief.domain ?? null,
       mode: domainMode,
       expectedRecords: idea.brief.domain ? ["Vercel attachment records", "Google site-verification TXT", "Brevo mail records"] : [],
-      canonicalOrigin: idea.brief.domain ? "custom_domain_after_readback" : "provider_production_url",
+      canonicalOrigin: "provider_production_url",
       pendingAction: idea.brief.domain ? domainMode === "automatic_if_adapter_available" ? "Attach the domain through the installed DNS adapter, then read authoritative DNS back before treating it as canonical." : "Apply the consolidated DNS action for this domain, then read authoritative DNS back before treating it as canonical." : null
     },
     setup,
@@ -25107,17 +25338,17 @@ function createDefaultDataLearningRuntime(options) {
 
 // lib/learning/report.ts
 import { mkdirSync as mkdirSync6, renameSync as renameSync5, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname7, relative as relative8, resolve as resolve11, sep as sep8 } from "node:path";
+import { dirname as dirname7, relative as relative7, resolve as resolve11, sep as sep7 } from "node:path";
 function inside3(root, candidate) {
   const absolute = resolve11(root, candidate);
-  const rel = relative8(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep8}`) && rel !== ".." && !rel.startsWith(sep8)) {
+  const rel = relative7(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep7}`) && rel !== ".." && !rel.startsWith(sep7)) {
     return absolute;
   }
   throw new Error(`Learning report destination escapes the venture root: ${candidate}`);
 }
 function repositoryPath(root, absolute) {
-  return relative8(root, absolute).split(sep8).join("/");
+  return relative7(root, absolute).split(sep7).join("/");
 }
 function writeAtomic(path, content) {
   mkdirSync6(dirname7(path), { recursive: true, mode: 448 });
@@ -25282,11 +25513,11 @@ function nextCronOccurrence(expression, after) {
 
 // lib/migrations/file-system.ts
 import { mkdir as mkdir3, readFile as readFile2, rename as rename2, rm, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname8, relative as relative9, resolve as resolve12, sep as sep9 } from "node:path";
+import { dirname as dirname8, relative as relative8, resolve as resolve12, sep as sep8 } from "node:path";
 function insideRoot(root, path) {
   const absolute = resolve12(root, path);
-  const rel = relative9(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep9}`) && rel !== ".." && !rel.startsWith(sep9)) {
+  const rel = relative8(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep8}`) && rel !== ".." && !rel.startsWith(sep8)) {
     return absolute;
   }
   throw new Error(`migration path escapes repository root: ${path}`);
@@ -25997,8 +26228,8 @@ var BuildAgentHostError = class extends Error {
 };
 
 // lib/runtime/build-context-manifest.ts
-import { existsSync as existsSync7, lstatSync as lstatSync5, readdirSync as readdirSync2, readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
-import { relative as relative10, resolve as resolve13, sep as sep10 } from "node:path";
+import { existsSync as existsSync7, lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
+import { relative as relative9, resolve as resolve13, sep as sep9 } from "node:path";
 var selectedContextFileSchema = external_exports.object({
   path: artifactReferenceSchema,
   reason: external_exports.string().min(1).max(500),
@@ -26039,18 +26270,18 @@ var EXCLUDED_OPTIONAL_PACKS = [
   "customer Agent Grants"
 ];
 function contained(root, target) {
-  const relation = relative10(root, target);
-  return relation === "" || !relation.startsWith(`..${sep10}`) && relation !== "..";
+  const relation = relative9(root, target);
+  return relation === "" || !relation.startsWith(`..${sep9}`) && relation !== "..";
 }
 function regularFileWithinRoot(root, reference) {
   const absolute = resolve13(root, reference);
   if (!contained(root, absolute)) return false;
-  const relation = relative10(root, absolute);
+  const relation = relative9(root, absolute);
   let cursor = root;
-  for (const component of relation.split(sep10).filter(Boolean)) {
+  for (const component of relation.split(sep9).filter(Boolean)) {
     cursor = resolve13(cursor, component);
     if (!existsSync7(cursor)) return false;
-    const metadata = lstatSync5(cursor);
+    const metadata = lstatSync4(cursor);
     if (metadata.isSymbolicLink()) return false;
     if (cursor === absolute) return metadata.isFile();
     if (!metadata.isDirectory()) return false;
@@ -26060,7 +26291,7 @@ function regularFileWithinRoot(root, reference) {
 function regularFiles(root, reference) {
   const absolute = resolve13(root, reference);
   if (!contained(root, absolute) || !existsSync7(absolute)) return [];
-  const metadata = lstatSync5(absolute);
+  const metadata = lstatSync4(absolute);
   if (metadata.isSymbolicLink()) return [];
   if (metadata.isFile()) return [reference];
   if (!metadata.isDirectory()) return [];
@@ -26087,7 +26318,7 @@ function selectedProviderContracts(brief, paymentProvider) {
   return files;
 }
 function createBuildContextManifest(input) {
-  const root = realpathSync6(resolve13(input.rootDir));
+  const root = realpathSync5(resolve13(input.rootDir));
   const reasons = {
     ...ALWAYS_SELECTED,
     ...selectedProviderContracts(input.brief, input.paymentProvider)
@@ -26115,7 +26346,7 @@ function createBuildContextManifest(input) {
     const priority = Number(requiredPaths.has(right)) - Number(requiredPaths.has(left));
     return priority || left.localeCompare(right);
   }).map(([path, reason]) => {
-    const bytes = readFileSync10(resolve13(root, path)).byteLength;
+    const bytes = readFileSync9(resolve13(root, path)).byteLength;
     return { path, reason, estimatedTokens: Math.ceil(bytes / 4) };
   });
   const tokenCap = input.tokenCap ?? DEFAULT_BUILD_CONTEXT_TOKEN_CAP;
@@ -26585,19 +26816,19 @@ ${login.stderr}`);
 };
 
 // lib/runtime/checkpoint-evidence.ts
-import { closeSync as closeSync5, constants as constants5, fstatSync as fstatSync5, openSync as openSync5, readFileSync as readFileSync11, realpathSync as realpathSync7 } from "node:fs";
-import { relative as relative11, resolve as resolve15, sep as sep11 } from "node:path";
+import { closeSync as closeSync5, constants as constants5, fstatSync as fstatSync5, openSync as openSync5, readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
+import { relative as relative10, resolve as resolve15, sep as sep10 } from "node:path";
 var NO_FOLLOW3 = "O_NOFOLLOW" in constants5 ? constants5.O_NOFOLLOW : 0;
 function inside4(rootDir, artifact) {
-  const root = realpathSync7(rootDir);
+  const root = realpathSync6(rootDir);
   const target = resolve15(root, artifact);
-  const lexicalRelative = relative11(root, target);
-  if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep11}`) || lexicalRelative.startsWith(sep11)) {
+  const lexicalRelative = relative10(root, target);
+  if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep10}`) || lexicalRelative.startsWith(sep10)) {
     throw new Error(`Checkpoint evidence escapes the venture root: ${artifact}`);
   }
-  const realTarget = realpathSync7(target);
-  const realRelative = relative11(root, realTarget);
-  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep11}`) || realRelative.startsWith(sep11)) {
+  const realTarget = realpathSync6(target);
+  const realRelative = relative10(root, realTarget);
+  if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep10}`) || realRelative.startsWith(sep10)) {
     throw new Error(`Checkpoint evidence resolves outside the venture root: ${artifact}`);
   }
   return target;
@@ -26642,7 +26873,7 @@ function loadRepositoryCheckpointEvidence(options) {
         `Checkpoint evidence size must be between 1 and ${maxBytes} bytes: ${reference}.`
       );
     }
-    raw = readFileSync11(descriptor2, "utf8");
+    raw = readFileSync10(descriptor2, "utf8");
   } finally {
     closeSync5(descriptor2);
   }
@@ -27717,15 +27948,15 @@ import {
   constants as constants7,
   existsSync as existsSync9,
   fstatSync as fstatSync7,
-  lstatSync as lstatSync7,
+  lstatSync as lstatSync6,
   mkdirSync as mkdirSync8,
   openSync as openSync7,
   readdirSync as readdirSync4,
-  readFileSync as readFileSync13,
+  readFileSync as readFileSync12,
   renameSync as renameSync6,
   writeFileSync as writeFileSync8
 } from "node:fs";
-import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative13, resolve as resolve19, sep as sep13 } from "node:path";
+import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative12, resolve as resolve19, sep as sep12 } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { parse as parse3 } from "yaml";
 
@@ -27736,15 +27967,15 @@ import {
   constants as constants6,
   existsSync as existsSync8,
   fstatSync as fstatSync6,
-  lstatSync as lstatSync6,
+  lstatSync as lstatSync5,
   mkdirSync as mkdirSync7,
   openSync as openSync6,
-  readFileSync as readFileSync12,
+  readFileSync as readFileSync11,
   readdirSync as readdirSync3,
-  realpathSync as realpathSync8,
+  realpathSync as realpathSync7,
   writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname9, join as join9, relative as relative12, resolve as resolve18, sep as sep12 } from "node:path";
+import { dirname as dirname9, join as join9, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
 
 // lib/mobile/templates.ts
 import { createHash as createHash11 } from "node:crypto";
@@ -28170,23 +28401,23 @@ function placeholderBundleIdentifier(ventureId2) {
   return `com.example.${ventureId2}`;
 }
 function relativeReference(root, absolute) {
-  return relative12(root, absolute).split(sep12).join("/");
+  return relative11(root, absolute).split(sep11).join("/");
 }
 function pathInside(root, reference) {
   const absolute = resolve18(root, reference);
-  const rel = relative12(root, absolute);
-  if (rel !== "" && !rel.startsWith(`..${sep12}`) && rel !== ".." && !rel.startsWith(sep12)) {
+  const rel = relative11(root, absolute);
+  if (rel !== "" && !rel.startsWith(`..${sep11}`) && rel !== ".." && !rel.startsWith(sep11)) {
     return absolute;
   }
   throw new MobileScaffoldError("unsafe_path", `Path escapes repository root: ${reference}`);
 }
 function assertNoSymlinkBetween(root, absolute) {
-  const rel = relative12(root, absolute);
+  const rel = relative11(root, absolute);
   let current = root;
-  for (const segment of rel.split(sep12).filter(Boolean)) {
+  for (const segment of rel.split(sep11).filter(Boolean)) {
     current = join9(current, segment);
     if (!existsSync8(current)) continue;
-    const status = lstatSync6(current);
+    const status = lstatSync5(current);
     if (status.isSymbolicLink()) {
       throw new MobileScaffoldError(
         "unsafe_path",
@@ -28196,12 +28427,12 @@ function assertNoSymlinkBetween(root, absolute) {
   }
 }
 function ensureDirectory(root, absolute) {
-  const rel = relative12(root, absolute);
+  const rel = relative11(root, absolute);
   let current = root;
-  for (const segment of rel.split(sep12).filter(Boolean)) {
+  for (const segment of rel.split(sep11).filter(Boolean)) {
     current = join9(current, segment);
     if (existsSync8(current)) {
-      const status = lstatSync6(current);
+      const status = lstatSync5(current);
       if (status.isSymbolicLink() || !status.isDirectory()) {
         throw new MobileScaffoldError(
           "unsafe_path",
@@ -28236,7 +28467,7 @@ function readExactFile(root, path, expected) {
         `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`
       );
     }
-    actual = readFileSync12(descriptor2, "utf8");
+    actual = readFileSync11(descriptor2, "utf8");
   } finally {
     closeSync6(descriptor2);
   }
@@ -28276,8 +28507,8 @@ function writeCreateOnly(root, path, content) {
 }
 function generateMobileScaffold(rootDirectory, requestInput) {
   const request2 = mobileScaffoldRequestSchema.parse(requestInput);
-  const root = realpathSync8(resolve18(rootDirectory));
-  if (!lstatSync6(root).isDirectory()) {
+  const root = realpathSync7(resolve18(rootDirectory));
+  if (!lstatSync5(root).isDirectory()) {
     throw new MobileScaffoldError("unsafe_path", `Repository root is not a directory: ${root}`);
   }
   const outputDirectory = request2.outputDirectory ?? defaultMobileScaffoldDirectory(request2.stack);
@@ -28326,7 +28557,7 @@ function generateMobileScaffold(rootDirectory, requestInput) {
   const manifestPath = `${outputDirectory}/${MANIFEST_NAME}`;
   const absoluteManifestPath = pathInside(root, manifestPath);
   if (existsSync8(output)) {
-    const outputStatus = lstatSync6(output);
+    const outputStatus = lstatSync5(output);
     if (outputStatus.isSymbolicLink() || !outputStatus.isDirectory()) {
       throw new MobileScaffoldError(
         "output_conflict",
@@ -28744,8 +28975,8 @@ var MODEL_ALLOWED_VOLATILE_PATH_PREFIXES = [
 ];
 function inside5(root, path) {
   const absolute = resolve19(root, path);
-  const rel = relative13(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep13}`) && rel !== ".." && !rel.startsWith(sep13)) {
+  const rel = relative12(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep12}`) && rel !== ".." && !rel.startsWith(sep12)) {
     return absolute;
   }
   throw new WorkflowExecutionError("UNSAFE_ARTIFACT_PATH", `Path escapes venture root: ${path}`);
@@ -28758,7 +28989,7 @@ function repositoryReference(root, path) {
     );
   }
   const absolute = inside5(root, path);
-  const reference = relative13(root, absolute).split(sep13).join("/");
+  const reference = relative12(root, absolute).split(sep12).join("/");
   if (reference !== path) {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_EVIDENCE_INVALID",
@@ -28774,7 +29005,7 @@ function readRegularFile3(path, encoding) {
     if (!fstatSync7(descriptor2).isFile()) {
       throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
     }
-    return encoding === "utf8" ? readFileSync13(descriptor2, encoding) : readFileSync13(descriptor2);
+    return encoding === "utf8" ? readFileSync12(descriptor2, encoding) : readFileSync12(descriptor2);
   } catch (error) {
     if (error.code === "ELOOP") {
       throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
@@ -28904,17 +29135,17 @@ function playwrightTraceEvidence(root, outputReference, deploymentUrl, contract)
       const absolute = resolve19(directory, entry.name);
       if (entry.isDirectory()) visit(absolute);
       else if (entry.isFile() && entry.name === "trace.zip") {
-        const stat2 = lstatSync7(absolute);
+        const stat2 = lstatSync6(absolute);
         if (stat2.size < 1e3) continue;
         const entries = zipEntries(readRegularFile3(absolute));
         const traces = [...entries.entries()].filter(([name]) => name.endsWith(".trace") || name.endsWith(".network")).map(([, content]) => content);
-        const normalized = relative13(outputRoot, absolute).split(sep13).join("/");
+        const normalized = relative12(outputRoot, absolute).split(sep12).join("/");
         const phase = normalized.startsWith("journey/") ? "journey" : normalized.startsWith("cleanup/") ? "cleanup" : null;
         if (!phase || !traceProvesBrowserJourney(traces, deploymentUrl, contract.steps, phase)) {
           continue;
         }
         files.push({
-          path: relative13(root, absolute).split(sep13).join("/"),
+          path: relative12(root, absolute).split(sep12).join("/"),
           sha256: sha2564(absolute),
           bytes: stat2.size
         });
@@ -28922,7 +29153,7 @@ function playwrightTraceEvidence(root, outputReference, deploymentUrl, contract)
     }
   };
   try {
-    if (!lstatSync7(outputRoot).isDirectory()) throw new Error("not a directory");
+    if (!lstatSync6(outputRoot).isDirectory()) throw new Error("not a directory");
     visit(outputRoot);
   } catch {
   }
@@ -29232,7 +29463,7 @@ function readDependencyInstallState(root, expected) {
     };
   }
   const modulesPath = inside5(root, "node_modules");
-  const installedModulesReadBack = existsSync9(modulesPath) && lstatSync7(modulesPath).isDirectory();
+  const installedModulesReadBack = existsSync9(modulesPath) && lstatSync6(modulesPath).isDirectory();
   const installedLockPath = inside5(root, "node_modules/.pnpm/lock.yaml");
   const installedLockfileReadBack = installedModulesReadBack && sha256IfRegular(installedLockPath) === expected.lockfileSha256;
   const binaryDirectory = inside5(root, "node_modules/.bin");
@@ -29262,7 +29493,7 @@ function repositorySnapshot(root) {
         continue;
       }
       if (!entry.isFile()) continue;
-      const reference = relative13(root, absolute).split(sep13).join("/");
+      const reference = relative12(root, absolute).split(sep12).join("/");
       snapshot.set(reference, sha2564(absolute));
     }
   };
@@ -29283,7 +29514,7 @@ function protectedPathState(root, reference) {
     cursor = resolve19(cursor, segment);
     let metadata;
     try {
-      metadata = lstatSync7(cursor);
+      metadata = lstatSync6(cursor);
     } catch (error) {
       if (["ENOENT", "ENOTDIR"].includes(error.code ?? "")) {
         return "missing";
@@ -29491,7 +29722,7 @@ function verifiedChangedFiles(root, changedFiles) {
       );
     }
     seen.add(reference);
-    if (!existsSync9(absolute) || !lstatSync7(absolute).isFile()) {
+    if (!existsSync9(absolute) || !lstatSync6(absolute).isFile()) {
       throw new WorkflowExecutionError(
         "BUILD_AGENT_EVIDENCE_INVALID",
         `Build agent reported changed file ${path}, but it does not exist after the task.`
@@ -29545,7 +29776,7 @@ function validateAgentCompletion(root, handler, result2, before, after, launchCo
   }
   const artifacts = result2.completion.artifacts.map(({ path, role }) => {
     const { absolute, reference } = repositoryReference(root, path);
-    if (!existsSync9(absolute) || !lstatSync7(absolute).isFile()) {
+    if (!existsSync9(absolute) || !lstatSync6(absolute).isFile()) {
       throw new WorkflowExecutionError(
         "BUILD_AGENT_EVIDENCE_INVALID",
         `Build agent completion artifact ${path} does not exist as a regular file.`
@@ -32415,11 +32646,11 @@ import {
   constants as constants8,
   existsSync as existsSync10,
   fstatSync as fstatSync8,
-  lstatSync as lstatSync8,
+  lstatSync as lstatSync7,
   mkdirSync as mkdirSync9,
   openSync as openSync8,
-  readFileSync as readFileSync14,
-  realpathSync as realpathSync9,
+  readFileSync as readFileSync13,
+  realpathSync as realpathSync8,
   readdirSync as readdirSync5,
   renameSync as renameSync7,
   rmSync as rmSync3,
@@ -32738,13 +32969,13 @@ async function planUpgrade(options) {
 // lib/upgrade/local-release.ts
 import { createHash as createHash16 } from "node:crypto";
 import { lstat as lstat2, readFile as readFile6, realpath, stat } from "node:fs/promises";
-import { isAbsolute as isAbsolute6, relative as relative14, resolve as resolve21, sep as sep14 } from "node:path";
+import { isAbsolute as isAbsolute6, relative as relative13, resolve as resolve21, sep as sep13 } from "node:path";
 function sha2566(content) {
   return createHash16("sha256").update(content).digest("hex");
 }
 function isInside(root, candidate) {
-  const rel = relative14(root, candidate);
-  return rel === "" || !rel.startsWith(`..${sep14}`) && rel !== ".." && !isAbsolute6(rel);
+  const rel = relative13(root, candidate);
+  return rel === "" || !rel.startsWith(`..${sep13}`) && rel !== ".." && !isAbsolute6(rel);
 }
 function rejectRemoteLocator(locator) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
@@ -33421,7 +33652,7 @@ function createDefaultFounderCredentialTesters(options) {
 }
 
 // lib/cli/default-provider-runtime.ts
-import { existsSync as existsSync11, readFileSync as readFileSync15 } from "node:fs";
+import { existsSync as existsSync11, readFileSync as readFileSync14 } from "node:fs";
 import { isIP as isIP2 } from "node:net";
 import { resolve as resolve22 } from "node:path";
 import { parse as parse5 } from "yaml";
@@ -33525,7 +33756,7 @@ var CLI_IDS_BY_PROVIDER = {
   eas: ["eas"]
 };
 function readYaml(path) {
-  return parse5(readFileSync15(path, "utf8"));
+  return parse5(readFileSync14(path, "utf8"));
 }
 function loadDefaultProviderConfig(rootDir) {
   const root = resolve22(rootDir);
@@ -33745,9 +33976,10 @@ function githubRequest(handler, snapshot, lifecycleRecords, rootDir) {
       [lifecycleCapability ?? "repository"],
       [{ type: "repository", value: repository }]
     );
-    return request(target, credentialRef2, ["repository_settings"], {
+    return request(target, credentialRef2, ["repository"], {
       repository,
-      deleteBranchOnMerge: true
+      sourceDirectory: resolve22(rootDir),
+      visibility: snapshot.venture.venture.repository_visibility
     });
   }
   return fail(
@@ -34056,14 +34288,14 @@ function neonRequest(handler, snapshot, lifecycleRecords, rootDir) {
   });
 }
 function exactMinorUnits(handler, amount, path) {
-  const minorUnits2 = amount * 100;
-  if (!Number.isSafeInteger(minorUnits2) || minorUnits2 < 0) {
+  try {
+    return decimalPriceToMinorUnits(amount);
+  } catch {
     fail(
       handler,
       `${path} must be a non-negative amount with no more than two decimal places. Next: correct the approved offer price before creating an immutable Stripe price`
     );
   }
-  return minorUnits2;
 }
 function safeVerifiedVercelOrigin(handler, workflow, purpose = "domainless Stripe callbacks", dependencyId = "initial-production-deploy") {
   const dependency = workflow.dependencyOutputs[dependencyId];
@@ -34968,7 +35200,7 @@ async function inspectDefaultProviderDoctor(options) {
 }
 
 // lib/cli/default-learning-runtime.ts
-import { existsSync as existsSync12, readFileSync as readFileSync16 } from "node:fs";
+import { existsSync as existsSync12, readFileSync as readFileSync15 } from "node:fs";
 import { resolve as resolve23 } from "node:path";
 import { parse as parse6 } from "yaml";
 var normalizedScalarSchema2 = external_exports.union([external_exports.string(), external_exports.number().finite(), external_exports.boolean(), external_exports.null()]);
@@ -35053,7 +35285,7 @@ var persistedDataSyncSchema = external_exports.object({
   });
 });
 function readYaml2(path) {
-  return parse6(readFileSync16(path, "utf8"));
+  return parse6(readFileSync15(path, "utf8"));
 }
 function loadLoops(rootDir) {
   const path = resolve23(rootDir, "config/loops.yaml");
@@ -35068,7 +35300,7 @@ function loadProviderLifecycle(rootDir) {
   if (!existsSync12(path)) return [];
   let value;
   try {
-    value = JSON.parse(readFileSync16(path, "utf8"));
+    value = JSON.parse(readFileSync15(path, "utf8"));
   } catch {
     throw new Error(
       "Provider lifecycle state is corrupt JSON; restore verified evidence before data sync."
@@ -35618,8 +35850,8 @@ function productHandlerNames(definition2) {
 }
 function inside6(root, path) {
   const absolute = resolve24(root, path);
-  const rel = relative15(root, absolute);
-  if (rel === "" || !rel.startsWith(`..${sep15}`) && rel !== ".." && !rel.startsWith(sep15)) {
+  const rel = relative14(root, absolute);
+  if (rel === "" || !rel.startsWith(`..${sep14}`) && rel !== ".." && !rel.startsWith(sep14)) {
     return absolute;
   }
   throw new Error(`Path escapes the venture root: ${path}`);
@@ -35650,14 +35882,14 @@ function safeIdeaOutputPath(root, requested, boundary) {
   if (!requested || isAbsolute7(requested) || !requested.toLowerCase().endsWith(".md")) {
     throw new Error("vh idea sharpen --output must be a project-relative Markdown path");
   }
-  const canonicalRoot3 = realpathSync10(root);
+  const canonicalRoot3 = realpathSync9(root);
   const lexicalTarget = resolve24(canonicalRoot3, requested);
-  const child = relative15(canonicalRoot3, lexicalTarget);
-  if (child === "" || child === ".." || child.startsWith(`..${sep15}`) || isAbsolute7(child)) {
+  const child = relative14(canonicalRoot3, lexicalTarget);
+  if (child === "" || child === ".." || child.startsWith(`..${sep14}`) || isAbsolute7(child)) {
     throw new Error("vh idea sharpen --output escapes the working directory");
   }
   const lexicalParent = dirname12(lexicalTarget);
-  const parentRelative = relative15(canonicalRoot3, lexicalParent);
+  const parentRelative = relative14(canonicalRoot3, lexicalParent);
   if (parentRelative) {
     resolveVentureOutputWithinRoot(canonicalRoot3, parentRelative);
   }
@@ -35665,14 +35897,14 @@ function safeIdeaOutputPath(root, requested, boundary) {
     lexicalParent,
     "vh idea sharpen output directory"
   );
-  const canonicalParent = realpathSync10(lexicalParent);
-  const parentChild = relative15(canonicalRoot3, canonicalParent);
-  if (parentChild === ".." || parentChild.startsWith(`..${sep15}`) || isAbsolute7(parentChild)) {
+  const canonicalParent = realpathSync9(lexicalParent);
+  const parentChild = relative14(canonicalRoot3, canonicalParent);
+  if (parentChild === ".." || parentChild.startsWith(`..${sep14}`) || isAbsolute7(parentChild)) {
     throw new Error("vh idea sharpen --output resolves through a directory outside the workspace");
   }
   const target = resolve24(canonicalParent, lexicalTarget.slice(dirname12(lexicalTarget).length + 1));
   if (existsSync13(target)) {
-    const metadata = lstatSync9(target);
+    const metadata = lstatSync8(target);
     if (metadata.isSymbolicLink() || !metadata.isFile()) {
       throw new Error("vh idea sharpen --output must be a regular non-symlink Markdown file");
     }
@@ -35684,7 +35916,7 @@ function safeIdeaOutputPath(root, requested, boundary) {
   return target;
 }
 function readStructured(path) {
-  const text2 = readFileSync17(path, "utf8");
+  const text2 = readFileSync16(path, "utf8");
   return path.endsWith(".json") ? JSON.parse(text2) : parse7(text2);
 }
 function stableJson2(value) {
@@ -35992,7 +36224,7 @@ function synchronizeBriefContracts(root, brief, decision, activeEventPacks, sync
     pendingWrites.push({ path: loopsPath, reference: "config/loops.yaml", value: next });
   }
   const originals = new Map(
-    pendingWrites.map(({ path }) => [path, readFileSync17(path, "utf8")])
+    pendingWrites.map(({ path }) => [path, readFileSync16(path, "utf8")])
   );
   const written = [];
   try {
@@ -36046,26 +36278,67 @@ function launchPath(root, runId2) {
 var CANONICAL_LAUNCH_CONTRACT_PATH = "config/launch-contract.yaml";
 var CANONICAL_PRODUCT_CONSTITUTION_PATH = "docs/product/PRODUCT_CONSTITUTION.md";
 var CANONICAL_FOUNDER_IDEA_PATH = "docs/product/idea.md";
+var NO_FOLLOW_FILE_FLAG = "O_NOFOLLOW" in constants9 ? constants9.O_NOFOLLOW : 0;
+function boundFileIdentity(metadata) {
+  return {
+    device: metadata.dev,
+    inode: metadata.ino,
+    size: metadata.size,
+    modifiedAtMs: metadata.mtimeMs,
+    changedAtMs: metadata.ctimeMs
+  };
+}
+function sameBoundFile(metadata, expected) {
+  return metadata.dev === expected.device && metadata.ino === expected.inode && metadata.size === expected.size && metadata.mtimeMs === expected.modifiedAtMs && metadata.ctimeMs === expected.changedAtMs;
+}
 function readRegularBoundFile(root, reference, label) {
-  const canonicalRoot3 = realpathSync10(root);
+  const canonicalRoot3 = realpathSync9(root);
   const target = inside6(canonicalRoot3, reference);
-  const relation = relative15(canonicalRoot3, target);
+  const relation = relative14(canonicalRoot3, target);
   let cursor = canonicalRoot3;
-  for (const component of relation.split(sep15).filter(Boolean)) {
+  for (const component of relation.split(sep14).filter(Boolean)) {
     cursor = resolve24(cursor, component);
+    if (cursor === target) {
+      let descriptor2;
+      try {
+        descriptor2 = openSync9(cursor, constants9.O_RDONLY | NO_FOLLOW_FILE_FLAG);
+      } catch (error) {
+        const code = error.code;
+        if (code === "ENOENT") throw new Error(`${label} is missing at ${reference}`);
+        if (code === "ELOOP") {
+          throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
+        }
+        throw error;
+      }
+      try {
+        const opened = fstatSync9(descriptor2);
+        if (!opened.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
+        const initial = boundFileIdentity(opened);
+        const canonical = realpathSync9(cursor);
+        const pathMetadata = lstatSync8(cursor);
+        if (canonical !== cursor || pathMetadata.isSymbolicLink()) {
+          throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
+        }
+        if (!sameBoundFile(pathMetadata, initial)) {
+          throw new Error(`${label} changed while it was being opened: ${reference}`);
+        }
+        const content = readFileSync16(descriptor2, "utf8");
+        if (!sameBoundFile(fstatSync9(descriptor2), initial)) {
+          throw new Error(`${label} changed while it was being read: ${reference}`);
+        }
+        const after = lstatSync8(cursor);
+        if (realpathSync9(cursor) !== cursor || after.isSymbolicLink() || !sameBoundFile(after, initial)) {
+          throw new Error(`${label} changed while it was being read: ${reference}`);
+        }
+        return content;
+      } finally {
+        closeSync9(descriptor2);
+      }
+    }
     if (!existsSync13(cursor)) throw new Error(`${label} is missing at ${reference}`);
-    const metadata = lstatSync9(cursor);
+    const metadata = lstatSync8(cursor);
     if (metadata.isSymbolicLink()) {
       throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
-    }
-    if (cursor === target) {
-      if (!metadata.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
-      const content = readFileSync17(cursor, "utf8");
-      const after = lstatSync9(cursor);
-      if (after.isSymbolicLink() || after.dev !== metadata.dev || after.ino !== metadata.ino) {
-        throw new Error(`${label} changed while it was being read: ${reference}`);
-      }
-      return content;
     }
     if (!metadata.isDirectory()) {
       throw new Error(`${label} has a non-directory path component: ${reference}`);
@@ -36129,7 +36402,7 @@ function loadProject(root) {
   if (!existsSync13(path)) {
     throw new Error("No founder brief is selected. Next: run vh create --brief <file>.");
   }
-  const value = JSON.parse(readFileSync17(path, "utf8"));
+  const value = JSON.parse(readFileSync16(path, "utf8"));
   if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error("Unsupported .venture/project.json version.");
   }
@@ -36181,7 +36454,7 @@ function loadLaunch(root, runId2) {
       `Launch definition for ${runId2} is missing; restore .venture/launches metadata.`
     );
   }
-  const value = JSON.parse(readFileSync17(path, "utf8"));
+  const value = JSON.parse(readFileSync16(path, "utf8"));
   if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
     throw new Error(`Unsupported launch metadata for ${runId2}.`);
   }
@@ -36236,7 +36509,7 @@ function providerIds2(definition2) {
     )
   ];
 }
-function requiredLaunchGrantEffects(brief, paymentProvider) {
+function requiredLaunchGrantEffects(brief, paymentProvider, definition2) {
   const effects = /* @__PURE__ */ new Set([
     "repository.create",
     "company_stack.provision",
@@ -36244,7 +36517,9 @@ function requiredLaunchGrantEffects(brief, paymentProvider) {
     "preview.deploy",
     "production.deploy"
   ]);
-  if (brief.domain) effects.add("domain.configure");
+  if (brief.domain && definition2.metadata?.initialOrigin !== "provider_url") {
+    effects.add("domain.configure");
+  }
   if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
@@ -36386,7 +36661,8 @@ function assertLaunchGrantBindsGraph(input) {
   }
   const requiredEffects = requiredLaunchGrantEffects(
     input.brief,
-    input.decision.payment.provider
+    input.decision.payment.provider,
+    input.definition
   ).sort();
   const grantedEffects = [...grant.allowedExternalEffects].sort();
   if (!isDeepStrictEqual2(requiredEffects, grantedEffects)) {
@@ -36421,7 +36697,7 @@ function assertLaunchGrantBindsGraph(input) {
   if (!grant.permissions.productionDeployment) {
     throw new Error("Launch Grant does not authorize a production deployment");
   }
-  if (input.brief.domain && !grant.permissions.domainConfiguration) {
+  if (input.brief.domain && input.definition.metadata?.initialOrigin !== "provider_url" && !grant.permissions.domainConfiguration) {
     throw new Error("Launch Grant does not authorize the requested domain configuration");
   }
   if (grant.permissions.liveCommerceConfiguration !== (input.decision.payment.provider !== "none")) {
@@ -36551,13 +36827,23 @@ function assertFounderProviderInputSnapshot(launch, snapshot) {
   }
 }
 function immutableFounderStripePrice(input) {
+  const exactUnitAmount = (amount, errorMessage) => {
+    if (amount === null) throw new Error(errorMessage);
+    try {
+      const unitAmount2 = decimalPriceToMinorUnits(amount);
+      if (unitAmount2 < 1) throw new Error(errorMessage);
+      return unitAmount2;
+    } catch {
+      throw new Error(errorMessage);
+    }
+  };
   if (input.launchContract) {
     const contract = launchContractSchema.parse(input.launchContract);
     const amount = contract.business.priceHypothesis;
-    const unitAmount2 = amount === null ? Number.NaN : amount * 100;
-    if (!Number.isSafeInteger(unitAmount2) || unitAmount2 < 1) {
-      throw new Error("Canonical Launch Contract has no exact Stripe minor-unit amount");
-    }
+    const unitAmount2 = exactUnitAmount(
+      amount,
+      "Canonical Launch Contract has no exact Stripe minor-unit amount"
+    );
     return {
       productName: contract.venture.name,
       currency: contract.business.currency.toLowerCase(),
@@ -36573,10 +36859,13 @@ function immutableFounderStripePrice(input) {
   const selected = candidates.filter(
     (candidate) => candidate !== null
   );
-  const unitAmount = selected.length === 1 ? selected[0].amount * 100 : Number.NaN;
-  if (!Number.isSafeInteger(unitAmount) || unitAmount < 1) {
+  if (selected.length !== 1) {
     throw new Error("Immutable founder offer snapshot has no single exact Stripe price");
   }
+  const unitAmount = exactUnitAmount(
+    selected[0].amount,
+    "Immutable founder offer snapshot has no single exact Stripe price"
+  );
   return {
     productName: input.brief.name,
     currency: pricing.currency.toLowerCase(),
@@ -36760,7 +37049,7 @@ function bindFounderProviderFactories(input) {
         return {
           ...target,
           operationBudget: {
-            maxOperations: Math.max(1, node.authorization.scopes.length),
+            maxOperations: launchProviderNodeOperationCeiling(node),
             missingCostClassification: {
               basis: "reviewed_known_zero_direct_charge",
               currency: grant.providerOperationBudget.currency,
@@ -37232,7 +37521,7 @@ function createDefaultCliServices(options = {}) {
     ) : {};
     const cadencePath = inside6(root, "reports/learning/operating-cadence.json");
     if (existsSync13(cadencePath)) {
-      const cadence = JSON.parse(readFileSync17(cadencePath, "utf8"));
+      const cadence = JSON.parse(readFileSync16(cadencePath, "utf8"));
       for (const hypothesis of cadence.activeHypotheses ?? []) {
         nextReviews.push(`active hypothesis: ${hypothesis}`);
       }
@@ -37354,9 +37643,14 @@ function createDefaultCliServices(options = {}) {
         `Launch apply is missing product handler(s): ${missingProductHandlers.join(", ")}; no run or external action was created.`
       );
     }
-    const unboundedProviderPlanFactories = options.providerPlanFactories ? typeof options.providerPlanFactories === "function" ? await options.providerPlanFactories(launchContext) : options.providerPlanFactories : createDefaultProviderPlanFactories({
+    const providerBrief = launch.definition.metadata?.initialOrigin === "provider_url" && launch.brief.domain ? { ...launch.brief, domain: null } : launch.brief;
+    const providerLaunchContext = {
+      ...launchContext,
+      brief: providerBrief
+    };
+    const unboundedProviderPlanFactories = options.providerPlanFactories ? typeof options.providerPlanFactories === "function" ? await options.providerPlanFactories(providerLaunchContext) : options.providerPlanFactories : createDefaultProviderPlanFactories({
       rootDir: root,
-      brief: launch.brief,
+      brief: providerBrief,
       definition: launch.definition,
       ...providerConfigSnapshot ? { configSnapshot: providerConfigSnapshot } : {},
       ...launch.launchContract ? { launchContract: launch.launchContract } : {},
@@ -37367,7 +37661,7 @@ function createDefaultCliServices(options = {}) {
       definition: launch.definition,
       grant: launch.launchGrant,
       providerConfig: providerConfigSnapshot,
-      brief: launch.brief,
+      brief: providerBrief,
       ...launch.launchContract ? { launchContract: launch.launchContract } : {},
       root,
       broker: credentialBroker
@@ -37440,12 +37734,12 @@ function createDefaultCliServices(options = {}) {
         lockName: ".vh-idea-sharpen.lock"
       });
       try {
-        const source = request2.input === "-" ? readFileSync17(0, "utf8") : boundary.readRegularFile(inside6(root, request2.input), {
+        const source = request2.input === "-" ? readFileSync16(0, "utf8") : boundary.readRegularFile(inside6(root, request2.input), {
           label: "vh idea sharpen --input",
           maxBytes: 1e5
         });
         const outputPath = safeIdeaOutputPath(root, request2.output, boundary);
-        const outputReference = relative15(realpathSync10(root), outputPath);
+        const outputReference = relative14(realpathSync9(root), outputPath);
         const baseOutput = outputReference.slice(0, -3);
         const constitutionPath = safeIdeaOutputPath(
           root,
@@ -37560,7 +37854,7 @@ function createDefaultCliServices(options = {}) {
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
       const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
       if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
-      const canonicalVenturesRoot = realpathSync10(resolve24(venturesRoot));
+      const canonicalVenturesRoot = realpathSync9(resolve24(venturesRoot));
       founderPathBoundary = request2.mode === "apply" ? new OwnerPathLock(canonicalVenturesRoot, {
         label: "Founder venture operation"
       }) : null;
@@ -37587,7 +37881,7 @@ function createDefaultCliServices(options = {}) {
         }
         const childRoot = resolveVentureOutputWithinRoot(
           canonicalVenturesRoot,
-          relative15(canonicalVenturesRoot, preparation.repository.localDirectory)
+          relative14(canonicalVenturesRoot, preparation.repository.localDirectory)
         );
         const stagingRoot = `${childRoot}.vh-staging-${preparation.launchGrant.grantId.slice(3, 15)}`;
         const stackConnectionHash = sha256Json(connection);
@@ -37630,7 +37924,7 @@ function createDefaultCliServices(options = {}) {
         const childStore = new FileWorkflowStore({ rootDir: inside6(childRoot, ".venture/runs") });
         resolveVentureOutputWithinRoot(
           canonicalVenturesRoot,
-          relative15(canonicalVenturesRoot, childRoot)
+          relative14(canonicalVenturesRoot, childRoot)
         );
         if (existsSync13(childRoot)) {
           options.pathSecurityHook?.("before-founder-continuation", childRoot);
@@ -37667,7 +37961,7 @@ function createDefaultCliServices(options = {}) {
         } else {
           resolveVentureOutputWithinRoot(
             canonicalVenturesRoot,
-            relative15(canonicalVenturesRoot, stagingRoot)
+            relative14(canonicalVenturesRoot, stagingRoot)
           );
           if (existsSync13(stagingRoot)) {
             throw new Error(
@@ -37750,11 +38044,11 @@ function createDefaultCliServices(options = {}) {
           mkdirSync10(dirname12(childRoot), { recursive: true, mode: 448 });
           resolveVentureOutputWithinRoot(
             canonicalVenturesRoot,
-            relative15(canonicalVenturesRoot, childRoot)
+            relative14(canonicalVenturesRoot, childRoot)
           );
           resolveVentureOutputWithinRoot(
             canonicalVenturesRoot,
-            relative15(canonicalVenturesRoot, stagingRoot)
+            relative14(canonicalVenturesRoot, stagingRoot)
           );
           options.pathSecurityHook?.("before-founder-staging-rename", childRoot);
           childIdentity = founderPathBoundary.renameDirectory(
@@ -37826,6 +38120,33 @@ function createDefaultCliServices(options = {}) {
             }
             saveCredentialCatalog(credentialCatalog, catalogPath);
           }
+        } else if (workflow.status === "waiting") {
+          founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          const childServices = createDefaultCliServices(childOptions(childRoot));
+          if (!childServices.resume) throw new Error("Founder child resume service is unavailable");
+          try {
+            workflow = await childServices.resume({ runId: runId2 });
+            founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
+          } catch (error) {
+            if (childStore.exists(runId2)) {
+              const persisted = childStore.load(runId2);
+              const persistedStatus = persisted.status === "succeeded" ? "succeeded" : persisted.status === "waiting" ? "waiting_external_action" : ["failed", "cancelled", "superseded"].includes(persisted.status) ? "failed" : "launch_pending";
+              transaction = {
+                ...transaction,
+                status: persistedStatus,
+                updatedAt: new Date(
+                  Math.max(Date.parse(transaction.updatedAt), now().getTime())
+                ).toISOString()
+              };
+              saveFounderLaunchTransaction(childRoot, transaction);
+            }
+            throw error;
+          } finally {
+            for (const reference of credentialBroker.list()) {
+              credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+            }
+            saveCredentialCatalog(credentialCatalog, catalogPath);
+          }
         }
         const transactionStatus = workflow.status === "succeeded" ? "succeeded" : workflow.status === "waiting" ? "waiting_external_action" : ["failed", "cancelled", "superseded"].includes(workflow.status) ? "failed" : "launch_pending";
         transaction = {
@@ -37866,7 +38187,7 @@ function createDefaultCliServices(options = {}) {
     },
     create(request2) {
       const source = isAbsolute7(request2.brief) ? request2.brief : resolve24(root, request2.brief);
-      const compiledIdea = compileFounderIdea(readFileSync17(source, "utf8"));
+      const compiledIdea = compileFounderIdea(readFileSync16(source, "utf8"));
       const brief = compiledIdea.brief;
       const decision = compiledIdea.launchContract ? launchDecisionFromContract(compiledIdea.launchContract) : routeLaunch(brief);
       const activeEventPacks = eventPacksFor(brief, decision);
@@ -37914,7 +38235,7 @@ function createDefaultCliServices(options = {}) {
     plan(request2) {
       if (request2.brief) {
         const source = isAbsolute7(request2.brief) ? request2.brief : resolve24(root, request2.brief);
-        const idea = compileFounderIdea(readFileSync17(source, "utf8"));
+        const idea = compileFounderIdea(readFileSync16(source, "utf8"));
         return compileLaunchDryRun(
           idea.brief,
           idea.launchContract ? launchDecisionFromContract(idea.launchContract) : void 0
@@ -37926,7 +38247,8 @@ function createDefaultCliServices(options = {}) {
     async launch(request2) {
       const project = loadProject(root);
       const brief = project.brief;
-      const dryRun = compileLaunchDryRun(brief, project.decision);
+      const compilationOptions = request2.launchGrant ? { initialOrigin: "provider_url" } : void 0;
+      const dryRun = compileLaunchDryRun(brief, project.decision, compilationOptions);
       if (request2.mode === "dry-run") return dryRun;
       const runId2 = request2.runId ?? generatedRunId(brief, now());
       if (store.exists(runId2)) {
@@ -37938,7 +38260,7 @@ function createDefaultCliServices(options = {}) {
       );
       const launchAt = now();
       let definition2 = scopeLaunchGraphForAuthorization(
-        compileLaunchGraph(brief, project.decision),
+        compileLaunchGraph(brief, project.decision, compilationOptions),
         request2.authorization
       );
       const pendingFounderTransaction = request2.pendingFounderGrantRenewal ? loadFounderLaunchTransaction(root) : void 0;
@@ -38092,6 +38414,13 @@ function createDefaultCliServices(options = {}) {
       }
       const runtime = await bindingsFor(launch);
       const executor = new WorkflowExecutor({ store, bindings: runtime.bindings });
+      for (const [nodeId, record3] of Object.entries(persistedState.nodes)) {
+        if (record3.state !== "waiting_for_auth" || record3.definition.kind !== "provider") continue;
+        await executor.refreshAuthorization(request2.runId, nodeId, {
+          authorizedBy: "vh-cli-user",
+          note: "Re-probe requested through vh resume because the provider prerequisite may now be resolved outside the run; the provider factory must verify readiness before any effect."
+        });
+      }
       if (request2.nodeId) {
         const evidenceArtifact = artifactReferenceSchema.parse(request2.evidenceArtifact);
         if (request2.resolutionKind === "checkpoint_grant") {
@@ -38397,7 +38726,7 @@ function createDefaultCliServices(options = {}) {
     },
     learn(cadence) {
       const latestPath = inside6(root, ".venture/data/latest.json");
-      const sync = existsSync13(latestPath) ? JSON.parse(readFileSync17(latestPath, "utf8")) : learningRuntime.missingArtifact(cadence);
+      const sync = existsSync13(latestPath) ? JSON.parse(readFileSync16(latestPath, "utf8")) : learningRuntime.missingArtifact(cadence);
       const { definition: definition2, report } = learningRuntime.learn(cadence, sync);
       const artifacts = persistLearningReport({ rootDir: root, definition: definition2, report });
       const operatingCadence = learningRuntime.operatingCadence(sync);
@@ -39708,7 +40037,7 @@ async function runCli(args, options = {}) {
 }
 
 // packages/cli-generator/src/bin.ts
-import { realpathSync as realpathSync14 } from "node:fs";
+import { realpathSync as realpathSync13 } from "node:fs";
 import { resolve as resolve28 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40580,8 +40909,8 @@ var launchExecuteCommand = defineCommandContract({
 
 // packages/agent-runtime/dist/operational.js
 import { createHash as createHash22, randomUUID as randomUUID2 } from "node:crypto";
-import { closeSync as closeSync9, constants as constants9, existsSync as existsSync14, fstatSync as fstatSync9, fsyncSync as fsyncSync4, lstatSync as lstatSync10, mkdirSync as mkdirSync11, openSync as openSync9, readFileSync as readFileSync18, realpathSync as realpathSync11, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname13, isAbsolute as isAbsolute8, join as join10, relative as relative16, resolve as resolve25, sep as sep16 } from "node:path";
+import { closeSync as closeSync10, constants as constants10, existsSync as existsSync14, fstatSync as fstatSync10, fsyncSync as fsyncSync4, lstatSync as lstatSync9, mkdirSync as mkdirSync11, openSync as openSync10, readFileSync as readFileSync17, realpathSync as realpathSync10, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname13, isAbsolute as isAbsolute8, join as join10, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
 import { parse as parseYaml4 } from "yaml";
 
 // packages/agent-runtime/dist/quality.js
@@ -41208,19 +41537,19 @@ var FileOperationalStateStore = class {
   read() {
     if (!existsSync14(this.path))
       return emptyState();
-    return parseState(JSON.parse(readFileSync18(this.path, "utf8")));
+    return parseState(JSON.parse(readFileSync17(this.path, "utf8")));
   }
   write(state) {
     assertNoSecrets(state);
     mkdirSync11(dirname13(this.path), { recursive: true });
     const temporary = join10(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
-    const handle = openSync9(temporary, "wx", 384);
+    const handle = openSync10(temporary, "wx", 384);
     try {
       writeFileSync11(handle, `${JSON.stringify(state, null, 2)}
 `, "utf8");
       fsyncSync4(handle);
     } finally {
-      closeSync9(handle);
+      closeSync10(handle);
     }
     renameSync9(temporary, this.path);
   }
@@ -41560,31 +41889,31 @@ function growthContractVersion(value) {
   return typeof version === "number" && Number.isInteger(version) ? version : null;
 }
 function pathEscapesRoot(root, candidate) {
-  const pathFromRoot = relative16(root, candidate);
-  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep16}`) || isAbsolute8(pathFromRoot);
+  const pathFromRoot = relative15(root, candidate);
+  return pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep15}`) || isAbsolute8(pathFromRoot);
 }
 function assertGrowthPath(root, inputPath) {
   const candidate = resolve25(root.declaredPath, inputPath);
   if (pathEscapesRoot(root.declaredPath, candidate)) {
     throw new Error("growth contract path must stay within the configured root");
   }
-  const pathFromRoot = relative16(root.declaredPath, candidate);
+  const pathFromRoot = relative15(root.declaredPath, candidate);
   let current = root.declaredPath;
   try {
-    for (const component of pathFromRoot.split(sep16).filter(Boolean)) {
+    for (const component of pathFromRoot.split(sep15).filter(Boolean)) {
       current = join10(current, component);
-      if (lstatSync10(current).isSymbolicLink()) {
+      if (lstatSync9(current).isSymbolicLink()) {
         throw new Error("growth contract path must not contain symbolic links");
       }
     }
-    const details = lstatSync10(candidate);
+    const details = lstatSync9(candidate);
     if (!details.isFile())
       throw new Error("growth contract path must reference a regular file");
-    const canonical = realpathSync11(candidate);
+    const canonical = realpathSync10(candidate);
     if (pathEscapesRoot(root.canonicalPath, canonical)) {
       throw new Error("growth contract path must stay within the configured root");
     }
-    return { path: canonical, displayPath: relative16(root.canonicalPath, canonical) };
+    return { path: canonical, displayPath: relative15(root.canonicalPath, canonical) };
   } catch (error) {
     if (error instanceof Error && (error.message.includes("symbolic links") || error.message.includes("regular file"))) {
       throw error;
@@ -41597,14 +41926,14 @@ function inspectGrowthContract(input, growthContractRoot) {
   let text2;
   let handle;
   try {
-    handle = openSync9(source.path, constants9.O_RDONLY | (constants9.O_NOFOLLOW ?? 0));
-    const details = fstatSync9(handle);
+    handle = openSync10(source.path, constants10.O_RDONLY | (constants10.O_NOFOLLOW ?? 0));
+    const details = fstatSync10(handle);
     if (!details.isFile())
       throw new Error("growth contract path must reference a regular file");
     if (details.size > MAX_GROWTH_CONTRACT_BYTES) {
       throw new Error("growth contract exceeds the 1 MiB inspection limit");
     }
-    text2 = readFileSync18(handle, "utf8");
+    text2 = readFileSync17(handle, "utf8");
   } catch (error) {
     if (error instanceof Error && (error.message.includes("1 MiB inspection limit") || error.message.includes("regular file"))) {
       throw error;
@@ -41612,7 +41941,7 @@ function inspectGrowthContract(input, growthContractRoot) {
     throw new Error("growth contract file could not be read");
   } finally {
     if (handle !== void 0)
-      closeSync9(handle);
+      closeSync10(handle);
   }
   if (Buffer.byteLength(text2, "utf8") > MAX_GROWTH_CONTRACT_BYTES) {
     throw new Error("growth contract exceeds the 1 MiB inspection limit");
@@ -41715,13 +42044,13 @@ function registerOperationalCommands(bus, options = {}) {
   const store = options.store ?? new InMemoryOperationalStateStore();
   const timestamp2 = () => (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
   const declaredGrowthContractRoot = resolve25(options.growthContractRoot ?? process.cwd());
-  const rootDetails = lstatSync10(declaredGrowthContractRoot);
+  const rootDetails = lstatSync9(declaredGrowthContractRoot);
   if (rootDetails.isSymbolicLink() || !rootDetails.isDirectory()) {
     throw new Error("growth contract root must be a regular directory, not a symbolic link");
   }
   const growthContractRoot = {
     declaredPath: declaredGrowthContractRoot,
-    canonicalPath: realpathSync11(declaredGrowthContractRoot)
+    canonicalPath: realpathSync10(declaredGrowthContractRoot)
   };
   bus.register(systemDoctorCommand, (_input, handler) => {
     const state = store.read();
@@ -43129,7 +43458,7 @@ function createVentureRuntime(options) {
 
 // packages/cli-generator/src/operational.ts
 import { createHash as createHash23 } from "node:crypto";
-import { readFileSync as readFileSync19 } from "node:fs";
+import { readFileSync as readFileSync18 } from "node:fs";
 var EMPTY_INPUT_COMMANDS = /* @__PURE__ */ new Set([
   "system.doctor",
   "org.list",
@@ -43263,7 +43592,7 @@ function inputFor(commandId, args) {
   const values = positionals(args);
   if (commandId === "idea.compile") {
     const brief = flag(args, "--brief");
-    const idea = flag(args, "--idea") ?? (brief ? readFileSync19(brief, "utf8") : values[2]);
+    const idea = flag(args, "--idea") ?? (brief ? readFileSync18(brief, "utf8") : values[2]);
     if (!idea) throw new Error("idea compile requires --idea <text> or --brief <file>");
     const name = flag(args, "--name") ?? "Local Venture";
     return { idea, ventureId: flag(args, "--venture-id") ?? slug3(name), name };
@@ -43444,8 +43773,8 @@ async function invokeOperationalCli(bus, args, options) {
 // packages/cli-generator/src/quality-runner.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync15, lstatSync as lstatSync11, mkdirSync as mkdirSync12, readFileSync as readFileSync20, realpathSync as realpathSync12 } from "node:fs";
-import { basename as basename2, join as join11, relative as relative17, resolve as resolve26, sep as sep17 } from "node:path";
+import { existsSync as existsSync15, lstatSync as lstatSync10, mkdirSync as mkdirSync12, readFileSync as readFileSync19, realpathSync as realpathSync11 } from "node:fs";
+import { basename as basename2, join as join11, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
 var SECRET_PATTERNS3 = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END|$)/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -43465,24 +43794,24 @@ function redact2(value) {
 }
 function canonicalRoot(root) {
   const declared = resolve26(root);
-  const details = lstatSync11(declared);
+  const details = lstatSync10(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("quality runner root must be a regular directory, not a symbolic link");
   }
-  return realpathSync12(declared);
+  return realpathSync11(declared);
 }
 function inside7(root, target) {
-  const child = relative17(root, target);
-  return child === "" || child !== ".." && !child.startsWith(`..${sep17}`);
+  const child = relative16(root, target);
+  return child === "" || child !== ".." && !child.startsWith(`..${sep16}`);
 }
 function assertNoSymlinkPath(root, target) {
   if (!inside7(root, target)) throw new Error("quality report path escapes the configured root");
-  const child = relative17(root, target);
+  const child = relative16(root, target);
   let cursor = root;
-  for (const segment of child.split(sep17).filter(Boolean)) {
+  for (const segment of child.split(sep16).filter(Boolean)) {
     cursor = join11(cursor, segment);
     if (!existsSync15(cursor)) break;
-    if (lstatSync11(cursor).isSymbolicLink()) {
+    if (lstatSync10(cursor).isSymbolicLink()) {
       throw new Error("quality report path must not contain symbolic links");
     }
   }
@@ -43491,7 +43820,7 @@ function reportPath(root, profile2) {
   const directory = join11(root, ".venture", "reports", "quality");
   assertNoSymlinkPath(root, directory);
   mkdirSync12(directory, { recursive: true, mode: 448 });
-  const canonicalDirectory = realpathSync12(directory);
+  const canonicalDirectory = realpathSync11(directory);
   if (!inside7(root, canonicalDirectory)) throw new Error("quality report directory escapes root");
   return join11(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
 }
@@ -43539,7 +43868,7 @@ function count(summary, field) {
 }
 function readReport(path, profile2) {
   if (!existsSync15(path)) return null;
-  const raw = JSON.parse(readFileSync20(path, "utf8"));
+  const raw = JSON.parse(readFileSync19(path, "utf8"));
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("quality runner report must be a JSON object");
   }
@@ -43625,7 +43954,7 @@ function createProcessQualityProfileRunner(options) {
         command: command.map((value) => redact2(value)),
         stdout: stdout.value(),
         stderr: `${stderr.value()}${timedOut ? "\nquality profile timed out" : ""}`.trim(),
-        reportPath: relative17(root, targetReport)
+        reportPath: relative16(root, targetReport)
       };
     }
   });
@@ -43633,7 +43962,7 @@ function createProcessQualityProfileRunner(options) {
 function createRepositoryQualityProfileRunner(root) {
   const canonical = canonicalRoot(root);
   const runnerPath = join11(canonical, "scripts", "run-quality-profile.ts");
-  const configured = existsSync15(runnerPath) && !lstatSync11(runnerPath).isSymbolicLink() && lstatSync11(runnerPath).isFile() && inside7(canonical, realpathSync12(runnerPath));
+  const configured = existsSync15(runnerPath) && !lstatSync10(runnerPath).isSymbolicLink() && lstatSync10(runnerPath).isFile() && inside7(canonical, realpathSync11(runnerPath));
   if (!configured) {
     return Object.freeze({
       async run(profile2) {
@@ -43666,35 +43995,35 @@ function createRepositoryQualityProfileRunner(root) {
 }
 
 // packages/cli-generator/src/runtime-module.ts
-import { existsSync as existsSync16, lstatSync as lstatSync12, realpathSync as realpathSync13 } from "node:fs";
-import { extname, join as join12, relative as relative18, resolve as resolve27, sep as sep18 } from "node:path";
+import { existsSync as existsSync16, lstatSync as lstatSync11, realpathSync as realpathSync12 } from "node:fs";
+import { extname, join as join12, relative as relative17, resolve as resolve27, sep as sep17 } from "node:path";
 import { pathToFileURL } from "node:url";
 function canonicalRoot2(root) {
   const declared = resolve27(root);
-  const details = lstatSync12(declared);
+  const details = lstatSync11(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("runtime project root must be a regular directory, not a symbolic link");
   }
-  return realpathSync13(declared);
+  return realpathSync12(declared);
 }
 function inside8(root, target) {
-  const child = relative18(root, target);
-  return child === "" || child !== ".." && !child.startsWith(`..${sep18}`);
+  const child = relative17(root, target);
+  return child === "" || child !== ".." && !child.startsWith(`..${sep17}`);
 }
 function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
   if (!inside8(root, target)) throw new Error("runtime path must stay within the project root");
-  const child = relative18(root, target);
+  const child = relative17(root, target);
   let cursor = root;
-  for (const [index, segment] of child.split(sep18).filter(Boolean).entries()) {
+  for (const [index, segment] of child.split(sep17).filter(Boolean).entries()) {
     cursor = join12(cursor, segment);
     if (!existsSync16(cursor)) {
       if (allowMissingLeaf) return;
       throw new Error("runtime module does not exist");
     }
-    if (lstatSync12(cursor).isSymbolicLink()) {
+    if (lstatSync11(cursor).isSymbolicLink()) {
       throw new Error("runtime path must not contain symbolic links");
     }
-    if (index < child.split(sep18).filter(Boolean).length - 1 && !lstatSync12(cursor).isDirectory()) {
+    if (index < child.split(sep17).filter(Boolean).length - 1 && !lstatSync11(cursor).isDirectory()) {
       throw new Error("runtime path parent must be a directory");
     }
   }
@@ -43702,17 +44031,17 @@ function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
 function projectOwnedFile(root, path) {
   const target = resolve27(root, path);
   assertNoSymlinkComponents(root, target, false);
-  const child = relative18(root, target);
-  const first = child.split(sep18)[0];
+  const child = relative17(root, target);
+  const first = child.split(sep17)[0];
   if (["node_modules", ".git", ".pnpm"].includes(first ?? "")) {
     throw new Error("runtime module must be a project-owned file outside dependency metadata");
   }
   if (![".js", ".mjs", ".cjs"].includes(extname(target))) {
     throw new Error("runtime module must be compiled JavaScript (.js, .mjs, or .cjs)");
   }
-  const details = lstatSync12(target);
+  const details = lstatSync11(target);
   if (!details.isFile()) throw new Error("runtime module must be a regular file");
-  const canonical = realpathSync13(target);
+  const canonical = realpathSync12(target);
   if (!inside8(root, canonical)) throw new Error("runtime module resolves outside the project root");
   return canonical;
 }
@@ -43947,10 +44276,10 @@ ${createCliSurface(localRuntime.bus).help}`
 }
 function isDirectGeneratedCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync14(fileURLToPath(import.meta.url));
+  const modulePath = realpathSync13(fileURLToPath(import.meta.url));
   if (!modulePath.replaceAll("\\", "/").includes("/cli-generator/")) return false;
   try {
-    return realpathSync14(resolve28(process.argv[1])) === modulePath;
+    return realpathSync13(resolve28(process.argv[1])) === modulePath;
   } catch {
     return resolve28(process.argv[1]) === modulePath;
   }
@@ -43964,7 +44293,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "3beea5e1611d1c5f43745193217260eef29f3609" : void 0;
+  const workflowRefSha = true ? "f783aedc900bfebe6a43d6e0729175d11afc5ce8" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
@@ -44023,9 +44352,9 @@ async function runVhShell(inputArgs, options = {}) {
 }
 function isDirectRootCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync15(fileURLToPath2(import.meta.url));
+  const modulePath = realpathSync14(fileURLToPath2(import.meta.url));
   try {
-    return realpathSync15(resolve29(process.argv[1])) === modulePath;
+    return realpathSync14(resolve29(process.argv[1])) === modulePath;
   } catch {
     return resolve29(process.argv[1]) === modulePath;
   }
