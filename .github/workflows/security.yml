@@ -46,6 +46,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - name: Inspect working tree and package manifest
         run: pnpm release:check
       - name: Reject high-severity production dependency advisories

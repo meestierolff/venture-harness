@@ -31,6 +31,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - name: Prepare child seed dependency closure
         run: pnpm seed:fetch agentic-web-saas
       - name: Inspect public repository and package contents

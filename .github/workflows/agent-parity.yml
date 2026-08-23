@@ -34,5 +34,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - name: Skill validity and adapter parity
         run: pnpm agents:check

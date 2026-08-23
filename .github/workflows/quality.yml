@@ -26,6 +26,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - name: Capability-aware fast profile
         env:
           QUALITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
@@ -52,6 +54,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - run: pnpm exec playwright install --with-deps chromium
       # A materialized venture installs from its own lockfile with
       # --ignore-workspace, so its dependency closure is not the root closure and
@@ -83,6 +87,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - run: pnpm exec playwright install --with-deps chromium
       # A materialized venture installs from its own lockfile with
       # --ignore-workspace, so its dependency closure is not the root closure and

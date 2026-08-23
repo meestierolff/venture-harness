@@ -108,13 +108,12 @@ checks:
     kind: changed_lint
     phase: 1
   # Workspace packages publish only from dist/, which is not committed. Any test
-  # importing @venture-harness/* therefore needs a build first, so the
-  # changed-surface gate builds packages before it runs tests. --skip-cli keeps
-  # the reviewed-source provenance assertion out of the inner loop.
+  # importing @venture-harness/* therefore needs package preparation first. The
+  # preparation path excludes apps and the reviewed root CLI bundle.
   workspace_packages_build:
     kind: command
     phase: 1
-    command: [pnpm, workspace:build, --skip-cli]
+    command: [pnpm, workspace:prepare]
   changed_tests:
     kind: changed_tests
     phase: 2
@@ -163,10 +162,10 @@ checks:
     kind: command
     phase: 2
     command: [pnpm, test]
-  # MVP owns the one core workspace build and runs it before any check that
-  # imports package dist/ entrypoints. Release gets its standalone build from
-  # the package-distribution owner below instead of compiling the workspace a
-  # second time as an unrelated profile check.
+  # MVP owns the one full workspace build. Package preparation at the command
+  # boundary makes the profile runner importable from a clean install; this
+  # check additionally builds app boundaries and the reviewed root CLI before
+  # the workspace contract inspects them.
   workspace_build:
     kind: command
     phase: 1

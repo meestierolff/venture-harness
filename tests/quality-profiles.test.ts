@@ -69,6 +69,7 @@ describe("capability-aware quality profiles", () => {
     ]) {
       expect(contract.profiles.release.checks, mvpOwnedCheck).not.toContain(mvpOwnedCheck);
     }
+    expect(contract.checks.workspace_packages_build.command).toEqual(["pnpm", "workspace:prepare"]);
     expect(contract.checks.workspace_build.command).toEqual(["pnpm", "workspace:build"]);
     expect(contract.checks.workspace_contract.command).toEqual(["pnpm", "workspace:check"]);
     expect(contract.checks.workspace_pack_consumer.command).toEqual(["pnpm", "test:workspace"]);
@@ -436,6 +437,61 @@ describe("capability-aware quality profiles", () => {
       weeklyWorkflow.indexOf("Aggregate only after"),
     );
     expect(weeklyWorkflow).toContain("--require-data");
+  });
+
+  it("prepares package entrypoints before root source commands and CI checks", () => {
+    const manifest = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(manifest.scripts["workspace:prepare"]).toBe(
+      "node scripts/workspace-build.mjs --packages-only",
+    );
+    for (const lifecycle of [
+      "pretypecheck",
+      "preverify",
+      "preverify:fast",
+      "preverify:mvp",
+      "preverify:release",
+      "preverify:live",
+      "preverify:stable",
+      "prevh",
+    ]) {
+      expect(manifest.scripts[lifecycle], lifecycle).toBe("pnpm workspace:prepare");
+    }
+
+    const buildScript = readFileSync("scripts/workspace-build.mjs", "utf8");
+    expect(buildScript).toContain('argument === "--packages-only"');
+    expect(buildScript).toContain('entry.directory.startsWith(resolve(root, "packages"))');
+    expect(buildScript).toContain("!packagesOnly &&");
+
+    const workflowDirectory = ".github/workflows";
+    const childWorkflow = "venture-verify.yml";
+    const childWorkflowSource = readFileSync(`${workflowDirectory}/${childWorkflow}`, "utf8");
+    expect(childWorkflowSource).toContain(
+      "pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false",
+    );
+    expect(childWorkflowSource).not.toContain("pnpm workspace:prepare");
+
+    const rootInstall = "pnpm install --frozen-lockfile";
+    for (const name of readdirSync(workflowDirectory).filter(
+      (entry) => /\.ya?ml$/u.test(entry) && entry !== childWorkflow,
+    )) {
+      const source = readFileSync(`${workflowDirectory}/${name}`, "utf8");
+      const installOffsets = [...source.matchAll(new RegExp(rootInstall, "gu"))].map(
+        (match) => match.index,
+      );
+      for (const [index, installOffset] of installOffsets.entries()) {
+        const nextInstallOffset = installOffsets[index + 1] ?? source.length;
+        const prepareOffset = source.indexOf("pnpm workspace:prepare", installOffset);
+        expect(prepareOffset, `${name} install ${index + 1} must prepare packages`).toBeGreaterThan(
+          installOffset,
+        );
+        expect(
+          prepareOffset,
+          `${name} install ${index + 1} must prepare before another install`,
+        ).toBeLessThan(nextInstallOffset);
+      }
+    }
   });
 });
 

@@ -32,6 +32,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - name: Verify normalized scheduled-sync fixture
         run: pnpm exec vitest run tests/data-sync.test.ts tests/analytics-weekly.test.ts
       - name: Sync direct provider data
