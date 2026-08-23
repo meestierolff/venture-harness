@@ -4,14 +4,14 @@
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 198,
+      "line": 199,
       "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 202,
+      "line": 203,
       "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
@@ -74,35 +74,35 @@
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 88,
+      "line": 89,
       "sha256": "8cfc98b5bec74acf368a20fa99b33766793f1236e6723d3af5881d716ca2ea88",
       "reason": "Synthetic Neon transport fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 117,
+      "line": 118,
       "sha256": "8a3a1c048002344b520beaa34d499e3fde439459bf65e1e26b9260232d4d3c26",
       "reason": "Synthetic Neon read-back fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 159,
+      "line": 160,
       "sha256": "a30436991af76413d1f54efce3c59c81ff729203ca1c230fc0f4c071b7558de3",
       "reason": "Synthetic Neon mismatch fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 407,
+      "line": 464,
       "sha256": "5a95d93ad5b54d238723c5d68a3381a26648c172e4e6624969f5620e9c852116",
       "reason": "Synthetic Neon generated-secret fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 460,
+      "line": 517,
       "sha256": "8a3a1c048002344b520beaa34d499e3fde439459bf65e1e26b9260232d4d3c26",
       "reason": "Synthetic Neon retry fixture."
     },
@@ -137,7 +137,7 @@
     {
       "path": "tests/fixtures/synthetic-founder-golden-path.ts",
       "rule": "database-url-with-credentials",
-      "line": 832,
+      "line": 930,
       "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
       "reason": "Synthetic Golden Path durable-secret absence canary."
     },
