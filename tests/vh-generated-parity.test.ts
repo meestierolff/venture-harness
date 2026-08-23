@@ -126,6 +126,22 @@ describe("vh generated executable parity", () => {
     );
   });
 
+  it("ignores local Codex role configs without allowing untracked source", () => {
+    const { root, sourceCommit } = createCoreFixture();
+    mkdirSync(resolve(root, ".codex/agents"), { recursive: true });
+    writeFileSync(resolve(root, ".codex/agents/security-reviewer.toml"), 'name = "local-only"\n');
+
+    expect(assertReviewedCoreSourceState({ rootDirectory: root, sourceCommit })).toMatchObject({
+      sourceCommit,
+      artifactOnlyChanges: [],
+    });
+
+    writeFileSync(resolve(root, "scripts/untracked-executable.ts"), "export const drift = true;\n");
+    expect(() => assertReviewedCoreSourceState({ rootDirectory: root, sourceCommit })).toThrow(
+      /scripts\/untracked-executable\.ts.*Commit the source changes/,
+    );
+  });
+
   it("allows only well-formed logs scoped to the reviewed or artifact commit", () => {
     const reviewed = "a".repeat(40);
     const artifact = "b".repeat(40);

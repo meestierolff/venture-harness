@@ -27,6 +27,7 @@ const ALLOWED_POST_SOURCE_EXACT_PATHS = new Set([
   "reports/audit/winner-loop-creative-trace.json",
 ]);
 const SOURCE_SCOPED_AUDIT_LOG = /^[a-z0-9][a-z0-9._-]*\.attempt-[1-9][0-9]*\.log$/u;
+const LOCAL_CODEX_AGENT_CONFIG = /^\.codex\/agents\/[a-z0-9][a-z0-9_-]*\.toml$/u;
 
 function commandOutput(root, args) {
   try {
@@ -96,19 +97,21 @@ export function assertReviewedCoreSourceState({ rootDirectory, sourceCommit }) {
   }
   let changedPaths;
   try {
-    changedPaths = new Set([
-      ...nulSeparatedGitPaths(root, [
-        "diff",
-        "--name-only",
-        "-z",
-        reviewedCommit,
-        currentCommit,
-        "--",
-      ]),
-      ...nulSeparatedGitPaths(root, ["diff", "--name-only", "-z", "--"]),
-      ...nulSeparatedGitPaths(root, ["diff", "--cached", "--name-only", "-z", "--"]),
-      ...nulSeparatedGitPaths(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
-    ]);
+    changedPaths = new Set(
+      [
+        ...nulSeparatedGitPaths(root, [
+          "diff",
+          "--name-only",
+          "-z",
+          reviewedCommit,
+          currentCommit,
+          "--",
+        ]),
+        ...nulSeparatedGitPaths(root, ["diff", "--name-only", "-z", "--"]),
+        ...nulSeparatedGitPaths(root, ["diff", "--cached", "--name-only", "-z", "--"]),
+        ...nulSeparatedGitPaths(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+      ].filter((path) => !LOCAL_CODEX_AGENT_CONFIG.test(path)),
+    );
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Cannot inspect reviewed Venture Harness Core source drift: ${detail}`);
