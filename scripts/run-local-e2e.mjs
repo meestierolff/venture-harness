@@ -26,7 +26,11 @@ if (configuredBaseUrl) {
     owned = await startOwnedProductionServer(root);
     process.exitCode = await runInherited("pnpm", ["exec", "playwright", "test", ...forwarded], {
       cwd: root,
-      env: { ...process.env, PLAYWRIGHT_BASE_URL: owned.baseUrl },
+      env: {
+        ...process.env,
+        PLAYWRIGHT_BASE_URL: owned.baseUrl,
+        VH_LOCAL_E2E_FIXTURE: "1",
+      },
     });
   } catch (error) {
     console.error(String(error));

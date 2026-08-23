@@ -148,6 +148,10 @@ describe("release supply-chain configuration", () => {
     expect(playwright).not.toMatch(/43127|3210/u);
     expect(runner).toContain("startOwnedProductionServer");
     expect(runner).toContain("await stopProductionServer(owned.server)");
+    expect(runner).toContain('VH_LOCAL_E2E_FIXTURE: "1"');
+    expect(readFileSync(join(ROOT, "tests/e2e/post-deploy-readonly.spec.ts"), "utf8")).toContain(
+      'process.env.VH_LOCAL_E2E_FIXTURE !== "1"',
+    );
     expect(readFileSync(join(ROOT, "scripts/lib/local-production-server.mjs"), "utf8")).toContain(
       "waitForOwnedHttpReady",
     );
