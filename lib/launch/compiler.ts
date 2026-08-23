@@ -39,13 +39,17 @@ const capabilityProviders: Record<string, { provider: string; resource: string }
   eas: { provider: "eas", resource: "project, build profiles, build, and submit workflow" },
 };
 
+const providerUrlDeferredCapabilities = new Set([
+  "transactional_email",
+  "lifecycle_email",
+  "ga4",
+  "gsc",
+  "bing_webmaster",
+  "vercel_analytics",
+]);
+
 export const launchProviderCapabilitiesByNode: Readonly<Record<string, readonly string[]>> = {
-  "github-repository": [
-    "repository",
-    "actions_secret",
-    "repository_settings",
-    "draft_pull_request",
-  ],
+  "github-repository": ["repository"],
   "neon-database": [
     "project",
     "branch",
@@ -66,7 +70,7 @@ export const launchProviderCapabilitiesByNode: Readonly<Record<string, readonly 
   "google-site-verification": ["site_verification"],
   "google-search-console": ["search_console_site", "search_console_sitemap"],
   "bing-discovery": ["site", "sitemap", "url_submission"],
-  "vercel-project": ["project", "environment_variable", "deployment", "domain", "web_analytics"],
+  "vercel-project": ["project", "deployment", "domain"],
   "vercel-database-environment": ["environment_variable"],
   "vercel-stripe-environment": ["environment_variable"],
   "vercel-stripe-webhook-environment": ["environment_variable"],
@@ -121,11 +125,10 @@ export const launchProviderByNode = {
 } as const satisfies Readonly<Record<string, string>>;
 
 /**
- * Integrations in this set may remain waiting without preventing the minimum
- * repository + production deployment + product-journey rail from completing.
- * They still stay in the graph so their exact auth/manual gap is durable and
- * resumable; the set only controls Grant materialization and dependency
- * placement, never authorization of an effect.
+ * Integrations in this set are deferred from the one-prompt founder launch.
+ * Their typed gaps remain durable in the Launch Receipt, while the initial
+ * graph stops at a verified provider production URL. A later, separately
+ * authorized workflow can attach DNS and the optional integrations.
  */
 export const launchOptionalProviderNodeIds: ReadonlySet<string> = new Set([
   "brevo-sending-domain",
@@ -142,15 +145,36 @@ export const launchOptionalProviderNodeIds: ReadonlySet<string> = new Set([
   "vercel-ga-environment",
   "analytics-production-redeploy",
   "email-production-redeploy",
+  "verify-custom-domain",
   "stripe-domain-callbacks",
 ]);
 
-/** Conservative upper bound: every authorized provider capability may compile
- * to at most one provider operation for that immutable graph node. */
+export interface LaunchCompilationOptions {
+  /**
+   * The first launch defaults to the provider URL. A custom-domain workflow is
+   * an explicit later authorization boundary after authoritative DNS read-back.
+   */
+  initialOrigin?: "provider_url" | "custom_domain";
+}
+
+const launchProviderOperationCeilingOverrides: Readonly<Record<string, number>> = Object.freeze({
+  // Vercel project planning performs a project lookup/create boundary plus the
+  // preview deployment while remaining inside the two exact capabilities.
+  "vercel-project": 3,
+});
+
+export function launchProviderNodeOperationCeiling(node: WorkflowNodeDefinition): number {
+  return (
+    launchProviderOperationCeilingOverrides[node.id] ??
+    Math.max(1, node.authorization.scopes.length)
+  );
+}
+
+/** Conservative per-node sum bound for the immutable founder Grant. */
 export function launchProviderOperationCeiling(definition: WorkflowDefinition): number {
   return definition.nodes
     .filter((node) => node.kind === "provider")
-    .reduce((total, node) => total + Math.max(1, node.authorization.scopes.length), 0);
+    .reduce((total, node) => total + launchProviderNodeOperationCeiling(node), 0);
 }
 
 export const launchBuildAgentHandlers = new Set([
@@ -229,9 +253,14 @@ function manualNode(
   });
 }
 
-export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: LaunchDecision) {
+export function compileLaunchGraph(
+  briefInput: FounderBrief,
+  decisionInput?: LaunchDecision,
+  options: LaunchCompilationOptions = {},
+) {
   const brief = founderBriefSchema.parse(briefInput);
   const decision = decisionInput ?? routeLaunch(brief);
+  const initialOrigin = options.initialOrigin ?? "provider_url";
   if (decision.capabilities.includes("file_storage")) {
     throw new Error(
       "file_storage was requested, but Venture Harness v0.2 has no selected storage provider, typed provider adapter, or manual evidence contract. Next: select and implement an explicit storage capability before compiling the launch graph; storage cannot be silently omitted.",
@@ -371,16 +400,26 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
       concurrencyGroup: "quality",
       evidence: { required: true, artifact: "reports/quality/launch-fast.json" },
     }),
+    workflowNode("verify-launch", {
+      purpose:
+        "Run the complete local child MVP gate, including typecheck, production build, deterministic product checks, and the primary journey, before any provider effect is permitted.",
+      capability: "quality.mvp",
+      dependencies: ["verify-local"],
+      handler: "launch.verifyMvp",
+      idempotencyKey: `launch:${brief.id}:verify-mvp`,
+      concurrencyGroup: "quality",
+      evidence: { required: true, artifact: "reports/quality/launch-mvp.json" },
+    }),
     providerNode(
       "github-repository",
       "Publish the verified local source tree to the child GitHub repository and read the exact remote commit back.",
       "github_repository",
-      ["verify-local"],
+      ["verify-launch"],
     ),
   ];
 
-  const completionDependencies = new Set<string>(["verify-local", "github-repository"]);
-  const preDeployDependencies = new Set<string>(["verify-local", "github-repository"]);
+  const completionDependencies = new Set<string>(["verify-launch", "github-repository"]);
+  const preDeployDependencies = new Set<string>(["verify-launch", "github-repository"]);
   const dnsDependencies: string[] = [];
   const has = (capability: string) => decision.capabilities.includes(capability as never);
   const needsBrevo = has("transactional_email") || has("lifecycle_email");
@@ -393,7 +432,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "neon-database",
         "Create or use an explicitly identified Neon database, capture a generated connection URI only behind a writable credential reference, apply the executable schema migration, and verify read/write health.",
         "database",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
       ),
     );
     completionDependencies.add("neon-database");
@@ -405,7 +444,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "brevo-sending-domain",
         "Create or locate the Brevo sending domain and read back its exact public DNS authentication record plan.",
         "transactional_email",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api",
       ),
     );
@@ -417,7 +456,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "stripe-commerce",
         "Create and verify the test-mode product and one exact immutable price before any deployment callback is configured.",
         "stripe",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api",
       ),
     );
@@ -430,7 +469,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "google-analytics-property",
         "Create or locate the GA4 property and read the exact property identifier back.",
         "google_discovery",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api",
       ),
     );
@@ -441,7 +480,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "google-site-dns-record",
         "Request and read back the exact Google DNS verification token without claiming site ownership.",
         "google_discovery",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "api",
       ),
     );
@@ -615,7 +654,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "apple-first-app-record",
         "Create the first App Store Connect app record and return app name, bundle ID, SKU, language, Apple app ID, and team ID.",
         "app_store_connect",
-        [repositoryReadyNodeId],
+        ["verify-launch"],
         "mobile_testflight",
       ),
     );
@@ -625,7 +664,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           "revenuecat-entitlements",
           "Configure Test Store app, products, entitlement, offering, packages, and webhook; keep Apple products pending until verified.",
           "revenuecat",
-          [repositoryReadyNodeId],
+          ["verify-launch"],
           "api",
         ),
       );
@@ -638,7 +677,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
           "eas-build",
           "Configure EAS project/build profiles and produce a reproducible iOS build.",
           "eas",
-          ["review-product", "verify-local"],
+          ["verify-launch"],
           "cli",
           "mobile_testflight",
         ),
@@ -664,18 +703,6 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     }
   }
 
-  nodes.push(
-    workflowNode("verify-launch", {
-      purpose:
-        "Verify the built application, critical journey, and every provider prerequisite required before production deployment.",
-      capability: "quality.mvp",
-      dependencies: [...preDeployDependencies, "vercel-project"].sort(),
-      handler: "launch.verifyMvp",
-      idempotencyKey: `launch:${brief.id}:verify-mvp`,
-      concurrencyGroup: "quality",
-      evidence: { required: true, artifact: "reports/quality/launch-mvp.json" },
-    }),
-  );
   const needsInitialProductionOrigin = has("stripe");
   if (needsInitialProductionOrigin) {
     nodes.push(
@@ -683,7 +710,7 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
         "initial-production-deploy",
         "Create and read back one initial production deployment so origin-dependent integrations bind to a real production URL, never a preview URL.",
         "public_website",
-        ["verify-launch"],
+        ["verify-launch", "vercel-project"],
       ),
     );
     completionDependencies.add("initial-production-deploy");
@@ -728,8 +755,8 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     );
   }
   const finalProductionDependencies = has("stripe")
-    ? stripeEnvironmentNodes.map(({ id }) => id)
-    : ["verify-launch"];
+    ? [...stripeEnvironmentNodes, ...criticalPreOriginEnvironmentNodes].map(({ id }) => id)
+    : ["verify-launch", "vercel-project", ...criticalPreOriginEnvironmentNodes.map(({ id }) => id)];
   nodes.push(
     providerNode(
       "production-deploy",
@@ -850,24 +877,46 @@ export function compileLaunchGraph(briefInput: FounderBrief, decisionInput?: Lau
     }),
   );
 
+  const effectiveNodes =
+    initialOrigin === "provider_url"
+      ? nodes
+          .filter((node) => !launchOptionalProviderNodeIds.has(node.id))
+          .map((node) =>
+            node.id === "vercel-project"
+              ? {
+                  ...node,
+                  purpose:
+                    "Create or link the explicitly scoped Vercel project, deploy preview, and read project and deployment state back without requesting a custom domain.",
+                  authorization: {
+                    ...node.authorization,
+                    scopes: node.authorization.scopes.filter((scope) => scope !== "domain"),
+                  },
+                }
+              : node,
+          )
+      : nodes;
   const budgets = Object.fromEntries(
-    [...new Set(nodes.map((node) => node.budgetCategory))].map((category) => [category, 0]),
+    [...new Set(effectiveNodes.map((node) => node.budgetCategory))].map((category) => [
+      category,
+      0,
+    ]),
   );
   return defineWorkflow({
     id: `launch-${brief.id}`,
     name: `Launch ${brief.name}`,
     version: "0.2.0",
-    nodes,
+    nodes: effectiveNodes,
     maxParallel: 4,
     // This is a scheduler safety bound, not a product-loop budget. A launch
     // graph can legitimately need several parallel batches plus resumptions.
-    maxIterations: Math.max(50, nodes.length * 4),
+    maxIterations: Math.max(50, effectiveNodes.length * 4),
     budgets,
     metadata: {
       synthetic: brief.synthetic ?? false,
       launchMode: decision.mode.selectedMode,
       appKind: decision.rail.appKind,
       paymentProvider: decision.payment.provider,
+      initialOrigin,
       activeEventPacks,
     },
   });
@@ -908,13 +957,20 @@ function criticalPath(graph: WorkflowDefinition): string[] {
 export function compileLaunchDryRun(
   briefInput: FounderBrief,
   decisionInput?: LaunchDecision,
+  options: LaunchCompilationOptions = {},
 ): LaunchDryRun {
   const brief = founderBriefSchema.parse(briefInput);
   const decision = decisionInput ?? routeLaunch(brief);
   if (decision.briefId !== brief.id) {
     throw new Error(`Launch decision for ${decision.briefId} cannot compile brief ${brief.id}`);
   }
-  const graph = compileLaunchGraph(brief, decision);
+  const graph = compileLaunchGraph(brief, decision, options);
+  const activeProviders = new Set<string>(
+    graph.nodes.flatMap((node) => {
+      const provider = launchProviderByNode[node.id as keyof typeof launchProviderByNode];
+      return provider ? [provider] : [];
+    }),
+  );
   const eventPacks = resolveActiveEventPacks({
     capabilities: decision.capabilities,
     appKind: decision.rail.appKind,
@@ -924,7 +980,15 @@ export function compileLaunchDryRun(
   const resources: DryRunResource[] = [];
   for (const capability of decision.capabilities) {
     const mapped = capabilityProviders[capability];
-    if (!mapped) continue;
+    if (
+      !mapped ||
+      !activeProviders.has(mapped.provider) ||
+      (graph.metadata?.initialOrigin === "provider_url" &&
+        providerUrlDeferredCapabilities.has(capability)) ||
+      capability === "vercel_analytics"
+    ) {
+      continue;
+    }
     resources.push({
       provider: mapped.provider,
       resource: mapped.resource,

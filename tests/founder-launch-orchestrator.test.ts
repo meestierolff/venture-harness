@@ -6,6 +6,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   compileFounderLaunchPreparation,
   founderStackRoleDefinitions,
+  loadFounderIdeaFile,
   materializeFounderVenture,
   parseFounderStackConnection,
   renderFounderIdea,
@@ -109,6 +111,20 @@ afterEach(() => {
 });
 
 describe("one-prompt founder launch preparation", () => {
+  it("reads the idea through a descriptor-bound workspace boundary", () => {
+    const baseDir = temporaryDirectory();
+    const ideaPath = join(baseDir, "idea.md");
+    const aliasPath = join(baseDir, "idea-alias.md");
+    writeFileSync(ideaPath, "# Descriptor-bound idea\n", { mode: 0o600 });
+    symlinkSync("idea.md", aliasPath);
+
+    expect(loadFounderIdeaFile("idea.md", baseDir)).toBe("# Descriptor-bound idea\n");
+    expect(() => loadFounderIdeaFile("idea-alias.md", baseDir)).toThrow(
+      "Founder launch --idea must be a regular non-symlink file",
+    );
+    expect(existsSync(join(baseDir, ".founder-launch-idea.lock"))).toBe(false);
+  });
+
   it("places the default child directly under the configured ventures root", () => {
     const baseDir = temporaryDirectory();
     const result = prepare({ baseDir });
@@ -166,6 +182,7 @@ describe("one-prompt founder launch preparation", () => {
       domain: {
         requested: "exception-desk.example.test",
         mode: "manual_consolidated_action",
+        canonicalOrigin: "provider_production_url",
       },
       setup: {
         analytics: "google_analytics",
@@ -181,8 +198,6 @@ describe("one-prompt founder launch preparation", () => {
       "DATABASE_URL",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
-      "BREVO_API_KEY",
-      "NEXT_PUBLIC_GA_MEASUREMENT_ID",
     ]);
     // The ordinary web seed has no universal evidence database. A migration is
     // selected only when the reviewed journey needs persistence.
@@ -210,6 +225,7 @@ describe("one-prompt founder launch preparation", () => {
         estimateBasis: "reviewed_known_zero_direct_charge",
         ongoingAccountPlanUsageCovered: false,
       },
+      permissions: { domainConfiguration: false },
     });
     expect(result.launchGrant).not.toHaveProperty("modelBudget");
     expect(result.launchGrant).not.toHaveProperty("externalResourceBudget");
@@ -241,12 +257,21 @@ describe("one-prompt founder launch preparation", () => {
           provider: "stripe",
           externalAccountId: "fixture-stripe-account",
         }),
-        expect.objectContaining({
-          provider: "dns",
-          externalAccountId: "fixture-dns-zone-owner",
-          ownership: "company_owned",
-        }),
       ]),
+    );
+    expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
+      "dns",
+    );
+    expect(result.launchGaps).toContainEqual(
+      expect.objectContaining({
+        code: "custom_domain_deferred",
+        role: "dns.records",
+        state: "waiting_for_external_action",
+        blocksLaunch: false,
+      }),
+    );
+    expect(result.graphDryRun.graph.nodes.map(({ id }) => id)).not.toEqual(
+      expect.arrayContaining(["dns-records", "verify-custom-domain", "stripe-domain-callbacks"]),
     );
   });
 
@@ -336,9 +361,9 @@ describe("one-prompt founder launch preparation", () => {
       executionMode: "apply",
     });
 
-    // Commerce, email, analytics and search can all be configured against the
-    // stable provider production URL, so a missing custom domain is a deferred
-    // action rather than something that stops a first app from going live.
+    // Commerce can bind to the stable provider production URL. Optional email,
+    // analytics and discovery remain explicit deferred actions rather than
+    // stopping the first app from going live.
     expect(domainless.status).toBe("ready");
     expect(domainless.grantDisposition).not.toBe("withheld_blocked");
     expect(domainless.blockers.map((blocker) => blocker.code)).not.toContain("domain_missing");
@@ -350,7 +375,7 @@ describe("one-prompt founder launch preparation", () => {
     });
   });
 
-  it("carries missing optional DNS setup as a typed launch gap without withholding the core Grant", async () => {
+  it("keeps deferred custom DNS independent of optional Stack setup", async () => {
     const base = JSON.parse(readFileSync("fixtures/founder-stack/founder-default.json", "utf8"));
     const missingAdapter = parseFounderStackConnection({
       ...base,
@@ -365,24 +390,21 @@ describe("one-prompt founder launch preparation", () => {
     const adapterBlocked = prepare({ stack: missingAdapter, executionMode: "apply" });
     const destinationBlocked = prepare({ stack: missingDestination, executionMode: "apply" });
 
-    expect(adapterBlocked.launchGaps).toContainEqual(
-      expect.objectContaining({
-        code: "stack_role_not_ready",
-        role: "dns.records",
-        state: "waiting_for_external_action",
-        blocksLaunch: false,
-        message: expect.stringContaining("manual DNS adapter"),
-      }),
-    );
-    expect(destinationBlocked.launchGaps).toContainEqual(
-      expect.objectContaining({
-        code: "provider_account_missing",
-        role: "dns.records",
-        provider: "dns",
-        state: "waiting_for_auth",
-        blocksLaunch: false,
-      }),
-    );
+    for (const result of [adapterBlocked, destinationBlocked]) {
+      expect(result.launchGaps).toContainEqual(
+        expect.objectContaining({
+          code: "custom_domain_deferred",
+          role: "dns.records",
+          provider: "dns",
+          state: "waiting_for_external_action",
+          blocksLaunch: false,
+        }),
+      );
+      expect(result.selectedProviders.map(({ role }) => role)).not.toContain("dns.records");
+      expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
+        "dns",
+      );
+    }
     expect(adapterBlocked).toMatchObject({ status: "ready", grantDisposition: "issued_for_apply" });
     expect(destinationBlocked).toMatchObject({
       status: "ready",
@@ -426,9 +448,21 @@ describe("one-prompt founder launch preparation", () => {
     expect(result.blockers).toEqual([]);
     expect(result.launchGaps).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ role: "email.transactional", state: "waiting_for_auth" }),
-        expect.objectContaining({ role: "growth.google", state: "waiting_for_auth" }),
-        expect.objectContaining({ role: "search.bing", state: "waiting_for_auth" }),
+        expect.objectContaining({
+          code: "optional_integration_deferred",
+          role: "email.transactional",
+          state: "waiting_for_external_action",
+        }),
+        expect.objectContaining({
+          code: "optional_integration_deferred",
+          role: "growth.google",
+          state: "waiting_for_external_action",
+        }),
+        expect.objectContaining({
+          code: "optional_integration_deferred",
+          role: "search.bing",
+          state: "waiting_for_external_action",
+        }),
       ]),
     );
     expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).toEqual(
@@ -439,6 +473,9 @@ describe("one-prompt founder launch preparation", () => {
     );
     expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
       "bing",
+    );
+    expect(result.launchGrant.providerAccounts.map(({ provider }) => provider)).not.toContain(
+      "google",
     );
     const graph = result.graphDryRun.graph;
     const ancestors = (nodeId: string, seen = new Set<string>()): Set<string> => {
@@ -460,10 +497,15 @@ describe("one-prompt founder launch preparation", () => {
         "bing-discovery",
       ]),
     );
-    expect(graph.nodes.find(({ id }) => id === "google-analytics-stream")?.dependencies).toEqual([
-      "google-analytics-property",
-      "initial-production-deploy",
-    ]);
+    expect(graph.nodes.map(({ id }) => id)).not.toEqual(
+      expect.arrayContaining([
+        "brevo-email",
+        "google-analytics-property",
+        "google-analytics-stream",
+        "google-search-console",
+        "bing-discovery",
+      ]),
+    );
     expect(graph.nodes.find(({ id }) => id === "verify-production")?.dependencies).toEqual([
       "production-deploy",
     ]);

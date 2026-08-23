@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
   writeFileSync,
+  type Stats,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { isIP } from "node:net";
@@ -71,6 +76,7 @@ import {
   founderStackRoleDefinitions,
   founderBriefFromLaunchContract,
   founderSeedFor,
+  decimalPriceToMinorUnits,
   loadFounderStackConnectionFile,
   loadFounderIdeaFile,
   materializeFounderVenture,
@@ -108,6 +114,7 @@ import {
   launchBuildAgentHandlers,
   launchBuildAgentTaskCount,
   launchProviderByNode,
+  launchProviderNodeOperationCeiling,
   launchOptionalProviderNodeIds,
   launchProviderOperationCeiling,
   requiredCapabilitiesForLaunch,
@@ -883,6 +890,35 @@ function launchPath(root: string, runId: string): string {
 const CANONICAL_LAUNCH_CONTRACT_PATH = "config/launch-contract.yaml" as const;
 const CANONICAL_PRODUCT_CONSTITUTION_PATH = "docs/product/PRODUCT_CONSTITUTION.md" as const;
 const CANONICAL_FOUNDER_IDEA_PATH = "docs/product/idea.md" as const;
+const NO_FOLLOW_FILE_FLAG = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+
+interface BoundFileIdentity {
+  readonly device: number;
+  readonly inode: number;
+  readonly size: number;
+  readonly modifiedAtMs: number;
+  readonly changedAtMs: number;
+}
+
+function boundFileIdentity(metadata: Stats): BoundFileIdentity {
+  return {
+    device: metadata.dev,
+    inode: metadata.ino,
+    size: metadata.size,
+    modifiedAtMs: metadata.mtimeMs,
+    changedAtMs: metadata.ctimeMs,
+  };
+}
+
+function sameBoundFile(metadata: Stats, expected: BoundFileIdentity): boolean {
+  return (
+    metadata.dev === expected.device &&
+    metadata.ino === expected.inode &&
+    metadata.size === expected.size &&
+    metadata.mtimeMs === expected.modifiedAtMs &&
+    metadata.ctimeMs === expected.changedAtMs
+  );
+}
 
 function readRegularBoundFile(root: string, reference: string, label: string): string {
   const canonicalRoot = realpathSync(root);
@@ -891,19 +927,51 @@ function readRegularBoundFile(root: string, reference: string, label: string): s
   let cursor = canonicalRoot;
   for (const component of relation.split(sep).filter(Boolean)) {
     cursor = resolve(cursor, component);
+    if (cursor === target) {
+      let descriptor: number;
+      try {
+        descriptor = openSync(cursor, constants.O_RDONLY | NO_FOLLOW_FILE_FLAG);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") throw new Error(`${label} is missing at ${reference}`);
+        if (code === "ELOOP") {
+          throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
+        }
+        throw error;
+      }
+      try {
+        const opened = fstatSync(descriptor);
+        if (!opened.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
+        const initial = boundFileIdentity(opened);
+        const canonical = realpathSync(cursor);
+        const pathMetadata = lstatSync(cursor);
+        if (canonical !== cursor || pathMetadata.isSymbolicLink()) {
+          throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
+        }
+        if (!sameBoundFile(pathMetadata, initial)) {
+          throw new Error(`${label} changed while it was being opened: ${reference}`);
+        }
+        const content = readFileSync(descriptor, "utf8");
+        if (!sameBoundFile(fstatSync(descriptor), initial)) {
+          throw new Error(`${label} changed while it was being read: ${reference}`);
+        }
+        const after = lstatSync(cursor);
+        if (
+          realpathSync(cursor) !== cursor ||
+          after.isSymbolicLink() ||
+          !sameBoundFile(after, initial)
+        ) {
+          throw new Error(`${label} changed while it was being read: ${reference}`);
+        }
+        return content;
+      } finally {
+        closeSync(descriptor);
+      }
+    }
     if (!existsSync(cursor)) throw new Error(`${label} is missing at ${reference}`);
     const metadata = lstatSync(cursor);
     if (metadata.isSymbolicLink()) {
       throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
-    }
-    if (cursor === target) {
-      if (!metadata.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
-      const content = readFileSync(cursor, "utf8");
-      const after = lstatSync(cursor);
-      if (after.isSymbolicLink() || after.dev !== metadata.dev || after.ino !== metadata.ino) {
-        throw new Error(`${label} changed while it was being read: ${reference}`);
-      }
-      return content;
     }
     if (!metadata.isDirectory()) {
       throw new Error(`${label} has a non-directory path component: ${reference}`);
@@ -1123,6 +1191,7 @@ function providerIds(definition: WorkflowDefinition): ProviderId[] {
 function requiredLaunchGrantEffects(
   brief: FounderBrief,
   paymentProvider: LaunchDecision["payment"]["provider"],
+  definition: WorkflowDefinition,
 ): LaunchEffect[] {
   const effects = new Set<LaunchEffect>([
     "repository.create",
@@ -1131,7 +1200,9 @@ function requiredLaunchGrantEffects(
     "preview.deploy",
     "production.deploy",
   ]);
-  if (brief.domain) effects.add("domain.configure");
+  if (brief.domain && definition.metadata?.initialOrigin !== "provider_url") {
+    effects.add("domain.configure");
+  }
   if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
@@ -1317,6 +1388,7 @@ function assertLaunchGrantBindsGraph(input: {
   const requiredEffects = requiredLaunchGrantEffects(
     input.brief,
     input.decision.payment.provider,
+    input.definition,
   ).sort();
   const grantedEffects = [...grant.allowedExternalEffects].sort();
   if (!isDeepStrictEqual(requiredEffects, grantedEffects)) {
@@ -1351,7 +1423,11 @@ function assertLaunchGrantBindsGraph(input: {
   if (!grant.permissions.productionDeployment) {
     throw new Error("Launch Grant does not authorize a production deployment");
   }
-  if (input.brief.domain && !grant.permissions.domainConfiguration) {
+  if (
+    input.brief.domain &&
+    input.definition.metadata?.initialOrigin !== "provider_url" &&
+    !grant.permissions.domainConfiguration
+  ) {
     throw new Error("Launch Grant does not authorize the requested domain configuration");
   }
   if (
@@ -1575,13 +1651,23 @@ function immutableFounderStripePrice(input: {
   unitAmount: number;
   recurringInterval?: "month" | "year";
 } {
+  const exactUnitAmount = (amount: number | null, errorMessage: string): number => {
+    if (amount === null) throw new Error(errorMessage);
+    try {
+      const unitAmount = decimalPriceToMinorUnits(amount);
+      if (unitAmount < 1) throw new Error(errorMessage);
+      return unitAmount;
+    } catch {
+      throw new Error(errorMessage);
+    }
+  };
   if (input.launchContract) {
     const contract = launchContractSchema.parse(input.launchContract);
     const amount = contract.business.priceHypothesis;
-    const unitAmount = amount === null ? Number.NaN : amount * 100;
-    if (!Number.isSafeInteger(unitAmount) || unitAmount < 1) {
-      throw new Error("Canonical Launch Contract has no exact Stripe minor-unit amount");
-    }
+    const unitAmount = exactUnitAmount(
+      amount,
+      "Canonical Launch Contract has no exact Stripe minor-unit amount",
+    );
     return {
       productName: contract.venture.name,
       currency: contract.business.currency.toLowerCase(),
@@ -1616,10 +1702,13 @@ function immutableFounderStripePrice(input: {
   const selected = candidates.filter(
     (candidate): candidate is NonNullable<(typeof candidates)[number]> => candidate !== null,
   );
-  const unitAmount = selected.length === 1 ? selected[0]!.amount * 100 : Number.NaN;
-  if (!Number.isSafeInteger(unitAmount) || unitAmount < 1) {
+  if (selected.length !== 1) {
     throw new Error("Immutable founder offer snapshot has no single exact Stripe price");
   }
+  const unitAmount = exactUnitAmount(
+    selected[0]!.amount,
+    "Immutable founder offer snapshot has no single exact Stripe price",
+  );
   return {
     productName: input.brief.name,
     currency: pricing.currency.toLowerCase(),
@@ -1851,7 +1940,7 @@ function bindFounderProviderFactories(input: {
         return {
           ...target,
           operationBudget: {
-            maxOperations: Math.max(1, node.authorization.scopes.length),
+            maxOperations: launchProviderNodeOperationCeiling(node),
             missingCostClassification: {
               basis: "reviewed_known_zero_direct_charge",
               currency: grant.providerOperationBudget!.currency,
@@ -2627,13 +2716,21 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       );
     }
 
+    const providerBrief: FounderBrief =
+      launch.definition.metadata?.initialOrigin === "provider_url" && launch.brief.domain
+        ? { ...launch.brief, domain: null }
+        : launch.brief;
+    const providerLaunchContext: LaunchBindingContext = {
+      ...launchContext,
+      brief: providerBrief,
+    };
     const unboundedProviderPlanFactories = options.providerPlanFactories
       ? typeof options.providerPlanFactories === "function"
-        ? await options.providerPlanFactories(launchContext)
+        ? await options.providerPlanFactories(providerLaunchContext)
         : options.providerPlanFactories
       : createDefaultProviderPlanFactories({
           rootDir: root,
-          brief: launch.brief,
+          brief: providerBrief,
           definition: launch.definition,
           ...(providerConfigSnapshot ? { configSnapshot: providerConfigSnapshot } : {}),
           ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
@@ -2645,7 +2742,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           definition: launch.definition,
           grant: launch.launchGrant,
           providerConfig: providerConfigSnapshot!,
-          brief: launch.brief,
+          brief: providerBrief,
           ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
           root,
           broker: credentialBroker,
@@ -3154,6 +3251,40 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
             }
             saveCredentialCatalog(credentialCatalog, catalogPath);
           }
+        } else if (workflow.status === "waiting") {
+          founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          const childServices = createDefaultCliServices(childOptions(childRoot));
+          if (!childServices.resume) throw new Error("Founder child resume service is unavailable");
+          try {
+            workflow = await childServices.resume({ runId });
+            founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
+          } catch (error) {
+            if (childStore.exists(runId)) {
+              const persisted = childStore.load(runId);
+              const persistedStatus: FounderLaunchTransaction["status"] =
+                persisted.status === "succeeded"
+                  ? "succeeded"
+                  : persisted.status === "waiting"
+                    ? "waiting_external_action"
+                    : ["failed", "cancelled", "superseded"].includes(persisted.status)
+                      ? "failed"
+                      : "launch_pending";
+              transaction = {
+                ...transaction,
+                status: persistedStatus,
+                updatedAt: new Date(
+                  Math.max(Date.parse(transaction.updatedAt), now().getTime()),
+                ).toISOString(),
+              };
+              saveFounderLaunchTransaction(childRoot, transaction);
+            }
+            throw error;
+          } finally {
+            for (const reference of credentialBroker.list()) {
+              credentialCatalog = upsertCredentialReference(credentialCatalog, reference);
+            }
+            saveCredentialCatalog(credentialCatalog, catalogPath);
+          }
         }
 
         const transactionStatus: FounderLaunchTransaction["status"] =
@@ -3273,7 +3404,10 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     async launch(request) {
       const project = loadProject(root);
       const brief = project.brief;
-      const dryRun = compileLaunchDryRun(brief, project.decision);
+      const compilationOptions = request.launchGrant
+        ? ({ initialOrigin: "provider_url" } as const)
+        : undefined;
+      const dryRun = compileLaunchDryRun(brief, project.decision, compilationOptions);
       if (request.mode === "dry-run") return dryRun as unknown as JsonValue;
       const runId = request.runId ?? generatedRunId(brief, now());
       if (store.exists(runId)) {
@@ -3285,7 +3419,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       );
       const launchAt = now();
       let definition = scopeLaunchGraphForAuthorization(
-        compileLaunchGraph(brief, project.decision),
+        compileLaunchGraph(brief, project.decision, compilationOptions),
         request.authorization!,
       );
       const pendingFounderTransaction = request.pendingFounderGrantRenewal
@@ -3468,6 +3602,13 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       }
       const runtime = await bindingsFor(launch);
       const executor = new WorkflowExecutor({ store, bindings: runtime.bindings });
+      for (const [nodeId, record] of Object.entries(persistedState.nodes)) {
+        if (record.state !== "waiting_for_auth" || record.definition.kind !== "provider") continue;
+        await executor.refreshAuthorization(request.runId, nodeId, {
+          authorizedBy: "vh-cli-user",
+          note: "Re-probe requested through vh resume because the provider prerequisite may now be resolved outside the run; the provider factory must verify readiness before any effect.",
+        });
+      }
       if (request.nodeId) {
         const evidenceArtifact = artifactReferenceSchema.parse(request.evidenceArtifact);
         if (request.resolutionKind === "checkpoint_grant") {

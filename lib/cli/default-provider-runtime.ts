@@ -11,7 +11,11 @@ import {
 } from "../config/provider-schema";
 import { offerSchema } from "../config/schemas";
 import { ventureSchema, type VentureV02 } from "../config/venture-schema";
-import { launchContractSchema, type LaunchContract } from "../founder-launch";
+import {
+  decimalPriceToMinorUnits,
+  launchContractSchema,
+  type LaunchContract,
+} from "../founder-launch";
 import {
   inspectCliPrerequisites,
   type CliPrerequisite,
@@ -494,9 +498,10 @@ function githubRequest(
       [lifecycleCapability ?? "repository"],
       [{ type: "repository", value: repository }],
     );
-    return request(target, credentialRef, ["repository_settings"], {
+    return request(target, credentialRef, ["repository"], {
       repository,
-      deleteBranchOnMerge: true,
+      sourceDirectory: resolve(rootDir),
+      visibility: snapshot.venture.venture.repository_visibility,
     });
   }
   return fail(
@@ -864,14 +869,14 @@ function neonRequest(
 }
 
 function exactMinorUnits(handler: string, amount: number, path: string): number {
-  const minorUnits = amount * 100;
-  if (!Number.isSafeInteger(minorUnits) || minorUnits < 0) {
+  try {
+    return decimalPriceToMinorUnits(amount);
+  } catch {
     fail(
       handler,
       `${path} must be a non-negative amount with no more than two decimal places. Next: correct the approved offer price before creating an immutable Stripe price`,
     );
   }
-  return minorUnits;
 }
 
 function safeVerifiedVercelOrigin(

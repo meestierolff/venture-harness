@@ -4,7 +4,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,8 +28,11 @@ import {
   renderProductConstitution,
 } from "@/lib/founder-launch";
 import { MockProviderTransport, type ProviderOperation } from "@/lib/providers";
-import { expectedDnsRecordsFromDependencies } from "@/lib/launch";
-import { createOfficialProviderContext, FileProviderIdempotencyLedger } from "@/lib/runtime";
+import {
+  createOfficialProviderContext,
+  FileProviderIdempotencyLedger,
+  ProviderPlanFactoryPrerequisiteError,
+} from "@/lib/runtime";
 import { FileWorkflowStore, type WorkflowBindings } from "@/lib/workflow";
 import { syntheticProviderPlanFactories } from "./fixtures/provider/launch-runtime";
 import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
@@ -36,7 +41,7 @@ const temporaryDirectories: string[] = [];
 
 function harness(
   withProductBindings = true,
-  withProviderFactories = true,
+  providerAuthReadyInitially = true,
   now: () => Date = () => new Date("2026-08-04T12:00:00.000Z"),
 ) {
   const root = mkdtempSync(join(tmpdir(), "vh-cli-launch-"));
@@ -176,13 +181,43 @@ function harness(
     backend: "memory",
     label: "Synthetic writable Google measurement capture target",
   });
+  let providerAuthReady = providerAuthReadyInitially;
   const services = createDefaultCliServices({
     rootDir: root,
     store,
     launchBindings,
-    providerPlanFactories: withProviderFactories
-      ? ({ definition }) => syntheticProviderPlanFactories(definition)
-      : undefined,
+    providerPlanFactories: ({ definition }) => {
+      const factories = Object.fromEntries(
+        Object.entries(syntheticProviderPlanFactories(definition)).map(([handler, factory]) => [
+          handler,
+          async (workflow: Parameters<typeof factory>[0]) => {
+            const target = await factory(workflow);
+            return {
+              ...target,
+              request: {
+                ...target.request,
+                capabilities: workflow.node.authorization.scopes,
+              },
+            };
+          },
+        ]),
+      );
+      const githubFactory = factories["provider.github-repository"];
+      return !githubFactory
+        ? factories
+        : {
+            ...factories,
+            "provider.github-repository": async (workflow) => {
+              if (!providerAuthReady) {
+                throw new ProviderPlanFactoryPrerequisiteError(
+                  "Configure config/providers.yaml providers.github.credential_ref before provider execution.",
+                  "auth",
+                );
+              }
+              return githubFactory(workflow);
+            },
+          };
+    },
     providerRuntimeContext: createOfficialProviderContext({
       credentials: credentialBroker,
       redactor,
@@ -202,6 +237,9 @@ function harness(
     services,
     calls,
     providerCalls: { cli: cliTransport.calls, http: httpTransport.calls },
+    resolveProviderAuth: () => {
+      providerAuthReady = true;
+    },
     io,
     stdout,
     stderr,
@@ -416,6 +454,14 @@ describe("default vh launch services", () => {
     expect(stderr.at(-1)).toContain("on-disk Launch Contract");
     writeFileSync(diskContractPath, renderLaunchContractYaml(launchReceiptContract()));
 
+    const realContractPath = join(root, "config/launch-contract.real.yaml");
+    renameSync(diskContractPath, realContractPath);
+    symlinkSync("launch-contract.real.yaml", diskContractPath);
+    expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("must not resolve through a symbolic link");
+    rmSync(diskContractPath);
+    renameSync(realContractPath, diskContractPath);
+
     const constitutionPath = join(root, "docs/product/PRODUCT_CONSTITUTION.md");
     writeFileSync(constitutionPath, "# Replaced constitution\n");
     expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(1);
@@ -490,7 +536,7 @@ describe("default vh launch services", () => {
 
   it("renews an expired persisted envelope explicitly without changing the run graph", async () => {
     let currentTime = new Date("2026-08-04T12:00:00.000Z");
-    const { root, services, store, io, stdout, stderr } = harness(true, true, () => currentTime);
+    const { root, services, store, io, stdout, stderr } = harness(true, false, () => currentTime);
     await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
       services,
       store,
@@ -548,7 +594,7 @@ describe("default vh launch services", () => {
     expect(store.load("launch-renewal").graph.fingerprint).toBe(originalFingerprint);
   });
 
-  it("creates, plans, dry-runs, applies, resolves manual evidence, and resumes one run", async () => {
+  it("creates, plans, applies the provider-URL graph, and replays one completed run", async () => {
     const { root, services, store, calls, providerCalls, io, stdout, stderr } = harness();
     const brief = resolve("fixtures/web-saas/brief.yaml");
 
@@ -575,11 +621,12 @@ describe("default vh launch services", () => {
     );
 
     expect((await runCli(["plan", "--json"], { services, store, io })).exitCode).toBe(0);
-    expect(JSON.parse(stdout.pop()!).graph.nodes.length).toBeGreaterThan(10);
+    const plan = JSON.parse(stdout.pop()!);
+    expect(plan.graph.nodes.length).toBeGreaterThan(10);
+    expect(plan.graph.metadata.initialOrigin).toBe("provider_url");
+    expect(plan.graph.nodes.map(({ id }: { id: string }) => id)).not.toContain("dns-records");
     expect((await runCli(["launch", "--dry-run"], { services, store, io })).exitCode).toBe(0);
-    expect(
-      JSON.parse(stdout.pop()!).manualActions.map((action: { nodeId: string }) => action.nodeId),
-    ).toContain("dns-records");
+    expect(JSON.parse(stdout.pop()!).manualActions).toEqual([]);
 
     expect(
       (
@@ -597,14 +644,15 @@ describe("default vh launch services", () => {
       ).exitCode,
       stderr.join("\n"),
     ).toBe(0);
-    expect(JSON.parse(stdout.pop()!).status).toBe("waiting");
+    expect(JSON.parse(stdout.pop()!).status).toBe("succeeded");
     expect(store.load("launch-synthetic-web").nodes["production-deploy"].state).toBe("succeeded");
     expect(store.load("launch-synthetic-web").nodes["verify-production"].state).toBe("succeeded");
     expect(store.load("launch-synthetic-web").nodes["launch-report"].state).toBe("succeeded");
-    const waitingReportPath = join(root, "reports/launch/launch-synthetic-web/final.json");
-    expect(existsSync(waitingReportPath)).toBe(true);
-    expect(JSON.parse(readFileSync(waitingReportPath, "utf8"))).toMatchObject({
-      overallState: "waiting",
+    expect(store.load("launch-synthetic-web").nodes["dns-records"]).toBeUndefined();
+    const reportPath = join(root, "reports/launch/launch-synthetic-web/final.json");
+    expect(existsSync(reportPath)).toBe(true);
+    expect(JSON.parse(readFileSync(reportPath, "utf8"))).toMatchObject({
+      overallState: "succeeded",
       launch: {
         mode: "thin_mvp",
         paymentProvider: "stripe",
@@ -618,7 +666,7 @@ describe("default vh launch services", () => {
         ]),
         consentMode: "strict",
       },
-      remainingManualActions: [{ nodeId: "dns-records" }],
+      remainingManualActions: [],
       sections: {
         checksRun: expect.arrayContaining([
           expect.stringContaining("verify-local: succeeded"),
@@ -639,60 +687,6 @@ describe("default vh launch services", () => {
         ]),
       },
     });
-
-    const manualEvidence = "reports/launch/launch-synthetic-web/manual/dns-records.json";
-    mkdirSync(join(root, "reports/launch/launch-synthetic-web/manual"), { recursive: true });
-    writeFileSync(
-      join(root, manualEvidence),
-      `${JSON.stringify(
-        {
-          schema_version: 1,
-          kind: "manual_action_evidence",
-          run_id: "launch-synthetic-web",
-          node_id: "dns-records",
-          status: "verified",
-          approved_by: "vh-cli-user",
-          verified_at: "2026-08-04T12:00:00.000Z",
-          output: {
-            mode: "manual_dns",
-            records: expectedDnsRecordsFromDependencies(
-              Object.fromEntries(
-                store
-                  .load("launch-synthetic-web")
-                  .nodes["dns-records"].definition.dependencies.map((dependency) => [
-                    dependency,
-                    store.load("launch-synthetic-web").nodes[dependency]?.output,
-                  ]),
-              ),
-            ),
-            preserved_existing_mail_records: true,
-            preserved_nameservers: true,
-            propagation_checks: [
-              {
-                resolver: "fixture-resolver-one",
-                checked_at: "2026-08-04T12:00:00.000Z",
-                status: "matched",
-              },
-              {
-                resolver: "fixture-resolver-two",
-                checked_at: "2026-08-04T12:00:00.000Z",
-                status: "matched",
-              },
-            ],
-          },
-          verification: ["Synthetic typed evidence only; no provider state is claimed."],
-          limitations: ["Synthetic fixture."],
-        },
-        null,
-        2,
-      )}\n`,
-    );
-    const resumeResult = await runCli(
-      ["resume", "launch-synthetic-web", "--manual", "dns-records", "--evidence", manualEvidence],
-      { services, store, io },
-    );
-    expect(resumeResult.exitCode, stderr.join("\n")).toBe(0);
-    expect(JSON.parse(stdout.pop()!).status).toBe("succeeded");
     const completedCalls = [...calls.entries()];
     const completedProviderCalls = {
       cli: providerCalls.cli.length,
@@ -702,20 +696,32 @@ describe("default vh launch services", () => {
     expect([...calls.entries()]).toEqual(completedCalls);
     expect(providerCalls.cli).toHaveLength(completedProviderCalls.cli);
     expect(providerCalls.http).toHaveLength(completedProviderCalls.http);
-    expect(JSON.parse(readFileSync(waitingReportPath, "utf8"))).toMatchObject({
+    expect(JSON.parse(readFileSync(reportPath, "utf8"))).toMatchObject({
       overallState: "succeeded",
       remainingManualActions: [],
     });
     expect(existsSync(join(root, "reports/launch/launch-synthetic-web/final.md"))).toBe(true);
-    expect(readFileSync(waitingReportPath, "utf8")).not.toContain(
-      "synthetic-cli-secret-never-persist",
-    );
+    expect(readFileSync(reportPath, "utf8")).not.toContain("synthetic-cli-secret-never-persist");
     expect(existsSync(join(root, "reports/launch/launch-synthetic-web/providers"))).toBe(true);
   });
 
-  it("preserves missing provider auth as a durable wait before any provider call", async () => {
-    const { root, services, store, io, stdout, providerCalls } = harness(true, false);
-    await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
+  it("persists a provider-auth blocker and resumes the same graph exactly once", async () => {
+    let currentTime = new Date("2026-08-04T12:00:00.000Z");
+    const { root, services, store, calls, io, stdout, stderr, providerCalls, resolveProviderAuth } =
+      harness(true, false, () => currentTime);
+    const brief = parse(readFileSync(resolve("fixtures/web-saas/brief.yaml"), "utf8")) as {
+      needs: {
+        transactional_email: boolean;
+        analytics: boolean;
+        search_discovery: boolean;
+      };
+    };
+    brief.needs.transactional_email = false;
+    brief.needs.analytics = false;
+    brief.needs.search_discovery = false;
+    const briefPath = join(root, "provider-auth-blocker-brief.yaml");
+    writeFileSync(briefPath, `${JSON.stringify(brief, null, 2)}\n`);
+    await runCli(["create", "--brief", briefPath], {
       services,
       store,
       io,
@@ -732,20 +738,136 @@ describe("default vh launch services", () => {
       { services, store, io },
     );
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(stdout.pop()!)).toMatchObject({ status: "waiting" });
-    const state = store.load("launch-no-runtime");
-    expect(state.nodes["github-repository"]).toMatchObject({
+    expect(JSON.parse(stdout.pop()!)).toMatchObject({
+      runId: "launch-no-runtime",
+      status: "waiting",
+    });
+    const persistedStore = new FileWorkflowStore({ rootDir: join(root, ".venture/runs") });
+    const waitingState = persistedStore.load("launch-no-runtime");
+    expect(waitingState.nodes["github-repository"]).toMatchObject({
       state: "waiting_for_auth",
       error: { code: "AUTH_REQUIRED" },
     });
-    expect(state.nodes["github-repository"].error?.message).toContain(
+    expect(waitingState.nodes["github-repository"].error?.message).toContain(
       "config/providers.yaml providers.github.credential_ref",
     );
-    expect(providerCalls.cli).toHaveLength(0);
-    expect(providerCalls.http).toHaveLength(0);
-    expect(existsSync(join(root, "reports/launch/launch-no-runtime/final.json"))).toBe(true);
-    expect((await runCli(["resume", "launch-no-runtime"], { services, store, io })).exitCode).toBe(
-      0,
+    const providerCallsBeforeAuth = {
+      cli: providerCalls.cli.length,
+      http: providerCalls.http.length,
+    };
+    const operationCounts = (operations: readonly ProviderOperation[]) => {
+      const counts = new Map<string, number>();
+      for (const operation of operations) {
+        const key = JSON.stringify([
+          operation.provider,
+          operation.capability,
+          operation.action,
+          operation.idempotencyKey,
+        ]);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return counts;
+    };
+    const providerOperationsBeforeAuth = operationCounts([
+      ...providerCalls.cli,
+      ...providerCalls.http,
+    ]);
+    expect(providerOperationsBeforeAuth.size).toBeGreaterThan(0);
+    const completedProviderOutputsBeforeAuth = Object.fromEntries(
+      Object.entries(waitingState.nodes)
+        .filter(
+          ([, record]) => record.definition.kind === "provider" && record.state === "succeeded",
+        )
+        .map(([nodeId, record]) => [nodeId, structuredClone(record.output)]),
     );
+    expect(Object.keys(completedProviderOutputsBeforeAuth).length).toBeGreaterThan(0);
+    const graphFingerprint = waitingState.graph.fingerprint;
+    const completedBeforeAuth = new Map(calls);
+    const launchMetadataPath = join(root, ".venture/launches/launch-no-runtime.json");
+    const launchMetadataBeforeResume = readFileSync(launchMetadataPath, "utf8");
+    expect(JSON.parse(launchMetadataBeforeResume)).not.toHaveProperty("launchGrant");
+    expect(existsSync(join(root, "reports/launch/launch-no-runtime/final.json"))).toBe(true);
+
+    resolveProviderAuth();
+    currentTime = new Date("2026-08-04T14:00:00.000Z");
+    const expiredResume = await runCli(["resume", "launch-no-runtime"], {
+      services,
+      store,
+      io,
+    });
+    expect(expiredResume.exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("--authorization live-commerce-launch");
+    expect(store.load("launch-no-runtime").nodes["github-repository"]?.state).toBe(
+      "waiting_for_auth",
+    );
+    expect(providerCalls.cli).toHaveLength(providerCallsBeforeAuth.cli);
+    expect(providerCalls.http).toHaveLength(providerCallsBeforeAuth.http);
+    expect(readFileSync(launchMetadataPath, "utf8")).toBe(launchMetadataBeforeResume);
+
+    const resumed = await runCli(
+      ["resume", "launch-no-runtime", "--authorization", "live-commerce-launch"],
+      { services, store, io },
+    );
+    expect(resumed.exitCode).toBe(0);
+    expect(
+      Object.entries(store.load("launch-no-runtime").nodes)
+        .filter(([, record]) => record.state.startsWith("waiting_"))
+        .map(([nodeId, record]) => [nodeId, record.state, record.error?.message]),
+    ).toEqual([]);
+    expect(JSON.parse(stdout.pop()!)).toMatchObject({
+      runId: "launch-no-runtime",
+      status: "succeeded",
+    });
+    const completedState = store.load("launch-no-runtime");
+    expect(completedState.graph.fingerprint).toBe(graphFingerprint);
+    for (const [handler, count] of completedBeforeAuth) {
+      expect(calls.get(handler), `completed handler ${handler} ran again after auth`).toBe(count);
+    }
+    const completedProductCalls = [...calls.entries()];
+    const completedProviderCalls = {
+      cli: providerCalls.cli.length,
+      http: providerCalls.http.length,
+    };
+    const completedProviderOperations = operationCounts([
+      ...providerCalls.cli,
+      ...providerCalls.http,
+    ]);
+    for (const [operation, count] of providerOperationsBeforeAuth) {
+      expect(
+        completedProviderOperations.get(operation),
+        `completed provider operation ran again after auth: ${operation}`,
+      ).toBe(count);
+    }
+    for (const [nodeId, output] of Object.entries(completedProviderOutputsBeforeAuth)) {
+      expect(completedState.nodes[nodeId]?.output).toEqual(output);
+    }
+    expect(providerCalls.cli.length).toBeGreaterThanOrEqual(providerCallsBeforeAuth.cli);
+    expect(providerCalls.http.length).toBeGreaterThanOrEqual(providerCallsBeforeAuth.http);
+    const completedLaunchMetadata = readFileSync(launchMetadataPath, "utf8");
+    const initialLaunch = JSON.parse(launchMetadataBeforeResume) as Record<string, unknown>;
+    const completedLaunch = JSON.parse(completedLaunchMetadata) as Record<string, unknown>;
+    const { authorization: initialAuthorization, ...initialImmutableLaunch } = initialLaunch;
+    const { authorization: completedAuthorization, ...completedImmutableLaunch } = completedLaunch;
+    expect(completedImmutableLaunch).toEqual(initialImmutableLaunch);
+    expect(completedLaunch).not.toHaveProperty("launchGrant");
+    expect(initialAuthorization).toMatchObject({ run_id: "launch-no-runtime" });
+    expect(completedAuthorization).toMatchObject({
+      run_id: "launch-no-runtime",
+      issued_at: "2026-08-04T14:00:00.000Z",
+      approval_ref: "cli:vh-resume:live-commerce-launch",
+    });
+
+    const replay = await runCli(["resume", "launch-no-runtime"], { services, store, io });
+    expect(replay.exitCode).toBe(0);
+    expect(JSON.parse(stdout.pop()!)).toMatchObject({
+      runId: "launch-no-runtime",
+      status: "succeeded",
+    });
+    expect(store.load("launch-no-runtime")).toEqual(completedState);
+    expect([...calls.entries()]).toEqual(completedProductCalls);
+    expect(providerCalls.cli).toHaveLength(completedProviderCalls.cli);
+    expect(providerCalls.http).toHaveLength(completedProviderCalls.http);
+    expect(readFileSync(launchMetadataPath, "utf8")).toBe(completedLaunchMetadata);
+    expect(store.listRuns()).toEqual(["launch-no-runtime"]);
   });
 });

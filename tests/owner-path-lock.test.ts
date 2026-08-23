@@ -6,6 +6,8 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,5 +67,23 @@ describe("OwnerPathLock", () => {
       /parent must not permit another OS principal to rename/,
     );
     expect(existsSync(join(root, ".venture-harness-owner.lock"))).toBe(false);
+  });
+
+  it("reads only the regular file bound to its no-follow descriptor", () => {
+    const root = temporaryRoot();
+    const source = join(root, "source.txt");
+    const alias = join(root, "alias.txt");
+    writeFileSync(source, "descriptor-bound content\n", { mode: 0o600 });
+    symlinkSync("source.txt", alias);
+    const boundary = new OwnerPathLock(root, { label: "fixture operation" });
+
+    expect(boundary.readRegularFile(source, { label: "fixture source", maxBytes: 1_024 })).toBe(
+      "descriptor-bound content\n",
+    );
+    expect(() => boundary.readRegularFile(alias, { label: "fixture alias" })).toThrow(
+      "fixture alias must be a regular non-symlink file",
+    );
+
+    boundary.release();
   });
 });

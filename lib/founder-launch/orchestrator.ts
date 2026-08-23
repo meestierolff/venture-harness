@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import {
   compileLaunchDryRun,
   launchBuildAgentTaskCount,
@@ -21,6 +20,7 @@ import {
   type SeedId,
   type VentureMaterializationPlan,
 } from "../materialization";
+import { OwnerPathLock } from "../security/owner-path-lock";
 import { compileFounderIdea, type CompiledFounderIdea } from "./idea";
 import { resolveVentureOutputWithinRoot } from "./founder-config";
 import { launchContractDigest, launchDecisionFromContract } from "./launch-contract";
@@ -81,7 +81,9 @@ export interface FounderLaunchBlocker {
     | "stack_role_not_ready"
     | "repository_owner_missing"
     | "exact_price_missing"
-    | "provider_account_missing";
+    | "provider_account_missing"
+    | "custom_domain_deferred"
+    | "optional_integration_deferred";
   readonly role?: FounderStackRole;
   readonly provider?: string;
   readonly message: string;
@@ -262,7 +264,6 @@ function effectsFor(
     "preview.deploy",
     "production.deploy",
   ]);
-  if (brief.domain) effects.add("domain.configure");
   if (paymentProvider !== "none") effects.add("commerce.configure");
   if (brief.needs.scheduled_learning) effects.add("loops.schedule");
   return [...effects];
@@ -282,30 +283,23 @@ function containedOutput(baseDir: string, requested: string | undefined, slug: s
 
 export function loadFounderIdeaFile(file: string, baseDir = process.cwd()): string {
   if (!file) throw new Error("Founder launch --idea requires a file path");
-  const root = realpathSync(resolve(baseDir));
-  const target = resolve(root, file);
-  const child = relative(root, target);
-  if (child === "" || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
-    throw new Error("Founder launch --idea escapes the selected workspace");
+  const boundary = new OwnerPathLock(resolve(baseDir), {
+    label: "Founder launch idea read",
+    lockName: ".founder-launch-idea.lock",
+  });
+  try {
+    return boundary.readRegularFile(resolve(boundary.root.path, file), {
+      label: "Founder launch --idea",
+      maxBytes: MAX_IDEA_BYTES,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("escapes the locked")) {
+      throw new Error("Founder launch --idea escapes the selected workspace", { cause: error });
+    }
+    throw error;
+  } finally {
+    boundary.release();
   }
-  const metadata = lstatSync(target);
-  if (metadata.isSymbolicLink() || !metadata.isFile()) {
-    throw new Error("Founder launch --idea must be a regular non-symlink file");
-  }
-  const canonicalTarget = realpathSync(target);
-  const canonicalChild = relative(root, canonicalTarget);
-  if (
-    canonicalChild === "" ||
-    canonicalChild === ".." ||
-    canonicalChild.startsWith(`..${sep}`) ||
-    isAbsolute(canonicalChild)
-  ) {
-    throw new Error("Founder launch --idea resolves outside the selected workspace");
-  }
-  if (metadata.size > MAX_IDEA_BYTES) {
-    throw new Error(`Founder launch --idea exceeds the ${MAX_IDEA_BYTES}-byte limit`);
-  }
-  return readFileSync(canonicalTarget, "utf8");
 }
 
 export function resolveFounderWorkflowRefSha(baseDir: string, explicit?: string): string {
@@ -504,6 +498,67 @@ function readinessFor(
       );
     }
   }
+  if (compiled.brief.domain) {
+    launchGaps.push({
+      code: "custom_domain_deferred",
+      role: "dns.records",
+      provider: "dns",
+      message: `The requested custom domain ${compiled.brief.domain} is deferred until Vercel attachment and authoritative DNS can be verified in a separately authorized action.`,
+      nextAction: `Attach ${compiled.brief.domain}, apply the consolidated additive DNS records, and verify authoritative DNS before selecting it as canonical.`,
+      state: "waiting_for_external_action",
+      blocksLaunch: false,
+    });
+  }
+  if (compiled.brief.needs.transactional_email || compiled.brief.needs.lifecycle_email) {
+    launchGaps.push({
+      code: "optional_integration_deferred",
+      role: "email.transactional",
+      provider: "brevo",
+      message: "Transactional email is selected but deferred from the initial provider-URL launch.",
+      nextAction:
+        "Authorize a separate Brevo action, verify the sending domain and sender, bind the credential reference, and redeploy before claiming email readiness.",
+      state: "waiting_for_external_action",
+      blocksLaunch: false,
+    });
+  }
+  if (compiled.brief.needs.analytics) {
+    launchGaps.push({
+      code: "optional_integration_deferred",
+      role: "growth.google",
+      provider: "google",
+      message: "Google Analytics is selected but deferred from the initial provider-URL launch.",
+      nextAction:
+        "Authorize a separate Google Analytics action, read the property and stream back, bind the public measurement identifier, and redeploy before claiming analytics readiness.",
+      state: "waiting_for_external_action",
+      blocksLaunch: false,
+    });
+  }
+  if (compiled.brief.needs.search_discovery) {
+    launchGaps.push(
+      {
+        code: "optional_integration_deferred",
+        role: "growth.google",
+        provider: "google",
+        message:
+          "Google Search Console verification is selected but deferred from the initial provider-URL launch.",
+        nextAction:
+          "After the custom domain is authoritative, authorize Google ownership verification and read the property and sitemap submission back without inferring indexation.",
+        state: "waiting_for_external_action",
+        blocksLaunch: false,
+      },
+      {
+        code: "optional_integration_deferred",
+        role: "search.bing",
+        provider: "bing",
+        message:
+          "Bing Webmaster discovery is selected but deferred from the initial provider-URL launch.",
+        nextAction:
+          "After the public origin is final, authorize Bing site and sitemap setup and read acceptance back without inferring indexation.",
+        state: "waiting_for_external_action",
+        blocksLaunch: false,
+      },
+    );
+  }
   const unique = <T extends FounderLaunchBlocker>(items: readonly T[]): T[] =>
     items.filter(
       (item, index, all) =>
@@ -531,8 +586,18 @@ export function compileFounderLaunchPreparation(
   const decision = idea.launchContract
     ? launchDecisionFromContract(idea.launchContract)
     : undefined;
-  const dryRun = compileLaunchDryRun(idea.brief, decision);
-  const roles = requiredRoles(idea.brief, dryRun.decision.payment.provider);
+  const dryRun = compileLaunchDryRun(idea.brief, decision, {
+    initialOrigin: "provider_url",
+  });
+  const activeProviders = new Set<string>(
+    dryRun.graph.nodes.flatMap((node) => {
+      const provider = launchProviderByNode[node.id as keyof typeof launchProviderByNode];
+      return provider ? [provider] : [];
+    }),
+  );
+  const roles = requiredRoles(idea.brief, dryRun.decision.payment.provider).filter((role) =>
+    activeProviders.has(providerForRole(role)),
+  );
   const outputDirectory = containedOutput(input.baseDir, input.output, idea.brief.id);
   const repositoryOwner =
     accountIdFor(connection, "source.repository") ?? connection.ownerOrganizationId;
@@ -576,7 +641,7 @@ export function compileFounderLaunchPreparation(
     },
     permissions: {
       productionDeployment: input.production,
-      domainConfiguration: input.production && Boolean(idea.brief.domain),
+      domainConfiguration: false,
       liveCommerceConfiguration: input.production && dryRun.decision.payment.provider !== "none",
     },
     createdAt: input.at.toISOString(),
@@ -696,9 +761,8 @@ export function compileFounderLaunchPreparation(
       expectedRecords: idea.brief.domain
         ? ["Vercel attachment records", "Google site-verification TXT", "Brevo mail records"]
         : [],
-      canonicalOrigin: (idea.brief.domain
-        ? "custom_domain_after_readback"
-        : "provider_production_url") as FounderLaunchPreparation["domain"]["canonicalOrigin"],
+      canonicalOrigin:
+        "provider_production_url" as FounderLaunchPreparation["domain"]["canonicalOrigin"],
       pendingAction: idea.brief.domain
         ? domainMode === "automatic_if_adapter_available"
           ? "Attach the domain through the installed DNS adapter, then read authoritative DNS back before treating it as canonical."

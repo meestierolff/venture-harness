@@ -39,17 +39,7 @@ describe("authorization-scoped launch graphs", () => {
     expect(scoped.nodes.some(({ id }) => id === "verify-production")).toBe(false);
     expect(scoped.nodes.some(({ kind }) => kind === "manual_action")).toBe(false);
     expect(requiredEnvironmentsForLaunch(scoped)).toEqual(["local", "preview"]);
-    expect(requiredCapabilitiesForLaunch(scoped)).toEqual([
-      "actions_secret",
-      "deployment",
-      "domain",
-      "draft_pull_request",
-      "environment_variable",
-      "project",
-      "repository",
-      "repository_settings",
-      "web_analytics",
-    ]);
+    expect(requiredCapabilitiesForLaunch(scoped)).toEqual(["deployment", "project", "repository"]);
     expect(requiredCapabilitiesForLaunch(scoped)).not.toContain("*");
   });
 

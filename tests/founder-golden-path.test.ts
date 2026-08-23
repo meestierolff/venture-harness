@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe("synthetic founder Golden Path", () => {
-  it("runs the canonical root CLI from idea through verified launch, resume, and Core upgrade", async () => {
+  it("runs the canonical root CLI from idea through provider-URL launch, replay, and Core upgrade", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "vh-founder-golden-path-"));
     temporaryDirectories.push(rootDir);
     const result = await runSyntheticFounderGoldenPath({ rootDir });
@@ -27,9 +27,8 @@ describe("synthetic founder Golden Path", () => {
         stackDoctor: "ready",
         ideaCompile: "ready",
         launchGrant: "issued_for_apply",
-        firstApply: "waiting_external_action",
-        manualDns: "verified_fixture",
-        resume: "succeeded",
+        firstApply: "succeeded",
+        customDomain: "deferred_nonblocking",
         replay: "idempotent",
         coreUpgrade: "0.2.0_to_0.2.1",
       },
@@ -66,12 +65,21 @@ describe("synthetic founder Golden Path", () => {
         [...CHILD_DEPENDENCY_INSTALL_ARGS],
         ["verify:fast"],
         ["verify:mvp"],
-        ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts"],
+        ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts", "--retries=0"],
+        [
+          "exec",
+          "playwright",
+          "test",
+          "tests/e2e/primary-journey.spec.ts",
+          "--retries=0",
+          "--trace=on",
+        ],
       ]),
     );
     expect(new Set(result.proof.providerPlans.map(({ provider }) => provider))).toEqual(
-      new Set(["github", "neon", "stripe", "brevo", "google", "bing", "vercel"]),
+      new Set(["github", "neon", "stripe", "vercel"]),
     );
+    expect(result.proof.deployment.customDomain).toBeNull();
     expect(result.proof.deployment.environmentVariables).toHaveLength(5);
     expect(result.proof.upgrade.preservedPaths).toEqual(
       expect.arrayContaining([
@@ -102,5 +110,49 @@ describe("synthetic founder Golden Path", () => {
     expect(readFileSync(result.launchReport.markdown, "utf8")).toContain(
       "reviewed direct-operation ceiling 0 EUR; ongoing account-plan usage excluded",
     );
+  }, 120_000);
+
+  it("persists a GitHub auth wait and resumes idempotently through the exact same founder command", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "vh-founder-auth-resume-"));
+    temporaryDirectories.push(rootDir);
+    const result = await runSyntheticFounderGoldenPath({
+      rootDir,
+      githubAuthWaitResume: true,
+    });
+
+    expect(result.lifecycle).toMatchObject({
+      launchGrant: "issued_for_apply",
+      firstApply: "waiting_for_auth",
+      authResume: "same_command_succeeded",
+      replay: "idempotent",
+    });
+    expect(result.proof.blockingResume).toEqual({
+      waitingNode: "github-repository",
+      sameChildIdentity: true,
+      materializationUnchanged: true,
+      sameRunId: true,
+      sameLaunchGrant: true,
+      completedProviderOperationsPreserved: true,
+      buildCallsPreserved: true,
+      replayZeroEffect: true,
+    });
+    const exactApply = [
+      "launch",
+      "--idea",
+      "./idea.md",
+      "--stack",
+      "founder-default",
+      "--production",
+      "--apply",
+      "--non-interactive",
+      "--output",
+      "ventures/exception-desk",
+      "--json",
+    ];
+    expect(
+      result.proof.rootCliArgv.filter(
+        (argv) => JSON.stringify(argv) === JSON.stringify(exactApply),
+      ),
+    ).toHaveLength(3);
   }, 120_000);
 });

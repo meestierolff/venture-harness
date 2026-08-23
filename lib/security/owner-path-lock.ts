@@ -314,25 +314,33 @@ export class OwnerPathLock {
     const absolute = this.#canonicalPath(path);
     this.#relative(absolute, options.label);
     this.#assertExistingAncestors(absolute, options.label, false);
-    const pathMetadata = lstatSync(absolute);
-    if (pathMetadata.isSymbolicLink() || !pathMetadata.isFile()) {
-      throw new Error(`${options.label} must be a regular non-symlink file`);
+    let descriptor: number;
+    try {
+      descriptor = openSync(absolute, constants.O_RDONLY | noFollow);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+        throw new Error(`${options.label} must be a regular non-symlink file`);
+      }
+      throw error;
     }
-    assertOwnerControlled(pathMetadata, options.label);
-    if (options.maxBytes !== undefined && pathMetadata.size > options.maxBytes) {
-      throw new Error(`${options.label} exceeds the ${options.maxBytes}-byte limit`);
-    }
-    const initial = fileIdentity(pathMetadata);
-    const descriptor = openSync(absolute, constants.O_RDONLY | noFollow);
     try {
       const opened = fstatSync(descriptor);
-      if (!sameFileIdentity(opened, initial)) {
-        throw new Error(`${options.label} changed while it was being opened`);
+      if (!opened.isFile()) {
+        throw new Error(`${options.label} must be a regular non-symlink file`);
       }
+      assertOwnerControlled(opened, options.label);
+      if (options.maxBytes !== undefined && opened.size > options.maxBytes) {
+        throw new Error(`${options.label} exceeds the ${options.maxBytes}-byte limit`);
+      }
+      const initial = fileIdentity(opened);
       this.assertRoot();
       const canonical = realpathSync(absolute);
       this.#relative(canonical, options.label);
-      if (canonical !== absolute || !sameFileIdentity(lstatSync(absolute), initial)) {
+      const pathMetadata = lstatSync(absolute);
+      if (canonical !== absolute || pathMetadata.isSymbolicLink()) {
+        throw new Error(`${options.label} must be a regular non-symlink file`);
+      }
+      if (!sameFileIdentity(pathMetadata, initial)) {
         throw new Error(`${options.label} changed after validation`);
       }
       const content = readFileSync(descriptor, "utf8");

@@ -8,7 +8,7 @@ import {
   readFileSync,
   realpathSync,
   readdirSync,
-  writeFileSync,
+  statSync,
 } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
@@ -29,17 +29,17 @@ import {
   type FounderStackRole,
   founderStackRoleDefinitions,
 } from "@/lib/founder-launch";
-import { expectedDnsRecordsFromDependencies } from "@/lib/launch";
 import type { MigrationFileSystem } from "@/lib/migrations";
 import { CommandProviderTransport, HttpProviderTransport } from "@/lib/providers";
 import {
   createOfficialProviderContext,
   FileProviderIdempotencyLedger,
   FileProviderLifecycleStore,
+  ProviderPlanFactoryPrerequisiteError,
   type ProviderWorkflowPlanFactory,
 } from "@/lib/runtime";
 import { applyUpgrade, type HarnessRelease } from "@/lib/upgrade";
-import { FileWorkflowStore, type JsonValue, type WorkflowRunState } from "@/lib/workflow";
+import { FileWorkflowStore } from "@/lib/workflow";
 import { runVhShell } from "../../scripts/vh-bundle";
 import {
   FounderGoldenPathBuildAgentFixture,
@@ -91,6 +91,7 @@ interface ShellCallResult {
 export interface SyntheticFounderGoldenPathOptions {
   rootDir: string;
   ideaFixture?: string;
+  githubAuthWaitResume?: boolean;
 }
 
 export interface SyntheticFounderGoldenPathResult {
@@ -105,9 +106,9 @@ export interface SyntheticFounderGoldenPathResult {
     stackDoctor: "ready";
     ideaCompile: "ready";
     launchGrant: "issued_for_apply";
-    firstApply: "waiting_external_action";
-    manualDns: "verified_fixture";
-    resume: "succeeded";
+    firstApply: "succeeded" | "waiting_for_auth";
+    authResume: "not_required" | "same_command_succeeded";
+    customDomain: "deferred_nonblocking";
     replay: "idempotent";
     coreUpgrade: "0.2.0_to_0.2.1";
   };
@@ -125,11 +126,21 @@ export interface SyntheticFounderGoldenPathResult {
     productCommands: string[][];
     repository: { remote: string; commit: string; tree: string };
     migration: { command: string; cwd: string; readBack: true };
-    deployment: { url: string; environmentVariables: string[] };
+    deployment: { url: string; customDomain: null; environmentVariables: string[] };
     primaryJourney: { signal: "invoice_draft_confirmed"; directTests: "passed" };
     upgrade: { dryRun: "planned"; apply: "applied"; preservedPaths: string[] };
     durableIdempotencyLedger: string;
     fixtureProvenance: string[];
+    blockingResume: null | {
+      waitingNode: "github-repository";
+      sameChildIdentity: true;
+      materializationUnchanged: true;
+      sameRunId: true;
+      sameLaunchGrant: true;
+      completedProviderOperationsPreserved: true;
+      buildCallsPreserved: true;
+      replayZeroEffect: true;
+    };
     secretsPersisted: false;
   };
 }
@@ -144,14 +155,6 @@ function record(value: unknown, label: string): Record<string, unknown> {
 function stringValue(value: unknown, label: string): string {
   if (typeof value !== "string" || value.length === 0) throw new Error(`${label} is missing`);
   return value;
-}
-
-function workflowState(value: unknown): WorkflowRunState {
-  const candidate = record(value, "workflow result") as unknown as WorkflowRunState;
-  if (!candidate.runId || !candidate.nodes || !candidate.status) {
-    throw new Error("CLI workflow output is incomplete");
-  }
-  return candidate;
 }
 
 function sha256(path: string): string {
@@ -355,6 +358,8 @@ function readableRepositoryText(root: string): string {
 function providerFactoriesFor(
   context: LaunchBindingContext,
   transportFixture: FounderGoldenPathOfficialTransportFixture,
+  githubAuthReady: () => boolean,
+  executionCounts: Map<string, number>,
 ): Readonly<Record<string, ProviderWorkflowPlanFactory>> {
   const defaults = createDefaultProviderPlanFactories({
     rootDir: context.rootDir,
@@ -368,7 +373,22 @@ function providerFactoriesFor(
   return Object.fromEntries(
     Object.entries(defaults).map(([handler, factory]) => [
       handler,
-      async (workflow) => transportFixture.register(await factory(workflow)),
+      async (workflow) => {
+        if (workflow.runId !== "doctor-plan-only") {
+          executionCounts.set(handler, (executionCounts.get(handler) ?? 0) + 1);
+        }
+        if (
+          handler === "provider.github-repository" &&
+          workflow.runId !== "doctor-plan-only" &&
+          !githubAuthReady()
+        ) {
+          throw new ProviderPlanFactoryPrerequisiteError(
+            "Authenticate the configured GitHub account, then rerun the exact founder apply command.",
+            "auth",
+          );
+        }
+        return transportFixture.register(await factory(workflow));
+      },
     ]),
   );
 }
@@ -428,6 +448,8 @@ export async function runSyntheticFounderGoldenPath(
   assert.match(workflowRefSha, /^[a-f0-9]{40}$/u);
 
   let executionTime = NOW;
+  let githubAuthReady = !options.githubAuthWaitResume;
+  const providerFactoryExecutionCounts = new Map<string, number>();
   const commonOptions: Omit<DefaultCliServicesOptions, "rootDir" | "store"> = {
     founderStackRoot: stackRoot,
     founderOutputRoot: rootDir,
@@ -439,7 +461,13 @@ export async function runSyntheticFounderGoldenPath(
     productCommandRunner: productCommands,
     buildAgentHost: buildAgent,
     providerContext: { ...rootProviderRuntime, authorization: "dry_run" },
-    providerPlanFactories: (context) => providerFactoriesFor(context, transportFixture),
+    providerPlanFactories: (context) =>
+      providerFactoriesFor(
+        context,
+        transportFixture,
+        () => githubAuthReady,
+        providerFactoryExecutionCounts,
+      ),
     providerRuntimeContext: (context) =>
       createOfficialProviderContext({
         commandRunner: transportFixture,
@@ -528,133 +556,180 @@ export async function runSyntheticFounderGoldenPath(
     CHILD_OUTPUT,
     "--json",
   ] as const;
-  const launch = record(await rootCall(applyArgs), "founder apply");
-  assert.equal(launch.status, "waiting_external_action");
-  assert.equal(launch.mode, "apply");
-  assert.equal(launch.childRoot, childRoot);
-  assert.equal(record(launch.launchGrant, "issued grant").status, "issued_for_apply");
-  assert.equal(record(launch.materialized, "materialized child").status, "materialized");
-  const runId = stringValue(launch.runId, "launch run id");
-  assert.equal(launch.workflowStatus, "waiting");
-
+  const firstLaunch = record(await rootCall(applyArgs), "founder apply");
+  assert.equal(firstLaunch.mode, "apply");
+  assert.equal(firstLaunch.childRoot, childRoot);
+  assert.equal(record(firstLaunch.launchGrant, "issued grant").status, "issued_for_apply");
+  assert.equal(record(firstLaunch.materialized, "materialized child").status, "materialized");
+  const firstRunId = stringValue(firstLaunch.runId, "launch run id");
   const childStore = new FileWorkflowStore({
     rootDir: resolve(childRoot, ".venture/runs"),
   });
-  const waitingState = childStore.load(runId);
-  assert.equal(waitingState.status, "waiting");
-  // A bare `pending` here says nothing about why the graph stopped. The run is
-  // already known to be waiting, so if DNS is not the node that is waiting then
-  // something upstream is, and naming it is the whole diagnosis.
-  const dnsState = waitingState.nodes["dns-records"]?.state;
-  if (dnsState !== "waiting_for_manual_action") {
-    const unfinished = Object.entries(waitingState.nodes)
-      .filter(([, node]) => node.state !== "succeeded")
-      .map(([id, node]) => `${id}=${node.state}${node.error ? ` (${node.error.code})` : ""}`)
-      .join(", ");
-    assert.fail(
-      `Expected dns-records to be waiting_for_manual_action but it was ${dnsState}. ` +
-        `The run status is ${waitingState.status}, so another node stopped the graph first. ` +
-        `Unfinished nodes: ${unfinished || "none"}.`,
-    );
-  }
-  const dependencyOutputs = Object.fromEntries(
-    waitingState.nodes["dns-records"]!.definition.dependencies.map((dependency) => [
-      dependency,
-      waitingState.nodes[dependency]?.output,
-    ]),
-  ) as Readonly<Record<string, JsonValue | undefined>>;
-  const records = expectedDnsRecordsFromDependencies(dependencyOutputs);
-  assert.ok(records.length >= 3, "manual DNS fixture must consolidate provider record plans");
-  const evidenceReference = `reports/launch/${runId}/manual/dns-records.json`;
-  const evidencePath = relativeFile(childRoot, evidenceReference);
-  mkdirSync(dirname(evidencePath), { recursive: true, mode: 0o700 });
-  writeFileSync(
-    evidencePath,
-    `${JSON.stringify(
+  let launch = firstLaunch;
+  let blockingResumeVerified = false;
+  if (options.githubAuthWaitResume) {
+    assert.equal(firstLaunch.status, "waiting_external_action");
+    assert.equal(firstLaunch.workflowStatus, "waiting");
+    const waitingState = childStore.load(firstRunId);
+    assert.equal(waitingState.status, "waiting");
+    assert.deepEqual(
       {
-        schema_version: 1,
-        kind: "manual_action_evidence",
-        run_id: runId,
-        node_id: "dns-records",
-        status: "verified",
-        approved_by: "vh-cli-user",
-        verified_at: NOW.toISOString(),
-        output: {
-          mode: "manual_dns",
-          records,
-          preserved_existing_mail_records: true,
-          preserved_nameservers: true,
-          propagation_checks: [
-            {
-              resolver: "resolver-a.fixture.invalid",
-              checked_at: NOW.toISOString(),
-              status: "matched",
-            },
-            {
-              resolver: "resolver-b.fixture.invalid",
-              checked_at: NOW.toISOString(),
-              status: "matched",
-            },
-          ],
-        },
-        verification: [
-          "Fixture-backed exact record-set comparison passed.",
-          "Two deterministic resolver read-backs matched; no live DNS state is claimed.",
-        ],
-        limitations: ["Synthetic fixture evidence only; no public DNS request was sent."],
+        state: waitingState.nodes["github-repository"]?.state,
+        code: waitingState.nodes["github-repository"]?.error?.code,
       },
-      null,
-      2,
-    )}\n`,
-    { encoding: "utf8", mode: 0o600 },
-  );
+      { state: "waiting_for_auth", code: "AUTH_REQUIRED" },
+    );
 
-  const childServices = createDefaultCliServices({
-    ...commonOptions,
-    rootDir: childRoot,
-    store: childStore,
-  });
-  const childCall = async (args: readonly string[]) => {
-    const call = await invokeRootCli({ args, services: childServices, store: childStore });
-    calls.push(call);
-    return call.value;
-  };
-  executionTime = new Date(NOW.getTime() + 25 * 60 * 60 * 1_000);
-  const resumed = workflowState(
-    await childCall([
-      "resume",
-      runId,
-      "--authorization",
-      "live-commerce-launch",
-      "--manual",
-      "dns-records",
-      "--evidence",
-      evidenceReference,
-      "--json",
-    ]),
-  );
-  assert.equal(resumed.status, "succeeded");
-  const renewedLaunch = record(
-    JSON.parse(readFileSync(resolve(childRoot, `.venture/launches/${runId}.json`), "utf8")),
-    "renewed launch metadata",
-  );
-  const renewedAuthorization = record(renewedLaunch.authorization, "renewed launch authorization");
-  assert.equal(
-    renewedAuthorization.approval_ref,
-    `launch-grant-renewal:${record(launch.launchGrant, "launch grant").grantId}:cli:live-commerce-launch`,
-  );
-  assert.deepEqual(renewedAuthorization.max_estimated_spend, {
-    amount: 0,
-    currency: "EUR",
-  });
-  assert.equal(renewedAuthorization.unknown_external_costs_allowed, false);
-  assert.ok(Object.values(resumed.nodes).every(({ state }) => state === "succeeded"));
+    const childIdentity = statSync(childRoot);
+    assert.ok(childIdentity.isDirectory());
+    const immutableMaterialization = Object.fromEntries(
+      [
+        ".venture/founder-input.json",
+        ".venture/launch-grant.json",
+        ".venture/launch-grant.receipt.json",
+        "harness.lock",
+        "package.json",
+        "venture.manifest.json",
+      ].map((path) => [path, readFileSync(relativeFile(childRoot, path), "utf8")]),
+    );
+    const launchGrantBeforeResume = structuredClone(
+      record(firstLaunch.launchGrant, "waiting launch grant"),
+    );
+    assert.ok(
+      transportFixture.invocations.length > 0,
+      "at least one independent provider operation must finish before GitHub auth blocks",
+    );
+    const completedProviderOutputs = Object.fromEntries(
+      Object.entries(waitingState.nodes)
+        .filter(([, node]) => node.definition.kind === "provider" && node.state === "succeeded")
+        .map(([nodeId, node]) => [nodeId, structuredClone(node.output)]),
+    );
+    assert.ok(Object.keys(completedProviderOutputs).length > 0);
+    const completedProviderFactoryCounts = new Map(
+      Object.values(waitingState.nodes)
+        .filter((node) => node.definition.kind === "provider" && node.state === "succeeded")
+        .map((node) => [
+          node.definition.handler!,
+          providerFactoryExecutionCounts.get(node.definition.handler!) ?? 0,
+        ]),
+    );
+    assert.ok([...completedProviderFactoryCounts.values()].every((count) => count === 1));
+    const providerLedgerPath = resolve(childRoot, ".venture/provider-idempotency.json");
+    const providerLedgerBeforeResume = record(
+      JSON.parse(readFileSync(providerLedgerPath, "utf8")),
+      "provider ledger before GitHub auth resume",
+    );
+    const providerLedgerEntriesBeforeResume = structuredClone(
+      record(
+        providerLedgerBeforeResume.entries,
+        "provider ledger entries before GitHub auth resume",
+      ),
+    );
+    assert.ok(Object.keys(providerLedgerEntriesBeforeResume).length > 0);
+    const buildInvocationsBeforeResume = [...buildAgent.invocations];
+    const productCommandsBeforeResume = structuredClone(productCommands.invocations);
+    const completedProductCommandCounts = new Map<string, number>();
+    for (const invocation of productCommandsBeforeResume) {
+      const key = JSON.stringify(invocation);
+      completedProductCommandCounts.set(key, (completedProductCommandCounts.get(key) ?? 0) + 1);
+    }
+    assert.ok(buildInvocationsBeforeResume.length > 0);
+    assert.ok(productCommandsBeforeResume.length > 0);
+
+    githubAuthReady = true;
+    executionTime = new Date(executionTime.getTime() + 60_000);
+    launch = record(await rootCall(applyArgs), "founder apply after GitHub auth");
+    assert.equal(launch.status, "succeeded");
+    assert.equal(launch.workflowStatus, "succeeded");
+    assert.equal(launch.childRoot, childRoot);
+    assert.equal(launch.runId, firstRunId);
+    assert.deepEqual(record(launch.launchGrant, "resumed launch grant"), launchGrantBeforeResume);
+    assert.equal(
+      record(launch.materialized, "resumed materialization").planDigest,
+      record(firstLaunch.materialized, "waiting materialization").planDigest,
+    );
+    const resumedChildIdentity = statSync(childRoot);
+    assert.equal(resumedChildIdentity.dev, childIdentity.dev);
+    assert.equal(resumedChildIdentity.ino, childIdentity.ino);
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.keys(immutableMaterialization).map((path) => [
+          path,
+          readFileSync(relativeFile(childRoot, path), "utf8"),
+        ]),
+      ),
+      immutableMaterialization,
+    );
+    const resumedState = childStore.load(firstRunId);
+    assert.equal(resumedState.status, "succeeded");
+    for (const [nodeId, output] of Object.entries(completedProviderOutputs)) {
+      assert.deepEqual(resumedState.nodes[nodeId]?.output, output);
+    }
+    for (const [handler, count] of completedProviderFactoryCounts) {
+      assert.equal(
+        providerFactoryExecutionCounts.get(handler),
+        count,
+        `completed provider plan ran again after GitHub auth: ${handler}`,
+      );
+    }
+    const providerLedgerAfterResume = record(
+      JSON.parse(readFileSync(providerLedgerPath, "utf8")),
+      "provider ledger after GitHub auth resume",
+    );
+    const providerLedgerEntriesAfterResume = record(
+      providerLedgerAfterResume.entries,
+      "provider ledger entries after GitHub auth resume",
+    );
+    for (const [key, entry] of Object.entries(providerLedgerEntriesBeforeResume)) {
+      assert.deepEqual(providerLedgerEntriesAfterResume[key], entry);
+    }
+    assert.deepEqual(buildAgent.invocations, buildInvocationsBeforeResume);
+    const resumedProductCommandCounts = new Map<string, number>();
+    for (const invocation of productCommands.invocations) {
+      const key = JSON.stringify(invocation);
+      resumedProductCommandCounts.set(key, (resumedProductCommandCounts.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of completedProductCommandCounts) {
+      assert.equal(
+        resumedProductCommandCounts.get(key),
+        count,
+        `completed product command ran again after GitHub auth: ${key}`,
+      );
+    }
+    blockingResumeVerified = true;
+  } else {
+    assert.equal(firstLaunch.status, "succeeded");
+    assert.equal(firstLaunch.workflowStatus, "succeeded");
+  }
+
+  const runId = stringValue(launch.runId, "completed launch run id");
+  const completedState = childStore.load(runId);
+  assert.equal(completedState.status, "succeeded");
+  assert.ok(Object.values(completedState.nodes).every(({ state }) => state === "succeeded"));
+  for (const deferredNode of [
+    "dns-records",
+    "verify-custom-domain",
+    "brevo-email",
+    "google-search-console",
+    "bing-discovery",
+  ]) {
+    assert.equal(completedState.nodes[deferredNode], undefined);
+  }
   const providerInvocationCount = transportFixture.invocations.length;
   const buildInvocationCount = buildAgent.invocations.length;
-  const replayed = workflowState(await childCall(["resume", runId, "--json"]));
-  assert.equal(replayed.status, "succeeded");
+  const productCommandInvocationCount = productCommands.invocations.length;
+  executionTime = new Date(executionTime.getTime() + 60_000);
+  const replayedLaunch = record(await rootCall(applyArgs), "replayed founder apply");
+  assert.equal(replayedLaunch.status, "succeeded");
+  assert.equal(replayedLaunch.runId, runId);
+  assert.equal(
+    record(replayedLaunch.launchGrant, "replayed launch grant").grantId,
+    record(launch.launchGrant, "launch grant").grantId,
+  );
   assert.equal(transportFixture.invocations.length, providerInvocationCount);
   assert.equal(buildAgent.invocations.length, buildInvocationCount);
+  assert.equal(productCommands.invocations.length, productCommandInvocationCount);
+  assert.equal(blockingResumeVerified, Boolean(options.githubAuthWaitResume));
   transportFixture.assertComplete();
 
   directJourneyCheck(childRoot);
@@ -709,12 +784,35 @@ export async function runSyntheticFounderGoldenPath(
   assert.ok(
     readFileSync(relativeFile(childRoot, reportMarkdownReference), "utf8").includes("succeeded"),
   );
+  const receiptReference = record(launch.launchReceipt, "launch receipt paths");
+  const launchReceipt = record(
+    JSON.parse(
+      readFileSync(
+        relativeFile(childRoot, stringValue(receiptReference.json, "launch receipt JSON")),
+        "utf8",
+      ),
+    ),
+    "launch receipt",
+  );
+  const receiptVenture = record(launchReceipt.venture, "launch receipt venture");
+  assert.equal(receiptVenture.customDomain, null);
+  assert.match(
+    stringValue(receiptVenture.productionUrl, "receipt production URL"),
+    /\.vercel\.app\/?$/u,
+  );
+  assert.ok(
+    (launchReceipt.manualActions as unknown[]).some((candidate) => {
+      const action = record(candidate, "launch receipt manual action");
+      return String(action.action).includes("exception-desk.example.test");
+    }),
+    "the requested custom domain must remain a nonblocking Launch Receipt action",
+  );
 
   const providerEvidenceDirectory = resolve(childRoot, `reports/launch/${runId}/providers`);
   const providerEvidenceCount = readdirSync(providerEvidenceDirectory).filter((name) =>
     name.endsWith(".json"),
   ).length;
-  assert.ok(providerEvidenceCount >= 10);
+  assert.ok(providerEvidenceCount >= 4);
   const childLedger = resolve(childRoot, ".venture/provider-idempotency.json");
   assert.ok(existsSync(childLedger));
   assert.ok(readFileSync(childLedger, "utf8").includes("succeeded"));
@@ -758,7 +856,7 @@ export async function runSyntheticFounderGoldenPath(
   );
 
   const deploymentRefs = record(
-    resumed.nodes["production-deploy"]?.output,
+    completedState.nodes["production-deploy"]?.output,
     "production deployment output",
   ).resourceRefs;
   assert.ok(Array.isArray(deploymentRefs));
@@ -844,8 +942,11 @@ export async function runSyntheticFounderGoldenPath(
     ),
   );
   const providers = new Set(providerPlans.map(({ provider }) => provider));
-  for (const provider of ["github", "neon", "stripe", "brevo", "google", "bing", "vercel"]) {
+  for (const provider of ["github", "neon", "stripe", "vercel"]) {
     assert.ok(providers.has(provider), `missing official ${provider} plan`);
+  }
+  for (const deferredProvider of ["brevo", "google", "bing", "dns"]) {
+    assert.equal(providers.has(deferredProvider), false);
   }
   assert.ok(
     transportFixture.invocations.some(
@@ -874,9 +975,9 @@ export async function runSyntheticFounderGoldenPath(
       stackDoctor: "ready",
       ideaCompile: "ready",
       launchGrant: "issued_for_apply",
-      firstApply: "waiting_external_action",
-      manualDns: "verified_fixture",
-      resume: "succeeded",
+      firstApply: options.githubAuthWaitResume ? "waiting_for_auth" : "succeeded",
+      authResume: options.githubAuthWaitResume ? "same_command_succeeded" : "not_required",
+      customDomain: "deferred_nonblocking",
       replay: "idempotent",
       coreUpgrade: "0.2.0_to_0.2.1",
     },
@@ -895,6 +996,7 @@ export async function runSyntheticFounderGoldenPath(
       migration: { command: "psql", cwd: migrationKey.cwd, readBack: true },
       deployment: {
         url: deploymentUrl!,
+        customDomain: null,
         environmentVariables,
       },
       primaryJourney: { signal: "invoice_draft_confirmed", directTests: "passed" },
@@ -908,8 +1010,20 @@ export async function runSyntheticFounderGoldenPath(
         "official_transport_underlying_fixture",
         "official_command_transport_local_bare_git_remote",
         "local_product_command_boundary",
-        "manual_dns_fixture_evidence",
+        "provider_url_verified_before_deferred_custom_domain",
       ],
+      blockingResume: options.githubAuthWaitResume
+        ? {
+            waitingNode: "github-repository",
+            sameChildIdentity: true,
+            materializationUnchanged: true,
+            sameRunId: true,
+            sameLaunchGrant: true,
+            completedProviderOperationsPreserved: true,
+            buildCallsPreserved: true,
+            replayZeroEffect: true,
+          }
+        : null,
       secretsPersisted: false,
     },
   };

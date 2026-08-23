@@ -14,6 +14,7 @@ import {
   type CommandInvocation,
   type CommandRunner,
 } from "@/lib/credentials";
+import { founderBriefFromLaunchContract } from "@/lib/founder-launch";
 import { compileLaunchGraph, founderBriefSchema } from "@/lib/launch";
 import { MockProviderTransport, providerRegistry } from "@/lib/providers";
 import {
@@ -23,6 +24,7 @@ import {
   type VerifiedProviderLifecycleRecord,
 } from "@/lib/runtime";
 import type { JsonValue, WorkflowHandlerContext, WorkflowNodeDefinition } from "@/lib/workflow";
+import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
 
 function brief(path: string) {
   return founderBriefSchema.parse(parse(readFileSync(path, "utf8")));
@@ -70,12 +72,45 @@ function lifecycleStore(
 }
 
 describe("default provider composition", () => {
+  it("preserves an accepted 0.29 Launch Contract price as exactly 29 Stripe minor units", async () => {
+    const base = launchReceiptContract();
+    const contract = launchReceiptContract({
+      business: { ...base.business, priceHypothesis: 0.29 },
+    });
+    const founderBrief = founderBriefFromLaunchContract(contract);
+    const definition = compileLaunchGraph(founderBrief);
+    const snapshot = loadDefaultProviderConfig(process.cwd());
+    Object.assign(snapshot.providers.providers.stripe!, {
+      state: "unconfigured",
+      credential_ref: "cred://stripe/test",
+      account_id: "acct_exact_decimal_test",
+      external_resource_ids: {
+        mode: "test",
+        webhook_secret_credential_ref: "cred://stripe/exact-decimal-webhook",
+      },
+    });
+    const factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      launchContract: contract,
+      loadConfig: () => snapshot,
+    });
+    const stripeNode = definition.nodes.find(({ id }) => id === "stripe-commerce")!;
+
+    await expect(
+      factories["provider.stripe-commerce"]!(workflowContext(stripeNode)),
+    ).resolves.toMatchObject({ request: { inputs: { unitAmount: 29 } } });
+  });
+
   it("feeds staged Brevo, Google, EAS, and TestFlight nodes only from same-run public outputs", async () => {
     const webBrief = founderBriefSchema.parse({
       ...brief("fixtures/web-saas/brief.yaml"),
       domain: "staged.example",
     });
-    const webDefinition = compileLaunchGraph(webBrief);
+    const webDefinition = compileLaunchGraph(webBrief, undefined, {
+      initialOrigin: "custom_domain",
+    });
     const webSnapshot = loadDefaultProviderConfig(process.cwd());
     webSnapshot.venture.venture.name = "Staged venture";
     webSnapshot.venture.venture.domain = "staged.example";
@@ -323,7 +358,7 @@ describe("default provider composition", () => {
     expect(github).toMatchObject({
       provider: "github",
       request: {
-        capabilities: ["repository_settings"],
+        capabilities: ["repository"],
         credentialRef: "cred://github/founder",
         inputs: { repository: "founder-org/first-venture" },
         dryRun: false,
@@ -608,7 +643,9 @@ describe("default provider composition", () => {
       ...brief("fixtures/web-saas/brief.yaml"),
       domain: "reviewed.example",
     });
-    const definition = compileLaunchGraph(founderBrief);
+    const definition = compileLaunchGraph(founderBrief, undefined, {
+      initialOrigin: "custom_domain",
+    });
     const snapshot = loadDefaultProviderConfig(process.cwd());
     snapshot.venture.venture.name = "Reviewed venture";
     snapshot.venture.venture.domain = "reviewed.example";
@@ -1003,7 +1040,7 @@ describe("default provider composition", () => {
       provider: "github",
       request: {
         environment: "preview",
-        capabilities: ["repository_settings"],
+        capabilities: ["repository"],
         inputs: { repository: "founder-org/from-readback" },
       },
     });

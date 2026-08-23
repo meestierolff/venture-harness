@@ -115,7 +115,7 @@ describe("launch graph compiler", () => {
     ).toEqual(["review-product"]);
   });
 
-  it("compiles a valid web dry run with one consolidated DNS manual node", () => {
+  it("defaults a valid web dry run to a nonblocking provider production URL", () => {
     const dryRun = compileLaunchDryRun(fixture("web-saas"));
     expect(() => validateWorkflow(dryRun.graph)).not.toThrow();
     expect(dryRun.synthetic).toBe(true);
@@ -139,22 +139,32 @@ describe("launch graph compiler", () => {
     expect(dryRun.graph.nodes.find(({ id }) => id === "prepare-repository")?.dependencies).toEqual([
       "install-dependencies",
     ]);
-    expect(dryRun.manualActions.map((action) => action.nodeId)).toEqual(["dns-records"]);
+    expect(dryRun.graph.metadata?.initialOrigin).toBe("provider_url");
+    expect(dryRun.manualActions).toEqual([]);
+    expect(dryRun.graph.nodes.map(({ id }) => id)).not.toEqual(
+      expect.arrayContaining([
+        "dns-records",
+        "verify-custom-domain",
+        "brevo-email",
+        "google-search-console",
+        "bing-discovery",
+      ]),
+    );
     expect(dryRun.graph.nodes.filter((node) => node.id === "stripe-commerce")).toHaveLength(1);
     expect(dryRun.graph.nodes.find(({ id }) => id === "github-repository")?.dependencies).toEqual([
-      "verify-local",
+      "verify-launch",
     ]);
     expect(dryRun.graph.nodes.find(({ id }) => id === "vercel-project")?.dependencies).toEqual([
       "github-repository",
       "neon-database",
-      "verify-local",
+      "verify-launch",
     ]);
     expect(
       dryRun.graph.nodes.find(({ id }) => id === "stripe-commerce")?.dependencies,
     ).not.toContain("vercel-project");
     expect(
       dryRun.graph.nodes.find(({ id }) => id === "initial-production-deploy")?.dependencies,
-    ).toEqual(["verify-launch"]);
+    ).toEqual(["verify-launch", "vercel-project"]);
     expect(dryRun.graph.nodes.find(({ id }) => id === "stripe-callbacks")?.dependencies).toEqual([
       "initial-production-deploy",
       "stripe-commerce",
@@ -196,6 +206,16 @@ describe("launch graph compiler", () => {
     };
     expect(ancestors("github-repository")).toContain("install-dependencies");
     expect(ancestors("production-deploy")).toContain("install-dependencies");
+    for (const node of dryRun.graph.nodes.filter(
+      ({ effect }) => effect === "external_reversible" || effect === "external_irreversible",
+    )) {
+      expect(ancestors(node.id), `${node.id} must wait for the frozen child install`).toContain(
+        "finalize-dependencies",
+      );
+      expect(ancestors(node.id), `${node.id} must wait for the complete local MVP gate`).toContain(
+        "verify-launch",
+      );
+    }
     expect(dryRun.graph.nodes.find(({ id }) => id === "launch-report")?.dependencies).toEqual(
       expect.arrayContaining(["verify-production"]),
     );
@@ -211,6 +231,29 @@ describe("launch graph compiler", () => {
       "dns-records",
     );
     expect(dryRun.parallelLayers.some((layer) => layer.length > 1)).toBe(true);
+  });
+
+  it("keeps the consolidated DNS rail behind an explicit later custom-domain compilation", () => {
+    const dryRun = compileLaunchDryRun(
+      { ...fixture("web-saas"), domain: "synthetic.example.test" },
+      undefined,
+      {
+        initialOrigin: "custom_domain",
+      },
+    );
+
+    expect(() => validateWorkflow(dryRun.graph)).not.toThrow();
+    expect(dryRun.graph.metadata?.initialOrigin).toBe("custom_domain");
+    expect(dryRun.manualActions.map((action) => action.nodeId)).toEqual(["dns-records"]);
+    expect(dryRun.graph.nodes.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([
+        "dns-records",
+        "verify-custom-domain",
+        "brevo-email",
+        "google-search-console",
+        "bing-discovery",
+      ]),
+    );
   });
 
   it("omits DNS entirely for a valid launch with no domain-dependent capability", () => {
@@ -259,6 +302,7 @@ describe("launch graph compiler", () => {
     );
     expect(graph.nodes.find(({ id }) => id === "initial-production-deploy")?.dependencies).toEqual([
       "verify-launch",
+      "vercel-project",
     ]);
     expect(graph.nodes.find(({ id }) => id === "stripe-callbacks")?.dependencies).toEqual([
       "initial-production-deploy",
@@ -281,7 +325,9 @@ describe("launch graph compiler", () => {
   });
 
   it("reaches the explicit Apple record and DNS manual nodes before TestFlight continuation", () => {
-    const dryRun = compileLaunchDryRun(fixture("ios-subscription"));
+    const dryRun = compileLaunchDryRun(fixture("ios-subscription"), undefined, {
+      initialOrigin: "custom_domain",
+    });
     expect(() => validateWorkflow(dryRun.graph)).not.toThrow();
     expect(dryRun.manualActions.map((action) => action.nodeId).sort()).toEqual([
       "apple-first-app-record",
