@@ -638,11 +638,12 @@ export default function StatusPage() {
     "app/api/health/route.ts",
     "core_owned",
     `export function GET() {
+  const localServerNonce = process.env.VH_LOCAL_SERVER_NONCE;
   return Response.json({
     status: "ok",
     venture: "{{ventureSlug}}",
     evidence: "local_build_shape",
-    localServerNonce: process.env.VH_LOCAL_SERVER_NONCE ?? null,
+    ...(localServerNonce ? { localServerNonce } : {}),
   });
 }
 `,

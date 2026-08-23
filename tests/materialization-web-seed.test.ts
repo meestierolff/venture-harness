@@ -295,6 +295,7 @@ describe("ordinary web venture seed", () => {
     const localRunner = compiled.files.find(
       ({ path }) => path === "scripts/run-local-browser-check.ts",
     );
+    const healthRoute = compiled.files.find(({ path }) => path === "app/api/health/route.ts");
 
     expect(publisher?.ownership).toBe("core_owned");
     expect(publisher?.content).toContain(
@@ -320,6 +321,8 @@ describe("ordinary web venture seed", () => {
     expect(localRunner?.content).toContain('reservation.listen(0, "127.0.0.1")');
     expect(localRunner?.content).toContain("VH_LOCAL_SERVER_NONCE");
     expect(localRunner?.content).toContain("localServerNonce === serverNonce");
+    expect(healthRoute?.content).toContain("...(localServerNonce ? { localServerNonce } : {})");
+    expect(healthRoute?.content).not.toContain("localServerNonce: null");
     expect(localRunner?.content).toContain("EADDRINUSE");
     expect(localRunner?.content).toContain(
       "Owned local production listener remained after teardown",
