@@ -3,7 +3,7 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: f6996d7df0e9edb39b76fb57194429d0bdd695e5
+  ref: 5cfe2ca5838828fa670959067cb447653f4eb9bf
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 2b68cca6c54b608b45ae294ba656af74132c286c0ee88a71da26d1f03f716dde
+    sha256: 13d50e18a54eb38d47159494ed380283fe5d38ad35ce54bacbdcfa9a4a2b7d25
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 1320aa57db7b3fd581d160703c8b41b76bddde3b9dbd9a30407f4590cde2ac5f
+    sha256: 92cbd2716fc3ebfee01b7d694d5ea4738b097468ee8e6ef66958bff059080fbc
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -319,7 +319,7 @@ managed_files:
     sha256: 3bf04b3720ca74b482d38e0d1276982cac85f229744f298bb9fb0f379d27de86
   - path: eslint.config.mjs
     ownership: harness
-    sha256: 9c351c61b1b40c0aaee4363100826d7090b309d86ec1d5c28b9be7eb6811f8a4
+    sha256: 63ac221aaad4aef7192e021d07adee5dc4ec99df4f11e23a9be40ab29c26b1e8
   - path: fixtures/founder-stack/founder-default.json
     ownership: harness
     sha256: dcd9617179ec85cdd398a8ecce8cea9fdc0e07b2b66af3cb0cf8aa9e439b7395
@@ -1495,7 +1495,7 @@ managed_files:
     sha256: f90652060e39b38e26d1f59d8bfcc0a88bdcd094e91e8e30f310d7af18afefca
   - path: tests/quality-profiles.test.ts
     ownership: harness
-    sha256: fc2530ea494332ef85c1eccc1fbc91dafb3f3f76252f1ac730d7cfbc9c3c2a9a
+    sha256: 835c3cdcd3f3e8debb1a8a0168a4f9bfd5fddbd2de0a3a2785155c99b07c0d29
   - path: tests/recursive-command-surfaces.test.ts
     ownership: harness
     sha256: ca4455d0b5c5df3ef1beaf5412525064d415c3a1c54f4840daab10f52930ce1f
