@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 822148d346ebaa98236f2561db13f8422b61bba3
-  tree_digest: b0288569e20bea6924592debe1fd0dbf95b3a148459a45619a291444b39222be
+  ref: 98fdaff15538a17002a34257bf62a4f85bcb2454
+  tree_digest: 65390246ecd372b3acd4e0cc3e506ec6484813db0eaea3ed2e492df54269a407
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -308,10 +308,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 92613f1cdf82e253d3a13afc311ceb792c8b6bc454715a05da1b1a3b0973455a
+    sha256: 7c237fd1d8c3798b36e7db5a55731b96052a05f2d65471878d116bd85b64281e
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 71e7a879cca03a99c6a1448b113d4fe5787d7684ba1999e7a5e1d430ae705015
+    sha256: 60788c678909b8378d01dd79773fa564e130fd9762053c72857226f74f40f3cc
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -1514,7 +1514,7 @@ managed_files:
     sha256: 88fceed69e7a6dc22cbacb06d935de628cba098c4e2ac3d1f51a4c34825104da
   - path: tests/root-cli-packed-provenance.test.ts
     ownership: harness
-    sha256: 6de1e64566e0cebf8bb27b3ac93f67b2fd2f176acd81e7ddccaad85d81f267ce
+    sha256: 0b204f30065f2d19f5fff235f207ec08e2f4fb7e1cd439903833a37a3d775aed
   - path: tests/runtime-build-agent-host.test.ts
     ownership: harness
     sha256: 5ba9a5f5c76955b9e205055bd1baad02baadd7f3063acb56b0d3fee766074d66
@@ -1634,7 +1634,7 @@ managed_files:
     sha256: d832b609c038356c69110d233ae217c9ea21660e62364fe738b1ba9d5e5026a1
   - path: tests/workspace-pack.test.ts
     ownership: harness
-    sha256: 9eea0b1778bdc03ca4f8b8b94f7be1ece7e444e5dd82b6548a2d2eb2618af9c9
+    sha256: 25b91d0163ea6b70dd07d182e6ca20a37e509870a30963b81888a17739b06837
   - path: tsconfig.json
     ownership: harness
     sha256: d8cf838419ad00e94cf202d83e9b183042185ed6b51ff1d23b2e852d2584c49d
