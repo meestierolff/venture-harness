@@ -3,7 +3,7 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 2233770b3b181ebef88e369f7c9f1ee45f4611be
+  ref: 98c652309523b10cf41f896a4dd563c80e55d186
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -283,16 +283,16 @@ managed_files:
     sha256: a48d175f7269485e8bf500bf7df7c6e0a2447434b90ebc833b57fba1be7c1caa
   - path: .github/workflows/final-evidence.yml
     ownership: harness
-    sha256: 030999c2e5e7fb641495414d7013137f26d20f43a9d691ec9a8baf804edbc350
+    sha256: 3c1fdf0d2c7e6d25e00d15dea4fbceb3dcfd3020d69c9914d2c79d5eaeb802c7
   - path: .github/workflows/learning-cadence.yml
     ownership: harness
     sha256: b203a818c0bac757212516cc98de575147ea88a6bfd5f3ea95fdc7c8b927fb78
   - path: .github/workflows/public-release.yml
     ownership: harness
-    sha256: 46bef5de36304914e61bd5efb4ba8d6cefb4472b5ab207b1b694911876c3e1bb
+    sha256: 18e63763e064f1e98e0808021f3b8b9062a3164f84b4a59fcb18ef0f64c40ca0
   - path: .github/workflows/quality.yml
     ownership: harness
-    sha256: 4e3d49321ce1a18e1156337f5cdd4422407c03afd99114d896892a049a5df8b9
+    sha256: a8dbaa8158fef7dddda4c1033b4864e3349cdeecbc4e003be167ecba108e662c
   - path: .github/workflows/security.yml
     ownership: harness
     sha256: 5b70437a1cc9a5ed3c648ea79d236e5cc4d71c51930ebc46b3cbae8291f3bddc
@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 1418fb373f9db2697bac70e13dbd3542c632aad520cf8790e9291577cb6e319d
+    sha256: b8b7b2cef0f354ed918d98a485b4153764f6486805f48236f3a7de3c964e81ba
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 24ddd7c9690eb44e45d74ff818237f8b1a26173721d469168b9b673f4a766f70
+    sha256: 4b2335f55397aab84c36f75cfe30800b3a0398422cf9ba2befd36c1cc16d4eb0
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -922,7 +922,7 @@ managed_files:
     sha256: 5fa04a810adc1aaac0575af373dd8b43b61690efb2e13f6a116c270782c6f791
   - path: package.json
     ownership: harness
-    sha256: 6a8e464daf288db056cda29f34bf020f68490866b445299d887a1debba3fdbef
+    sha256: 9dc2414945f262917594a2738cb49394867e7bb2956033aef9e8395377b6db02
   - path: pnpm-lock.yaml
     ownership: harness
     sha256: 940da04df7ee741a5fa03c5579e3471be014f27acb3905debdf35e8202119add
@@ -1013,9 +1013,12 @@ managed_files:
   - path: scripts/run-winner-loop-fixture.ts
     ownership: harness
     sha256: 803d506d7b9218980d0f5ba4154b37ffcbb5e9ba41eb1b2aa893b2eb6f19e4fb
+  - path: scripts/seed-ensure.ts
+    ownership: harness
+    sha256: df5552e67c30ef0a9e6d3019b31e7be73a4004580c062afeef84b455a29cc6b1
   - path: scripts/seed-fetch.ts
     ownership: harness
-    sha256: d9da18ac31d2ef4c00b26ce35d2ac30b80c667ac7105e870ef16c848e65d3f3c
+    sha256: eba9e4c4d58f807fe5f0b778e55239eecd8a21427708ce9e678e6ef6fdbd4ec4
   - path: scripts/stage-final-evidence-upload.mjs
     ownership: harness
     sha256: 3ded5906ea230afa646d8db17d14af70ca8ebc5b631eef55b3e5c6e7d45e6307
@@ -1534,7 +1537,10 @@ managed_files:
     sha256: 1c659085ebcb6aa0cd9aa73d4862e5c086689b703b8f9fafe3c74f311a186961
   - path: tests/security-release.test.ts
     ownership: harness
-    sha256: a2f86ef7f0c3004339ac954d2b79e63e85ca3e387f7921c9d97b4e0cdddaa13c
+    sha256: 6446c2b3d433f1a98af1ccee0b22ac30000bf3f3297a078c7a286dca4c60be82
+  - path: tests/seed-ensure.test.ts
+    ownership: harness
+    sha256: 41a5e9193d03696482ce2bbee6e8e70aef890895e37083bd311ae88d8a6f35a4
   - path: tests/stack-connect-shell.test.ts
     ownership: harness
     sha256: 95f460cab95458775c27968af9dc81b7393ee8adffef36835602e5bf52d4c4f7
