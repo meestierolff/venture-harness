@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,8 +21,34 @@ function context() {
   const stderr: string[] = [];
   const io: CliIo = { stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) };
   const store = new FileWorkflowStore({ rootDir: join(directory, "runs") });
-  return { directory, io, stdout, stderr, store };
+  const founderConfigPath = join(directory, "founder.json");
+  return { directory, io, stdout, stderr, store, founderConfigPath };
 }
+
+/**
+ * Configure an isolated ventures root.
+ *
+ * Without this the CLI reads the real user config, so Stack output depends on
+ * whether the machine running the test happens to have a ventures root set.
+ */
+function withVenturesRoot(directory: string, founderConfigPath: string): string {
+  const venturesRoot = join(directory, "ventures");
+  mkdirSync(venturesRoot, { recursive: true });
+  writeFileSync(founderConfigPath, `${JSON.stringify({ schemaVersion: 1, venturesRoot })}\n`);
+  return venturesRoot;
+}
+
+const FIXTURE_STACK_SESSIONS = [
+  { provider: "github", installed: true, authenticated: true, account: "fixture-founder" },
+  { provider: "vercel", installed: true, authenticated: true, account: "fixture-team" },
+  {
+    provider: "stripe",
+    installed: true,
+    authenticated: true,
+    account: "acct_fixture_test",
+    mode: "test",
+  },
+] as const;
 
 function definition(): WorkflowDefinition {
   return {
@@ -107,33 +133,15 @@ describe("vh CLI", () => {
   });
 
   it("persists the credential-free Stack draft before reporting doctor actions", async () => {
-    const { io, stdout, store } = context();
+    const { directory, io, stdout, store, founderConfigPath } = context();
+    withVenturesRoot(directory, founderConfigPath);
     let received: unknown;
 
     const result = await runCli(["stack", "connect", "founder-default", "--json"], {
       io,
       store,
-      stackSessions: [
-        {
-          provider: "github",
-          installed: true,
-          authenticated: true,
-          account: "fixture-founder",
-        },
-        {
-          provider: "vercel",
-          installed: true,
-          authenticated: true,
-          account: "fixture-team",
-        },
-        {
-          provider: "stripe",
-          installed: true,
-          authenticated: true,
-          account: "acct_fixture_test",
-          mode: "test",
-        },
-      ],
+      founderConfigPath,
+      stackSessions: FIXTURE_STACK_SESSIONS,
       services: {
         stack: (request) => {
           received = request;
@@ -193,6 +201,43 @@ describe("vh CLI", () => {
           role: "database.postgres",
           command: "vh auth login neon --ref cred://neon/founder-default",
         }),
+      ],
+    });
+  });
+
+  it("blocks launch readiness while no ventures root is configured", async () => {
+    const { io, stdout, store, founderConfigPath } = context();
+
+    const result = await runCli(["stack", "connect", "founder-default", "--json"], {
+      io,
+      store,
+      founderConfigPath,
+      stackSessions: FIXTURE_STACK_SESSIONS,
+      services: {
+        stack: () => ({
+          schemaVersion: 1,
+          status: "ready",
+          launchReady: true,
+          unresolvedActions: [],
+        }),
+      },
+    });
+
+    // Every provider is ready, so the ventures root is the only thing standing
+    // between this Stack and a launch that has somewhere safe to materialize.
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(stdout[0])).toMatchObject({
+      command: "stack.connect",
+      saved: true,
+      venturesRoot: null,
+      launchReady: false,
+      unresolvedActions: [
+        {
+          role: "workspace",
+          provider: "local",
+          command: "vh config set ventures-root <absolute-path>",
+          blocksLaunch: true,
+        },
       ],
     });
   });

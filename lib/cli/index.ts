@@ -33,6 +33,12 @@ export interface RunCliOptions {
   stackSessions?: readonly DetectedSession[];
   /** Deterministic hidden/visible prompt seam for guided Stack connection tests. */
   stackPrompt?: FounderStackWizardPrompt;
+  /**
+   * Founder settings file. Defaults to the real user config path; tests and
+   * sandboxed runs point it at an isolated file so CLI output never depends on
+   * whichever machine happens to run it.
+   */
+  founderConfigPath?: string;
 }
 
 const HELP = `Venture Harness CLI
@@ -174,6 +180,7 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
   const io = options.io ?? defaultIo();
   const store = options.store ?? new FileWorkflowStore();
   const services = options.services ?? createDefaultCliServices({ store });
+  const founderConfigPath = options.founderConfigPath ?? defaultFounderConfigPath();
   const json = args.includes("--json");
   const [command, ...rest] = args;
 
@@ -346,7 +353,7 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
         launchDefaults,
       });
       const updatedRoles = [...new Set(collected.map(({ role }) => role))];
-      const venturesRoot = loadFounderConfig().venturesRoot ?? null;
+      const venturesRoot = loadFounderConfig(founderConfigPath).venturesRoot ?? null;
       if (!services.stack) {
         return unsupported(
           io,
@@ -462,12 +469,12 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
       const action = values[0];
       const usage = "Usage: vh config show | vh config set ventures-root <absolute-path>";
       if (action === "show" && values.length === 1) {
-        const config = loadFounderConfig();
+        const config = loadFounderConfig(founderConfigPath);
         emit(
           io,
           {
             command: "config.show",
-            path: defaultFounderConfigPath(),
+            path: founderConfigPath,
             venturesRoot: config.venturesRoot ?? null,
             ...(config.venturesRoot
               ? {}
@@ -490,8 +497,8 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
       }
       try {
         const venturesRoot = resolveVenturesRoot(value, { coreRoot: process.cwd() });
-        const existing = loadFounderConfig();
-        saveFounderConfig({ ...existing, venturesRoot });
+        const existing = loadFounderConfig(founderConfigPath);
+        saveFounderConfig({ ...existing, venturesRoot }, founderConfigPath);
         emit(io, { command: "config.set", key, venturesRoot }, json);
         return { exitCode: 0 };
       } catch (error) {

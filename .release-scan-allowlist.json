@@ -60,7 +60,7 @@
     {
       "path": "tests/cli-runtime.test.ts",
       "rule": "stripe-access-token",
-      "line": 311,
+      "line": 356,
       "sha256": "da1d41cc114416e1d22c1c6a2b0901f14dd775ea69ae413b2e48e57523465ccd",
       "reason": "Synthetic argv-rejection canary; proves vh auth login refuses credential values as arguments."
     },
