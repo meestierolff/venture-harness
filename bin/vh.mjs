@@ -39490,6 +39490,7 @@ async function runCli(args, options = {}) {
   const io = options.io ?? defaultIo();
   const store = options.store ?? new FileWorkflowStore();
   const services = options.services ?? createDefaultCliServices({ store });
+  const founderConfigPath = options.founderConfigPath ?? defaultFounderConfigPath();
   const json2 = args.includes("--json");
   const [command, ...rest] = args;
   if (!command || command === "help" || command === "--help" || command === "-h") {
@@ -39632,7 +39633,7 @@ async function runCli(args, options = {}) {
         launchDefaults
       });
       const updatedRoles = [...new Set(collected.map(({ role }) => role))];
-      const venturesRoot = loadFounderConfig().venturesRoot ?? null;
+      const venturesRoot = loadFounderConfig(founderConfigPath).venturesRoot ?? null;
       if (!services.stack) {
         return unsupported(
           io,
@@ -39722,12 +39723,12 @@ async function runCli(args, options = {}) {
       const action = values[0];
       const usage = "Usage: vh config show | vh config set ventures-root <absolute-path>";
       if (action === "show" && values.length === 1) {
-        const config = loadFounderConfig();
+        const config = loadFounderConfig(founderConfigPath);
         emit(
           io,
           {
             command: "config.show",
-            path: defaultFounderConfigPath(),
+            path: founderConfigPath,
             venturesRoot: config.venturesRoot ?? null,
             ...config.venturesRoot ? {} : { nextAction: "vh config set ventures-root <absolute-path>" }
           },
@@ -39748,8 +39749,8 @@ async function runCli(args, options = {}) {
       }
       try {
         const venturesRoot = resolveVenturesRoot(value, { coreRoot: process.cwd() });
-        const existing = loadFounderConfig();
-        saveFounderConfig({ ...existing, venturesRoot });
+        const existing = loadFounderConfig(founderConfigPath);
+        saveFounderConfig({ ...existing, venturesRoot }, founderConfigPath);
         emit(io, { command: "config.set", key, venturesRoot }, json2);
         return { exitCode: 0 };
       } catch (error) {
@@ -44318,7 +44319,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "52961c4ac9b40534a3a25297a7d4dae23f53910a" : void 0;
+  const workflowRefSha = true ? "2233770b3b181ebef88e369f7c9f1ee45f4611be" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(
