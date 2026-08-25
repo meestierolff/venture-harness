@@ -8237,7 +8237,9 @@ var legacyHarnessLockSchema = external_exports.object({
   config_contract_version: external_exports.number().int().positive(),
   source: external_exports.object({
     kind: external_exports.enum(["template", "release", "local"]),
-    ref: external_exports.string().min(1).nullable()
+    ref: external_exports.string().min(1).nullable(),
+    /** Digest of the managed manifest; see computeManagedTreeDigest. */
+    tree_digest: external_exports.string().regex(/^[a-f0-9]{64}$/).optional()
   }).strict(),
   managed_files: uniqueArray(managedFileSchema),
   applied_migrations: uniqueArray(appliedMigrationSchema),
@@ -44319,7 +44321,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "4b91c74916f4454efb069727ef0430c3e44c1ab0" : void 0;
+  const workflowRefSha = true ? "20423014301bd1bc1657a2670c89c2c29eac0a97" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
     throw new Error(

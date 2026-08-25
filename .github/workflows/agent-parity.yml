@@ -1,20 +1,10 @@
 name: agent-parity
 
 on:
+  # Deliberately unfiltered. This job is a required status check, and a
+  # path-filtered workflow reports nothing on the pull requests it skips, which
+  # leaves those pull requests blocked forever rather than passing.
   pull_request:
-    paths:
-      - "skills/**"
-      - ".agents/**"
-      - ".claude/skills/**"
-      - "AGENTS.md"
-      - "CLAUDE.md"
-      - "GEMINI.md"
-      - ".github/copilot-instructions.md"
-      - "docs/agents/**"
-      - "scripts/sync-agent-skills.ts"
-      - "scripts/check-agent-parity.ts"
-      - "scripts/lib/skill-sync.ts"
-      - "config/framework.yaml"
 
 permissions:
   contents: read
