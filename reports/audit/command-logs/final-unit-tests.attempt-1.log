@@ -1,9 +1,9 @@
 
-> venture-harness@0.2.0 test /Users/meestierolff/projects/venture-harness
+> venture-harness@0.2.0 test <workspace>
 > vitest run --testTimeout=10000 --exclude tests/workspace-pack.test.ts
 
 
- RUN  v3.2.7 /Users/meestierolff/projects/venture-harness
+ RUN  v3.2.7 <workspace>
 
  ✓ tests/harness-lock.test.ts (1 test) 366ms
    ✓ harness.lock managed manifest > has a trusted hash for every declared harness/generated file  364ms

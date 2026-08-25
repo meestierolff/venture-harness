@@ -1,9 +1,9 @@
 
-> venture-harness@0.2.0 test /Users/meestierolff/projects/venture-harness
+> venture-harness@0.2.0 test <workspace>
 > vitest run --maxWorkers=4 --testTimeout=30000 --exclude tests/workspace-pack.test.ts
 
 
- RUN  v3.2.7 /Users/meestierolff/projects/venture-harness
+ RUN  v3.2.7 <workspace>
 
  ✓ tests/workflow-control-plane.test.ts (11 tests) 5698ms
    ✓ workflow graph control plane > topologically executes fan-out/fan-in and deterministic conditions  827ms

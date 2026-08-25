@@ -326,6 +326,7 @@ async function main(): Promise<void> {
         at: NOW,
         coreVersion: "0.2.0",
         workflowRefSha: "0".repeat(40),
+        workflowRepository: "venture-harness/venture-harness",
       });
       await materializeVenture(plan, new NodeMaterializationFileSystem(childRoot), NOW);
       const lockfile = readFileSync(join(childRoot, "pnpm-lock.yaml"));

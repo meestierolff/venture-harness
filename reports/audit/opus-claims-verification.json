@@ -8,7 +8,7 @@
   "backupRef": "refs/heads/backup/opus-vh-core-v0.2-1ba4a22",
   "historicalClaimBaselineSha": "5d9efacc8d1377e4e0da95189bdd58827806390d",
   "recovery": {
-    "worktree": "/Users/meestierolff/projects/venture-harness",
+    "worktree": "<workspace>",
     "branchFoundLocally": true,
     "branchFoundOnOriginAtAuditStart": false,
     "stashCount": 0,

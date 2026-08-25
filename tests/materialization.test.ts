@@ -142,6 +142,7 @@ function plan(
     at: NOW,
     coreVersion: "0.2.0",
     workflowRefSha: SHA,
+    workflowRepository: "venture-harness/venture-harness",
     effects: selectedEffects,
   });
 }
@@ -727,6 +728,7 @@ describe("synthetic launch effects and pack runtime", () => {
       at: NOW,
       coreVersion: "0.2.0",
       workflowRefSha: SHA,
+      workflowRepository: "venture-harness/venture-harness",
       fileSystem,
       providerEffectExecutor: providers.executor,
       store,
@@ -772,6 +774,7 @@ describe("synthetic launch effects and pack runtime", () => {
       at: NOW,
       coreVersion: "0.2.0",
       workflowRefSha: SHA,
+      workflowRepository: "venture-harness/venture-harness",
       fileSystem: {
         prepareEmpty: () => Promise.reject(new Error("replay must not rematerialize")),
         writeExclusive: () => Promise.reject(new Error("replay must not write")),
@@ -829,6 +832,7 @@ describe("synthetic launch effects and pack runtime", () => {
       at: NOW,
       coreVersion: "0.2.0",
       workflowRefSha: SHA,
+      workflowRepository: "venture-harness/venture-harness",
       store,
     } as const;
 
@@ -907,6 +911,7 @@ describe("synthetic launch effects and pack runtime", () => {
         at: NOW,
         coreVersion: "0.2.0",
         workflowRefSha: SHA,
+        workflowRepository: "venture-harness/venture-harness",
         fileSystem: {
           prepareEmpty: () => {
             prepared = true;

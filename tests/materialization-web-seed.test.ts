@@ -61,6 +61,7 @@ function plan(seedId: SeedId, overrides: Partial<LaunchGrantInput> = {}) {
     at: NOW,
     coreVersion: "0.2.0",
     workflowRefSha: WORKFLOW_SHA,
+    workflowRepository: "venture-harness/venture-harness",
   });
 }
 
@@ -92,8 +93,10 @@ describe("ordinary web venture seed", () => {
       };
     };
 
+    // The generated venture calls the Core checkout it was launched from, so no
+    // one author's repository is baked into other people's products.
     expect(caller.jobs.verify.uses).toBe(
-      `meestierolff/venture-harness/.github/workflows/venture-verify.yml@${WORKFLOW_SHA}`,
+      `venture-harness/venture-harness/.github/workflows/venture-verify.yml@${WORKFLOW_SHA}`,
     );
     expect(reusable.on).toHaveProperty("workflow_call");
     expect(reusable.permissions).toEqual({ contents: "read" });

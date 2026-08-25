@@ -7,6 +7,7 @@ import { build as bundle } from "esbuild";
 
 const IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const CORE_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
 export const VH_BUILD_PROVENANCE_PATH = "bin/vh-build-provenance.json";
 
@@ -136,25 +137,59 @@ export function resolveFounderCoreBuildProvenance(rootDirectory, { sourceCommit 
     throw new Error("venture-harness package.json must declare a version before bundling vh");
   }
   const workflowRefSha = resolveGitCommit(root, sourceCommit);
-  return Object.freeze({ packageVersion, workflowRefSha });
+  return Object.freeze({
+    packageVersion,
+    workflowRefSha,
+    coreRepository: resolveCoreRepository(root),
+  });
+}
+
+/**
+ * Resolve owner/repository for this Core checkout.
+ *
+ * A packed vh runs outside any Core checkout, so the repository whose reusable
+ * workflow generated ventures call has to travel inside the executable. Reading
+ * it from the building checkout keeps a fork's ventures pointing at the fork.
+ */
+export function resolveCoreRepository(rootDirectory) {
+  const origin = commandOutput(resolve(rootDirectory), ["remote", "get-url", "origin"]);
+  const match =
+    /^https?:\/\/[^/]+\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(origin) ??
+    /^(?:ssh:\/\/)?git@[^:/]+[:/](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(origin);
+  const slug = `${match?.groups?.owner ?? ""}/${match?.groups?.repo ?? ""}`;
+  if (!CORE_REPOSITORY.test(slug)) {
+    throw new Error(
+      `Cannot resolve the Core repository from git origin ${origin}; the vh executable must record owner/repository`,
+    );
+  }
+  return slug;
 }
 
 export function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-export function createVhBuildProvenance({ executable, packageVersion, sourceCommit }) {
+export function createVhBuildProvenance({
+  executable,
+  packageVersion,
+  sourceCommit,
+  coreRepository,
+}) {
   if (!IMMUTABLE_GIT_SHA.test(sourceCommit ?? "")) {
     throw new Error("Cannot record vh build provenance without an immutable Core source commit");
   }
   if (typeof packageVersion !== "string" || packageVersion.length === 0) {
     throw new Error("Cannot record vh build provenance without the Core package version");
   }
+  if (!CORE_REPOSITORY.test(coreRepository ?? "")) {
+    throw new Error("Cannot record vh build provenance without the Core owner/repository");
+  }
   return Object.freeze({
     schemaVersion: 1,
     packageName: "venture-harness",
     packageVersion,
     coreSourceCommit: sourceCommit,
+    coreRepository,
     binSha256: sha256File(executable),
   });
 }
@@ -170,9 +205,10 @@ export function parseVhBuildProvenance(input) {
     typeof value.packageVersion !== "string" ||
     value.packageVersion.length === 0 ||
     !IMMUTABLE_GIT_SHA.test(value.coreSourceCommit ?? "") ||
+    !CORE_REPOSITORY.test(value.coreRepository ?? "") ||
     !SHA256.test(value.binSha256 ?? "") ||
     Object.keys(value).sort().join(",") !==
-      "binSha256,coreSourceCommit,packageName,packageVersion,schemaVersion"
+      "binSha256,coreRepository,coreSourceCommit,packageName,packageVersion,schemaVersion"
   ) {
     throw new Error(
       `Invalid ${VH_BUILD_PROVENANCE_PATH}; regenerate it with pnpm workspace:build -- --source-commit <40-character-reviewed-source-commit>`,
@@ -183,6 +219,7 @@ export function parseVhBuildProvenance(input) {
     packageName: value.packageName,
     packageVersion: value.packageVersion,
     coreSourceCommit: value.coreSourceCommit,
+    coreRepository: value.coreRepository,
     binSha256: value.binSha256,
   });
 }
@@ -231,6 +268,7 @@ export async function buildVhExecutable({ rootDirectory, outfile, sourceCommit }
     external: ["yaml"],
     define: {
       __VH_CORE_BUILD_COMMIT__: JSON.stringify(provenance.workflowRefSha),
+      __VH_CORE_WORKFLOW_REPOSITORY__: JSON.stringify(provenance.coreRepository),
       __VH_CORE_PACKAGE_VERSION__: JSON.stringify(provenance.packageVersion),
     },
     legalComments: "none",

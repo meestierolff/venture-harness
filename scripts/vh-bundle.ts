@@ -12,6 +12,7 @@ import { runGeneratedCli, type GeneratedCliShellIo } from "../packages/cli-gener
 
 declare const __VH_CORE_BUILD_COMMIT__: string | undefined;
 declare const __VH_CORE_PACKAGE_VERSION__: string | undefined;
+declare const __VH_CORE_WORKFLOW_REPOSITORY__: string | undefined;
 
 const IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 
@@ -19,6 +20,7 @@ export interface FounderCoreBuildProvenance {
   readonly packageName: "venture-harness";
   readonly packageVersion: string;
   readonly workflowRefSha: string;
+  readonly workflowRepository: string;
 }
 
 /**
@@ -31,7 +33,16 @@ export function founderCoreBuildProvenance(): FounderCoreBuildProvenance {
     typeof __VH_CORE_BUILD_COMMIT__ === "string" ? __VH_CORE_BUILD_COMMIT__ : undefined;
   const packageVersion =
     typeof __VH_CORE_PACKAGE_VERSION__ === "string" ? __VH_CORE_PACKAGE_VERSION__ : undefined;
-  if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
+  const workflowRepository =
+    typeof __VH_CORE_WORKFLOW_REPOSITORY__ === "string"
+      ? __VH_CORE_WORKFLOW_REPOSITORY__
+      : undefined;
+  if (
+    !workflowRefSha ||
+    !IMMUTABLE_GIT_SHA.test(workflowRefSha) ||
+    !packageVersion ||
+    !workflowRepository
+  ) {
     throw new Error(
       "The vh executable is missing immutable Venture Harness Core build provenance. Rebuild it with pnpm workspace:build before packing or installing it.",
     );
@@ -40,6 +51,7 @@ export function founderCoreBuildProvenance(): FounderCoreBuildProvenance {
     packageName: "venture-harness",
     packageVersion,
     workflowRefSha,
+    workflowRepository,
   });
 }
 
@@ -99,6 +111,7 @@ function runDefaultFounderCli(
   const services = (options.servicesFactory ?? defaultFounderServicesFactory)({
     store,
     founderWorkflowRefSha: founderCoreBuildProvenance().workflowRefSha,
+    founderWorkflowRepository: founderCoreBuildProvenance().workflowRepository,
   });
   return runCli([...args], { io: options.io, services, store });
 }

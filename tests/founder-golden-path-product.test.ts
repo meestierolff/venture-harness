@@ -77,6 +77,7 @@ describe("founder Golden Path product fixture", () => {
       at: NOW,
       coreVersion: "0.2.0",
       workflowRefSha: "a".repeat(40),
+      workflowRepository: "venture-harness/venture-harness",
     });
     await materializeVenture(plan, new NodeMaterializationFileSystem(childRoot), NOW);
 

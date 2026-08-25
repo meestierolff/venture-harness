@@ -95,6 +95,8 @@ export interface CompileVentureMaterializationInput {
   at: Date;
   coreVersion: string;
   workflowRefSha: string;
+  /** owner/repository of the Core checkout whose reusable workflow is called. */
+  workflowRepository: string;
   effects?: readonly LaunchEffect[];
 }
 
@@ -127,6 +129,9 @@ export function compileVentureMaterialization(
   if (!/^\d+\.\d+\.\d+$/.test(input.coreVersion)) throw new Error("Core version must be exact");
   if (!/^[a-f0-9]{40}$/.test(input.workflowRefSha)) {
     throw new Error("Reusable workflow reference must be an immutable 40-character SHA");
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.workflowRepository)) {
+    throw new Error("Reusable workflow repository must be exactly owner/repository");
   }
   const seed = ventureSeed(grant.seed.id, grant.seed.version);
   if (!seed.coreCompatibility.startsWith(`^${input.coreVersion.split(".")[0]}.`)) {
@@ -173,6 +178,7 @@ export function compileVentureMaterialization(
     seedVersion: seed.version,
     rail: seed.rail,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     accentHue,
     secondaryHue,
     motifStep,

@@ -165,6 +165,9 @@ describe("workspace distribution", () => {
       packageName: "venture-harness",
       packageVersion: packedRootManifest!.version,
       coreSourceCommit: expect.stringMatching(/^[a-f0-9]{40}$/u),
+      coreRepository: expect.stringMatching(
+        /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u,
+      ),
       binSha256: createHash("sha256").update(installedExecutable).digest("hex"),
     });
 

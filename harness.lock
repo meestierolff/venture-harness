@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 9508d1e1869535c86dc368f37a51faa5542d8b87
-  tree_digest: 7081b0c564b69f4e5c3f6c1649d1fea8455cc618db63108ecdfedffd90afe95e
+  ref: 822148d346ebaa98236f2561db13f8422b61bba3
+  tree_digest: b0288569e20bea6924592debe1fd0dbf95b3a148459a45619a291444b39222be
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -308,10 +308,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 4b48cd834f0f6da9cae1b3e97c368ba39a7fa5ffb9aba6740fe3806b39437717
+    sha256: 92613f1cdf82e253d3a13afc311ceb792c8b6bc454715a05da1b1a3b0973455a
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 3c2cb0ac3407bc2613b6bbfca1147dfef9fe3c404c588ce4b798034087eb887e
+    sha256: 71e7a879cca03a99c6a1448b113d4fe5787d7684ba1999e7a5e1d430ae705015
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -377,7 +377,7 @@ managed_files:
     sha256: 0f93c07c3ddd17d4017062b9e3e821524d979d8c2d3aa3c238ce40b0d6a6a0c8
   - path: lib/cli/default-services.ts
     ownership: harness
-    sha256: 8990e4f2a677141338ecc51417b73e72a996939f21a2f8debd09895dceaa6e7c
+    sha256: c30103ae916eafe701142855901bb26b1ee404a21eb0ee57c63170f6dcb7d95a
   - path: lib/cli/index.ts
     ownership: harness
     sha256: bfb3b9eb2745ceb58cb65407df9d7cce68554dd6997c4d0689282508d74d65a6
@@ -512,7 +512,7 @@ managed_files:
     sha256: 262439904a409dd52d10249d7ec823a165bed0c838925b7d2d0c54cf18dcd7c2
   - path: lib/founder-launch/orchestrator.ts
     ownership: harness
-    sha256: 4b9ce7c2d7be9d0e2ede0a172d85e2c138c7d51263f34b085b1b3d79fdd0564f
+    sha256: 9fc61f943b5056c0cd3c6060c7c038f4ff73ebbee0b81829d704734826dbe470
   - path: lib/founder-launch/stack-connect-shell.ts
     ownership: harness
     sha256: 0fe8bb38b5f06a0cf074c4c7ea65324713c25280cacc32ee0c4043e51f051753
@@ -569,10 +569,10 @@ managed_files:
     sha256: 08858d2e1f5d46e17baa7d60aeffa130b052d47b309edf23b562005e4b2f72a1
   - path: lib/materialization/launch-command.ts
     ownership: harness
-    sha256: 26d06508e8adce291f1fb968c2eb574687313ea287da2f0fe0ffaa41698885f1
+    sha256: 0205917f9edb7b9bcbe5f99849b0a94c501a7f3e7ac4cdad7d847cfa1bb2a2cf
   - path: lib/materialization/materializer.ts
     ownership: harness
-    sha256: 048885accac7a8f47a4e203ba1c83d5db5d32c9799be62d7ed529c1acefa5148
+    sha256: 6ba5af9c681f73705b387e9657deb3b657d3b9c137c52f90dc261b756302e475
   - path: lib/materialization/packs.ts
     ownership: harness
     sha256: def3bfb8101ee569bd06a1168cdc5032a9ec2dddf20fcd8ebc577bf105fba528
@@ -581,7 +581,7 @@ managed_files:
     sha256: a9af2c3737a348eee874883c96eed9e809ac3c9427f532d6d568858e2e67e717
   - path: lib/materialization/seeds.ts
     ownership: harness
-    sha256: 30445ffcc8c23b93b3c4800bf03868eb299a9efde2329be18f8f56570303faaa
+    sha256: e60833074c4d263b67e2a57379459c8744193cab1a6c2e437a5927c0e57998af
   - path: lib/materialization/types.ts
     ownership: harness
     sha256: 045a12dd75a9b8eb0c19d73c3e711ab2eac9d0378fd398f95ccf4535155967c2
@@ -803,7 +803,7 @@ managed_files:
     sha256: 8598ef5a0860e388f58021f51a26d6cc73ca29132ea0cf4effbbefbdbf2a4d6c
   - path: lib/winner-loop/fixture-d-runtime.ts
     ownership: harness
-    sha256: c042654c5d4057ecda4a5f73c8e7d30a731116300f38be4188e7eb51c59f5ec9
+    sha256: a40175b7729525e56de5e75880a27e24eb22e65876a0b1619537e4d1f4f00577
   - path: lib/winner-loop/fixture-d.ts
     ownership: harness
     sha256: 68fc1a7a6e0a9edcd5bcc018bfde9ab56643bbc02c29fb04874c8825fcd98167
@@ -938,7 +938,7 @@ managed_files:
     sha256: e27fadcea64f623fbaaf5e7545873fe0ed758da3e89f696f891fa1bc40bd8e3b
   - path: scripts/build-vh-executable.mjs
     ownership: harness
-    sha256: 4786d879e27db6deb023651eba658842a65d37f32563168b9966de1df61f526d
+    sha256: 25fb5a04e3a5b2067d71b86c20c816599ec28520b6a2672db518b4bd49ba120b
   - path: scripts/check-agent-parity.ts
     ownership: harness
     sha256: ac9d66f797b290acfb1262f235027bdb4b752fa49b1e0fc2e5674b85994ab313
@@ -1019,7 +1019,7 @@ managed_files:
     sha256: df5552e67c30ef0a9e6d3019b31e7be73a4004580c062afeef84b455a29cc6b1
   - path: scripts/seed-fetch.ts
     ownership: harness
-    sha256: eba9e4c4d58f807fe5f0b778e55239eecd8a21427708ce9e678e6ef6fdbd4ec4
+    sha256: a659a5ffd385444f6d32bdb5127a9b8c4309684b0c7725ea86ef57d10c9d8c1c
   - path: scripts/stage-final-evidence-upload.mjs
     ownership: harness
     sha256: 3ded5906ea230afa646d8db17d14af70ca8ebc5b631eef55b3e5c6e7d45e6307
@@ -1061,19 +1061,19 @@ managed_files:
     sha256: ec9ff8b7fc698cfa7d7b420c1f310d95cd9153e63d548599889c4317a8e4a2ce
   - path: scripts/verify-seed-closure.ts
     ownership: harness
-    sha256: 1c3b9a9babee1b430ee3686a34cbbd3d4b6f6d9e5b4ac45a6ba8786bed63cac8
+    sha256: f7345a96809859f3ac5a7a685dd01b92e5ce2ee3854ada10da925e7a165fb12d
   - path: scripts/verify-seo.ts
     ownership: harness
     sha256: 7f8f55fa1b1998cddc8accf765867180533c90f01e9108d3a98ee0851b7d6397
   - path: scripts/vh-bundle.ts
     ownership: harness
-    sha256: da30aabe4ca38ebf68ef1ba1994ae131dd7168a8bd6a51fa2cb5ee11593ef640
+    sha256: 70cda14f743207ed1a3324e834de36d3154429010787b4fc506133093263c371
   - path: scripts/vh.ts
     ownership: harness
     sha256: fe37282bd6b11feae0edea29c53c65f86527cf3bb2031856ef69f248bde86d5a
   - path: scripts/workspace-build.mjs
     ownership: harness
-    sha256: 3ab8e9956fb442e498339f67bcdffb5fac569421827682f614aca2b976dd1dce
+    sha256: 471f136b04ad70e121b0f2b1f7d3df55e845efedf31c0d61c0e4347c20980b7a
   - path: scripts/workspace-check.mjs
     ownership: harness
     sha256: 16ec0005bc3ba94d92669c15522ba217b5670fd0265ba7adfbba0b8fab1bf7f4
@@ -1370,7 +1370,7 @@ managed_files:
     sha256: 5fc8b91199619f60913f7e246ec98c656529b51d93f734c025f8c7b03ca1f9b2
   - path: tests/fixtures/synthetic-founder-golden-path.ts
     ownership: harness
-    sha256: 9de937a32e8e75c8e3e09b7c4837835123b74e3d0c25ac22cacccf0b407c1da9
+    sha256: fdf5085aaea2754f40a1929b29d41c68add074b4a030b92b696a12f78ca3f46a
   - path: tests/fleet-controller.test.ts
     ownership: harness
     sha256: bddcbc7ea080c9b99761231e27ea72e5e6296a131556192283178706d7f2f62e
@@ -1382,7 +1382,7 @@ managed_files:
     sha256: cf0b832a78f80d40c4754d1387bf411bd1fd3727740236864e77566c6d076e2d
   - path: tests/founder-golden-path-product.test.ts
     ownership: harness
-    sha256: 43bb06bf61d0310e23ad96e128b1b7672d744848c698289ea02ffe255aeec022
+    sha256: 3eae73435b9d1f83793c3534a52d290f0d65c483611aed54ac2180f6d8656436
   - path: tests/founder-golden-path-runtime.test.ts
     ownership: harness
     sha256: a2daa2532992c8dc20819447df3b4eb244756771c4a62ca64bd5f94d69ddf6a4
@@ -1394,10 +1394,10 @@ managed_files:
     sha256: b709fd1b102b48e592fd65cc8348d6504540ce7aa9b2293f0d4f7da6bdb05d73
   - path: tests/founder-launch-orchestrator.test.ts
     ownership: harness
-    sha256: bedce766392ba5aa8ba54e1594c393ddf4a4a9024fea8333a841a28c592d09dd
+    sha256: 92fe6e38798e803243cadb36658e7bc249d8f6aff3a64ebb9db075e51cee6496
   - path: tests/founder-launch-safety.test.ts
     ownership: harness
-    sha256: 60e05d4d3d4c7b7538ce9cd153f69b9b3a2e960c3ed989640b5d392358dfd92b
+    sha256: d07a76c7a704657f8ec7501342106ca57bafa3c608499800de66c46e5cbf2377
   - path: tests/founder-stack.test.ts
     ownership: harness
     sha256: ffb7e6cab4635f74b305552bc9c29e01e5cb1789a47c37ff2812e905745ba9d6
@@ -1445,13 +1445,13 @@ managed_files:
     sha256: 594dbf3a35ef9f0549442e5dd4ecb23815e550066c7fbd3252b302720ade09df
   - path: tests/materialization-web-build.test.ts
     ownership: harness
-    sha256: 2e599903fbb4472031baee3f214952a7b97d973d10f10b1d9150c2b5e91f4743
+    sha256: 2f1d8352722cbe26004e949f43f116ccaee7aa04de3834d7c0dc1a396d4d7633
   - path: tests/materialization-web-seed.test.ts
     ownership: harness
-    sha256: 56123bbad05c4f049730b86e2a1fb6a2907c780d14860feeb001f52b1c0930eb
+    sha256: a915ff6ce317bb86e7e5244e5667723ab1b1cac2d48edfd6ec2076d15417388d
   - path: tests/materialization.test.ts
     ownership: harness
-    sha256: e6f1d2f48954866a305a5cf546429fdbc88b2bfd02e17e06d42b7b8daf44bdca
+    sha256: 6f3c347a1c3e9e5142939b2f89488ac6e0f408cf9be0bcb45b8932b1ed34a07c
   - path: tests/migrations.test.ts
     ownership: harness
     sha256: 67c1d1a4a51a64243d959a3c482751fa3db29a8e93538ef52d0d5ea31d604e19
@@ -1514,7 +1514,7 @@ managed_files:
     sha256: 88fceed69e7a6dc22cbacb06d935de628cba098c4e2ac3d1f51a4c34825104da
   - path: tests/root-cli-packed-provenance.test.ts
     ownership: harness
-    sha256: 8a1d54fef04ceea3b7c2882c2dba8972bfc911538b28b0eb21029b4b3eeb03c0
+    sha256: 6de1e64566e0cebf8bb27b3ac93f67b2fd2f176acd81e7ddccaad85d81f267ce
   - path: tests/runtime-build-agent-host.test.ts
     ownership: harness
     sha256: 5ba9a5f5c76955b9e205055bd1baad02baadd7f3063acb56b0d3fee766074d66
@@ -1559,7 +1559,7 @@ managed_files:
     sha256: acbfce08470638fb1f26b80b8048dfa3eaac2bafb3baff4ca2de409b44996b76
   - path: tests/upgrade-operational.test.ts
     ownership: harness
-    sha256: 00493f97ee73c720dd90a78368ce3173c5176968395537db4b3a86709d8a58a2
+    sha256: 2732d54a22f7202cecb7ce81bd82daaffd82bb5dc6aa23bad59387ee4c148747
   - path: tests/upgrade.test.ts
     ownership: harness
     sha256: 82a12759c38c778c06e4040b9388d2ac1c58921c8e44c3f65f5660bb9e8957ea
@@ -1568,7 +1568,7 @@ managed_files:
     sha256: 72ab0d02eeae1e4d2eb7f477c8bc08b8b3919663e569d7d8d18a36310b11e166
   - path: tests/vh-generated-parity.test.ts
     ownership: harness
-    sha256: 3092121767e78566bcb47f71af12161598252c5512b45cdfaf2748dd45ec7d7f
+    sha256: 1fe055073810363aa2b10d22a25cbcdfaf105bac6ba209670eb120041932c296
   - path: tests/winner-loop-attribution-cohorts.test.ts
     ownership: harness
     sha256: 06a4c4c543eca5141b8517cc559d840cda66eecb98b07cb494005ff5f0dcfc71

@@ -95,6 +95,7 @@ function prepare(overrides: Partial<Parameters<typeof compileFounderLaunchPrepar
     stackDoctor: readyDoctor(connection),
     baseDir,
     workflowRefSha: WORKFLOW_SHA,
+    workflowRepository: "venture-harness/venture-harness",
     executionMode: "dry-run",
     production: true,
     nonInteractive: true,

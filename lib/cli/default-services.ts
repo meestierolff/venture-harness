@@ -89,6 +89,7 @@ import {
   launchContractDigest,
   launchDecisionFromContract,
   resolveFounderWorkflowRefSha,
+  resolveFounderWorkflowRepository,
   sharpenIdea,
   founderStackCliSessionCredentialRegistrations,
   parseFounderStackConnection,
@@ -250,6 +251,8 @@ export interface DefaultCliServicesOptions {
   founderOutputRoot?: string;
   /** Immutable workflow revision used by newly materialized child repositories. */
   founderWorkflowRefSha?: string;
+  /** owner/repository of this Core checkout; defaults to its own git origin. */
+  founderWorkflowRepository?: string;
   /** Explicit fixture-only override for the canonical Golden Path. Never enable in production hosts. */
   allowFixtureFounderStack?: boolean;
   store?: WorkflowStore;
@@ -509,6 +512,7 @@ function validateFounderLaunchContinuation(input: {
   preparation: FounderLaunchPreparation;
   stackConnectionHash: string;
   workflowRefSha: string;
+  workflowRepository: string;
 }): {
   transaction: FounderLaunchTransaction;
   grant: LaunchGrant;
@@ -584,6 +588,7 @@ function validateFounderLaunchContinuation(input: {
     at: new Date(grant.createdAt),
     coreVersion: "0.2.0",
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: [],
   });
   if (plan.planDigest !== transaction.planDigest) {
@@ -2945,6 +2950,10 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       });
       const ideaSource = loadFounderIdeaFile(request.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
+      const workflowRepository = resolveFounderWorkflowRepository(
+        root,
+        options.founderWorkflowRepository,
+      );
       // A venture is an independent product with its own Git history, so it is
       // never materialized inside the Core checkout by default. An explicit
       // founderOutputRoot (tests and fixtures) wins; otherwise the founder's
@@ -2968,6 +2977,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           baseDir: canonicalVenturesRoot,
           output: request.output,
           workflowRefSha,
+          workflowRepository,
           executionMode: request.mode,
           production: request.production,
           nonInteractive: request.nonInteractive,
@@ -2992,6 +3002,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           founderStackRoot: founderStackStore.rootDir,
           founderOutputRoot: options.founderOutputRoot,
           founderWorkflowRefSha: options.founderWorkflowRefSha,
+          founderWorkflowRepository: options.founderWorkflowRepository,
           allowFixtureFounderStack: options.allowFixtureFounderStack,
           launchBindings: options.launchBindings,
           buildAgentHost: options.buildAgentHost,
@@ -3047,6 +3058,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
             preparation,
             stackConnectionHash,
             workflowRefSha,
+            workflowRepository,
           });
           founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
           transaction = continuation.transaction;

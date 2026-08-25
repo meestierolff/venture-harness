@@ -184,6 +184,7 @@ describe("materialized standalone web venture", () => {
         at: NOW,
         coreVersion: "0.2.0",
         workflowRefSha: WORKFLOW_SHA,
+        workflowRepository: "venture-harness/venture-harness",
       });
       const materialized = await materializeVenture(
         plan,

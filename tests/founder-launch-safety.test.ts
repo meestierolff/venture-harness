@@ -136,6 +136,7 @@ function commonOptions(harness: SafetyHarness): DefaultCliServicesOptions {
     founderStackRoot: harness.stackRoot,
     founderOutputRoot: harness.root,
     founderWorkflowRefSha: WORKFLOW_REF,
+    founderWorkflowRepository: "venture-harness/venture-harness",
     allowFixtureFounderStack: true,
     credentialBroker: harness.broker,
     credentialCatalogPath: harness.catalogPath,
