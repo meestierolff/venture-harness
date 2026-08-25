@@ -1,0 +1,73 @@
+schemaVersion: 1
+venture:
+  name: Launch Receipt
+  slug: launch-receipt
+  oneSentenceThesis: A focused web app that helps an indie SaaS founder verify essential launch readiness and publish a clear receipt of what is ready and what remains.
+  targetUser: An indie hacker preparing to launch a SaaS product
+  painfulJob: Consolidate scattered launch requirements, proof, and remaining actions into one trustworthy readiness view
+  desiredOutcome: Publish a clean launch receipt that accurately communicates readiness and outstanding work
+  differentiation: A narrow, evidence-linked launch receipt instead of ongoing project management or a generic startup dashboard
+  founderAdvantage: A focused understanding of the launch-readiness workflow and the ability to test a narrow product directly with indie SaaS founders.
+product:
+  oneCoreFeature: A launch-readiness checklist whose items include status and optional proof, rendered as a publishable receipt
+  primaryJourney:
+    - The founder creates a launch receipt, reviews the essential launch items, marks each item ready or remaining, attaches proof where useful, previews the result, and publishes one shareable receipt.
+  primaryCta: Create your launch receipt
+  explicitNotBuilding:
+    - Project-management features
+    - Generic startup dashboards
+    - A Venture Harness control plane
+    - Team collaboration
+    - Provider integrations
+    - Automated readiness verification
+    - Custom checklist templates
+    - Billing
+  designThesis: Make readiness legible at a glance, distinguish claims from attached proof, and keep remaining actions impossible to hide accidentally.
+  trustRequirements:
+    - persisted state
+    - secure unguessable editing link
+    - clear published-versus-draft state
+    - explicit proof attribution
+business:
+  model: free
+  priceHypothesis: null
+  currency: EUR
+  paymentProvider: none
+  commercialCommitmentEvent: The founder publishes a launch receipt.
+distribution:
+  firstChannel: Direct outreach
+  firstUserHabitat: Indie hackers publicly preparing or announcing a SaaS launch
+  initialMessage: Turn your scattered launch checks and proof into one honest, shareable readiness receipt.
+  firstValidationAction: Invite upcoming SaaS launchers to create and publish a receipt for their current launch.
+decision:
+  launchMode: thin_mvp
+  primarySuccessSignal: published_launch_receipt
+  reviewDate: 2026-09-08
+  continueRule: Continue if target users independently complete the journey and publish launch receipts they consider useful.
+  changeRule: Change the checklist scope or receipt format if target users begin but cannot publish an accurate, useful receipt.
+  stopRule: Stop if target users consistently prefer their existing notes and dashboards and do not publish a receipt after trying the complete journey.
+truth:
+  facts:
+    - The proposed product is a web app.
+    - The intended user is an indie hacker about to launch a SaaS.
+    - The founder explicitly excludes project-management suites, generic startup dashboards, and another Venture Harness control plane.
+    - A monthly subscription was suggested only as a possibility.
+  assumptions:
+    - A focused checklist plus publishable receipt is sufficient for an initially useful outcome.
+    - Founders will manually enter statuses and proof without provider integrations.
+    - An unguessable editing link can replace user authentication for the first version.
+    - A free launch is appropriate until willingness to pay is observed.
+  inferences:
+    - Publishing a receipt requires persisted state and a stable shareable URL.
+    - Real product usage is useful but not indispensable before testing the concept, so a thin MVP is appropriate.
+  contradictions: []
+  unknowns:
+    - Which launch items users consider essential
+    - What forms of proof users need to attach or link
+    - Whether published receipts are primarily private working documents or public trust artifacts
+    - Whether users will pay, how much they might pay, and whether a subscription fits the usage pattern
+  externalEvidence: []
+agentNative:
+  customerAgentSurfaceRequired: false
+  serviceBlueprintRequired: false
+  outcomeCommands: []
