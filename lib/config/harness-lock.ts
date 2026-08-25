@@ -53,6 +53,11 @@ const legacyHarnessLockSchema = z
       .object({
         kind: z.enum(["template", "release", "local"]),
         ref: z.string().min(1).nullable(),
+        /** Digest of the managed manifest; see computeManagedTreeDigest. */
+        tree_digest: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
       })
       .strict(),
     managed_files: uniqueArray(managedFileSchema),
@@ -126,6 +131,32 @@ export const HARNESS_OWNED_CONFIG_PATHS = [
   HARNESS_FRAMEWORK_CONFIG_PATH,
   "config/quality.yaml",
 ] as const;
+
+/**
+ * Digest the managed manifest itself.
+ *
+ * Ancestry cannot prove provenance in a squash-merged history: the reviewed
+ * source commit is not an ancestor of the squashed commit that carries its
+ * tree, so `git merge-base --is-ancestor` fails on main after every merge.
+ * Digesting the manifest ties the lock to content instead, and a squash merge
+ * preserves that content byte-for-byte.
+ *
+ * The digest covers each managed path, its ownership, and its content hash, so
+ * adding, removing, reclassifying, or editing a managed file all change it.
+ */
+export function computeManagedTreeDigest(
+  managedFiles: readonly {
+    readonly path: string;
+    readonly ownership: string;
+    readonly sha256: string | null;
+  }[],
+): string {
+  const canonical = [...managedFiles]
+    .sort((left, right) => left.path.localeCompare(right.path))
+    .map((file) => `${file.path}\u0000${file.ownership}\u0000${file.sha256 ?? ""}`)
+    .join("\n");
+  return createHash("sha256").update(canonical).digest("hex");
+}
 
 export function createManagedFileLockEntry(options: {
   path: string;
