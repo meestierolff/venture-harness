@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "command": "idea.sharpen",
+  "status": "sharpened",
+  "sourceDigest": "2ef50187310a0fa22b37795ba6336206de92edee0e9fe78c3e76d7dc3215fc85",
+  "output": "reports/dogfood/launch-receipt/idea.md",
+  "productConstitution": "reports/dogfood/launch-receipt/idea.product-constitution.md",
+  "launchContract": "reports/dogfood/launch-receipt/idea.launch-contract.yaml",
+  "inputTokens": 39501,
+  "cachedInputTokens": 19968,
+  "outputTokens": 2012,
+  "totalTokens": 41513,
+  "modelCalls": 2,
+  "elapsedMs": 58998,
+  "assumptionsAdded": [
+    "A focused checklist plus publishable receipt is sufficient for an initially useful outcome.",
+    "Founders will manually enter statuses and proof without provider integrations.",
+    "An unguessable editing link can replace user authentication for the first version.",
+    "A free launch is appropriate until willingness to pay is observed.",
+    "Publishing a receipt requires persisted state and a stable shareable URL.",
+    "Real product usage is useful but not indispensable before testing the concept, so a thin MVP is appropriate."
+  ],
+  "contradictionsDetected": [],
+  "contextCharacters": 528,
+  "host": "codex_cli",
+  "model": null,
+  "transcriptStored": false,
+  "providerEffects": false
+}
