@@ -67,7 +67,7 @@ jobs:
       # Setup, not evidence: this prepares the child dependency closure so the
       # audited commands below can run at all. It carries no proof row.
       - name: Prepare child seed dependency closure
-        run: pnpm seed:fetch agentic-web-saas
+        run: pnpm seed:ensure agentic-web-saas
 
       - name: Fast verification profile
         run: >-

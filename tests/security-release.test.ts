@@ -129,13 +129,13 @@ describe("release supply-chain configuration", () => {
     expect(publicRelease).toContain("fetch-depth: 0");
     expect(publicRelease).toContain("GITLEAKS_VERSION: 8.30.1");
     expect(publicRelease).toContain("GITLEAKS_ENABLE_COMMENTS: false");
-    expect(publicRelease).toContain("pnpm seed:fetch agentic-web-saas");
+    expect(publicRelease).toContain("pnpm seed:ensure agentic-web-saas");
     expect(publicRelease).toContain("pnpm audit --prod --audit-level=high");
     expect(publicRelease).toContain("pnpm verify:mvp");
     expect(publicRelease.indexOf("pnpm install --frozen-lockfile")).toBeLessThan(
-      publicRelease.indexOf("pnpm seed:fetch agentic-web-saas"),
+      publicRelease.indexOf("pnpm seed:ensure agentic-web-saas"),
     );
-    expect(publicRelease.indexOf("pnpm seed:fetch agentic-web-saas")).toBeLessThan(
+    expect(publicRelease.indexOf("pnpm seed:ensure agentic-web-saas")).toBeLessThan(
       publicRelease.indexOf("pnpm verify:release"),
     );
   });

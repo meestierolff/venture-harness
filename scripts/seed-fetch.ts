@@ -25,7 +25,7 @@ import { parse } from "yaml";
 import { compileVentureMaterialization, createLaunchGrant } from "../lib/materialization";
 import type { LaunchGrantInput, SeedId } from "../lib/materialization";
 
-const SEED_IDS = [
+export const SEED_IDS = [
   "agentic-web-saas",
   "agentic-ios-subscription",
   "hybrid-agentic-service",

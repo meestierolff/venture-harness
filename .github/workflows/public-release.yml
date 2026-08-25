@@ -34,7 +34,7 @@ jobs:
       - name: Prepare workspace packages
         run: pnpm workspace:prepare
       - name: Prepare child seed dependency closure
-        run: pnpm seed:fetch agentic-web-saas
+        run: pnpm seed:ensure agentic-web-saas
       - name: Inspect public repository and package contents
         run: pnpm release:check
       - name: Reject high-severity production dependency advisories

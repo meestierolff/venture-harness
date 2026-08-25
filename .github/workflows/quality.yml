@@ -32,7 +32,7 @@ jobs:
       # Golden Path tests. Those children install their own frozen lockfile
       # offline with --ignore-workspace, so prepare that distinct closure too.
       - name: Prepare child seed dependency closure
-        run: pnpm seed:fetch agentic-web-saas
+        run: pnpm seed:ensure agentic-web-saas
       - name: Capability-aware fast profile
         env:
           QUALITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
@@ -67,7 +67,7 @@ jobs:
       # a root install never fetches it. Prepare it before any check that
       # materializes or builds a child.
       - name: Prepare child seed dependency closure
-        run: pnpm seed:fetch agentic-web-saas
+        run: pnpm seed:ensure agentic-web-saas
       - name: Capability-aware MVP profile
         run: pnpm verify:mvp
       - name: Upload MVP quality report
@@ -100,7 +100,7 @@ jobs:
       # a root install never fetches it. Prepare it before any check that
       # materializes or builds a child.
       - name: Prepare child seed dependency closure
-        run: pnpm seed:fetch agentic-web-saas
+        run: pnpm seed:ensure agentic-web-saas
       - name: Capability-aware release profile
         run: pnpm verify:release
       # Live provider proof is a separate question from code readiness. This
