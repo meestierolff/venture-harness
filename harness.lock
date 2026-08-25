@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: b280b991dbe15e86effb5c8e432248adeb09cef1
-  tree_digest: 348ea6f95a7a86e14b4c317459c1b0922c94cd651c702e36ec6b1a3ee2c5701b
+  ref: 20423014301bd1bc1657a2670c89c2c29eac0a97
+  tree_digest: bb0a351469f9df62812776252879164859ab9c3facfef0edb0bff74014ece2c3
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -275,7 +275,7 @@ managed_files:
     sha256: 38b07ba575f1a24768f4c1b6bd638972bdc935e322189446ed1cb7734cc42f5d
   - path: .github/workflows/agent-parity.yml
     ownership: harness
-    sha256: 4d3dd04b7d878433d1bf2dce595d6a4c2b98933c5313d9714f3757e928843702
+    sha256: 1237b29e4f1b0d23787056872bc7715655cf89f734ec9212a747f69e26a63121
   - path: .github/workflows/codeql.yml
     ownership: harness
     sha256: 6421bd18992d386cc7bb09cda34674c893640156b26701d9872d922b07e05dc3
@@ -308,10 +308,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 4898aad3ec8eac8b8d9ea3a527667c157c33d24c94444582ececf8ad096d5b2a
+    sha256: 0c58227898f936f1573217897dba0f2b7316dbb2c455abae0424fe085f7330a6
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 2a8b3a7b19fe00a95a28b3b7e6558fb266d1174c2e72ab33d8a439b6a352df36
+    sha256: 8c8b18bf64cb6d227cfacb93278db2a9676ae9028cb3a306fcf1e07371c01767
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
