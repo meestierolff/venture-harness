@@ -80,21 +80,16 @@ export function isAllowedPostSourceArtifact(path, sourceCommits = []) {
  * A second artifact-only commit may contain the bundle, lock, and sanitized
  * evidence, but source, config, workflows, dependencies, and public docs must
  * already be present in the reviewed source commit.
+ *
+ * The proof is the path diff below, not commit ancestry. Squash-merging replays
+ * the reviewed tree onto the default branch as a new commit that has no link
+ * back to the reviewed commit, so an ancestry assertion fails on main after
+ * every merge while the tree it was protecting is byte-for-byte intact.
  */
 export function assertReviewedCoreSourceState({ rootDirectory, sourceCommit }) {
   const root = resolve(rootDirectory);
   const reviewedCommit = resolveGitCommit(root, sourceCommit);
   const currentCommit = commandOutput(root, ["rev-parse", "--verify", "HEAD^{commit}"]);
-  try {
-    execFileSync("git", ["merge-base", "--is-ancestor", reviewedCommit, currentCommit], {
-      cwd: root,
-      stdio: "ignore",
-    });
-  } catch {
-    throw new Error(
-      `The reviewed Core source commit ${reviewedCommit} is not an ancestor of current commit ${currentCommit}. Rebuild only from the reviewed source commit followed by its artifact-only commit`,
-    );
-  }
   let changedPaths;
   try {
     changedPaths = new Set(
