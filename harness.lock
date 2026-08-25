@@ -3,7 +3,7 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 98c652309523b10cf41f896a4dd563c80e55d186
+  ref: 4b91c74916f4454efb069727ef0430c3e44c1ab0
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -307,10 +307,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: b8b7b2cef0f354ed918d98a485b4153764f6486805f48236f3a7de3c964e81ba
+    sha256: f3e4c75cafdf47f0fcb7a0291c6e262683a2c08ace508d04449790dca7c2a316
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 4b2335f55397aab84c36f75cfe30800b3a0398422cf9ba2befd36c1cc16d4eb0
+    sha256: a5c93ee048e8bcc923d19934a4e46c68d01b2b039f7aaf786a6e5e7d0810c191
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -1321,7 +1321,7 @@ managed_files:
     sha256: 006d6dc90f57e3cba669355fb72067146d744fee5b563fec0f268f37a5d9076b
   - path: tests/final-evidence-workflow.test.ts
     ownership: harness
-    sha256: 60b65a595fee37ef109c6da0c7f28c357b83ac47ec99d602f46ec7932b2e3473
+    sha256: 0e18e2c318956e8a47a1e802e0dcd97f61f93bf0bb11736b56012b24f15262af
   - path: tests/final-github-readback.test.ts
     ownership: harness
     sha256: a8cae435e6f5fb77727150c8f7b4d4ab727d0ab673d100ff8f0a8777a13799d1
@@ -1498,7 +1498,7 @@ managed_files:
     sha256: f90652060e39b38e26d1f59d8bfcc0a88bdcd094e91e8e30f310d7af18afefca
   - path: tests/quality-profiles.test.ts
     ownership: harness
-    sha256: 0fdfaf379160948284c325af9c2d6345975eb37adc0490f76becf76194a785b6
+    sha256: 003fed19a79071e018f6289937524d0f8cd45959855db71c8b50c95595c0dd42
   - path: tests/recursive-command-surfaces.test.ts
     ownership: harness
     sha256: ca4455d0b5c5df3ef1beaf5412525064d415c3a1c54f4840daab10f52930ce1f
