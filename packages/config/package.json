@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@venture-harness/core": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   },
   "scripts": {
     "build": "node ../../scripts/workspace-build.mjs config"
