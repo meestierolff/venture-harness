@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-for (const route of ["/", "/pricing"] as const) {
+for (const route of ["/"] as const) {
   test(`${route} has no horizontal overflow and records a review screenshot`, async ({
     page,
   }, testInfo) => {
@@ -20,7 +20,7 @@ for (const route of ["/", "/pricing"] as const) {
     }));
     expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport);
 
-    const name = route === "/" ? "home" : "pricing";
+    const name = "home";
     const path = testInfo.outputPath(`${name}-${testInfo.project.name}.png`);
     await page.screenshot({ path, fullPage: true, animations: "disabled" });
     await testInfo.attach(`${name}-${testInfo.project.name}`, {

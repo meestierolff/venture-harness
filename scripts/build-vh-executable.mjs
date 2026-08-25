@@ -17,8 +17,17 @@ const ALLOWED_POST_SOURCE_EXACT_PATHS = new Set([
   "docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md",
   "docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md",
   "harness.lock",
+  "reports/audit/commands-run.json",
+  "reports/audit/founder-alpha-evidence.json",
+  "reports/audit/github-readback.json",
+  "reports/audit/quality-live.json",
+  "reports/audit/quality-release.json",
+  "reports/audit/seed-closure.json",
+  "reports/audit/vh-v0.2-codex-requirement-matrix.json",
+  "reports/audit/winner-loop-creative-trace.json",
 ]);
-const ALLOWED_POST_SOURCE_PREFIXES = ["reports/audit/"];
+const SOURCE_SCOPED_AUDIT_LOG = /^[a-z0-9][a-z0-9._-]*\.attempt-[1-9][0-9]*\.log$/u;
+const LOCAL_CODEX_AGENT_CONFIG = /^\.codex\/agents\/[a-z0-9][a-z0-9_-]*\.toml$/u;
 
 function commandOutput(root, args) {
   try {
@@ -57,12 +66,13 @@ function nulSeparatedGitPaths(root, args) {
   return output.split("\0").filter(Boolean);
 }
 
-export function isAllowedPostSourceArtifact(path) {
-  return (
-    ALLOWED_POST_SOURCE_EXACT_PATHS.has(path) ||
-    ALLOWED_POST_SOURCE_PREFIXES.some((prefix) => path.startsWith(prefix)) ||
-    /^(?:apps|packages)\/[^/]+\/dist\//.test(path)
-  );
+export function isAllowedPostSourceArtifact(path, sourceCommits = []) {
+  if (ALLOWED_POST_SOURCE_EXACT_PATHS.has(path)) return true;
+  if (/^(?:apps|packages)\/[^/]+\/dist\//u.test(path)) return true;
+  return sourceCommits.some((commit) => {
+    const prefix = `reports/audit/command-logs/${commit}/`;
+    return path.startsWith(prefix) && SOURCE_SCOPED_AUDIT_LOG.test(path.slice(prefix.length));
+  });
 }
 
 /**
@@ -87,25 +97,27 @@ export function assertReviewedCoreSourceState({ rootDirectory, sourceCommit }) {
   }
   let changedPaths;
   try {
-    changedPaths = new Set([
-      ...nulSeparatedGitPaths(root, [
-        "diff",
-        "--name-only",
-        "-z",
-        reviewedCommit,
-        currentCommit,
-        "--",
-      ]),
-      ...nulSeparatedGitPaths(root, ["diff", "--name-only", "-z", "--"]),
-      ...nulSeparatedGitPaths(root, ["diff", "--cached", "--name-only", "-z", "--"]),
-      ...nulSeparatedGitPaths(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
-    ]);
+    changedPaths = new Set(
+      [
+        ...nulSeparatedGitPaths(root, [
+          "diff",
+          "--name-only",
+          "-z",
+          reviewedCommit,
+          currentCommit,
+          "--",
+        ]),
+        ...nulSeparatedGitPaths(root, ["diff", "--name-only", "-z", "--"]),
+        ...nulSeparatedGitPaths(root, ["diff", "--cached", "--name-only", "-z", "--"]),
+        ...nulSeparatedGitPaths(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+      ].filter((path) => !LOCAL_CODEX_AGENT_CONFIG.test(path)),
+    );
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Cannot inspect reviewed Venture Harness Core source drift: ${detail}`);
   }
   const unexpectedPaths = [...changedPaths]
-    .filter((path) => !isAllowedPostSourceArtifact(path))
+    .filter((path) => !isAllowedPostSourceArtifact(path, [reviewedCommit, currentCommit]))
     .sort();
   if (unexpectedPaths.length > 0) {
     throw new Error(

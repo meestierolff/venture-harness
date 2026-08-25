@@ -14,6 +14,7 @@ import {
   type CommandInvocation,
   type CommandRunner,
 } from "@/lib/credentials";
+import { founderBriefFromLaunchContract } from "@/lib/founder-launch";
 import { compileLaunchGraph, founderBriefSchema } from "@/lib/launch";
 import { MockProviderTransport, providerRegistry } from "@/lib/providers";
 import {
@@ -23,6 +24,7 @@ import {
   type VerifiedProviderLifecycleRecord,
 } from "@/lib/runtime";
 import type { JsonValue, WorkflowHandlerContext, WorkflowNodeDefinition } from "@/lib/workflow";
+import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
 
 function brief(path: string) {
   return founderBriefSchema.parse(parse(readFileSync(path, "utf8")));
@@ -70,9 +72,45 @@ function lifecycleStore(
 }
 
 describe("default provider composition", () => {
+  it("preserves an accepted 0.29 Launch Contract price as exactly 29 Stripe minor units", async () => {
+    const base = launchReceiptContract();
+    const contract = launchReceiptContract({
+      business: { ...base.business, priceHypothesis: 0.29 },
+    });
+    const founderBrief = founderBriefFromLaunchContract(contract);
+    const definition = compileLaunchGraph(founderBrief);
+    const snapshot = loadDefaultProviderConfig(process.cwd());
+    Object.assign(snapshot.providers.providers.stripe!, {
+      state: "unconfigured",
+      credential_ref: "cred://stripe/test",
+      account_id: "acct_exact_decimal_test",
+      external_resource_ids: {
+        mode: "test",
+        webhook_secret_credential_ref: "cred://stripe/exact-decimal-webhook",
+      },
+    });
+    const factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      launchContract: contract,
+      loadConfig: () => snapshot,
+    });
+    const stripeNode = definition.nodes.find(({ id }) => id === "stripe-commerce")!;
+
+    await expect(
+      factories["provider.stripe-commerce"]!(workflowContext(stripeNode)),
+    ).resolves.toMatchObject({ request: { inputs: { unitAmount: 29 } } });
+  });
+
   it("feeds staged Brevo, Google, EAS, and TestFlight nodes only from same-run public outputs", async () => {
-    const webBrief = brief("fixtures/web-saas/brief.yaml");
-    const webDefinition = compileLaunchGraph(webBrief);
+    const webBrief = founderBriefSchema.parse({
+      ...brief("fixtures/web-saas/brief.yaml"),
+      domain: "staged.example",
+    });
+    const webDefinition = compileLaunchGraph(webBrief, undefined, {
+      initialOrigin: "custom_domain",
+    });
     const webSnapshot = loadDefaultProviderConfig(process.cwd());
     webSnapshot.venture.venture.name = "Staged venture";
     webSnapshot.venture.venture.domain = "staged.example";
@@ -146,12 +184,21 @@ describe("default provider composition", () => {
       webFactories["provider.google-analytics-stream"]!(
         workflowContext(webNode("google-analytics-stream")),
       ),
-    ).rejects.toThrow("same run");
+    ).rejects.toThrow("same-run");
+
+    const productionOutput = {
+      provider: "vercel",
+      state: "verified",
+      environments: ["production"],
+      capabilities: ["deployment"],
+      resourceRefs: ["url=https://staged-production.vercel.app"],
+    } as JsonValue;
 
     await expect(
       webFactories["provider.google-analytics-stream"]!(
         workflowContext(webNode("google-analytics-stream"), {
           "google-analytics-property": propertyOutput,
+          "initial-production-deploy": productionOutput,
         }),
       ),
     ).resolves.toMatchObject({
@@ -251,11 +298,11 @@ describe("default provider composition", () => {
     });
   });
 
-  it("loads config lazily and returns complete GitHub, Vercel, and Neon requests", async () => {
+  it("captures config once and returns complete GitHub, Vercel, and Neon requests", async () => {
     const founderBrief = brief("fixtures/web-saas/brief.yaml");
     const definition = compileLaunchGraph(founderBrief);
     const snapshot = loadDefaultProviderConfig(process.cwd());
-    const factories = createDefaultProviderPlanFactories({
+    const missingFactories = createDefaultProviderPlanFactories({
       rootDir: process.cwd(),
       brief: founderBrief,
       definition,
@@ -264,7 +311,7 @@ describe("default provider composition", () => {
     const node = (id: string) => definition.nodes.find((candidate) => candidate.id === id)!;
 
     await expect(
-      factories["provider.github-repository"]!(workflowContext(node("github-repository"))),
+      missingFactories["provider.github-repository"]!(workflowContext(node("github-repository"))),
     ).rejects.toThrow("config/providers.yaml providers.github.credential_ref");
 
     Object.assign(snapshot.providers.providers.github!, {
@@ -278,13 +325,40 @@ describe("default provider composition", () => {
         repository_intent: "use_verified",
       },
     });
+    Object.assign(snapshot.providers.providers.vercel!, {
+      state: "verified",
+      team_id: "team_founder",
+      credential_ref: "cred://vercel/founder",
+      last_verified_at: "2026-08-04T10:00:00.000Z",
+      evidence_artifact_ref: "reports/providers/vercel.json",
+      external_resource_ids: { project: "first-venture" },
+    });
+    Object.assign(snapshot.providers.providers.neon!, {
+      state: "verified",
+      credential_ref: "cred://neon/control-plane",
+      last_verified_at: "2026-08-04T10:00:00.000Z",
+      evidence_artifact_ref: "reports/providers/neon.json",
+      external_resource_ids: {
+        organization_id: "neon-org-from-stack",
+        project_id: "project-from-readback",
+        branch_id: "branch-from-readback",
+        database_name: "venture",
+        database_credential_ref: "cred://neon/database",
+      },
+    });
+    const factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+    });
     const github = await factories["provider.github-repository"]!(
       workflowContext(node("github-repository")),
     );
     expect(github).toMatchObject({
       provider: "github",
       request: {
-        capabilities: ["repository_settings"],
+        capabilities: ["repository"],
         credentialRef: "cred://github/founder",
         inputs: { repository: "founder-org/first-venture" },
         dryRun: false,
@@ -296,16 +370,8 @@ describe("default provider composition", () => {
     const githubAfterConfigChange = await factories["provider.github-repository"]!(
       workflowContext(node("github-repository")),
     );
-    expect(githubAfterConfigChange.request.inputs.repository).toBe("founder-org/renamed-venture");
+    expect(githubAfterConfigChange.request.inputs.repository).toBe("founder-org/first-venture");
 
-    Object.assign(snapshot.providers.providers.vercel!, {
-      state: "verified",
-      team_id: "team_founder",
-      credential_ref: "cred://vercel/founder",
-      last_verified_at: "2026-08-04T10:00:00.000Z",
-      evidence_artifact_ref: "reports/providers/vercel.json",
-      external_resource_ids: { project: "first-venture" },
-    });
     const vercelPreview = await factories["provider.vercel-project"]!(
       workflowContext(node("vercel-project")),
     );
@@ -323,19 +389,6 @@ describe("default provider composition", () => {
       inputs: { project: "first-venture", scope: "team_founder" },
     });
 
-    Object.assign(snapshot.providers.providers.neon!, {
-      state: "verified",
-      credential_ref: "cred://neon/control-plane",
-      last_verified_at: "2026-08-04T10:00:00.000Z",
-      evidence_artifact_ref: "reports/providers/neon.json",
-      external_resource_ids: {
-        organization_id: "neon-org-from-stack",
-        project_id: "project-from-readback",
-        branch_id: "branch-from-readback",
-        database_name: "venture",
-        database_credential_ref: "cred://neon/database",
-      },
-    });
     const neon = await factories["provider.neon-database"]!(workflowContext(node("neon-database")));
     expect(neon.request).toMatchObject({
       capabilities: ["schema_migration", "read_write_health_check"],
@@ -419,12 +472,7 @@ describe("default provider composition", () => {
     const founderBrief = brief("fixtures/web-saas/brief.yaml");
     const definition = compileLaunchGraph(founderBrief);
     const snapshot = loadDefaultProviderConfig(process.cwd());
-    const factories = createDefaultProviderPlanFactories({
-      rootDir: process.cwd(),
-      brief: founderBrief,
-      definition,
-      loadConfig: () => snapshot,
-    });
+    let factories: ReturnType<typeof createDefaultProviderPlanFactories>;
     const node = (id: string) => definition.nodes.find((candidate) => candidate.id === id)!;
 
     Object.assign(snapshot.providers.providers.github!, {
@@ -435,6 +483,12 @@ describe("default provider composition", () => {
         repository: "founder-org/new-venture",
         repository_intent: "create_from_source",
       },
+    });
+    factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
     });
     const github = await factories["provider.github-repository"]!(
       workflowContext(node("github-repository")),
@@ -469,19 +523,25 @@ describe("default provider composition", () => {
       },
     });
     snapshot.venture.venture.domain = "new-venture.example";
-    expect(snapshot.venture.venture.capabilities.active).toContain("vercel_analytics");
+    expect(snapshot.venture.venture.capabilities.active).toEqual(["public_website"]);
+    factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+    });
     const vercel = await factories["provider.vercel-project"]!(
       workflowContext(node("vercel-project")),
     );
     expect(vercel.request).toMatchObject({
-      capabilities: ["project", "deployment", "domain"],
+      capabilities: ["project", "deployment"],
       inputs: {
         project: "new-venture",
         scope: "team_founder",
         projectIntent: "create",
-        domain: "new-venture.example",
       },
     });
+    expect(vercel.request.inputs).not.toHaveProperty("domain");
     const vercelPlan = providerRegistry.get("vercel").plan({
       ...vercel.request,
       dryRun: true,
@@ -490,7 +550,6 @@ describe("default provider composition", () => {
       "project.create",
       "project.link",
       "deployment.preview",
-      "domain.add",
     ]);
     expect(vercelPlan.operations.some(({ capability }) => capability === "web_analytics")).toBe(
       false,
@@ -511,6 +570,12 @@ describe("default provider composition", () => {
         project_name: "new-venture",
         database_credential_ref: "cred://neon/database",
       },
+    });
+    factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
     });
     const neon = await factories["provider.neon-database"]!(workflowContext(node("neon-database")));
     expect(neon.request).toMatchObject({
@@ -574,8 +639,13 @@ describe("default provider composition", () => {
   });
 
   it("builds one exact test-mode Stripe price and binds it to the created product", async () => {
-    const founderBrief = brief("fixtures/web-saas/brief.yaml");
-    const definition = compileLaunchGraph(founderBrief);
+    const founderBrief = founderBriefSchema.parse({
+      ...brief("fixtures/web-saas/brief.yaml"),
+      domain: "reviewed.example",
+    });
+    const definition = compileLaunchGraph(founderBrief, undefined, {
+      initialOrigin: "custom_domain",
+    });
     const snapshot = loadDefaultProviderConfig(process.cwd());
     snapshot.venture.venture.name = "Reviewed venture";
     snapshot.venture.venture.domain = "reviewed.example";
@@ -584,6 +654,7 @@ describe("default provider composition", () => {
     Object.assign(snapshot.providers.providers.stripe!, {
       state: "unconfigured",
       credential_ref: "cred://stripe/test",
+      account_id: "acct_reviewed_test",
       external_resource_ids: {
         mode: "test",
         webhook_secret_credential_ref: "cred://stripe/reviewed-webhook",
@@ -600,38 +671,109 @@ describe("default provider composition", () => {
       definition,
       loadConfig: () => snapshot,
     });
+    // These are the same classes of protected inputs a model task could try
+    // to tamper with after provider composition. The factory must retain the
+    // parsed pre-model brief/offer snapshot.
+    snapshot.offer.pricing.monthly_price = 999;
+    snapshot.venture.venture.domain = "tampered.example";
+    (founderBrief as { domain?: string | null }).domain = "tampered.example";
     const stripeNode = definition.nodes.find(({ id }) => id === "stripe-commerce")!;
 
     const target = await factories["provider.stripe-commerce"]!(workflowContext(stripeNode));
     expect(target.request).toMatchObject({
       environment: "sandbox",
-      capabilities: ["product", "price", "webhook", "billing_portal"],
+      capabilities: ["product", "price"],
       inputs: {
-        productName: "Reviewed venture",
+        ventureSlug: "synthetic-web-saas",
+        stripeAccountId: "acct_reviewed_test",
+        stripeMode: "test",
+        productName: "Synthetic Web SaaS",
         productId: "{dependency.product.id}",
         currency: "eur",
         unitAmount: 1995,
         recurringInterval: "month",
-        webhookUrl: "https://reviewed.example/api/stripe/webhook",
-        webhookSecretCredentialRef: "cred://stripe/reviewed-webhook",
       },
     });
     const plan = providerRegistry.get("stripe").plan({ ...target.request, dryRun: false });
-    expect(plan.operations.map(({ action }) => action)).toEqual([
-      "product.create",
-      "price.create",
-      "webhook_endpoint.create",
-      "billing_portal.configuration.create",
-    ]);
+    expect(plan.operations.map(({ action }) => action)).toEqual(["product.create", "price.create"]);
     expect(plan.operations[1].dependsOn).toEqual([plan.operations[0].id]);
     expect(plan.operations[1].http?.body).toMatchObject({
       product: "{dependency.product.id}",
       currency: "eur",
       unit_amount: 1995,
     });
-    expect(plan.operations[2].http?.captureCredential).toEqual({
+    const callbacksNode = definition.nodes.find(({ id }) => id === "stripe-callbacks")!;
+    const initialProductionOutput = {
+      provider: "vercel",
+      state: "verified",
+      environments: ["production"],
+      capabilities: ["deployment"],
+      resourceRefs: ["url=https://reviewed-production.vercel.app"],
+    } as JsonValue;
+    const callbacks = await factories["provider.stripe-callbacks"]!(
+      workflowContext(callbacksNode, {
+        "initial-production-deploy": initialProductionOutput,
+      }),
+    );
+    expect(callbacks.request).toMatchObject({
+      capabilities: ["webhook", "billing_portal"],
+      inputs: {
+        webhookUrl: "https://reviewed-production.vercel.app/api/stripe/webhook",
+        webhookSecretCredentialRef: "cred://stripe/reviewed-webhook",
+        portalReturnUrl: "https://reviewed-production.vercel.app/account",
+      },
+    });
+    const callbackPlan = providerRegistry
+      .get("stripe")
+      .plan({ ...callbacks.request, dryRun: false });
+    expect(callbackPlan.operations.map(({ action }) => action)).toEqual([
+      "webhook_endpoint.create",
+      "billing_portal.configuration.create",
+    ]);
+    expect(callbackPlan.operations[0].http?.captureCredential).toEqual({
       credentialRef: "cred://stripe/reviewed-webhook",
       outputPath: "secret",
+    });
+    const domainCallbacksNode = definition.nodes.find(
+      ({ id }) => id === "stripe-domain-callbacks",
+    )!;
+    await expect(
+      factories["provider.stripe-domain-callbacks"]!(workflowContext(domainCallbacksNode)),
+    ).rejects.toThrow("custom-domain callbacks require same-run verified");
+    const verifiedDomainDependencies = {
+      "vercel-project": {
+        provider: "vercel",
+        state: "verified",
+        capabilities: ["domain"],
+        resourceRefs: ["domain=reviewed.example"],
+      },
+      "dns-records": {
+        mode: "manual_dns",
+        propagation_checks: [
+          { resolver: "1.1.1.1", status: "matched" },
+          { resolver: "8.8.8.8", status: "matched" },
+        ],
+      },
+      "verify-custom-domain": {
+        target: "verified_custom_domain",
+        deploymentUrl: "https://reviewed.example",
+        customDomain: { state: "verified", origin: "https://reviewed.example" },
+      },
+    } as JsonValue;
+    await expect(
+      factories["provider.stripe-domain-callbacks"]!(
+        workflowContext(
+          domainCallbacksNode,
+          verifiedDomainDependencies as Record<string, JsonValue>,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      request: {
+        inputs: {
+          webhookUrl: "https://reviewed.example/api/stripe/webhook",
+          portalReturnUrl: "https://reviewed.example/account",
+        },
+      },
     });
     const stripeEnvironmentNode = definition.nodes.find(
       ({ id }) => id === "vercel-stripe-webhook-environment",
@@ -653,11 +795,179 @@ describe("default provider composition", () => {
         },
       },
     });
+    const publicOutput = {
+      publicOutputs: {
+        dnsRecords: [],
+        identifiers: [{ type: "price_id", value: "price_same_run_123" }],
+      },
+    } as JsonValue;
+    const priceEnvironmentNode = definition.nodes.find(
+      ({ id }) => id === "vercel-stripe-price-environment",
+    )!;
+    const priceEnvironment = await factories["provider.vercel-stripe-price-environment"]!(
+      workflowContext(priceEnvironmentNode, { "stripe-commerce": publicOutput }),
+    );
+    expect(priceEnvironment.request).toMatchObject({
+      environment: "production",
+      inputs: {
+        environmentVariableName: "STRIPE_PRICE_ID",
+        environmentPublicValue: "price_same_run_123",
+      },
+    });
+    const publicEnvironmentPlan = providerRegistry
+      .get("vercel")
+      .plan({ ...priceEnvironment.request, dryRun: false });
+    expect(publicEnvironmentPlan.operations[0].command).toMatchObject({
+      args: expect.arrayContaining([
+        "--value",
+        "price_same_run_123",
+        "--no-sensitive",
+        "--project",
+        "reviewed-venture",
+      ]),
+    });
+    expect(publicEnvironmentPlan.operations[0].command).not.toHaveProperty("stdinCredentialRef");
+
+    const lookupEnvironmentNode = definition.nodes.find(
+      ({ id }) => id === "vercel-stripe-price-lookup-environment",
+    )!;
+    await expect(
+      factories["provider.vercel-stripe-price-lookup-environment"]!(
+        workflowContext(lookupEnvironmentNode),
+      ),
+    ).resolves.toMatchObject({
+      request: {
+        inputs: {
+          environmentVariableName: "STRIPE_PRICE_LOOKUP_KEY",
+          environmentPublicValue: "vh_synthetic_web_saas_eur_1995_month",
+        },
+      },
+    });
 
     snapshot.offer.pricing.annual_price = 199;
     await expect(
       factories["provider.stripe-commerce"]!(workflowContext(stripeNode)),
+    ).resolves.toMatchObject({ request: { inputs: { unitAmount: 1995 } } });
+    const conflictingFactories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+    });
+    await expect(
+      conflictingFactories["provider.stripe-commerce"]!(workflowContext(stripeNode)),
     ).rejects.toThrow("without omitting one");
+
+    snapshot.offer.pricing.monthly_price = null;
+    snapshot.offer.pricing.annual_price = null;
+    snapshot.offer.pricing.one_time_price = 149;
+    const oneTimeFactories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+    });
+    const oneTimeTarget = await oneTimeFactories["provider.stripe-commerce"]!(
+      workflowContext(stripeNode),
+    );
+    expect(oneTimeTarget.request.inputs).toMatchObject({ unitAmount: 14900 });
+    expect(oneTimeTarget.request.inputs).not.toHaveProperty("recurringInterval");
+    const oneTimePlan = providerRegistry
+      .get("stripe")
+      .plan({ ...oneTimeTarget.request, dryRun: false });
+    expect(oneTimePlan.operations[1].http?.body).not.toHaveProperty("recurring");
+    expect(oneTimePlan.operations[1].existingResource?.stateAssertions).toEqual(
+      expect.arrayContaining([
+        { path: "type", operator: "equals", expected: "one_time" },
+        { path: "recurring", operator: "equals", expected: null },
+      ]),
+    );
+    expect(oneTimePlan.operations[1].readBack?.assertions).toEqual(
+      expect.arrayContaining([
+        { path: "type", operator: "equals", expected: "one_time" },
+        { path: "recurring", operator: "equals", expected: null },
+      ]),
+    );
+  });
+
+  it("binds domainless Stripe callbacks only to same-run production deployment read-back", async () => {
+    const founderBrief = founderBriefSchema.parse({
+      ...brief("fixtures/web-saas/brief.yaml"),
+      domain: null,
+    });
+    const definition = compileLaunchGraph(founderBrief);
+    const snapshot = loadDefaultProviderConfig(process.cwd());
+    Object.assign(snapshot.providers.providers.stripe!, {
+      credential_ref: "cred://stripe/domainless-test",
+      account_id: "acct_domainless_test",
+      external_resource_ids: {
+        mode: "test",
+        webhook_secret_credential_ref: "cred://stripe/domainless-webhook",
+      },
+    });
+    Object.assign(snapshot.providers.providers.vercel!, {
+      state: "verified",
+      last_verified_at: "2026-08-04T12:00:00.000Z",
+      evidence_artifact_ref: "reports/launch/domainless/vercel.json",
+      credential_ref: "cred://vercel/domainless",
+      team_id: "team_domainless",
+      external_resource_ids: { project: "domainless-app" },
+    });
+    snapshot.offer.pricing.monthly_price = 12;
+    const factories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      configSnapshot: snapshot,
+    });
+    const node = (id: string) => definition.nodes.find((candidate) => candidate.id === id)!;
+    const initial = await factories["provider.initial-production-deploy"]!(
+      workflowContext(node("initial-production-deploy")),
+    );
+    expect(initial.request).toMatchObject({
+      environment: "production",
+      capabilities: ["deployment"],
+      inputs: { deploymentPhase: "initial_production_origin" },
+    });
+    const callbacks = factories["provider.stripe-callbacks"]!;
+    await expect(callbacks(workflowContext(node("stripe-callbacks")))).rejects.toThrow(
+      "initial-production-deploy",
+    );
+    await expect(
+      callbacks(
+        workflowContext(node("stripe-callbacks"), {
+          "vercel-project": {
+            provider: "vercel",
+            state: "verified",
+            environments: ["preview"],
+            capabilities: ["deployment"],
+            resourceRefs: ["url=https://domainless-preview.vercel.app"],
+          },
+        }),
+      ),
+    ).rejects.toThrow("initial-production-deploy");
+
+    const productionOutput = {
+      provider: "vercel",
+      state: "verified",
+      environments: ["production"],
+      capabilities: ["deployment"],
+      resourceRefs: ["url=https://domainless-production.vercel.app"],
+    } as JsonValue;
+    await expect(
+      callbacks(
+        workflowContext(node("stripe-callbacks"), {
+          "initial-production-deploy": productionOutput,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      request: {
+        inputs: {
+          webhookUrl: "https://domainless-production.vercel.app/api/stripe/webhook",
+          portalReturnUrl: "https://domainless-production.vercel.app/account",
+        },
+      },
+    });
   });
 
   it("registers every launch provider handler and rejects unsafe partial compositions", async () => {
@@ -730,7 +1040,7 @@ describe("default provider composition", () => {
       provider: "github",
       request: {
         environment: "preview",
-        capabilities: ["repository_settings"],
+        capabilities: ["repository"],
         inputs: { repository: "founder-org/from-readback" },
       },
     });
@@ -740,9 +1050,19 @@ describe("default provider composition", () => {
       repository: "founder-org/configured-different",
       repository_intent: "use_verified",
     };
-    await expect(factories["provider.github-repository"]!(workflowContext(node))).rejects.toThrow(
-      "no matching verified lifecycle record proves the existing repository",
-    );
+    await expect(
+      factories["provider.github-repository"]!(workflowContext(node)),
+    ).resolves.toMatchObject({ request: { inputs: { repository: "founder-org/from-readback" } } });
+    const mismatchedFactories = createDefaultProviderPlanFactories({
+      rootDir: process.cwd(),
+      brief: founderBrief,
+      definition,
+      loadConfig: () => snapshot,
+      lifecycleStore: lifecycleStore(records),
+    });
+    await expect(
+      mismatchedFactories["provider.github-repository"]!(workflowContext(node)),
+    ).rejects.toThrow("no matching verified lifecycle record proves the existing repository");
     snapshot.providers.providers.github!.external_resource_ids = {};
 
     const corruptFactories = createDefaultProviderPlanFactories({

@@ -13,6 +13,7 @@ export type CredentialKind = (typeof credentialKinds)[number];
 
 export type CredentialStatus = "available" | "missing" | "expired" | "revoked" | "unavailable";
 export type CredentialTestStatus = "passed" | "failed";
+export type CredentialProviderMode = "test" | "live";
 
 /**
  * A safe pointer to a credential. The secret value never belongs in this
@@ -30,6 +31,8 @@ export interface CredentialReference {
   /** Safe, durable evidence from an injected provider authorization tester. */
   testedAt?: string;
   testStatus?: CredentialTestStatus;
+  /** Safe provider mode proven by that same remote test, when the provider exposes one. */
+  providerMode?: CredentialProviderMode;
   /** Locally disables the reference even when a read-only backend cannot delete its value. */
   revokedAt?: string;
 }
@@ -60,13 +63,19 @@ export interface CredentialTestResult {
   accountId?: string;
   scopes?: readonly string[];
   expiresAt?: string;
+  providerMode?: CredentialProviderMode;
   message?: string;
   details?: unknown;
+}
+
+export interface CredentialTestContext {
+  readonly signal?: AbortSignal;
 }
 
 export type CredentialTester = (
   secret: string,
   reference: CredentialReference,
+  context?: CredentialTestContext,
 ) => Promise<CredentialTestResult>;
 
 export interface RegisterCredentialInput {
@@ -80,6 +89,7 @@ export interface RegisterCredentialInput {
   expiresAt?: string;
   testedAt?: string;
   testStatus?: CredentialTestStatus;
+  providerMode?: CredentialProviderMode;
   revokedAt?: string;
 }
 

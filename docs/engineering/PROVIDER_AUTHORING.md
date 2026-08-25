@@ -71,6 +71,10 @@ capability and an end-to-end fixture.
 record. It is strict credential-free JSON containing:
 
 - one fixed provider-neutral role map;
+- an explicit optional-role selection, so RevenueCat appears only for a native
+  selection or an already configured native-commerce role;
+- bounded GitHub, Vercel and Stripe official-CLI inspection metadata, with
+  Stripe accepted only when a test-mode read is proved;
 - `cred://...` references and safe account/team/organization metadata;
 - requested scopes, expiry, and declared verification metadata;
 - launch defaults for Neon, Stripe test mode, Brevo, Google, Bing and DNS;
@@ -84,10 +88,12 @@ without a write. Production rejects the fixture-only in-memory backend.
 
 Built-in Neon, Stripe, RevenueCat, Brevo, Google and Bing credential testers use
 bounded read-only official API requests. GitHub and Vercel use their official
-CLI session reads. A passing probe supports credential/account/scope readiness;
-it does not prove that a planned repository, project, database, price, sender,
-site, deployment, or domain exists. Keep resource verification in provider
-`readBack`.
+CLI session reads; the Stack wizard also uses the official Stripe CLI only for
+safe account/test-mode inspection while the REST adapter retains its separate
+restricted test-key reference. A passing probe supports
+credential/account/scope readiness; it does not prove that a planned repository,
+project, database, price, sender, site, deployment, or domain exists. Keep
+resource verification in provider `readBack`.
 
 ## Canonical Stack Profile commands
 

@@ -94,10 +94,19 @@ function harness(
         retryable: false,
       };
     }
+    if (operation.provider === "stripe" && operation.action.endsWith(".search_before_create")) {
+      return {
+        status: "succeeded" as const,
+        message: "Synthetic deterministic search found no existing Stripe resource",
+        output: { data: [], has_more: false },
+        verified: true,
+      };
+    }
     const baseOutput = {
       fixture: true,
       provider: operation.provider,
       operation_id: operation.id,
+      id: `synthetic-${operation.provider}-${operation.id.replace(/[^a-z0-9]+/gi, "-")}`,
       resource_id: `synthetic-${operation.provider}-${operation.id.replace(/[^a-z0-9]+/gi, "-")}`,
     };
     const output = {
@@ -133,6 +142,7 @@ function harness(
             },
           }
         : {}),
+      ...(operation.capability === "webhook" ? { secret: "synthetic-secret-never-persist" } : {}),
       ...(operation.capability === "site_verification_token"
         ? { method: "DNS_TXT", token: "google-site-verification=fixture-public-value" }
         : {}),
@@ -200,6 +210,20 @@ function harness(
     kind: "connection_string",
     backend: "memory",
     label: "Synthetic writable Neon capture target",
+  });
+  credentialBroker.register({
+    ref: "cred://stripe/webhook-secret",
+    provider: "stripe",
+    kind: "ci_secret",
+    backend: "memory",
+    label: "Synthetic writable Stripe capture target",
+  });
+  credentialBroker.register({
+    ref: "cred://google/measurement-id",
+    provider: "google",
+    kind: "ci_secret",
+    backend: "memory",
+    label: "Synthetic writable Google capture target",
   });
   const providerContext = createOfficialProviderContext({
     credentials: credentialBroker,
@@ -269,6 +293,7 @@ function harness(
         ...providerBindings.handlers,
         ...reportBindings.handlers,
       },
+      reconcilers: providerBindings.reconcilers,
       validators: manualBindings.validators,
       interruptEvidenceVerifier: createRepositoryInterruptEvidenceVerifier({
         rootDir: directory,
@@ -304,7 +329,17 @@ async function resolveAllManualActions(
     const waiting = Object.values(state.nodes).filter(
       (record) => record.state === "waiting_for_manual_action",
     );
-    expect(waiting.length).toBeGreaterThan(0);
+    expect(
+      waiting.length,
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(state.nodes).map(([nodeId, record]) => [
+            nodeId,
+            { state: record.state, error: record.error },
+          ]),
+        ),
+      ),
+    ).toBeGreaterThan(0);
     for (const record of waiting) {
       const output = (
         record.definition.id === "dns-records"
@@ -391,7 +426,9 @@ describe("synthetic launch fixtures", () => {
   for (const fixture of ["web-saas", "ios-subscription"]) {
     it(`executes, pauses, resumes, and remains idempotent for ${fixture}`, async () => {
       const brief = loadBrief(`fixtures/${fixture}/brief.yaml`);
-      const definition = compileLaunchGraph(brief);
+      const definition = compileLaunchGraph(brief, undefined, {
+        initialOrigin: "custom_domain",
+      });
       const runId = `fixture-${fixture}`;
       const authorizationProfile =
         fixture === "web-saas" ? "live-commerce-launch" : "mobile-testflight";
@@ -408,13 +445,18 @@ describe("synthetic launch fixtures", () => {
       let state = await executor.start(definition, { runId });
       expect(
         state.status,
-        JSON.stringify(
-          Object.fromEntries(
+        JSON.stringify({
+          failed: Object.fromEntries(
             Object.entries(state.nodes)
               .filter(([, record]) => record.state === "failed_terminal")
               .map(([id, record]) => [id, record.error]),
           ),
-        ),
+          relevantEvents: store
+            .readEvents(state.runId)
+            .filter((event) =>
+              ["stripe-callbacks", "google-analytics-stream"].includes(event.nodeId ?? ""),
+            ),
+        }),
       ).toBe("waiting");
       await persistReport(state);
       expect(JSON.parse(readFileSync(join(outputDirectory, "final.json"), "utf8"))).toMatchObject({
@@ -451,9 +493,6 @@ describe("synthetic launch fixtures", () => {
       if (fixture === "web-saas") {
         for (const expected of [
           "github:repository",
-          "github:actions_secret",
-          "github:repository_settings",
-          "github:draft_pull_request",
           "neon:project",
           "neon:branch",
           "neon:database",
@@ -528,7 +567,9 @@ describe("synthetic launch fixtures", () => {
 
   it("fails honestly while preserving independent verified provider effects", async () => {
     const brief = loadBrief("fixtures/web-saas/brief.yaml");
-    const definition = compileLaunchGraph(brief);
+    const definition = compileLaunchGraph(brief, undefined, {
+      initialOrigin: "custom_domain",
+    });
     const runId = "fixture-provider-failure";
     const { outputDirectory, providerOperations, executor, persistReport } = harness(
       definition,
@@ -549,7 +590,12 @@ describe("synthetic launch fixtures", () => {
     });
     expect(state.nodes["github-repository"].state).toBe("succeeded");
     expect(state.nodes["launch-report"].state).toBe("skipped");
-    expect(providerOperations().filter(({ provider }) => provider === "stripe")).toHaveLength(3);
+    const stripeOperations = providerOperations().filter(({ provider }) => provider === "stripe");
+    expect(stripeOperations).toHaveLength(1);
+    expect(stripeOperations[0]).toMatchObject({
+      action: "product.create.search_before_create",
+      effectClass: "read",
+    });
     expect(JSON.parse(readFileSync(join(outputDirectory, "final.json"), "utf8"))).toMatchObject({
       run: { id: runId, status: "failed" },
       overallState: "failed",

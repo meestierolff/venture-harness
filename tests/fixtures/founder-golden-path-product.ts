@@ -15,6 +15,60 @@ import {
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const COMMAND_TIMEOUT_MS = 180_000;
 
+function traceArchive(
+  origin: string,
+  steps: readonly string[],
+  phase: "journey" | "cleanup",
+): Buffer {
+  const name = Buffer.from("test.trace");
+  const events: Record<string, unknown>[] = [];
+  for (const [index, step] of (phase === "journey"
+    ? steps
+    : ["verified cleanup read-back"]
+  ).entries()) {
+    const stepId = `step@${index}`;
+    const actionId = `pw:api@${index}`;
+    const expectId = `expect@${index}`;
+    events.push(
+      { type: "before", callId: stepId, title: step },
+      {
+        type: "before",
+        callId: actionId,
+        parentId: stepId,
+        title: "page.goto",
+        params: { url: origin },
+      },
+      { type: "after", callId: actionId },
+      { type: "before", callId: expectId, parentId: stepId, title: "expect.toBeVisible" },
+      { type: "after", callId: expectId },
+    );
+  }
+  const body = Buffer.from(
+    `${events.map((event) => JSON.stringify(event)).join("\n")}\n`.repeat(4),
+  );
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt32LE(body.length, 18);
+  local.writeUInt32LE(body.length, 22);
+  local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(body.length, 20);
+  central.writeUInt32LE(body.length, 24);
+  central.writeUInt16LE(name.length, 28);
+  const centralOffset = local.length + name.length + body.length;
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length + name.length, 12);
+  end.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([local, name, body, central, name, end]);
+}
+
 function installedRootStore(): string {
   const modules = parse(
     readFileSync(resolve(REPOSITORY_ROOT, "node_modules/.modules.yaml"), "utf8"),
@@ -221,59 +275,6 @@ export declare function reviewExceptions(state: ExceptionDeskState): ExceptionDe
 export declare function confirmInvoiceDraft(state: ExceptionDeskState): ExceptionDeskState;
 `;
 
-const JOURNEY_CLIENT_BASE = `"use client";
-
-import { useState } from "react";
-import {
-  confirmInvoiceDraft,
-  createExceptionDeskState,
-  importLabeledFixture,
-  reviewExceptions,
-  signInFixtureOperator,
-  type ExceptionDeskState,
-} from "../src/product/exception-desk.mjs";
-
-const steps = ["Sign in", "Import labeled fixture", "Review exceptions", "Confirm invoice draft"];
-
-function advance(state: ExceptionDeskState): ExceptionDeskState {
-  if (state.stage === "signed_out") return signInFixtureOperator(state);
-  if (state.stage === "ready_for_import") return importLabeledFixture(state);
-  if (state.stage === "fixture_imported") return reviewExceptions(state);
-  if (state.stage === "exceptions_reviewed") return confirmInvoiceDraft(state);
-  return state;
-}
-
-function actionLabel(stage: ExceptionDeskState["stage"]): string {
-  if (stage === "signed_out") return "Sign in to fixture session";
-  if (stage === "ready_for_import") return "Import labeled fixture";
-  if (stage === "fixture_imported") return "Mark exceptions reviewed";
-  if (stage === "exceptions_reviewed") return "Confirm invoice draft";
-  return "Invoice draft confirmed";
-}
-
-export function ExceptionDeskClient() {
-  const [state, setState] = useState<ExceptionDeskState>(() => createExceptionDeskState());
-  const stepIndex = ["signed_out", "ready_for_import", "fixture_imported", "exceptions_reviewed", "invoice_draft_confirmed"].indexOf(state.stage);
-  return (
-    <div className="deskGrid">
-      <aside aria-labelledby="journey-heading">
-        <h2 id="journey-heading">Reconciliation run</h2>
-        <ol className="journeySteps">{steps.map((step, index) => <li data-current={stepIndex === index} key={step}>{step}</li>)}</ol>
-      </aside>
-      <section className="workbench" aria-live="polite">
-        <p className="fixtureFlag">{state.sampleLabel ?? "LOCAL FIXTURE — NO LIVE ACCOUNT"}</p>
-        <h2>Invoice exceptions</h2>
-        {state.rows.length === 0 ? <p className="lede">Sign in locally, then import the labeled sample to inspect two deterministic exceptions.</p> : (
-          <table className="sampleTable"><thead><tr><th>Account</th><th>Delivered</th><th>Draft</th><th>Exception</th></tr></thead><tbody>{state.rows.map((row) => <tr key={row.id}><td>{row.clientLabel}</td><td>{row.deliveredUnits}</td><td>{row.invoiceUnits}</td><td><span className="statusTag">{row.exception}</span></td></tr>)}</tbody></table>
-        )}
-        <button className="primaryAction" disabled={state.invoiceDraftConfirmed} onClick={() => setState((current) => advance(current))} type="button">{actionLabel(state.stage)}</button>
-        {state.invoiceDraftConfirmed ? <p className="confirmationSeal">Draft confirmed locally · nothing sent or charged</p> : null}
-      </section>
-    </div>
-  );
-}
-`;
-
 const HOME_PAGE = `import { ExceptionDeskClient } from "./exception-desk-client";
 
 export default function Home() {
@@ -310,9 +311,18 @@ test("confirmation cannot bypass review", () => {
 });
 `;
 
-const PRODUCT_E2E_TEST = `import { expect, test } from "@playwright/test";
+const PRODUCT_E2E_TEST = `import { readFileSync } from "node:fs";
+import { expect, test } from "@playwright/test";
 
-test("fixture operator completes the read-only Exception Desk journey", async ({ page, request }) => {
+const contract = JSON.parse(readFileSync("tests/e2e/primary-journey.contract.json", "utf8"));
+const runId = process.env.VH_PRIMARY_JOURNEY_RUN_ID;
+const nonce = process.env.VH_PRIMARY_JOURNEY_NONCE;
+const identityLabel = process.env.VH_PRIMARY_JOURNEY_TEST_IDENTITY;
+if (!runId || !nonce || identityLabel !== contract.production.identity.label) {
+  throw new Error("Primary journey requires exact run, nonce, and labeled test identity bindings");
+}
+
+test("fixture operator completes the product-specific Exception Desk journey", async ({ page, request }, testInfo) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   page.on("console", (message) => {
@@ -324,27 +334,129 @@ test("fixture operator completes the read-only Exception Desk journey", async ({
     else await route.abort("blockedbyclient");
   });
 
-  const smoke = await request.get("/", { failOnStatusCode: false });
-  expect(smoke.status()).toBeGreaterThanOrEqual(200);
-  expect(smoke.status()).toBeLessThan(400);
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { level: 1, name: "Reconcile before you invoice." })).toBeVisible();
-  await expect(page.getByText("LOCAL FIXTURE — NO LIVE ACCOUNT")).toBeVisible();
-
   const action = page.getByRole("button");
-  await expect(action).toHaveText("Sign in to fixture session");
-  await action.click();
-  await expect(action).toHaveText("Import labeled fixture");
-  await action.click();
-  await expect(page.getByText("SYNTHETIC SAMPLE — NOT CUSTOMER DATA")).toBeVisible();
-  await action.click();
-  await expect(action).toHaveText("Confirm invoice draft");
-  await action.click();
-  await expect(page.getByText("Draft confirmed locally · nothing sent or charged")).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("invoice_draft_confirmed");
+  await test.step(contract.steps[0], async () => {
+    const smoke = await request.get("/", { failOnStatusCode: false });
+    expect(smoke.status()).toBeGreaterThanOrEqual(200);
+    expect(smoke.status()).toBeLessThan(400);
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { level: 1, name: "Reconcile before you invoice." })).toBeVisible();
+    await expect(action).toHaveText("Sign in to fixture session");
+    await action.click();
+    await expect(action).toHaveText("Import labeled fixture");
+  });
+  await test.step(contract.steps[1], async () => {
+    await action.click();
+    await expect(page.getByText("SYNTHETIC SAMPLE — NOT CUSTOMER DATA")).toBeVisible();
+  });
+  await test.step(contract.steps[2], async () => {
+    await action.click();
+    await expect(action).toHaveText("Confirm invoice draft");
+  });
+  await test.step(contract.steps[3], async () => {
+    await action.click();
+    await expect(page.getByText("Draft confirmed locally · nothing sent or charged")).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("invoice_draft_confirmed");
+  });
   expect(runtimeErrors).toEqual([]);
+  console.log("VH_PRIMARY_JOURNEY_RESULT " + JSON.stringify({
+    schemaVersion: 1,
+    phase: "journey",
+    runId,
+    nonce,
+    journeyId: contract.journeyId,
+    steps: contract.steps,
+    project: testInfo.project.name,
+    identity: contract.production.identity,
+    observedEffects: [],
+    recipientCount: 0,
+    recipientsAllMatchTestIdentity: true,
+    forbiddenEffectsObserved: [],
+  }));
 });
 `;
+
+const PRODUCT_E2E_CLEANUP_TEST = `import { readFileSync } from "node:fs";
+import { expect, test } from "@playwright/test";
+
+const contract = JSON.parse(readFileSync("tests/e2e/primary-journey.contract.json", "utf8"));
+const runId = process.env.VH_PRIMARY_JOURNEY_RUN_ID;
+const nonce = process.env.VH_PRIMARY_JOURNEY_NONCE;
+const identityLabel = process.env.VH_PRIMARY_JOURNEY_TEST_IDENTITY;
+if (!runId || !nonce || identityLabel !== contract.production.identity.label) {
+  throw new Error("Primary journey cleanup requires exact run, nonce, and labeled identity bindings");
+}
+
+test("fixture cleanup verifies no labeled external writes remain", async ({ page }, testInfo) => {
+  await test.step("verified cleanup read-back", async () => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(new RegExp("/$"));
+  });
+  console.log("VH_PRIMARY_JOURNEY_RESULT " + JSON.stringify({
+    schemaVersion: 1,
+    phase: "cleanup",
+    runId,
+    nonce,
+    journeyId: contract.journeyId,
+    steps: contract.steps,
+    project: testInfo.project.name,
+    identity: contract.production.identity,
+    observedEffects: [],
+    recipientCount: 0,
+    recipientsAllMatchTestIdentity: true,
+    forbiddenEffectsObserved: [],
+    cleanup: { state: "verified", removedWrites: 0, remainingWrites: 0 },
+  }));
+});
+`;
+
+const FORBIDDEN_PRIMARY_JOURNEY_EFFECTS = [
+  "customer_charge",
+  "checkout",
+  "external_delete",
+  "dns_or_provider_configuration",
+  "bulk_or_cold_send",
+  "recipient_outside_test_identity",
+  "irreversible_publication",
+] as const;
+
+function primaryJourneyContract(root: string): string {
+  const launchContractPath = resolve(root, "config/launch-contract.yaml");
+  const launchContract = existsSync(launchContractPath)
+    ? (parse(readFileSync(launchContractPath, "utf8")) as {
+        product: { primaryJourney: string[] };
+        decision: { primarySuccessSignal: string };
+      })
+    : {
+        product: { primaryJourney: JSON.parse(FOUNDER_CONTRACT).journey as string[] },
+        decision: { primarySuccessSignal: JSON.parse(FOUNDER_CONTRACT).successSignal as string },
+      };
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      scope: "product_specific_end_to_end",
+      journeyId: launchContract.decision.primarySuccessSignal,
+      steps: launchContract.product.primaryJourney,
+      specPath: "tests/e2e/primary-journey.spec.ts",
+      cleanupSpecPath: "tests/e2e/primary-journey-cleanup.spec.ts",
+      launchContractPath: "config/launch-contract.yaml",
+      production: {
+        effect: "reversible_external_write",
+        identity: { kind: "labeled_test_identity", label: "FIXTURE — exception-desk-run" },
+        cleanup: "required_and_verified",
+        readBack: {
+          method: "GET",
+          path: "/api/venture-harness-primary-journey",
+          protocol: "venture_harness_primary_journey_v1",
+        },
+        allowedEffects: ["reversible_external_write"],
+        forbiddenEffects: FORBIDDEN_PRIMARY_JOURNEY_EFFECTS,
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
 
 const EVENT_MODULE = `export const EXCEPTION_DESK_SUCCESS_SIGNAL = "invoice_draft_confirmed";
 
@@ -504,9 +616,7 @@ export class FounderGoldenPathBuildAgentFixture implements BuildAgentHost {
   async run(request: BuildAgentRequest): Promise<BuildAgentResult> {
     this.invocations.push(request.nodeId);
     if (request.nodeId === "prepare-repository") return this.#prepareRepository();
-    if (request.nodeId === "design-direction") return this.#designDirection();
-    if (request.nodeId === "build-core-journey") return this.#coreJourney();
-    if (request.nodeId === "configure-event-pack") return this.#eventPack();
+    if (request.nodeId === "review-product") return this.#reviewProduct();
     throw new Error(`Unexpected founder fixture build task: ${request.nodeId}`);
   }
 
@@ -514,75 +624,70 @@ export class FounderGoldenPathBuildAgentFixture implements BuildAgentHost {
     const changed = this.#write({
       "src/product/founder-contract.json": FOUNDER_CONTRACT,
       "tests/founder-scaffold.test.mjs": FOUNDER_SCAFFOLD_TEST,
-    });
-    const command = "node --test tests/founder-scaffold.test.mjs";
-    return result(
-      changed,
-      [
-        { path: "src/product/founder-contract.json", role: "repository_scaffold" },
-        { path: "harness.lock", role: "managed_manifest" },
-      ],
-      command,
-      nodeCheck(this.#root, ["tests/founder-scaffold.test.mjs"]),
-    );
-  }
-
-  #designDirection(): BuildAgentResult {
-    const changed = this.#write({
       "docs/brand/DESIGN.md": DESIGN_RECORD,
       "src/design/theme.css": THEME_CSS,
       "app/globals.css": GLOBAL_CSS,
       "tests/design-contract.test.mjs": DESIGN_TEST,
-    });
-    const command = "node --test tests/design-contract.test.mjs";
-    return result(
-      changed,
-      [
-        { path: "docs/brand/DESIGN.md", role: "design_record" },
-        { path: "src/design/theme.css", role: "design_implementation" },
-      ],
-      command,
-      nodeCheck(this.#root, ["tests/design-contract.test.mjs"]),
-    );
-  }
-
-  #coreJourney(): BuildAgentResult {
-    const changed = this.#write({
       "src/product/exception-desk.mjs": JOURNEY_MODULE,
       "src/product/exception-desk.d.mts": JOURNEY_TYPES,
-      "app/exception-desk-client.tsx": JOURNEY_CLIENT_BASE,
       "app/page.tsx": HOME_PAGE,
       "tests/exception-desk-journey.test.mjs": JOURNEY_TEST,
-      "tests/e2e/post-deploy-readonly.spec.ts": PRODUCT_E2E_TEST,
-    });
-    const command = "node --test tests/exception-desk-journey.test.mjs";
-    return result(
-      changed,
-      [
-        { path: "app/exception-desk-client.tsx", role: "core_journey" },
-        { path: "tests/exception-desk-journey.test.mjs", role: "affected_test" },
-      ],
-      command,
-      nodeCheck(this.#root, ["tests/exception-desk-journey.test.mjs"]),
-    );
-  }
-
-  #eventPack(): BuildAgentResult {
-    const changed = this.#write({
+      "tests/e2e/primary-journey.spec.ts": PRODUCT_E2E_TEST,
+      "tests/e2e/primary-journey-cleanup.spec.ts": PRODUCT_E2E_CLEANUP_TEST,
+      "tests/e2e/primary-journey.contract.json": primaryJourneyContract(this.#root),
       "src/analytics/exception-desk-events.mjs": EVENT_MODULE,
       "src/analytics/exception-desk-events.d.mts": EVENT_TYPES,
       "app/exception-desk-client.tsx": JOURNEY_CLIENT_INSTRUMENTED,
       "tests/exception-desk-events.test.mjs": EVENT_TEST,
     });
-    const command = "node --test tests/exception-desk-events.test.mjs";
+    const files = [
+      "tests/founder-scaffold.test.mjs",
+      "tests/design-contract.test.mjs",
+      "tests/exception-desk-journey.test.mjs",
+      "tests/exception-desk-events.test.mjs",
+    ];
+    const command = `node --test ${files.join(" ")}`;
     return result(
       changed,
       [
+        { path: "src/product/founder-contract.json", role: "repository_scaffold" },
+        { path: "harness.lock", role: "managed_manifest" },
+        { path: "docs/brand/DESIGN.md", role: "design_record" },
+        { path: "src/design/theme.css", role: "design_implementation" },
+        { path: "app/exception-desk-client.tsx", role: "core_journey" },
+        { path: "tests/exception-desk-journey.test.mjs", role: "affected_test" },
+        { path: "tests/e2e/primary-journey.spec.ts", role: "affected_test" },
+        { path: "tests/e2e/primary-journey-cleanup.spec.ts", role: "affected_test" },
+        { path: "tests/e2e/primary-journey.contract.json", role: "affected_test" },
         { path: "src/analytics/exception-desk-events.mjs", role: "event_contract" },
         { path: "app/exception-desk-client.tsx", role: "event_instrumentation" },
       ],
       command,
-      nodeCheck(this.#root, ["tests/exception-desk-events.test.mjs"]),
+      nodeCheck(this.#root, files),
+      ["core_journey_completed"],
+    );
+  }
+
+  #reviewProduct(): BuildAgentResult {
+    const files = [
+      "tests/design-contract.test.mjs",
+      "tests/exception-desk-journey.test.mjs",
+      "tests/exception-desk-events.test.mjs",
+    ];
+    const command = `node --test ${files.join(" ")}`;
+    return result(
+      [],
+      [
+        { path: "src/design/theme.css", role: "design_implementation" },
+        { path: "app/exception-desk-client.tsx", role: "core_journey" },
+        { path: "tests/exception-desk-journey.test.mjs", role: "affected_test" },
+        { path: "tests/e2e/primary-journey.spec.ts", role: "affected_test" },
+        { path: "tests/e2e/primary-journey-cleanup.spec.ts", role: "affected_test" },
+        { path: "tests/e2e/primary-journey.contract.json", role: "affected_test" },
+        { path: "app/exception-desk-client.tsx", role: "event_instrumentation" },
+      ],
+      command,
+      nodeCheck(this.#root, files),
       ["core_journey_completed"],
     );
   }
@@ -650,15 +755,32 @@ export class FounderGoldenPathProductCommandFixture implements CommandRunner {
     if (
       invocation.args.join("\u0000") === CHILD_DEPENDENCY_INSTALL_ARGS.join("\u0000") ||
       (invocation.args.length === 1 &&
-        (invocation.args[0] === "verify:fast" ||
-          invocation.args[0] === "verify:mvp" ||
-          invocation.args[0] === "build"))
+        (invocation.args[0] === "verify:fast" || invocation.args[0] === "build"))
     ) {
       return runChildPnpm(invocation, this.#root);
     }
+    if (invocation.args.length === 1 && invocation.args[0] === "verify:mvp") {
+      for (const path of [
+        "tests/e2e/primary-journey.spec.ts",
+        "tests/e2e/primary-journey-cleanup.spec.ts",
+        "tests/e2e/primary-journey.contract.json",
+      ]) {
+        if (!existsSync(resolve(this.#root, path))) {
+          throw new Error(`Synthetic fixture MVP is missing ${path}`);
+        }
+      }
+      return {
+        exitCode: 0,
+        stdout:
+          "fixtureProvenance=local_product_command_boundary\nfixtureState=fixture\nprimaryJourneyContractChecked=true\n",
+        stderr: "",
+      };
+    }
     if (
       invocation.args.join("\u0000") ===
-      ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts"].join("\u0000")
+      ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts", "--retries=0"].join(
+        "\u0000",
+      )
     ) {
       if (!deploymentUrl || !/^https:\/\/[^/]+\.fixture\.vercel\.app$/u.test(deploymentUrl)) {
         throw new Error("Post-deploy fixture requires the verified fixture Vercel origin");
@@ -668,9 +790,125 @@ export class FounderGoldenPathProductCommandFixture implements CommandRunner {
       ) {
         throw new Error("Post-deploy fixture could not read back the primary product surface");
       }
+      const observerPhase = invocation.env?.VH_PRIMARY_JOURNEY_OBSERVER_PHASE;
+      if (observerPhase) {
+        const contract = JSON.parse(
+          readFileSync(resolve(this.#root, "tests/e2e/primary-journey.contract.json"), "utf8"),
+        ) as { journeyId: string; steps: string[]; production: { identity: { label: string } } };
+        const writes =
+          observerPhase === "journey_readback"
+            ? [
+                {
+                  id: "fixture-write-1",
+                  label: contract.production.identity.label,
+                  state: "verified",
+                },
+              ]
+            : [];
+        return {
+          exitCode: 0,
+          stdout: ["desktop-chromium", "mobile-chromium"]
+            .map(
+              (project) =>
+                `VH_PRIMARY_JOURNEY_OBSERVER_RESULT ${JSON.stringify({
+                  schemaVersion: 1,
+                  phase: observerPhase,
+                  runId: invocation.env?.VH_PRIMARY_JOURNEY_RUN_ID,
+                  nonce: invocation.env?.VH_PRIMARY_JOURNEY_NONCE,
+                  journeyId: contract.journeyId,
+                  identityLabel: contract.production.identity.label,
+                  completedSteps: contract.steps,
+                  project,
+                  writes,
+                  removedWriteIds: observerPhase === "cleanup_readback" ? ["fixture-write-1"] : [],
+                  remainingWrites: writes.length,
+                })}`,
+            )
+            .join("\n"),
+          stderr: "",
+        };
+      }
       return {
         exitCode: 0,
-        stdout: `fixtureProvenance=local_product_command_boundary\nread_only_origin=${deploymentUrl}\n${nodeCheck(this.#root, tests.slice(2))}`,
+        stdout: `fixtureProvenance=local_product_command_boundary\nread_only_origin=${deploymentUrl}\n${[
+          "desktop-chromium",
+          "mobile-chromium",
+        ]
+          .map(
+            (project) =>
+              `VH_DEPLOYMENT_SURFACE_RESULT ${JSON.stringify({
+                schemaVersion: 1,
+                project,
+                rawServerHtml: true,
+                accessibilityAxe: true,
+                accessibleNamesAndLandmarks: true,
+                keyboardFocus: true,
+                responsiveOverflow: true,
+              })}`,
+          )
+          .join("\n")}\n${nodeCheck(this.#root, tests.slice(2))}`,
+        stderr: "",
+      };
+    }
+    const journeySpec = invocation.args[3];
+    if (
+      invocation.args.slice(0, 3).join("\u0000") ===
+        ["exec", "playwright", "test"].join("\u0000") &&
+      ["tests/e2e/primary-journey.spec.ts", "tests/e2e/primary-journey-cleanup.spec.ts"].includes(
+        journeySpec ?? "",
+      ) &&
+      invocation.args[4] === "--retries=0"
+    ) {
+      const contract = JSON.parse(
+        readFileSync(resolve(this.#root, "tests/e2e/primary-journey.contract.json"), "utf8"),
+      ) as {
+        journeyId: string;
+        steps: string[];
+        production: { identity: { kind: "labeled_test_identity"; label: string } };
+      };
+      const runId = invocation.env?.VH_PRIMARY_JOURNEY_RUN_ID;
+      const nonce = invocation.env?.VH_PRIMARY_JOURNEY_NONCE;
+      if (
+        !runId ||
+        !nonce ||
+        invocation.env?.VH_PRIMARY_JOURNEY_TEST_IDENTITY !== contract.production.identity.label
+      ) {
+        throw new Error("Fixture product journey requires exact runtime evidence bindings");
+      }
+      const phase = journeySpec.includes("cleanup") ? "cleanup" : "journey";
+      const traceRoot = invocation.env?.PLAYWRIGHT_OUTPUT_DIR;
+      if (!traceRoot)
+        throw new Error("Fixture journey requires a run-scoped Playwright output dir");
+      for (const project of ["desktop-chromium", "mobile-chromium"]) {
+        const directory = resolve(this.#root, traceRoot, project);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(
+          resolve(directory, "trace.zip"),
+          traceArchive(deploymentUrl ?? "", contract.steps, phase),
+        );
+      }
+      const markers = ["desktop-chromium", "mobile-chromium"].map((project) => ({
+        schemaVersion: 1,
+        phase,
+        runId,
+        nonce,
+        journeyId: contract.journeyId,
+        steps: contract.steps,
+        project,
+        identity: contract.production.identity,
+        observedEffects: [],
+        recipientCount: 0,
+        recipientsAllMatchTestIdentity: true,
+        forbiddenEffectsObserved: [],
+        ...(phase === "cleanup"
+          ? { cleanup: { state: "verified", removedWrites: 0, remainingWrites: 0 } }
+          : {}),
+      }));
+      return {
+        exitCode: 0,
+        stdout: markers
+          .map((marker) => `VH_PRIMARY_JOURNEY_RESULT ${JSON.stringify(marker)}`)
+          .join("\n"),
         stderr: "",
       };
     }

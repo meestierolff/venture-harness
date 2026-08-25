@@ -13,12 +13,19 @@ import {
   SqliteIdempotencyStore,
   defineCommandContract,
 } from "../packages/command-bus/src/index";
-import type { CommandExecutionContext, JsonObject } from "../packages/core/src/index";
+import {
+  initializeSqliteWal,
+  type CommandExecutionContext,
+  type JsonObject,
+} from "../packages/core/src/index";
 import { InMemoryEventLog, SqliteEventLog } from "../packages/events/src/index";
 import { InMemoryMeteringSink, SqliteMeteringSink } from "../packages/telemetry/src/index";
 
 const temporaryDirectories: string[] = [];
-afterEach(() => {
+const activeWorkers = new Set<Promise<WorkerResult>>();
+
+afterEach(async () => {
+  await Promise.allSettled([...activeWorkers]);
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -95,7 +102,7 @@ function worker(
   startPath: string,
   value: string,
 ): Promise<WorkerResult> {
-  return new Promise((resolve, reject) => {
+  const completion = new Promise<WorkerResult>((resolve, reject) => {
     const child = spawn(
       process.execPath,
       [
@@ -114,7 +121,7 @@ function worker(
     child.stdout.on("data", (chunk) => (stdout += String(chunk)));
     child.stderr.on("data", (chunk) => (stderr += String(chunk)));
     child.once("error", reject);
-    child.once("exit", (code) => {
+    child.once("close", (code) => {
       if (code !== 0) {
         reject(new Error(`command worker exited ${code}: ${stderr || stdout}`));
         return;
@@ -126,7 +133,82 @@ function worker(
       }
     });
   });
+  activeWorkers.add(completion);
+  void completion.then(
+    () => activeWorkers.delete(completion),
+    () => activeWorkers.delete(completion),
+  );
+  return completion;
 }
+
+async function settleWorkers(workers: readonly Promise<WorkerResult>[]): Promise<WorkerResult[]> {
+  const settled = await Promise.allSettled(workers);
+  const failures = settled.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, `${failures.length} command worker(s) failed`);
+  }
+  return settled.map((result) => (result as PromiseFulfilledResult<WorkerResult>).value);
+}
+
+describe("SQLite WAL initialization", () => {
+  it("accepts a busy journal switch only after WAL read-back", () => {
+    let mode = "delete";
+    let switchAttempts = 0;
+    const database = {
+      exec(sql: string) {
+        if (!/journal_mode/iu.test(sql)) return;
+        switchAttempts += 1;
+        mode = "wal";
+        throw Object.assign(new Error("database is locked"), { code: "ERR_SQLITE_BUSY" });
+      },
+      prepare() {
+        return { get: () => ({ journal_mode: mode }) };
+      },
+    };
+
+    expect(() =>
+      initializeSqliteWal(database, { label: "concurrent test store", retryTimeoutMs: 10 }),
+    ).not.toThrow();
+    expect(switchAttempts).toBe(1);
+  });
+
+  it("fails closed when journal-mode read-back is not WAL", () => {
+    const database = {
+      exec() {},
+      prepare() {
+        return { get: () => ({ journal_mode: "delete" }) };
+      },
+    };
+
+    expect(() => initializeSqliteWal(database, { label: "downgraded test store" })).toThrow(
+      "downgraded test store journal_mode read back as delete, expected wal",
+    );
+  });
+
+  it("bounds a busy transition that never reaches WAL", () => {
+    let switchAttempts = 0;
+    const database = {
+      exec(sql: string) {
+        if (!/journal_mode/iu.test(sql)) return;
+        switchAttempts += 1;
+        throw Object.assign(new Error("database is busy"), { errcode: 5 });
+      },
+      prepare() {
+        return { get: () => ({ journal_mode: "delete" }) };
+      },
+    };
+
+    expect(() =>
+      initializeSqliteWal(database, { label: "busy test store", retryTimeoutMs: 1 }),
+    ).toThrow(
+      "busy test store WAL initialization remained busy and journal_mode did not read back as wal",
+    );
+    expect(switchAttempts).toBeGreaterThan(0);
+    expect(switchAttempts).toBeLessThan(5);
+  });
+});
 
 describe("atomic command idempotency", () => {
   it("constructs durable command and evidence stores through packaged CommonJS exports", () => {
@@ -277,38 +359,41 @@ describe("atomic command idempotency", () => {
   it("allows exactly one handler effect across independent Node processes", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vh-command-atomic-"));
     temporaryDirectories.push(directory);
-    const databasePath = join(directory, "idempotency.sqlite");
-    const effectPath = join(directory, "effects.log");
-    const startPath = join(directory, "start");
-    new SqliteIdempotencyStore(databasePath).close();
-    const workers = [
-      ...Array.from({ length: 7 }, () => worker(databasePath, effectPath, startPath, "same")),
-      worker(databasePath, effectPath, startPath, "different"),
-    ];
-    writeFileSync(startPath, "start\n", "utf8");
-    const results = await Promise.all(workers);
+    for (let round = 0; round < 3; round += 1) {
+      const databasePath = join(directory, `idempotency-${round}.sqlite`);
+      const effectPath = join(directory, `effects-${round}.log`);
+      const startPath = join(directory, `start-${round}`);
+      const workers = [
+        ...Array.from({ length: 7 }, () => worker(databasePath, effectPath, startPath, "same")),
+        worker(databasePath, effectPath, startPath, "different"),
+      ];
+      writeFileSync(startPath, "start\n", "utf8");
+      const results = await settleWorkers(workers);
 
-    expect(results.some(({ status }) => status === "success")).toBe(true);
-    expect(
-      results.every(
-        ({ status, code }) =>
-          status === "success" || code === "idempotency_pending" || code === "idempotency_conflict",
-      ),
-    ).toBe(true);
-    expect(results.some(({ code }) => code === "idempotency_conflict")).toBe(true);
-    const effects = readFileSync(effectPath, "utf8").trim().split("\n");
-    expect(effects).toHaveLength(1);
-    const winningValue = effects[0]!.slice(effects[0]!.indexOf(":") + 1);
-    const conflictingValue = winningValue === "same" ? "different" : "same";
+      expect(results.some(({ status }) => status === "success")).toBe(true);
+      expect(
+        results.every(
+          ({ status, code }) =>
+            status === "success" ||
+            code === "idempotency_pending" ||
+            code === "idempotency_conflict",
+        ),
+      ).toBe(true);
+      expect(results.some(({ code }) => code === "idempotency_conflict")).toBe(true);
+      const effects = readFileSync(effectPath, "utf8").trim().split("\n");
+      expect(effects).toHaveLength(1);
+      const winningValue = effects[0]!.slice(effects[0]!.indexOf(":") + 1);
+      const conflictingValue = winningValue === "same" ? "different" : "same";
 
-    const replay = await worker(databasePath, effectPath, startPath, winningValue);
-    expect(replay).toMatchObject({
-      status: "success",
-      output: { accepted: true, value: winningValue },
-    });
-    const conflict = await worker(databasePath, effectPath, startPath, conflictingValue);
-    expect(conflict).toMatchObject({ status: "error", code: "idempotency_conflict" });
-    expect(readFileSync(effectPath, "utf8").trim().split("\n")).toHaveLength(1);
+      const replay = await worker(databasePath, effectPath, startPath, winningValue);
+      expect(replay).toMatchObject({
+        status: "success",
+        output: { accepted: true, value: winningValue },
+      });
+      const conflict = await worker(databasePath, effectPath, startPath, conflictingValue);
+      expect(conflict).toMatchObject({ status: "error", code: "idempotency_conflict" });
+      expect(readFileSync(effectPath, "utf8").trim().split("\n")).toHaveLength(1);
+    }
   }, 20_000);
 
   it("fails closed after owner loss and never takes over an unknown outcome", () => {

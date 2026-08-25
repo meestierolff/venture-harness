@@ -9,13 +9,15 @@ describe("founder idea compilation", () => {
     );
 
     expect(compiled).toMatchObject({
-      sourceKind: "markdown_idea",
+      // The Golden Path fixture is now a Launch Contract carried as front matter.
+      sourceKind: "launch_contract",
       sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       assumptionsAdded: [],
       commercialTerms: {
         currency: "EUR",
         monthlyPrice: 24.5,
         annualPrice: null,
+        oneTimePrice: null,
       },
       brief: {
         id: "exception-desk",
@@ -32,7 +34,9 @@ describe("founder idea compilation", () => {
           transactional_email: true,
           analytics: true,
           search_discovery: true,
-          scheduled_learning: true,
+          // The Launch Contract does not request scheduled learning, and a thin
+          // MVP does not receive it by default.
+          scheduled_learning: false,
         },
       },
     });
@@ -61,6 +65,7 @@ describe("founder idea compilation", () => {
       currency: "EUR",
       monthlyPrice: null,
       annualPrice: null,
+      oneTimePrice: null,
     });
   });
 
@@ -70,9 +75,12 @@ describe("founder idea compilation", () => {
         "# Unsafe idea\nToken: whsec_secondary_founderidea1234567890\nOutcome: never persist this",
       ),
     ).toThrow(/forbidden credential-like material/);
+    // This value must stay unclassifiable so that it isolates the
+    // credential-labeled-field guard. A value the classifier recognises would
+    // be caught one branch earlier and prove nothing about this guard.
     expect(() =>
       compileFounderIdea(
-        "# Unsafe idea\nAudience: support teams\nBrevo API key: xkeysib-arbitrary-unclassified-value\nOutcome: ship safely",
+        "# Unsafe idea\nAudience: support teams\nBrevo API key: arbitrary unclassified placeholder\nOutcome: ship safely",
       ),
     ).toThrow(/credential-labeled field/);
   });

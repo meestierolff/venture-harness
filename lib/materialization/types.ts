@@ -113,6 +113,9 @@ export interface VentureManifest {
   stackProfile: LaunchGrant["stackProfile"];
   rail: SeedDefinition["rail"];
   coreVersion: string;
+  /** Canonical Launch Contract digest, or legacy idea digest before v0.2 founder contracts. */
+  launchContractDigest: string;
+  launchContractPath: "config/launch-contract.yaml";
   serviceBlueprints?: readonly string[];
   connectorManifest: string;
   agentSurface?: {

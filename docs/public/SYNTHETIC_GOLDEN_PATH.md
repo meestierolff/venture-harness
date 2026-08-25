@@ -1,9 +1,9 @@
 # Synthetic founder Golden Path
 
-- Status: FIXTURE VERIFIED on a prior source state; final-tree refresh pending
+- Status: PROTOTYPE — provider-URL root fixture verified; final-source suite pending
 - Fixture: `synthetic-founder-golden-path`
-- Prior full-suite verification: 2026-08-09
-- Current final-tree local rerun: product/runtime pass; root blocked at loopback listen
+- Prior isolated three-slice verification: 2026-08-12
+- Current provider-URL root verification: passed locally 2026-08-23
 - External effects: none
 
 ## Purpose
@@ -20,11 +20,12 @@ below the production adapter/transport interface and remains visibly synthetic.
 
 [Exception Desk](../../fixtures/ideas/synthetic-founder-web.md) is a private web
 SaaS for small service businesses reconciling recurring work and invoice drafts.
-It selects:
+It requests:
 
 - `agentic-web-saas@0.2.0` with no recursive service runtime;
 - one exact EUR 24.50 monthly Stripe test price;
-- GitHub, Vercel, Neon, Stripe, Brevo, Google, Bing and manual DNS;
+- GitHub, Vercel, Neon and Stripe for the initial provider-URL graph;
+- Brevo, Google, Bing and a custom domain as deferred nonblocking follow-up;
 - one journey ending in `invoice_draft_confirmed`;
 - labeled sample rows and no customer data;
 - the fixture-only [founder-default connection](../../fixtures/founder-stack/founder-default.json).
@@ -41,11 +42,10 @@ pnpm exec vitest run --no-file-parallelism \
   tests/founder-golden-path.test.ts --reporter=verbose
 ```
 
-A prior 2026-08-09 source state passed all three tests across the three files.
-On the current final tree, the product and runtime slices pass; the root slice
-reached the standalone child server check and was blocked when this local
-sandbox denied loopback listening with `EPERM`. A full current-tree refresh
-remains pending in socket-capable CI; the pending check is not a pass.
+A prior source state passed all three tests across the three files. The current
+provider-URL root slice passed locally on 2026-08-23. A full run against the
+final committed source and hosted CI remain pending; those pending checks are
+not a release pass.
 
 The standalone fixture runner is also reproducible with an empty output path:
 
@@ -55,9 +55,9 @@ node --import tsx scripts/run-synthetic-venture-launch.mts \
   --json
 ```
 
-A prior standalone run returned `status: verified_fixture`, `workflowStatus:
-succeeded`, and `launchReport.overallState: succeeded`. It creates an isolated
-root and invokes these public root CLI shapes:
+The provider-URL root fixture returns `status: verified_fixture`,
+`workflowStatus: succeeded`, and `launchReport.overallState: succeeded`. It
+creates an isolated root and invokes these public root CLI shapes:
 
 ```bash
 vh stack create founder-default --file founder-default.json --json
@@ -66,34 +66,32 @@ vh launch --idea ./idea.md --stack founder-default --production --dry-run --non-
 vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive --output ventures/exception-desk --json
 ```
 
-The first apply must wait at the exact manual DNS node. The fixture writes typed
-record evidence, then invokes the public child command:
-
-```bash
-vh resume <run-id> --manual dns-records --evidence reports/launch/<run-id>/manual/dns-records.json --json
-```
-
-A second resume must be idempotent: it cannot repeat a provider or product
-invocation.
+The first apply succeeds on the fixture-verified stable Vercel provider URL.
+Custom-domain DNS, Brevo, Google and Bing remain deferred and do not block that
+initial launch. Replaying the exact apply command must return the same run and
+Grant without another provider or product invocation. Missing-provider-auth
+waiting and same-run resume remain a separate Golden Path variant rather than an
+artificial pause in this happy path.
 
 ## Required proof
 
-| Stage                    | Assertion                                                                                                                                                                                            |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stack                    | Create and doctor run through root `vh`; doctor is ready, read-only and reports provider resources as not checked                                                                                    |
-| Idea and grant           | Compiler uses the exact fixture source; dry run proposes but does not issue a grant or create the child; apply issues the content-bound grant                                                        |
-| Child                    | Local staging becomes `ventures/exception-desk`; ordinary Next.js child contains no recursive runtime or `@venture-harness/*` runtime dependency                                                     |
-| Product/design           | Four bounded product tasks produce 14 venture-owned paths: an Exception Desk thesis, venture tokens, responsive mobile composition, visible focus/reduced motion, labeled samples and direct journey |
-| Providers                | Registered declarative adapters execute 60 fixture-backed invocations through real `CommandProviderTransport` and `HttpProviderTransport` classes and retain 19 sanitized provider evidence records  |
-| Source                   | GitHub command plan creates a local bare remote; child and remote `main` commit/tree are read back and match                                                                                         |
-| Database                 | The Neon plan runs `psql` from the child, applies the versioned SQL migration and exercises read-back                                                                                                |
-| Commerce/email/discovery | Stripe test resources, Brevo, Google and Bing plans cross fixture transports and emit sanitized evidence                                                                                             |
-| Hosting                  | Vercel plan captures five environment-variable bindings and returns a fixture-labeled stable URL                                                                                                     |
-| DNS                      | One consolidated manual record set preserves nameservers/mail records and matches two deterministic resolver results                                                                                 |
-| Journey/report           | `invoice_draft_confirmed` direct tests pass; final JSON/Markdown report says succeeded, has no manual action, and retains the synthetic limitation                                                   |
-| Replay                   | Durable provider idempotency ledger is settled and resume repeats no transport/build invocation                                                                                                      |
-| Upgrade                  | Dry run plans Core 0.2.1; apply adds a Core marker, updates the v2 lock and preserves all 14 venture-owned paths byte-for-byte                                                                       |
-| Secrets                  | Fixture credential values, connection URI, webhook secret and measurement ID do not appear in durable child text                                                                                     |
+| Stage                     | Assertion                                                                                                                                                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack                     | Create and doctor run through root `vh`; doctor is ready, read-only and reports provider resources as not checked                                                                                                                            |
+| Idea and grant            | Compiler uses the exact fixture source; dry run proposes but does not issue a grant or create the child; apply issues the content-bound grant                                                                                                |
+| Child                     | Local staging becomes `ventures/exception-desk`; ordinary Next.js child contains no recursive runtime or `@venture-harness/*` runtime dependency                                                                                             |
+| Product/design            | Bounded product work produces the Exception Desk thesis, venture tokens, responsive composition, visible focus/reduced motion, labeled samples and direct journey                                                                            |
+| Initial providers         | Registered GitHub, Neon, Stripe and Vercel declarative adapters cross real `CommandProviderTransport` and `HttpProviderTransport` classes and retain sanitized fixture evidence                                                              |
+| Deferred providers/domain | Brevo, Google, Bing and custom-domain DNS are absent from the initial graph and remain visible as nonblocking follow-up; they produce no transport invocation in this run                                                                    |
+| Source                    | GitHub command plan creates a local bare remote; child and remote `main` commit/tree are read back and match                                                                                                                                 |
+| Database                  | The Neon plan runs `psql` from the child, applies the versioned SQL migration and exercises read-back                                                                                                                                        |
+| Commerce                  | Stripe test resources cross the fixture HTTP transport and emit sanitized evidence; no charge occurs                                                                                                                                         |
+| Hosting                   | Vercel captures the required environment bindings, returns a fixture-labeled stable provider URL and does not claim a custom domain                                                                                                          |
+| Journey/report            | `invoice_draft_confirmed` direct tests pass; final JSON/Markdown report says succeeded, while the local Launch Receipt retains deferred custom-domain work and the synthetic limitation                                                      |
+| Replay                    | Repeating the exact apply command returns the same run and Grant; the settled provider ledger and product invocation counts do not change                                                                                                    |
+| Blocking resume           | A separate Golden Path variant persists missing GitHub auth as `waiting_for_auth` before that provider effect, preserves independently completed work, and resumes the same child, run and immutable Grant through the exact founder command |
+| Upgrade                   | Dry run plans Core 0.2.1; apply adds a Core marker, updates the v2 lock and preserves the asserted venture-owned paths byte-for-byte                                                                                                         |
+| Secrets                   | Fixture credential values, connection URI, webhook secret and measurement ID do not appear in durable child text                                                                                                                             |
 
 ## Production code and fixture boundary
 
@@ -127,6 +125,7 @@ fixture-level evidence only.
 - `tests/fixtures/synthetic-founder-golden-path.ts`
 - `tests/fixtures/founder-golden-path-product.ts`
 - `tests/fixtures/founder-golden-path-runtime.ts`
+- `tests/cli-launch-integration.test.ts`
 - `tests/materialization-web-build.test.ts`
 - `scripts/run-synthetic-venture-launch.mts`
 

@@ -38,6 +38,47 @@ describe("config contracts", () => {
     );
   });
 
+  it("ships reversible small-bet template defaults", () => {
+    const venture = parse(readFileSync("config/venture.yaml", "utf8")) as {
+      venture: { launch_mode: string; capabilities: { active: string[] } };
+      validation: {
+        stage: unknown;
+        minimum_days: number | null;
+        target_days: number | null;
+        maximum_days: number | null;
+      };
+    };
+    const launch = parse(readFileSync("config/launch.yaml", "utf8")) as {
+      launch: { selected_mode: string };
+    };
+    const brief = parse(readFileSync("inputs/VENTURE_BRIEF.yaml", "utf8")) as {
+      monetization_model: string;
+      needs: Record<string, boolean>;
+    };
+
+    expect(venture.venture.launch_mode).toBe("thin_mvp");
+    expect(venture.venture.capabilities.active).toEqual(["public_website"]);
+    expect(venture.validation).toMatchObject({
+      stage: null,
+      minimum_days: null,
+      target_days: null,
+      maximum_days: null,
+    });
+    expect(launch.launch.selected_mode).toBe("thin_mvp");
+    expect(brief.monetization_model).toBe("none");
+    expect(brief.needs).toEqual({
+      authenticated_product: false,
+      database: false,
+      file_storage: false,
+      transactional_email: false,
+      lifecycle_email: false,
+      feedback: false,
+      analytics: false,
+      search_discovery: false,
+      scheduled_learning: false,
+    });
+  });
+
   it("accepts namespaced extensions but rejects unknown provider fields", () => {
     const config = createDefaultProvidersConfig();
     config.extensions = { "x.example": { enabled: true } };

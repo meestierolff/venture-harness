@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { initializeSqliteWal } from "@venture-harness/core";
 import type {
   AgentGrantRecord,
   AuditEventRecord,
@@ -354,9 +355,8 @@ export function createVentureRuntimeStore(
     db.close();
     throw error;
   }
+  initializeSqliteWal(db, { label: "venture runtime store" });
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA busy_timeout = 5000");
   db.exec(SCHEMA);
   const usageColumns = db.prepare("PRAGMA table_info(usage_records)").all() as {
     name: string;

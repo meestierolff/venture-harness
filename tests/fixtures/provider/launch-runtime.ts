@@ -44,7 +44,17 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
   },
   "provider.stripe-commerce": {
     provider: "stripe",
-    capabilities: ["product", "price", "webhook", "billing_portal"],
+    capabilities: ["product", "price"],
+    environment: "sandbox",
+  },
+  "provider.stripe-callbacks": {
+    provider: "stripe",
+    capabilities: ["webhook", "billing_portal"],
+    environment: "sandbox",
+  },
+  "provider.stripe-domain-callbacks": {
+    provider: "stripe",
+    capabilities: ["webhook", "billing_portal"],
     environment: "sandbox",
   },
   "provider.google-analytics-property": {
@@ -85,27 +95,37 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
   "provider.vercel-database-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.vercel-stripe-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.vercel-stripe-webhook-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
+  },
+  "provider.vercel-stripe-price-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "production",
+  },
+  "provider.vercel-stripe-price-lookup-environment": {
+    provider: "vercel",
+    capabilities: ["environment_variable"],
+    environment: "production",
   },
   "provider.vercel-brevo-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.vercel-ga-environment": {
     provider: "vercel",
     capabilities: ["environment_variable"],
-    environment: "preview",
+    environment: "production",
   },
   "provider.revenuecat-entitlements": {
     provider: "revenuecat",
@@ -132,20 +152,42 @@ const TARGET_BY_HANDLER: Readonly<Record<string, SyntheticProviderTarget>> = {
     capabilities: ["deployment"],
     environment: "production",
   },
+  "provider.initial-production-deploy": {
+    provider: "vercel",
+    capabilities: ["deployment"],
+    environment: "production",
+  },
+  "provider.analytics-production-redeploy": {
+    provider: "vercel",
+    capabilities: ["deployment"],
+    environment: "production",
+  },
+  "provider.email-production-redeploy": {
+    provider: "vercel",
+    capabilities: ["deployment"],
+    environment: "production",
+  },
 };
 
 export function syntheticProviderPlanFactories(
   definition: WorkflowDefinition,
 ): Readonly<Record<string, ProviderWorkflowPlanFactory>> {
-  const handlers = definition.nodes
-    .filter((node) => node.kind === "provider")
-    .map((node) => node.handler)
-    .filter((handler): handler is string => handler !== undefined);
+  const providerNodes = definition.nodes.filter(
+    (node) => node.kind === "provider" && node.handler !== undefined,
+  );
   return Object.fromEntries(
-    handlers.map((handler) => {
+    providerNodes.map((node) => {
+      const handler = node.handler!;
       const target = TARGET_BY_HANDLER[handler];
       if (!target) throw new Error(`Synthetic fixture has no provider target for ${handler}`);
       const base = providerPlanFixtures[target.provider];
+      const authorizedScopes = new Set(node.authorization?.scopes ?? []);
+      const capabilities = target.capabilities.filter((capability) =>
+        authorizedScopes.has(capability),
+      );
+      if (capabilities.length === 0) {
+        throw new Error(`Synthetic fixture has no authorized provider capability for ${handler}`);
+      }
       return [
         handler,
         async () => ({
@@ -153,7 +195,7 @@ export function syntheticProviderPlanFactories(
           request: {
             ...base,
             environment: target.environment ?? base.environment,
-            capabilities: target.capabilities,
+            capabilities,
             dryRun: false,
           },
         }),

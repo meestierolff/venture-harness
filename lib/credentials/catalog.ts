@@ -50,6 +50,16 @@ function parseReference(value: unknown): CredentialReference {
   if ((input.testedAt === undefined) !== (input.testStatus === undefined)) {
     throw new Error(`credential ${input.ref} requires testedAt and testStatus together`);
   }
+  if (
+    input.providerMode !== undefined &&
+    input.providerMode !== "test" &&
+    input.providerMode !== "live"
+  ) {
+    throw new Error(`credential ${input.ref} providerMode must be test or live`);
+  }
+  if (input.providerMode !== undefined && input.testStatus !== "passed") {
+    throw new Error(`credential ${input.ref} providerMode requires passed remote-test evidence`);
+  }
   for (const timestamp of ["testedAt", "revokedAt"] as const) {
     if (
       typeof input[timestamp] === "string" &&
@@ -69,6 +79,7 @@ function parseReference(value: unknown): CredentialReference {
     expiresAt: input.expiresAt as string | undefined,
     testedAt: input.testedAt as string | undefined,
     testStatus: input.testStatus as CredentialReference["testStatus"],
+    providerMode: input.providerMode as CredentialReference["providerMode"],
     revokedAt: input.revokedAt as string | undefined,
   };
 }

@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -19,6 +20,7 @@ describe("workspace distribution", () => {
   it("packs allowlisted artifacts and runs CLI, SDK, and MCP in a clean consumer", () => {
     const packDirectory = mkdtempSync(join(tmpdir(), "vh-workspace-pack-test-"));
     const consumer = mkdtempSync(join(tmpdir(), "vh-workspace-consumer-"));
+    const rootConsumer = mkdtempSync(join(tmpdir(), "vh-root-package-consumer-"));
     execFileSync(
       process.execPath,
       [resolve(root, "scripts/workspace-pack.mjs"), "--output", packDirectory],
@@ -42,15 +44,57 @@ describe("workspace distribution", () => {
 
     const dependencies: Record<string, string> = {};
     const overrides: Record<string, string> = {};
+    let packedCliGeneratorManifest: {
+      name: string;
+      bin?: Record<string, string>;
+    } | null = null;
+    let rootTarball: string | null = null;
+    let packedRootManifest: {
+      name: string;
+      version: string;
+      bin?: Record<string, string>;
+      dependencies?: Record<string, string>;
+    } | null = null;
     for (const tarball of tarballs) {
       const manifest = JSON.parse(
         execFileSync("tar", ["-xOf", tarball, "package/package.json"], { encoding: "utf8" }),
-      ) as { name: string };
+      ) as {
+        name: string;
+        version: string;
+        bin?: Record<string, string>;
+        dependencies?: Record<string, string>;
+      };
       if (manifest.name.startsWith("@venture-harness/")) {
         dependencies[manifest.name] = `file:${tarball}`;
         overrides[manifest.name] = `file:${tarball}`;
       }
+      if (manifest.name === "venture-harness") {
+        rootTarball = tarball;
+        packedRootManifest = manifest;
+      }
+      if (manifest.name === "@venture-harness/cli-generator") {
+        packedCliGeneratorManifest = manifest;
+        const entries = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" });
+        expect(entries).toContain("package/dist/bin.js");
+      }
     }
+    const sourceCliGeneratorManifest = JSON.parse(
+      readFileSync(join(root, "packages/cli-generator/package.json"), "utf8"),
+    ) as { bin?: unknown; publishConfig?: { bin?: Record<string, string> } };
+    expect(sourceCliGeneratorManifest.bin).toBeUndefined();
+    expect(sourceCliGeneratorManifest.publishConfig?.bin).toEqual({ vh: "dist/bin.js" });
+    expect(packedCliGeneratorManifest?.bin).toEqual({ vh: "dist/bin.js" });
+    expect(rootTarball).not.toBeNull();
+    expect(packedRootManifest).toMatchObject({
+      name: "venture-harness",
+      version: "0.2.0",
+      bin: { vh: "bin/vh.mjs" },
+    });
+    expect(packedRootManifest?.dependencies).not.toEqual(
+      expect.objectContaining({
+        "@venture-harness/core": "workspace:*",
+      }),
+    );
     writeFileSync(
       join(consumer, "package.json"),
       `${JSON.stringify(
@@ -70,15 +114,87 @@ describe("workspace distribution", () => {
       cwd: root,
       encoding: "utf8",
     }).trim();
+
+    // Install the actual public root tarball by itself. The scoped overrides
+    // force every workspace dependency to come from this exact pack run, so a
+    // registry copy or a source-workspace link cannot make the test pass.
+    writeFileSync(
+      join(rootConsumer, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "vh-root-clean-consumer",
+          version: "1.0.0",
+          private: true,
+          dependencies: { "venture-harness": `file:${rootTarball}` },
+          pnpm: { overrides },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const rootInstall = spawnSync(
+      "pnpm",
+      ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
+      { cwd: rootConsumer, encoding: "utf8" },
+    );
+    const rootInstallOutput = `${rootInstall.stdout ?? ""}\n${rootInstall.stderr ?? ""}`;
+    expect(rootInstall.status, rootInstallOutput).toBe(0);
+    expect(rootInstallOutput).not.toMatch(
+      /broken[- ]bin|no binaries found|failed to create bin|bin collision/i,
+    );
+
+    const rootBin = join(rootConsumer, "node_modules/.bin/vh");
+    const rootInvocation = spawnSync(rootBin, ["commands"], {
+      cwd: rootConsumer,
+      encoding: "utf8",
+      env: { ...process.env, NODE_OPTIONS: "--disable-warning=ExperimentalWarning" },
+    });
+    expect(rootInvocation.status, rootInvocation.stderr).toBe(0);
+    expect(JSON.parse(rootInvocation.stdout)).toEqual(expect.any(Array));
+    expect(rootInvocation.stderr).not.toMatch(
+      /broken[- ]bin|no binaries found|failed to create bin|collision|tsx/i,
+    );
+
+    const installedRoot = join(rootConsumer, "node_modules/venture-harness");
+    const installedExecutable = readFileSync(join(installedRoot, "bin/vh.mjs"));
+    const installedProvenance = JSON.parse(
+      readFileSync(join(installedRoot, "bin/vh-build-provenance.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(installedProvenance).toEqual({
+      schemaVersion: 1,
+      packageName: "venture-harness",
+      packageVersion: packedRootManifest!.version,
+      coreSourceCommit: expect.stringMatching(/^[a-f0-9]{40}$/u),
+      binSha256: createHash("sha256").update(installedExecutable).digest("hex"),
+    });
+
     const install = spawnSync(
       "pnpm",
-      ["install", "--offline", "--ignore-scripts", "--store-dir", storeDirectory],
+      // --prefer-offline rather than --offline: a `--frozen-lockfile` install
+      // resolves from the lockfile and never populates the registry metadata
+      // cache, so a strict offline install fails on missing metadata for a
+      // third-party dependency rather than on anything this test is about.
+      ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
       {
         cwd: consumer,
         encoding: "utf8",
       },
     );
     expect(install.status, `${install.stdout}\n${install.stderr}`).toBe(0);
+    expect(`${install.stdout}\n${install.stderr}`).not.toMatch(
+      /broken[- ]bin|no binaries found|failed to create bin/i,
+    );
+
+    const packedBin = spawnSync(join(consumer, "node_modules/.bin/vh"), ["commands"], {
+      cwd: consumer,
+      encoding: "utf8",
+      env: { ...process.env, NODE_OPTIONS: "--disable-warning=ExperimentalWarning" },
+    });
+    expect(packedBin.status, packedBin.stderr).toBe(0);
+    expect(JSON.parse(packedBin.stdout)).toEqual(expect.any(Array));
+    expect(packedBin.stderr).not.toMatch(
+      /broken[- ]bin|no binaries found|failed to create bin|collision/i,
+    );
 
     // This suite verifies the cli-generator package itself. Commands such as
     // auth, launch, resume, stack, and upgrade intentionally belong to the
@@ -92,11 +208,18 @@ describe("workspace distribution", () => {
       "dist",
       "bin.js",
     );
+    // Several assertions below parse stderr as pure JSON, which is the CLI's
+    // error contract. The durable runtime loads `node:sqlite`, still flagged
+    // experimental on the Node 22 line CI uses, and that warning is written to
+    // stderr by the runtime rather than by the command. Silencing just that
+    // class keeps the contract assertable while leaving every genuine warning
+    // visible.
     const invokeAdvancedCli = (args: readonly string[], timeout = 10_000) =>
       spawnSync(process.execPath, [advancedCliEntry, ...args], {
         cwd: consumer,
         encoding: "utf8",
         timeout,
+        env: { ...process.env, NODE_OPTIONS: "--disable-warning=ExperimentalWarning" },
       });
 
     const cli = invokeAdvancedCli(["commands"]);

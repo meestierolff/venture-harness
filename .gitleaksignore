@@ -1,18 +1,54 @@
-# Exact historical fingerprints for reviewed synthetic canaries and one
-# documented prose false positive. A path, rule, line, or content change must
-# be reviewed and fingerprinted again; test directories are never broadly
-# excluded.
-652fb29b67ccfaf4ee9d4b269498737737f1f9f0:README.md:generic-api-key:149
+# Reviewed findings in immutable published history.
+#
+# The current working tree scans clean with zero findings. Every entry below is
+# a pre-sentinel spelling of a synthetic canary that survives only because
+# `gitleaks git` replays commits that are already published on `main` and must
+# not be rewritten or force-pushed.
+#
+# Current and future source does not need this file: those canaries carry the
+# SYNTHETICNOTAREAL sentinel and are matched by a value-scoped allowlist in
+# .gitleaks.toml. A new entry here means the sentinel format was skipped and
+# the source must be fixed instead.
+#
+# Each entry was reviewed individually on 2026-08-10 against three questions:
+#   1. is the matched value synthetic and never issued by any provider?
+#   2. does any real credential value exist at that location or in history?
+#   3. why does the literal exist at all?
+# All sixteen answered yes / no / documented below.
+#
+# This list is fingerprint-scoped on purpose. Never replace it with a path glob:
+# that would exempt whole directories and hide a future real leak.
+
+# --- Synthetic webhook-secret-shaped canaries -------------------------------
+# Prove that secondary webhook rotation never persists credential material into
+# venture state, recursive command surfaces, or Winner Loop provider metadata.
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/venture-runtime.test.ts:generic-api-key:294
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/recursive-command-surfaces.test.ts:generic-api-key:45
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/winner-loop-integrations.test.ts:generic-api-key:757
+
+# --- Synthetic Stripe-shaped canaries ---------------------------------------
+# Prove that the conflict path, the quality redactor, the mobile scaffold, the
+# build-agent context, and the provider lifecycle store all reject or redact
+# credential-shaped material instead of persisting it.
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/provider-idempotency-safety.test.ts:stripe-access-token:179
 645f126ceb9ecdc6a94a2f91be362e6f82cfca2d:tests/quality-profiles.test.ts:stripe-access-token:67
 645f126ceb9ecdc6a94a2f91be362e6f82cfca2d:tests/quality-profiles.test.ts:stripe-access-token:71
 43fb06c5aa57cbd80255f0cbd2e558d40bfe6792:tests/mobile-scaffold.test.ts:stripe-access-token:286
-25fbb044939d193f991da8abb8bae5a5713962b1:tests/runtime-provider-lifecycle.test.ts:stripe-access-token:191
 25fbb044939d193f991da8abb8bae5a5713962b1:tests/runtime-build-agent-host.test.ts:stripe-access-token:197
+25fbb044939d193f991da8abb8bae5a5713962b1:tests/runtime-provider-lifecycle.test.ts:stripe-access-token:191
 
-# Exact current-tree fingerprints used by `gitleaks dir` / `--no-git`.
-README.md:generic-api-key:149
-tests/quality-profiles.test.ts:stripe-access-token:67
-tests/quality-profiles.test.ts:stripe-access-token:71
-tests/mobile-scaffold.test.ts:stripe-access-token:286
-tests/runtime-provider-lifecycle.test.ts:stripe-access-token:191
-tests/runtime-build-agent-host.test.ts:stripe-access-token:197
+# --- Synthetic AWS-shaped and JWT-shaped canaries ---------------------------
+# Prove that the recursive command surface and Winner Loop integration
+# redactors strip credential-shaped input from durable artifacts.
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/recursive-command-surfaces.test.ts:aws-access-token:481
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/recursive-command-surfaces.test.ts:jwt:482
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/winner-loop-integrations.test.ts:aws-access-token:680
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/winner-loop-integrations.test.ts:jwt:681
+
+# --- Heuristic false positives on non-credentials ---------------------------
+# Two fixture identifiers matched generic-api-key on entropy alone, and one
+# older README sentence matched the word following "key" in ordinary prose.
+# None is or was a credential. All three were reworded in the current tree.
+f81c47b9254fb6ed229b94740c2774e0340b88dc:lib/winner-loop/fixture-d.ts:generic-api-key:525
+f81c47b9254fb6ed229b94740c2774e0340b88dc:tests/winner-loop-live-provider-contracts.test.ts:generic-api-key:263
+652fb29b67ccfaf4ee9d4b269498737737f1f9f0:README.md:generic-api-key:149

@@ -4,39 +4,49 @@
  * report: a SKIP is never counted as a pass and always has an exact next step.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { createHmac, randomBytes } from "node:crypto";
+import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parse } from "yaml";
+import { parseDocument } from "yaml";
 import { walk } from "./lib/util";
 import {
   evaluateCredentialFindings,
   scanCredentialText,
   validateReleaseScanAllowlist,
 } from "./lib/release-security";
-import {
-  analyticsDestinationsFromProviderStates,
-  validateEventPackConfig,
-} from "../lib/analytics/pack-config";
-import {
-  CORE_JOURNEYS,
-  validateMeasurementPlan,
-  type CoreJourneyId,
-  type EventPackId,
-} from "../lib/analytics/packs";
+import { validateEventPackConfig } from "../lib/analytics/pack-config";
 import {
   FileProviderLifecycleStore,
   type VerifiedProviderLifecycleRecord,
 } from "../lib/runtime/provider-lifecycle-store";
+import {
+  readDogfoodEvidenceBundleManifest,
+  verifyDogfoodEvidenceBundle,
+} from "../lib/runtime/dogfood-evidence-bundle";
 
-export type QualityProfileId = "fast" | "mvp" | "release";
+/**
+ * `release` proves founder-alpha code and fixtures and must stay reachable
+ * with no provider connected. `live` proves only real provider read-back and
+ * may honestly report INCOMPLETE. `stable` requires both.
+ */
+export const QUALITY_PROFILE_IDS = ["fast", "mvp", "release", "live", "stable"] as const;
+export type QualityProfileId = (typeof QUALITY_PROFILE_IDS)[number];
 export type CheckStatus = "PASS" | "FAIL" | "SKIP" | "NOT_APPLICABLE";
 
 export interface GapDefinition {
+  origin?: "external" | "implementation";
   why: string;
   missing: string;
   exact_command: string;
   expected_evidence: string;
+  provider?: string;
+  account_scope?: string;
+  impact?: string;
+  vercel_url_availability?: string;
+  resume_command?: string;
 }
 
 type CheckKind =
@@ -57,6 +67,11 @@ export interface QualityCheckDefinition {
   when_paths?: string[];
   provider?: string;
   gap?: GapDefinition;
+  readback?: {
+    bundle_manifest: string;
+    required_providers: string[];
+    required_receipt_states: string[];
+  };
 }
 
 export interface QualityContract {
@@ -187,6 +202,19 @@ export function resolveProfileChecks(
   return [...selected];
 }
 
+/**
+ * Packed-distribution suites pack real tarballs and run a real install through
+ * a blocking `spawnSync`, which stops the vitest worker answering its RPC
+ * heartbeat and fails the run with `Timeout calling "onTaskUpdate"` rather than
+ * with anything about the code. They belong in the dedicated distribution job
+ * (`pnpm test:workspace`), which runs them without file parallelism, and never
+ * in the changed-surface loop.
+ */
+const DISTRIBUTION_TEST_FILES = new Set([
+  "tests/workspace-pack.test.ts",
+  "tests/recursive-packed-credential.test.ts",
+]);
+
 function changedTestFiles(changedFiles: readonly string[], root: string): string[] {
   const mappings: [RegExp, string[]][] = [
     [/^(lib\/workflow|docs\/plans\/.*\.graph)/, ["tests/workflow-runtime.test.ts"]],
@@ -287,7 +315,10 @@ function changedTestFiles(changedFiles: readonly string[], root: string): string
       if (pattern.test(file)) candidates.forEach((candidate) => tests.add(candidate));
     }
   }
-  return [...tests].filter((file) => existsSync(join(root, file))).sort();
+  return [...tests]
+    .filter((file) => !DISTRIBUTION_TEST_FILES.has(file))
+    .filter((file) => existsSync(join(root, file)))
+    .sort();
 }
 
 async function execute(
@@ -355,13 +386,125 @@ export function unresolvedProviderReadbackGap(
   if (!provider?.credential_ref) return definition.gap;
   return {
     ...definition.gap,
+    origin: "implementation",
     why: "Provider metadata is marked verified, but a generic doctor exit does not prove this resource read-back.",
     missing: `${definition.gap.missing} A provider-specific sanitized read-back artifact and parser are not wired to this quality check.`,
   };
 }
 
+interface ProviderReadbackEvaluation {
+  status: "PASS" | "FAIL" | "SKIP";
+  detail: string;
+  gap: GapDefinition | null;
+}
+
+export function evaluateProviderReadbackEvidence(
+  id: string,
+  definition: QualityCheckDefinition,
+  context: Pick<QualityContext, "root" | "providers">,
+): ProviderReadbackEvaluation {
+  if (!definition.gap || definition.gap.origin !== "external") {
+    return {
+      status: "FAIL",
+      detail: `${id} lacks an explicitly external provider-gap contract.`,
+      gap: null,
+    };
+  }
+  const readback = definition.readback;
+  if (
+    !readback ||
+    readback.required_providers.length === 0 ||
+    readback.required_receipt_states.length === 0
+  ) {
+    return {
+      status: "FAIL",
+      detail: `${id} has no provider-specific launch-report/receipt parser contract.`,
+      gap: null,
+    };
+  }
+  const manifestPath = join(context.root, readback.bundle_manifest);
+  if (!existsSync(manifestPath)) {
+    const missingProviders = readback.required_providers.filter((provider) => {
+      const configured = context.providers[provider];
+      return !configured?.credential_ref && configured?.state !== "verified";
+    });
+    if (missingProviders.length > 0) {
+      return {
+        status: "SKIP",
+        detail: `${definition.gap.why} Missing provider prerequisites: ${missingProviders.join(", ")}.`,
+        gap: definition.gap,
+      };
+    }
+    return {
+      status: "FAIL",
+      detail: `${id} has configured provider prerequisites but no strict hash-bound dogfood evidence bundle at ${readback.bundle_manifest}.`,
+      gap: null,
+    };
+  }
+  try {
+    const manifest = readDogfoodEvidenceBundleManifest(manifestPath);
+    const bundledProviders = new Set<string>(
+      manifest.artifacts
+        .filter(({ role }) => role === "provider_evidence")
+        .map(({ provider }) => provider)
+        .filter((provider) => provider !== undefined),
+    );
+    const missing = readback.required_providers.filter(
+      (provider) => !bundledProviders.has(provider),
+    );
+    const externallyMissing = missing.filter((provider) => {
+      const configured = context.providers[provider];
+      return !configured?.credential_ref && configured?.state !== "verified";
+    });
+    if (externallyMissing.length > 0) {
+      return {
+        status: "SKIP",
+        detail: `${definition.gap.why} Missing provider prerequisites: ${externallyMissing.join(", ")}.`,
+        gap: definition.gap,
+      };
+    }
+    if (missing.length > 0) {
+      return {
+        status: "FAIL",
+        detail: `${id} has configured provider prerequisites but its bundle lacks ${missing.join(", ")} evidence.`,
+        gap: null,
+      };
+    }
+    const verified = verifyDogfoodEvidenceBundle({
+      manifestPath,
+      requiredProviders: readback.required_providers,
+      requiredReceiptStates: readback.required_receipt_states,
+    });
+    return {
+      status: "PASS",
+      detail: `Verified non-fixture run ${verified.manifest.runId} from ${verified.manifest.artifacts.length} hash-bound source/workflow/provider/journey artifacts; provider node counts ${Object.entries(
+        verified.providers,
+      )
+        .map(([provider, count]) => `${provider}:${count}`)
+        .join(", ")}; production ${verified.productionUrl}.`,
+      gap: null,
+    };
+  } catch (error) {
+    return {
+      status: "FAIL",
+      detail: `${id} evidence parser rejected the dogfood bundle: ${error instanceof Error ? error.message : String(error)}`,
+      gap: null,
+    };
+  }
+}
+
 export function qualityProfileExitCode(report: Pick<QualityReport, "passed">): 0 | 1 {
   return report.passed ? 0 : 1;
+}
+
+/**
+ * Release analytics evidence is intentionally deterministic. Provider
+ * destination lifecycle and data freshness are external observations owned by
+ * the live/stable read-back tier, not reasons for a code-complete release to
+ * become INCOMPLETE.
+ */
+export function validateDeterministicAnalyticsReadiness(config: unknown): string[] {
+  return validateEventPackConfig(config);
 }
 
 function trackedSecretScan(root: string): { clean: boolean; detail: string } {
@@ -413,6 +556,38 @@ export function productionServerCommand(port: number): string[] {
   return ["pnpm", "exec", "next", "start", "-H", "127.0.0.1", "-p", String(port)];
 }
 
+async function reserveQualityPort(): Promise<number> {
+  const server = createServer();
+  server.unref();
+  server.listen({ host: "127.0.0.1", port: 0, exclusive: true });
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Could not reserve an ephemeral quality-check port.");
+  }
+  const port = address.port;
+  server.close();
+  await once(server, "close");
+  return port;
+}
+
+async function waitForChildExit(child: ReturnType<typeof spawn>, timeoutMs: number) {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return await Promise.race([
+    once(child, "exit").then(() => true),
+    new Promise<boolean>((resolveWait) => setTimeout(() => resolveWait(false), timeoutMs)),
+  ]);
+}
+
+async function stopQualityServer(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+  if (await waitForChildExit(child, 5_000)) return;
+  child.kill("SIGKILL");
+  await waitForChildExit(child, 5_000);
+}
+
 async function runRawHtml(
   definition: QualityCheckDefinition,
   context: QualityContext,
@@ -422,8 +597,11 @@ async function runRawHtml(
     command.push("--", "--url", context.baseUrl);
     return execute(command, context.root);
   }
-  const port = Number(process.env.VH_QUALITY_PORT ?? 3210);
+  const port = process.env.VH_QUALITY_PORT
+    ? Number(process.env.VH_QUALITY_PORT)
+    : await reserveQualityPort();
   const baseUrl = `http://127.0.0.1:${port}`;
+  const serverNonce = randomBytes(24).toString("hex");
   let serverCommand: string[];
   try {
     serverCommand = productionServerCommand(port);
@@ -432,7 +610,11 @@ async function runRawHtml(
   }
   const server = spawn(serverCommand[0], serverCommand.slice(1), {
     cwd: context.root,
-    env: { ...process.env, PORT: String(port) },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      VH_LOCAL_SERVER_NONCE: serverNonce,
+    },
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -446,9 +628,15 @@ async function runRawHtml(
   try {
     let ready = false;
     for (let attempt = 0; attempt < 40; attempt++) {
+      if (server.exitCode !== null || server.signalCode !== null) break;
       try {
-        const response = await fetch(baseUrl);
-        if (response.ok) {
+        const challenge = randomBytes(24).toString("hex");
+        const response = await fetch(`${baseUrl}/api/health`, {
+          headers: { "x-vh-local-server-challenge": challenge },
+        });
+        const body = response.ok ? await response.json() : null;
+        const expectedProof = createHmac("sha256", serverNonce).update(challenge).digest("hex");
+        if (body?.ready === true && body?.proof === expectedProof) {
           ready = true;
           break;
         }
@@ -466,7 +654,7 @@ async function runRawHtml(
     command.push("--", "--url", baseUrl, "--allow-loopback");
     return await execute(command, context.root);
   } finally {
-    server.kill("SIGTERM");
+    await stopQualityServer(server);
   }
 }
 
@@ -486,16 +674,16 @@ async function runCheck(
   }
   if (definition.kind === "manual") return skipped(id, definition.phase, definition);
   if (definition.kind === "provider_readback") {
-    const provider = context.providers[definition.provider ?? ""];
-    // Provider configuration and a generic doctor exit are readiness evidence,
-    // not resource read-back proof. Keep this incomplete until the check has a
-    // provider-specific sanitized artifact parser.
-    return skipped(
+    const evaluation = evaluateProviderReadbackEvidence(id, definition, context);
+    return {
       id,
-      definition.phase,
-      definition,
-      unresolvedProviderReadbackGap(definition, provider),
-    );
+      status: evaluation.status,
+      phase: definition.phase,
+      command: commandText(asCommand(definition.command)),
+      duration_ms: Date.now() - started,
+      detail: evaluation.detail,
+      gap: evaluation.gap,
+    };
   }
   if (definition.kind === "raw_html" && priorResults.get("production_build")?.status === "FAIL") {
     return skipped(id, definition.phase, definition, {
@@ -531,7 +719,11 @@ async function runCheck(
       (file) => /\.(?:[cm]?[jt]sx?)$/.test(file) && existsSync(join(context.root, file)),
     );
     if (files.length === 0) return notApplicable(id, definition.phase, "No changed lintable file.");
-    command = ["pnpm", "exec", "eslint", "--max-warnings=0", ...files];
+    // Naming an eslint-ignored file explicitly emits a "File ignored" warning,
+    // which --max-warnings=0 turns into a failure. Generated artifacts such as
+    // bin/vh.mjs are ignored by config and change on every release build, so
+    // without this the fast profile fails whenever the CLI is rebuilt.
+    command = ["pnpm", "exec", "eslint", "--max-warnings=0", "--no-warn-ignored", ...files];
   }
   if (definition.kind === "changed_tests") {
     const files = changedTestFiles(context.changedFiles, context.root);
@@ -551,11 +743,8 @@ async function runCheck(
     };
   }
   if (definition.kind === "analytics_readiness") {
-    const analytics = readYaml<{
-      event_packs: { active: EventPackId[] };
-      core_journeys: Record<string, { active?: boolean }>;
-    }>(context.root, "config/analytics.yaml");
-    const staticFailures = validateEventPackConfig(analytics);
+    const analytics = readYaml<unknown>(context.root, "config/analytics.yaml");
+    const staticFailures = validateDeterministicAnalyticsReadiness(analytics);
     if (staticFailures.length > 0) {
       return {
         id,
@@ -567,72 +756,14 @@ async function runCheck(
         gap: null,
       };
     }
-    const providerStates = Object.fromEntries(
-      Object.entries(context.providers).map(([provider, entry]) => [
-        provider,
-        entry.state ?? "unconfigured",
-      ]),
-    );
-    const latestPath = join(context.root, ".venture/data/latest.json");
-    const freshness: Record<string, "fresh" | "stale" | "missing"> = {};
-    if (existsSync(latestPath)) {
-      try {
-        const artifact = JSON.parse(readFileSync(latestPath, "utf8")) as {
-          freshness?: { source: string; status: "fresh" | "stale" | "missing" }[];
-        };
-        for (const entry of artifact.freshness ?? []) freshness[entry.source] = entry.status;
-      } catch {
-        // The exact invalid artifact is reported as unknown freshness below.
-      }
-    }
-    const issues = validateMeasurementPlan({
-      activePacks: analytics.event_packs.active,
-      activeJourneys: Object.entries(analytics.core_journeys)
-        .filter(([, journey]) => journey.active === true)
-        .map(([journeyId]) => journeyId)
-        .filter((journeyId): journeyId is CoreJourneyId => journeyId in CORE_JOURNEYS),
-      configuredDestinations: analyticsDestinationsFromProviderStates(providerStates),
-      freshness,
-    });
-    const structuralIssues = issues.filter((issue) =>
-      [
-        "pack_missing",
-        "journey_start_missing",
-        "journey_outcome_missing",
-        "commercial_outcome_not_first_party",
-      ].includes(issue.code),
-    );
-    if (structuralIssues.length > 0) {
-      return {
-        id,
-        status: "FAIL",
-        phase: definition.phase,
-        command: "internal analytics journey readiness",
-        duration_ms: Date.now() - started,
-        detail: structuralIssues.map((issue) => issue.message).join(" "),
-        gap: null,
-      };
-    }
-    const externalIssues = issues.filter((issue) => !structuralIssues.includes(issue));
-    if (context.profile === "release" && externalIssues.length > 0) {
-      return skipped(id, definition.phase, definition, {
-        why: "Active analytics packs do not yet have complete destination and freshness evidence.",
-        missing: externalIssues.map((issue) => issue.message).join(" "),
-        exact_command: "pnpm vh auth login && pnpm vh data sync",
-        expected_evidence:
-          "Verified destination lifecycle states and normalized source freshness with account, window, timezone, and limitations.",
-      });
-    }
     return {
       id,
       status: "PASS",
       phase: definition.phase,
-      command: "internal analytics pack readiness",
+      command: "internal deterministic analytics readiness",
       duration_ms: Date.now() - started,
       detail:
-        externalIssues.length === 0
-          ? "Active journeys, pack destinations, and data-source freshness are known."
-          : "Active journeys and event-pack wiring are valid; live destination and freshness proof is deferred to the release profile.",
+        "Event-pack definitions, active journey wiring, privacy constraints, and first-party outcomes are valid; destination and freshness read-back belongs to live/stable.",
       gap: null,
     };
   }
@@ -666,8 +797,18 @@ async function runCheck(
   };
 }
 
+export function parseYamlWithUniqueKeys<T>(source: string, path = "<yaml>"): T {
+  const document = parseDocument(source, { uniqueKeys: true });
+  if (document.errors.length > 0) {
+    throw new Error(
+      `${path} is not valid YAML: ${document.errors.map(({ message }) => message).join("; ")}`,
+    );
+  }
+  return document.toJS() as T;
+}
+
 function readYaml<T>(root: string, path: string): T {
-  return parse(readFileSync(join(root, path), "utf8")) as T;
+  return parseYamlWithUniqueKeys<T>(readFileSync(join(root, path), "utf8"), path);
 }
 
 export function mergeVerifiedProviderLifecycleStates(
@@ -684,7 +825,7 @@ export function mergeVerifiedProviderLifecycleStates(
 }
 
 function assertContract(contract: QualityContract): void {
-  for (const profile of ["fast", "mvp", "release"] as const) {
+  for (const profile of QUALITY_PROFILE_IDS) {
     if (!contract.profiles[profile]) throw new Error(`Missing quality profile ${profile}`);
   }
   for (const [id, check] of Object.entries(contract.checks)) {
@@ -693,6 +834,42 @@ function assertContract(contract: QualityContract): void {
     if (["manual", "provider_readback"].includes(check.kind) && !check.gap) {
       throw new Error(`${id} can skip but has no actionable gap definition`);
     }
+    if (check.kind === "provider_readback") {
+      if (check.gap?.origin !== "external") {
+        throw new Error(`${id} provider gap must explicitly declare origin: external`);
+      }
+      if (
+        !check.readback ||
+        check.readback.required_providers.length === 0 ||
+        check.readback.required_receipt_states.length === 0
+      ) {
+        throw new Error(`${id} needs a non-empty provider-specific read-back parser contract`);
+      }
+      const path = check.readback.bundle_manifest;
+      if (!/^reports\/dogfood\/[a-z0-9._/-]+\/manifest\.json$/u.test(path) || path.includes("..")) {
+        throw new Error(`${id} has an unsafe dogfood bundle manifest path: ${path}`);
+      }
+    }
+  }
+  // The founder-alpha release gate must never depend on a connected provider.
+  // Without this assertion a future capability edit can silently make a
+  // code-complete alpha unable to reach PASS, which is exactly the defect the
+  // release/live/stable split exists to prevent.
+  const readbackIds = new Set(
+    Object.entries(contract.checks)
+      .filter(([, check]) => check.kind === "provider_readback")
+      .map(([id]) => id),
+  );
+  const releaseSelected = [
+    ...contract.profiles.release.checks,
+    ...Object.values(contract.capability_checks).flatMap((entry) => entry.release ?? []),
+  ];
+  const leaked = releaseSelected.filter((id) => readbackIds.has(id));
+  if (leaked.length > 0) {
+    throw new Error(
+      `The release profile must not contain live provider read-backs: ${[...new Set(leaked)].join(", ")}. ` +
+        "Move them to the live and stable profiles.",
+    );
   }
 }
 
@@ -758,9 +935,16 @@ export async function runQualityProfile(options: {
       const suffix = result.detail ? ` — ${result.detail.split("\n")[0]}` : "";
       console.log(`${result.status.padEnd(14)} ${result.id}${suffix}`);
       if (result.status === "SKIP" && result.gap) {
+        if (result.gap.provider) console.log(`  provider: ${result.gap.provider}`);
+        if (result.gap.account_scope) console.log(`  account: ${result.gap.account_scope}`);
         console.log(`  missing: ${result.gap.missing}`);
         console.log(`  run: ${result.gap.exact_command}`);
         console.log(`  evidence: ${result.gap.expected_evidence}`);
+        if (result.gap.impact) console.log(`  impact: ${result.gap.impact}`);
+        if (result.gap.vercel_url_availability) {
+          console.log(`  Vercel URL: ${result.gap.vercel_url_availability}`);
+        }
+        if (result.gap.resume_command) console.log(`  resume: ${result.gap.resume_command}`);
       }
     }
   }
@@ -797,9 +981,9 @@ export async function runQualityProfile(options: {
 
 async function main(): Promise<void> {
   const profile = process.argv[2] as QualityProfileId | undefined;
-  if (!profile || !["fast", "mvp", "release"].includes(profile)) {
+  if (!profile || !(QUALITY_PROFILE_IDS as readonly string[]).includes(profile)) {
     console.error(
-      "usage: tsx scripts/run-quality-profile.ts <fast|mvp|release> [--base <git-ref>] [--url <base-url>] [--all]",
+      `usage: tsx scripts/run-quality-profile.ts <${QUALITY_PROFILE_IDS.join("|")}> [--base <git-ref>] [--url <base-url>] [--all]`,
     );
     process.exit(2);
   }

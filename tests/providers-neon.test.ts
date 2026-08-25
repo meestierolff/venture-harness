@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultCliServices } from "@/lib/cli/default-services";
 import {
   CredentialBroker,
+  EnvironmentCredentialBackend,
   MemoryCredentialBackend,
   type CommandInvocation,
   type CommandRunner,
@@ -389,6 +390,62 @@ describe("Neon schema and database verification", () => {
         fixtureMode: true,
       }),
     ).rejects.toThrow("credential capture target is not registered");
+    expect(invocations).toHaveLength(0);
+  });
+
+  it("fails before provisioning when the registered database secret target is read-only", async () => {
+    const invocations: CommandInvocation[] = [];
+    const memory = new MemoryCredentialBackend();
+    const readOnly = new EnvironmentCredentialBackend({
+      env: { VH_NEON_DATABASE_URL: "SYNTHETIC_READ_ONLY_SECRET_TARGET" },
+      variableForRef: { [databaseCredentialRef]: "VH_NEON_DATABASE_URL" },
+    });
+    const broker = new CredentialBroker([memory, readOnly]);
+    await broker.store({
+      ref: "cred://neon/control-plane",
+      provider: "neon",
+      kind: "api_key",
+      backend: "memory",
+      value: "neon-control-plane-secret",
+    });
+    broker.register({
+      ref: databaseCredentialRef,
+      provider: "neon",
+      kind: "connection_string",
+      backend: "environment",
+    });
+    const plan = getProviderAdapter("neon").plan({
+      environment: "preview",
+      capabilities: ["project", "schema_migration", "read_write_health_check"],
+      credentialRef: "cred://neon/control-plane",
+      inputs: {
+        organizationId: "org-founder",
+        projectName: "must-not-be-created-with-read-only-secret-target",
+        regionId: "aws-eu-central-1",
+        databaseCredentialRef,
+      },
+      dryRun: false,
+    });
+
+    await expect(
+      getProviderAdapter("neon").apply(plan, {
+        authorization: "approved",
+        transports: {
+          cli: new CommandProviderTransport({
+            runner: {
+              async run(invocation) {
+                invocations.push(invocation);
+                return { exitCode: 0, stdout: "{}", stderr: "" };
+              },
+            },
+          }),
+        },
+        credentials: broker,
+        redactor: broker.redactor,
+        idempotencyLedger: new InMemoryIdempotencyLedger(),
+        fixtureMode: true,
+      }),
+    ).rejects.toThrow("credential capture target is not writable");
     expect(invocations).toHaveLength(0);
   });
 

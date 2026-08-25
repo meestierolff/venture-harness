@@ -1,5 +1,12 @@
 # Venture Harness v0.2 Codex verification
 
+> Historical 2026-08-09 legacy-matrix snapshot. It reviews the earlier
+> `sol/vh-core-v0.2-winner-loop` scope and must not be used as evidence for the
+> founder-alpha assignment or the present branch. Current founder-alpha status
+> is defined by `reports/audit/founder-alpha-requirements.json` and its
+> source-bound final-evidence report; until that report runs, final status is
+> incomplete.
+
 - Review date: 2026-08-09
 - Branch: `sol/vh-core-v0.2-winner-loop`
 - Recovered starting SHA: `1ba4a22f08f356a510e0611b9081f5d16eaa2823`

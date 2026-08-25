@@ -110,6 +110,22 @@ export interface HttpAuthSpec {
   name?: string;
 }
 
+/**
+ * A bounded read-only proof performed with the same resolved credential value
+ * immediately before an HTTP mutation. This closes the gap where a durable
+ * credential attestation remains in metadata after the backend value changes.
+ */
+export interface ProviderCredentialPreflightSpec {
+  requests: readonly {
+    url: string;
+    assertions: readonly {
+      path: string;
+      operator: "equals" | "exists" | "contains";
+      expected?: JsonValue;
+    }[];
+  }[];
+}
+
 export interface ProviderHttpSpec {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   url: string;
@@ -117,6 +133,7 @@ export interface ProviderHttpSpec {
   body?: JsonValue;
   encoding?: "json" | "form";
   auth?: HttpAuthSpec;
+  credentialPreflight?: ProviderCredentialPreflightSpec;
   nativeIdempotency?: boolean;
   /**
    * Stores one string field from a successful JSON response directly behind
@@ -149,6 +166,31 @@ export interface ProviderReadBackSpec {
   }[];
 }
 
+/**
+ * A bounded provider read that runs before a create. An exact single match is
+ * reused; zero matches permit create; ambiguity or drift fails closed.
+ */
+export interface ProviderExistingResourceSpec {
+  transport: Exclude<ProviderTransportKind, "manual">;
+  command?: ProviderCommandSpec;
+  http?: ProviderHttpSpec;
+  candidatesPath: string;
+  hasMorePath?: string;
+  identityAssertions: readonly {
+    path: string;
+    operator: "equals";
+    expected: JsonValue;
+  }[];
+  stateAssertions: readonly {
+    path: string;
+    operator: "equals" | "contains";
+    expected: JsonValue;
+  }[];
+  description: string;
+  /** Some resources, such as webhooks, expose a credential only at creation. */
+  reuseRequiresCredentialRef?: string;
+}
+
 export interface ProviderOperation {
   id: string;
   provider: ProviderId;
@@ -172,6 +214,7 @@ export interface ProviderOperation {
   command?: ProviderCommandSpec;
   http?: ProviderHttpSpec;
   manual?: ProviderManualSpec;
+  existingResource?: ProviderExistingResourceSpec;
   readBack?: ProviderReadBackSpec;
   verification: {
     strategy: "response_then_read_back" | "read_back" | "manual";

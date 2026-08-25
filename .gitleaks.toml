@@ -7,4 +7,35 @@ paths = [
   '''(^|/)node_modules/''',
   '''(^|/)\.next/''',
   '''(^|/)coverage/''',
+  '''(^|/)\.pnpm-store/''',
+]
+
+# Reviewed synthetic credential canaries.
+#
+# Several guards can only be proved by feeding credential-shaped material into
+# a field that must reject or redact it: mobile scaffold display names,
+# provider lifecycle resource refs, build-agent context, webhook rotation, and
+# the quality redactor. Deleting those literals would delete the only evidence
+# that the guards work, so every one of them instead carries a sentinel that no
+# provider can ever issue.
+#
+# This matches the sentinel, never a path. A real credential committed to a
+# test or fixture is still reported, because a real credential cannot contain
+# the sentinel. Do not broaden this to path globs.
+#
+# The second pattern is written with a group so that this configuration file
+# does not itself contain a literal AWS-shaped key run.
+#
+# Keep every `sk_live_`-shaped canary short. GitHub push protection is a third
+# detector with its own thresholds, and it rejects a push containing
+# `sk_live_` followed by a long alphanumeric run even when the value carries
+# the sentinel. Three canaries blocked a push for exactly this reason; the
+# sentinel plus a one-character suffix stays under that threshold while still
+# satisfying the product's own `sk_(live|test)_[A-Za-z0-9]{12,}` classifier.
+[[allowlists]]
+description = "Synthetic credential canaries carrying an explicit non-credential sentinel"
+regexTarget = "line"
+regexes = [
+  '''SYNTHETICNOTAREAL''',
+  '''AKIASYNTHETIC(NOTREAL)''',
 ]

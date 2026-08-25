@@ -5,6 +5,10 @@
 framework:
   name: venture-harness
   version: 0.2.0
+  # "Publicly distributable open-source repository", not a GitHub template
+  # repository. Ventures are materialized by the CLI from versioned seeds; this
+  # repository is never forked or used with GitHub's "Use this template".
+  # Renaming this key needs a child migration, so it is tracked as debt.
   public_template: true
   license: MIT
 
@@ -22,7 +26,7 @@ package_manager: pnpm
 stack:
   web: next.js
   language: typescript
-  runtime_min_node: "20.9.0"
+  runtime_min_node: "22.5.0"
   aggregate_analytics: vercel-web-analytics
   behavioural_analytics: ga4
   evidence_store: neon-postgres

@@ -2,6 +2,8 @@ import type { JsonValue, WorkflowRunState } from "../workflow";
 import type { AuthorizationSideEffect } from "../authorization";
 import type { LearningCadence } from "../learning";
 import type { LaunchGrant } from "../materialization";
+import type { FounderLaunchGap, FounderStackConnection, FounderStackRole } from "../founder-launch";
+import type { CredentialKind } from "../credentials";
 
 export interface CliIo {
   stdout: (line: string) => void;
@@ -18,6 +20,12 @@ export interface CliCreateRequest {
   json: boolean;
 }
 
+export interface CliIdeaSharpenRequest {
+  input: string;
+  output: string;
+  json: boolean;
+}
+
 export interface CliLaunchRequest {
   mode: "dry-run" | "apply";
   authorization?: string;
@@ -25,6 +33,8 @@ export interface CliLaunchRequest {
   json: boolean;
   /** Internal one-prompt binding; never accepted from an arbitrary JSON file. */
   launchGrant?: LaunchGrant;
+  /** Internal typed non-critical provider gaps carried into durable launch/report state. */
+  founderLaunchGaps?: readonly FounderLaunchGap[];
   /**
    * Internal continuation marker. The child service re-reads and validates the
    * exact pending founder transaction before renewing an expired run envelope.
@@ -61,15 +71,36 @@ export interface CliAuthRequest {
   backend?: string;
   kind?: string;
   scopes?: string[];
+  /** Immediate hidden read consumed only by a writable credential backend. */
+  readValue?: () => Promise<string>;
 }
 
 export interface CliStackRequest {
-  action: "create" | "doctor";
+  action: "create" | "connect" | "doctor";
   profileId: "founder-default";
   file?: string;
+  /** Credential-free wizard output. Credential values never cross this boundary. */
+  connection?: FounderStackConnection;
+  /** Roles refreshed by this invocation; omitted retains legacy full-replace behavior. */
+  updatedRoles?: readonly FounderStackRole[];
+  /** A full interactive wizard may replace, rather than extend, optional selection. */
+  replaceOptionalRoles?: boolean;
+  /** Change generated-output capture only when the founder selected that backend. */
+  updateWritableCredentialBackend?: boolean;
+  /** Immediate broker write; the reader closure is consumed and never persisted. */
+  credentialWrites?: readonly {
+    reference: string;
+    provider: string;
+    kind: CredentialKind;
+    backend: "macos_keychain" | "onepassword";
+    scopes: readonly string[];
+    accountId?: string;
+    readValue: () => Promise<string>;
+  }[];
 }
 
 export interface CliServices {
+  ideaSharpen?: (request: CliIdeaSharpenRequest) => Promise<JsonValue> | JsonValue;
   create?: (request: CliCreateRequest) => Promise<JsonValue> | JsonValue;
   doctor?: () => Promise<JsonValue> | JsonValue;
   plan?: (request: CliPlanRequest) => Promise<JsonValue> | JsonValue;

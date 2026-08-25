@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { Redactor } from "@/lib/credentials";
+import { CredentialBroker, MemoryCredentialBackend, Redactor } from "@/lib/credentials";
 import {
   getProviderAdapter,
   InMemoryIdempotencyLedger,
   MockProviderTransport,
   type ProviderExecutionContext,
+  type ProviderOperation,
   type ProviderPlan,
 } from "@/lib/providers";
 import { FileProviderIdempotencyLedger } from "@/lib/runtime";
@@ -21,6 +22,16 @@ function fixturePlan(): ProviderPlan {
     capabilities: ["product"],
     dryRun: false,
   });
+}
+
+function emptyStripeSearch(operation: ProviderOperation) {
+  if (!operation.action.endsWith(".search_before_create")) return null;
+  return {
+    status: "succeeded" as const,
+    message: "Fixture search found no deterministic resource",
+    output: { data: [], has_more: false },
+    effectOutcome: "confirmed_no_write" as const,
+  };
 }
 
 function context(path: string, transport: MockProviderTransport): ProviderExecutionContext {
@@ -86,12 +97,16 @@ describe("provider write idempotency safety", () => {
   it("reconciles an unclaimed plan as definitive no-write before a later authorized apply", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-provider-no-attempt-"));
     const ledgerPath = join(directory, "ledger.json");
-    const transport = new MockProviderTransport("http", async () => ({
-      status: "succeeded",
-      message: "fixture product created",
-      verified: true,
-      effectOutcome: "confirmed_write",
-    }));
+    const transport = new MockProviderTransport(
+      "http",
+      async (operation) =>
+        emptyStripeSearch(operation) ?? {
+          status: "succeeded",
+          message: "fixture product created",
+          verified: true,
+          effectOutcome: "confirmed_write",
+        },
+    );
     const adapter = getProviderAdapter("stripe");
     const plan = fixturePlan();
 
@@ -104,7 +119,7 @@ describe("provider write idempotency safety", () => {
 
     const applied = await adapter.apply(plan, context(ledgerPath, transport));
     expect(applied.operations[0].result.status).toBe("succeeded");
-    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls).toHaveLength(2);
   });
 
   it("reconciles a timeout after the provider write without repeating the write", async () => {
@@ -113,7 +128,9 @@ describe("provider write idempotency safety", () => {
     let externalWrites = 0;
     const transport = new MockProviderTransport(
       "http",
-      async () => {
+      async (operation) => {
+        const search = emptyStripeSearch(operation);
+        if (search) return search;
         externalWrites += 1;
         throw new Error("fixture timeout after provider commit");
       },
@@ -139,15 +156,79 @@ describe("provider write idempotency safety", () => {
       result: { status: "succeeded", verified: true, effectOutcome: "confirmed_write" },
     });
     expect(externalWrites).toBe(1);
-    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls).toHaveLength(3);
   });
+
+  it.each(["product", "price", "webhook", "billing_portal"] as const)(
+    "recovers an ambiguous Stripe %s POST with the same native idempotency key",
+    async (capability) => {
+      const directory = await mkdtemp(join(tmpdir(), `vh-provider-native-${capability}-`));
+      const ledgerPath = join(directory, "ledger.json");
+      let postCalls = 0;
+      let externalWrites = 0;
+      const transport = new MockProviderTransport("http", async (operation) => {
+        const search = emptyStripeSearch(operation);
+        if (search) return search;
+        postCalls += 1;
+        if (postCalls === 1) {
+          externalWrites += 1;
+          throw new Error("fixture connection closed after Stripe committed the idempotent POST");
+        }
+        return {
+          status: "succeeded",
+          message: "Stripe replayed the original idempotent response",
+          output: { id: `${capability}_fixture_replayed` },
+          effectOutcome: "confirmed_write",
+        };
+      });
+      const adapter = getProviderAdapter("stripe");
+      const plan = adapter.plan({
+        ...providerPlanFixtures.stripe,
+        capabilities: [capability],
+        inputs: {
+          ...providerPlanFixtures.stripe.inputs,
+          productId: "prod_fixture_existing",
+        },
+        dryRun: false,
+      });
+
+      const providerContext = context(ledgerPath, transport);
+      if (capability === "webhook") {
+        const broker = new CredentialBroker([new MemoryCredentialBackend()]);
+        broker.register({
+          ref: "cred://stripe/webhook-secret",
+          provider: "stripe",
+          kind: "ci_secret",
+          backend: "memory",
+        });
+        providerContext.credentials = broker;
+        providerContext.redactor = broker.redactor;
+      }
+      const first = await adapter.apply(plan, providerContext);
+      const resumed = await adapter.apply(plan, providerContext);
+
+      expect(first.operations[0]?.result.effectOutcome).toBe("unknown");
+      expect(resumed.operations[0]).toMatchObject({
+        reused: true,
+        result: {
+          status: "succeeded",
+          effectOutcome: "confirmed_write",
+          message: expect.stringContaining("native idempotency key"),
+        },
+      });
+      expect(postCalls).toBe(2);
+      expect(externalWrites).toBe(1);
+    },
+  );
 
   it("blocks reinvocation while an ambiguous write cannot be reconciled", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-provider-blocked-"));
     const ledgerPath = join(directory, "ledger.json");
     const transport = new MockProviderTransport(
       "http",
-      async () => {
+      async (operation) => {
+        const search = emptyStripeSearch(operation);
+        if (search) return search;
         throw new Error("fixture connection reset after request send");
       },
       async (operation) => ({
@@ -170,19 +251,23 @@ describe("provider write idempotency safety", () => {
         effectOutcome: "unknown",
       },
     });
-    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls).toHaveLength(4);
   });
 
   it("rejects a reused key whose complete provider request differs", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-provider-conflict-"));
     const ledgerPath = join(directory, "ledger.json");
-    const privateResult = "sk_test_ConflictCanary123456789";
-    const transport = new MockProviderTransport("http", async () => ({
-      status: "succeeded",
-      message: "created private first result",
-      output: { id: privateResult },
-      verified: true,
-    }));
+    const privateResult = "sk_test_SYNTHETICNOTAREALconflictcanary1";
+    const transport = new MockProviderTransport(
+      "http",
+      async (operation) =>
+        emptyStripeSearch(operation) ?? {
+          status: "succeeded",
+          message: "created private first result",
+          output: { id: privateResult },
+          verified: true,
+        },
+    );
     const adapter = getProviderAdapter("stripe");
     const firstPlan = fixturePlan();
     const first = await adapter.apply(firstPlan, context(ledgerPath, transport));
@@ -206,7 +291,7 @@ describe("provider write idempotency safety", () => {
       providerCode: "idempotency_conflict",
     });
     expect(JSON.stringify(conflict)).not.toContain(privateResult);
-    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls).toHaveLength(2);
     const durable = await readFile(ledgerPath, "utf8");
     expect(durable).not.toContain(firstPlan.operations[0].idempotencyKey);
     expect(durable).not.toContain(privateResult);
@@ -219,15 +304,16 @@ describe("provider write idempotency safety", () => {
     const privateCanary = "private-canary-must-not-enter-replay-output";
     const transport = new MockProviderTransport(
       "http",
-      async (operation) => ({
-        status: "succeeded",
-        message: "fixture provider write completed before the simulated crash",
-        output:
-          operation.capability === "product"
-            ? { id: "prod_restart_public", secret: rawSecret, privateNote: privateCanary }
-            : { id: "price_restart_public", privateNote: privateCanary },
-        effectOutcome: "confirmed_write",
-      }),
+      async (operation) =>
+        emptyStripeSearch(operation) ?? {
+          status: "succeeded",
+          message: "fixture provider write completed before the simulated crash",
+          output:
+            operation.capability === "product"
+              ? { id: "prod_restart_public", secret: rawSecret, privateNote: privateCanary }
+              : { id: "price_restart_public", privateNote: privateCanary },
+          effectOutcome: "confirmed_write",
+        },
       async (operation, execution) => {
         const id = (execution.output as { id?: unknown } | undefined)?.id;
         return {
@@ -247,6 +333,9 @@ describe("provider write idempotency safety", () => {
       capabilities: ["product", "price"],
       credentialRef: "cred://stripe/restart",
       inputs: {
+        ventureSlug: "restart-fixture",
+        stripeAccountId: "acct_restart_fixture",
+        stripeMode: "test",
         productName: "Restart fixture",
         productId: "{dependency.product.id}",
         currency: "eur",
@@ -258,7 +347,7 @@ describe("provider write idempotency safety", () => {
 
     const first = await adapter.apply(plan, context(ledgerPath, transport));
     expect(first.state).toBe("applied");
-    expect(transport.calls).toHaveLength(2);
+    expect(transport.calls).toHaveLength(4);
 
     const durable = await readFile(ledgerPath, "utf8");
     expect(durable).toContain('"version": 4');
@@ -277,7 +366,7 @@ describe("provider write idempotency safety", () => {
       product: "prod_restart_public",
     });
     expect(restarted.operations[1]!.result.output).toEqual({ id: "price_restart_public" });
-    expect(transport.calls).toHaveLength(2);
+    expect(transport.calls).toHaveLength(4);
 
     const readBack = await adapter.readBack(restarted, context(ledgerPath, transport));
     expect(adapter.verify(restarted, readBack).state).toBe("verified");
@@ -288,7 +377,9 @@ describe("provider write idempotency safety", () => {
     const directory = await mkdtemp(join(tmpdir(), "vh-provider-no-write-"));
     const ledgerPath = join(directory, "ledger.json");
     let attempts = 0;
-    const transport = new MockProviderTransport("http", async () => {
+    const transport = new MockProviderTransport("http", async (operation) => {
+      const search = emptyStripeSearch(operation);
+      if (search) return search;
       attempts += 1;
       return attempts === 1
         ? {
@@ -313,7 +404,7 @@ describe("provider write idempotency safety", () => {
 
     expect(first.operations[0].result.effectOutcome).toBe("confirmed_no_write");
     expect(second.operations[0].result.status).toBe("succeeded");
-    expect(transport.calls).toHaveLength(2);
+    expect(transport.calls).toHaveLength(4);
   });
 
   it("serializes two Node processes and replays without a duplicate provider write", async () => {

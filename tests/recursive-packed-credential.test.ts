@@ -1,25 +1,48 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const root = resolve(process.cwd());
 const temporaryDirectories: string[] = [];
-const closure = [
-  "core",
-  "audit",
-  "billing",
-  "config",
-  "events",
-  "command-bus",
-  "connections",
-  "entitlements",
-  "organizations",
-  "policy",
-  "telemetry",
-  "agent-runtime",
-] as const;
+
+/**
+ * The packed consumer must receive the complete workspace closure of the
+ * package under test. A hand-maintained list silently drifts the moment a
+ * dependency is added — `@venture-harness/loops` was missing here, which made
+ * the install fail on resolution rather than on anything about credentials.
+ * Deriving the closure from the manifests keeps this test measuring the
+ * credential boundary instead of list hygiene.
+ */
+function workspaceClosure(entry: string): string[] {
+  const directoryByName = new Map<string, string>();
+  for (const directory of readdirSync(join(root, "packages"))) {
+    const manifestPath = join(root, "packages", directory, "package.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name: string };
+    directoryByName.set(manifest.name, directory);
+  }
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const visit = (directory: string): void => {
+    if (seen.has(directory)) return;
+    seen.add(directory);
+    const manifest = JSON.parse(
+      readFileSync(join(root, "packages", directory, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      const child = directoryByName.get(dependency);
+      if (child) visit(child);
+    }
+    // Dependencies are packed before their dependents.
+    ordered.push(directory);
+  };
+  visit(entry);
+  return ordered;
+}
+
+const closure = workspaceClosure("agent-runtime");
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -28,7 +51,7 @@ afterEach(() => {
 });
 
 describe("packed recursive credential boundary", () => {
-  it("rejects inbound secondary credentials through ESM and CJS in a clean offline consumer", () => {
+  it("rejects inbound secondary credentials through ESM and CJS in a clean packed consumer", () => {
     const packDirectory = mkdtempSync(join(tmpdir(), "vh-recursive-pack-"));
     const consumer = mkdtempSync(join(tmpdir(), "vh-recursive-consumer-"));
     temporaryDirectories.push(packDirectory, consumer);
@@ -50,6 +73,23 @@ describe("packed recursive credential boundary", () => {
       if (!artifact) throw new Error(`packed artifact missing for ${manifest.name}`);
       dependencies[manifest.name] = `file:${join(packDirectory, artifact)}`;
     }
+    // Pin every third-party dependency of the packed closure to the version
+    // this repository actually has installed, so the consumer resolves from the
+    // local store rather than picking up a different version of a transitive
+    // dependency than the one the boundary was verified against.
+    const externalOverrides: Record<string, string> = {};
+    for (const shortName of closure) {
+      const manifest = JSON.parse(
+        readFileSync(join(root, "packages", shortName, "package.json"), "utf8"),
+      ) as { dependencies?: Record<string, string> };
+      for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+        if (dependency.startsWith("@venture-harness/")) continue;
+        const installed = join(root, "node_modules", dependency, "package.json");
+        if (!existsSync(installed)) continue;
+        const { version } = JSON.parse(readFileSync(installed, "utf8")) as { version: string };
+        externalOverrides[dependency] = version;
+      }
+    }
     writeFileSync(
       join(consumer, "package.json"),
       `${JSON.stringify(
@@ -59,7 +99,7 @@ describe("packed recursive credential boundary", () => {
           private: true,
           type: "module",
           dependencies,
-          pnpm: { overrides: dependencies },
+          pnpm: { overrides: { ...externalOverrides, ...dependencies } },
         },
         null,
         2,
@@ -69,12 +109,24 @@ describe("packed recursive credential boundary", () => {
       cwd: root,
       encoding: "utf8",
     }).trim();
+    // --prefer-offline rather than --offline: a `--frozen-lockfile` install
+    // resolves from the lockfile and never populates the registry metadata
+    // cache, so a strict offline install fails on metadata rather than on
+    // anything this test is about. Package content still comes from the packed
+    // tarballs and the local store; only metadata may be fetched.
     const install = spawnSync(
       "pnpm",
-      ["install", "--offline", "--ignore-scripts", "--store-dir", storeDirectory],
-      { cwd: consumer, encoding: "utf8", timeout: 30_000 },
+      ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
+      { cwd: consumer, encoding: "utf8", timeout: 240_000 },
     );
-    expect(install.status, `${install.stdout}\n${install.stderr}`).toBe(0);
+    expect(
+      install.status,
+      // A null status means the install was killed by its timeout rather than
+      // failing, which is a different problem from a rejected dependency.
+      install.status === null
+        ? "the packed consumer install exceeded its timeout"
+        : `${install.stdout}\n${install.stderr}`,
+    ).toBe(0);
     writeFileSync(
       join(consumer, "verify.mjs"),
       `import { createRequire } from "node:module";
@@ -93,7 +145,7 @@ const input = {
   correlationId: "correlation-packed",
   causationId: "causation-packed",
   usageUnits: 1,
-  payload: { requestId: "safe", receiptHint: "whsec_secondary_fixture_8Hk2Lm9Q" }
+  payload: { requestId: "safe", receiptHint: "whsec_SYNTHETICNOTAREALsecondaryrotation" }
 };
 for (const contract of [esm, cjs]) {
   for (const unsafe of [
@@ -118,7 +170,7 @@ process.stdout.write("packed-recursive-credential-rejected\\n");
     expect(verification.status, verification.stderr).toBe(0);
     expect(verification.stdout).toBe("packed-recursive-credential-rejected\n");
     expect(verification.stdout + verification.stderr).not.toContain(
-      "whsec_secondary_fixture_8Hk2Lm9Q",
+      "whsec_SYNTHETICNOTAREALsecondaryrotation",
     );
-  }, 60_000);
+  }, 300_000);
 });

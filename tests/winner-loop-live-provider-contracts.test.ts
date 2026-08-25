@@ -260,7 +260,7 @@ function reservation(): Reservation {
   return {
     reservationId: "reservation-1",
     organizationId: ORGANIZATION_ID,
-    idempotencyKey: "reservation-key-1",
+    idempotencyKey: "reservation-1",
     grantId: "grant-1",
     ventureId: "venture-1",
     creativeId: "creative-1",

@@ -3,16 +3,25 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import {
+  assertFinalEvidenceSource,
+  finalEvidenceLogDirectory,
+  finalEvidenceOutputPaths,
+  validateFinalEvidenceLedger,
+} from "./lib/final-evidence-source.mjs";
 
 // Keep this execution boundary at least as strict as the credential classifiers in
 // packages/core/src/index.ts, scripts/lib/release-security.ts, and
@@ -195,6 +204,9 @@ try {
     if (path === "reports/audit/commands-run.json") {
       throw new Error("reports/audit/commands-run.json cannot hash itself as a command artifact");
     }
+    if (!path.startsWith("reports/audit/") || path.startsWith("reports/audit/command-logs/")) {
+      throw new Error(`declared audit artifact must stay in reports/audit/: ${path}`);
+    }
   }
 } catch (error) {
   console.error(sanitize(error instanceof Error ? error.message : String(error)));
@@ -234,18 +246,165 @@ try {
 }
 
 const reportPath = resolve(repositoryRoot, "reports/audit/commands-run.json");
-let initialReport = {
-  schemaVersion: 2,
-  branch: "sol/vh-core-v0.2-winner-loop",
-  records: [],
-};
+const relativeLockPath = "reports/audit/commands-run.lock";
+const lockPath = resolve(repositoryRoot, relativeLockPath);
+let initialReportBytes;
+let initialReport;
 try {
-  initialReport = JSON.parse(readFileSync(reportPath, "utf8"));
+  initialReportBytes = readFileSync(reportPath);
+  initialReport = JSON.parse(initialReportBytes.toString("utf8"));
 } catch (error) {
-  if (error?.code !== "ENOENT") throw error;
+  if (error?.code === "ENOENT") {
+    console.error(
+      "commands-run ledger is absent; run node scripts/initialize-final-evidence.mjs first",
+    );
+    process.exit(1);
+  }
+  throw error;
 }
-if (![1, 2].includes(initialReport.schemaVersion) || !Array.isArray(initialReport.records)) {
-  throw new Error("commands-run ledger has an unsupported schema or malformed records");
+try {
+  validateFinalEvidenceLedger(initialReport);
+} catch (error) {
+  console.error(sanitize(error instanceof Error ? error.message : String(error)));
+  process.exit(1);
+}
+
+function protectedEvidenceSnapshot(path, expected, label) {
+  const absolutePath = assertRepositoryRelativePath(path, label);
+  const stats = lstatSync(absolutePath);
+  if (!stats.isFile()) throw new Error(`${label} is not a regular file: ${path}`);
+  const bytes = readFileSync(absolutePath);
+  const sha256 = digest(bytes);
+  if (expected?.sha256 !== sha256 || expected?.bytes !== bytes.byteLength) {
+    throw new Error(`${label} does not match its ledger digest: ${path}`);
+  }
+  return { path, absolutePath, bytes, sha256, size: bytes.byteLength, mode: stats.mode & 0o777 };
+}
+
+const protectedEvidence = new Map();
+try {
+  for (const record of initialReport.records) {
+    const snapshots = [
+      protectedEvidenceSnapshot(
+        record.evidencePath,
+        { sha256: record.evidenceSha256, bytes: record.evidenceBytes },
+        `prior command ${record.id} evidence`,
+      ),
+      ...(Array.isArray(record.artifacts)
+        ? record.artifacts.map((artifact) =>
+            protectedEvidenceSnapshot(
+              artifact.path,
+              { sha256: artifact.sha256, bytes: artifact.bytes },
+              `prior command ${record.id} artifact`,
+            ),
+          )
+        : []),
+    ];
+    for (const snapshot of snapshots) {
+      const prior = protectedEvidence.get(snapshot.path);
+      if (prior && (prior.sha256 !== snapshot.sha256 || prior.size !== snapshot.size)) {
+        throw new Error(
+          `prior command evidence path has conflicting ledger digests: ${snapshot.path}`,
+        );
+      }
+      protectedEvidence.set(snapshot.path, snapshot);
+    }
+  }
+  for (const path of declaredArtifactPaths) {
+    if (protectedEvidence.has(path)) {
+      throw new Error(
+        `declared audit artifact is already bound to prior command evidence: ${path}`,
+      );
+    }
+  }
+} catch (error) {
+  console.error(sanitize(error instanceof Error ? error.message : String(error)));
+  process.exit(1);
+}
+
+function verifyProtectedEvidence() {
+  const errors = [];
+  try {
+    const currentLedger = readFileSync(reportPath);
+    if (!currentLedger.equals(initialReportBytes)) {
+      errors.push("commands-run ledger changed during the audited command");
+    }
+  } catch (error) {
+    errors.push(
+      `commands-run ledger changed during the audited command (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  try {
+    const stats = lstatSync(lockPath);
+    if (!stats.isFile() || stats.dev !== lockIdentity?.dev || stats.ino !== lockIdentity?.ino) {
+      errors.push("commands-run ledger ownership lock changed during the audited command");
+    }
+  } catch (error) {
+    errors.push(
+      `commands-run ledger ownership lock changed during the audited command (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  for (const snapshot of protectedEvidence.values()) {
+    try {
+      const stats = lstatSync(snapshot.absolutePath);
+      if (!stats.isFile()) throw new Error("is no longer a regular file");
+      const bytes = readFileSync(snapshot.absolutePath);
+      if (!bytes.equals(snapshot.bytes)) throw new Error("bytes changed");
+    } catch (error) {
+      errors.push(
+        `prior evidence changed during the audited command: ${snapshot.path} (${error instanceof Error ? error.message : String(error)})`,
+      );
+    }
+  }
+  return errors;
+}
+
+function restoreProtectedEvidence() {
+  const restore = (absolutePath, bytes, mode) => {
+    const directory = dirname(absolutePath);
+    const resolvedDirectory = realpathSync(directory);
+    if (resolvedDirectory !== directory) {
+      throw new Error(`cannot safely restore evidence through an aliased directory: ${directory}`);
+    }
+    const temporary = `${absolutePath}.${process.pid}.restore`;
+    writeFileSync(temporary, bytes, { mode });
+    renameSync(temporary, absolutePath);
+  };
+  restore(reportPath, initialReportBytes, 0o600);
+  for (const snapshot of protectedEvidence.values()) {
+    restore(snapshot.absolutePath, snapshot.bytes, snapshot.mode);
+  }
+}
+
+let lockDescriptor;
+let lockIdentity;
+try {
+  mkdirSync(dirname(lockPath), { recursive: true });
+  lockDescriptor = openSync(lockPath, "wx", 0o600);
+  writeFileSync(lockDescriptor, `${process.pid}\n`, "utf8");
+  const stats = lstatSync(lockPath);
+  lockIdentity = { dev: stats.dev, ino: stats.ino };
+} catch (error) {
+  if (lockDescriptor !== undefined) closeSync(lockDescriptor);
+  console.error(
+    sanitize(
+      `another audited command owns the evidence ledger or its lock is unsafe: ${error instanceof Error ? error.message : String(error)}`,
+    ),
+  );
+  process.exit(1);
+}
+
+function releaseEvidenceLock() {
+  if (lockDescriptor !== undefined) {
+    closeSync(lockDescriptor);
+    lockDescriptor = undefined;
+  }
+  try {
+    const stats = lstatSync(lockPath);
+    if (stats.dev === lockIdentity?.dev && stats.ino === lockIdentity?.ino) unlinkSync(lockPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
 }
 const initialRecords = Array.isArray(initialReport.records) ? initialReport.records : [];
 const attempt =
@@ -257,8 +416,23 @@ const attempt =
         Number.isSafeInteger(entry.attempt) && entry.attempt > 0 ? entry.attempt : 1,
       ),
   ) + 1;
-const relativeLogPath = `reports/audit/command-logs/${id}.attempt-${attempt}.log`;
+const relativeLogPath = `${finalEvidenceLogDirectory(initialReport.sourceSha)}${id}.attempt-${attempt}.log`;
 const logPath = resolve(repositoryRoot, relativeLogPath);
+try {
+  assertFinalEvidenceSource({
+    root: repositoryRoot,
+    expected: initialReport,
+    allowedPaths: finalEvidenceOutputPaths(initialReport, [
+      ...declaredArtifactPaths,
+      relativeLogPath,
+      relativeLockPath,
+    ]),
+  });
+} catch (error) {
+  releaseEvidenceLock();
+  console.error(sanitize(error instanceof Error ? error.message : String(error)));
+  process.exit(1);
+}
 mkdirSync(dirname(reportPath), { recursive: true });
 mkdirSync(dirname(logPath), { recursive: true });
 
@@ -299,6 +473,20 @@ child.on("close", (code, signal) => {
   const truncated = outputTruncated;
   const artifacts = [];
   const artifactErrors = [];
+  artifactErrors.push(...verifyProtectedEvidence());
+  try {
+    assertFinalEvidenceSource({
+      root: repositoryRoot,
+      expected: initialReport,
+      allowedPaths: finalEvidenceOutputPaths(initialReport, [
+        ...declaredArtifactPaths,
+        relativeLogPath,
+        relativeLockPath,
+      ]),
+    });
+  } catch (error) {
+    artifactErrors.push(error instanceof Error ? error.message : String(error));
+  }
   for (const path of declaredArtifactPaths) {
     try {
       const absolutePath = assertRepositoryRelativePath(path, "declared audit artifact");
@@ -338,26 +526,46 @@ child.on("close", (code, signal) => {
     }
   }
   const endedAt = new Date();
+  if (artifactErrors.some((message) => /ledger changed|prior evidence changed/u.test(message))) {
+    try {
+      restoreProtectedEvidence();
+    } catch (error) {
+      artifactErrors.push(
+        `could not restore protected evidence after tampering: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    process.stderr.write(
+      `${sanitize(artifactErrors.map((message) => `audit runner error: ${message}`).join("\n"))}\n`,
+    );
+    releaseEvidenceLock();
+    process.exitCode = 1;
+    return;
+  }
   const auditFailure = artifactErrors.length > 0;
   const exitCode = auditFailure && commandExitCode === 0 ? 1 : commandExitCode;
   const runnerError = artifactErrors.map((message) => `audit runner error: ${message}`).join("\n");
   if (runnerError) process.stderr.write(`${sanitize(runnerError)}\n`);
-  const capturedLog = truncated ? "" : sanitize(Buffer.concat(chunks).toString("utf8"));
+  const capturedLog = sanitize(Buffer.concat(chunks).toString("utf8"));
   const finalLog = `${capturedLog}${runnerError ? `\n${sanitize(runnerError)}\n` : ""}${truncated ? "\n[AUDIT LOG CONTENT OMITTED AFTER EXCEEDING 5 MiB]\n" : ""}`;
   const logBytes = Buffer.from(finalLog, "utf8");
   if (capturedLog) process.stdout.write(capturedLog);
   writeFileSync(logPath, logBytes);
 
-  let report = {
-    schemaVersion: 2,
-    branch: "sol/vh-core-v0.2-winner-loop",
-    records: [],
-  };
-  try {
-    report = JSON.parse(readFileSync(reportPath, "utf8"));
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
+  const finalProtectedErrors = verifyProtectedEvidence();
+  if (finalProtectedErrors.length > 0) {
+    try {
+      restoreProtectedEvidence();
+    } finally {
+      releaseEvidenceLock();
+    }
+    process.stderr.write(
+      `${sanitize(finalProtectedErrors.map((message) => `audit runner error: ${message}`).join("\n"))}\n`,
+    );
+    process.exitCode = 1;
+    return;
   }
+
+  const report = structuredClone(initialReport);
 
   const record = {
     id,
@@ -377,14 +585,18 @@ child.on("close", (code, signal) => {
     evidenceBytes: logBytes.byteLength,
     artifacts,
     outputTruncated: truncated,
+    sourceBranch: report.branch,
+    sourceSha: report.sourceSha,
+    sourceTree: report.sourceTree,
   };
-  const previous = Array.isArray(report.records) ? report.records : [];
-  report.schemaVersion = 2;
+  const previous = initialRecords;
+  report.schemaVersion = 3;
   report.records = [...previous, record];
   report.updatedAt = endedAt.toISOString();
 
   const temporary = `${reportPath}.${process.pid}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   renameSync(temporary, reportPath);
+  releaseEvidenceLock();
   process.exitCode = exitCode;
 });

@@ -47,10 +47,10 @@ needs:
   file_storage: false
   transactional_email: false
   lifecycle_email: false
-  feedback: true
-  analytics: true
+  feedback: false
+  analytics: false
   search_discovery: false
-  scheduled_learning: true
+  scheduled_learning: false
 
 preferred_dns_provider: manual # mijndomein | manual | provider_api | delegated
 deceptive_request: false

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import {
   assertCredentialFree,
+  initializeSqliteWal,
   stableJson,
   tenantKey,
   type JsonObject,
@@ -470,12 +471,7 @@ export class SqliteLoopRunStore implements LoopRunStore {
     this.#integrityKey = new Uint8Array(options.integrityKey);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#database = sqliteDatabase(path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    try {
-      this.#database.exec("PRAGMA journal_mode = WAL");
-    } catch (error) {
-      if (!/locked|busy/iu.test((error as Error).message)) throw error;
-    }
+    initializeSqliteWal(this.#database, { label: "durable loop store" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS loop_runs (
         tenant_key TEXT NOT NULL,

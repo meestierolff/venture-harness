@@ -290,12 +290,15 @@ function main(): never {
   }
 
   try {
-    execFileSync("pnpm", ["agents:check"], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync(process.execPath, ["--import", "tsx", "scripts/check-agent-parity.ts"], {
+      cwd: ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     r.ok("agent parity (generated directories in sync)");
   } catch {
     r.fail(
       "agent parity",
-      "pnpm agents:check failed",
+      "direct agent parity check failed",
       "run pnpm agents:sync, review, and commit the generated parity update",
     );
   }

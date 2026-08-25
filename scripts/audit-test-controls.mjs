@@ -2,9 +2,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-
-const root = process.cwd();
-const testRoot = resolve(root, "tests");
+import { pathToFileURL } from "node:url";
 
 function files(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -21,31 +19,39 @@ const forbidden = [
     pattern: /\bexpect\s*\(\s*(?:true|false)\s*\)\s*\.toBe\s*\(/g,
   },
 ];
-const findings = [];
-const testFiles = files(testRoot)
-  .filter((path) => path.endsWith(".test.ts"))
-  .sort();
-let assertions = 0;
-for (const path of testFiles) {
-  const source = readFileSync(path, "utf8");
-  assertions += [...source.matchAll(/\bexpect\s*\(/g)].length;
-  for (const rule of forbidden) {
-    for (const match of source.matchAll(rule.pattern)) {
-      const line = source.slice(0, match.index).split("\n").length;
-      findings.push({
-        kind: rule.kind,
-        path: relative(root, path),
-        line,
-      });
+export function auditTestControls(rootDirectory = process.cwd()) {
+  const root = resolve(rootDirectory);
+  const testRoot = resolve(root, "tests");
+  const findings = [];
+  const testFiles = files(testRoot)
+    .filter((path) => /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path))
+    .sort();
+  let assertions = 0;
+  for (const path of testFiles) {
+    const source = readFileSync(path, "utf8");
+    assertions += [...source.matchAll(/\bexpect\s*\(/g)].length;
+    for (const rule of forbidden) {
+      for (const match of source.matchAll(rule.pattern)) {
+        const line = source.slice(0, match.index).split("\n").length;
+        findings.push({
+          kind: rule.kind,
+          path: relative(root, path),
+          line,
+        });
+      }
     }
   }
+  return {
+    status: findings.length === 0 ? "passed" : "failed",
+    files: testFiles.length,
+    assertions,
+    forbiddenFindings: findings,
+  };
 }
 
-const result = {
-  status: findings.length === 0 ? "passed" : "failed",
-  files: testFiles.length,
-  assertions,
-  forbiddenFindings: findings,
-};
-process.stdout.write(`${JSON.stringify(result)}\n`);
-if (findings.length > 0) process.exitCode = 1;
+const entry = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (import.meta.url === entry) {
+  const result = auditTestControls();
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (result.forbiddenFindings.length > 0) process.exitCode = 1;
+}

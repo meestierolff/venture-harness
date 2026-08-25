@@ -17,7 +17,7 @@ venture:
   production_status: none # none | validation_site_live | product_live
   harness_version: 0.2.0
   app_kind: web # web | mobile_ios | mobile_cross_platform | hybrid
-  launch_mode: validate_first # conservative template default; the router must reassess it
+  launch_mode: thin_mvp # reversible template default; the Launch Contract remains authoritative
   business_model: unselected
   monetization_model: unselected
   target_market: null
@@ -33,26 +33,18 @@ venture:
     # Desired capabilities, independent of provider configuration state.
     active:
       - public_website
-      - database
-      - ga4
-      - gsc
-      - bing_webmaster
-      - vercel_analytics
-      - web_seo_aeo_geo
-      - feedback_intake
-      - scheduled_learning_loops
     # Venture-specific additions must be namespaced: x.vendor.capability.
     open: []
   extensions: {}
 
-# The 30-to-90-day demand-validation operating model. Thresholds are
-# hypotheses: set them at bootstrap, before launch, and change them only via
-# a recorded decision (docs/decisions/).
+# Optional validate-first strategy. It is intentionally unset until the Launch
+# Contract selects validate_first; an ordinary product launch has no universal
+# 30/60/90-day campaign or threshold.
 validation:
-  stage: demand_validation
-  minimum_days: 30
-  target_days: 60
-  maximum_days: 90
+  stage: null
+  minimum_days: null
+  target_days: null
+  maximum_days: null
   launch_date: null # ISO date the validation site went live
   decision_date: null # launch_date + target_days, set at launch
   primary_conversion: null # one event name from config/analytics.yaml

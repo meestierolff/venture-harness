@@ -6,6 +6,7 @@ import { Redactor } from "@/lib/credentials";
 import {
   createLaunchReportInputFromRun,
   createLaunchReportWorkflowBinding,
+  parseLaunchReportDocument,
   renderLaunchReport,
   type LaunchReportInput,
 } from "@/lib/runtime";
@@ -29,6 +30,14 @@ function reportInput(secret: string): LaunchReportInput {
       entitlementSource: "stripe",
       activeEventPacks: ["core_product", "subscription", "reliability"],
       consentMode: "strict",
+      firstValidationAction: {
+        action: "Ask five relevant founders to complete the primary journey",
+        channel: "Warm founder outreach",
+        userHabitat: "Independent founder communities",
+        state: "planned",
+        execution: "human_gated",
+        evidenceRequired: "Founder-reviewed outreach log; no response is inferred",
+      },
     },
     authorization: {
       profile: "standard_launch",
@@ -288,6 +297,7 @@ describe("sanitized launch report", () => {
     expect(report.markdown).toContain("## Provider resources");
     expect(report.markdown).toContain("Payment / entitlement source: stripe / stripe");
     expect(report.markdown).toContain("core_product, reliability, subscription / strict");
+    expect(report.markdown).toContain("planned; human_gated");
     expect(report.markdown).toContain("account fixture-account");
     expect(report.markdown).toContain("## Active credential references");
     expect(report.markdown).toContain("## Scheduled loops");
@@ -296,6 +306,27 @@ describe("sanitized launch report", () => {
     expect(`${report.json}\n${report.markdown}`).not.toContain("owner@example.test");
     expect(report.markdown).toContain("[REDACTED PII]");
     expect(report.json).toContain("token=[REDACTED]");
+  });
+
+  it("rejects an unredacted credential-shaped evidence reference", () => {
+    const secret = "schema-redaction-fixture";
+    const redactor = new Redactor();
+    redactor.addSecret(secret);
+    const safe = renderLaunchReport(reportInput(secret), { redactor }).document;
+
+    expect(() =>
+      parseLaunchReportDocument({
+        ...safe,
+        providers: safe.providers.map((provider, index) =>
+          index === 0
+            ? {
+                ...provider,
+                evidenceRef: "https://evidence.test/repo?token=unredacted-fixture-token",
+              }
+            : provider,
+        ),
+      }),
+    ).toThrow("unredacted credential material is forbidden in a Launch Report");
   });
 
   it("persists and reads back deterministic JSON and Markdown atomically through the workflow binding", async () => {

@@ -2,19 +2,19 @@
 
 Venture Harness v0.2 alpha is an open-source, agent-native factory for turning
 one app idea into an independent application in accounts you own. A prior
-source state completed the founder rail's root-CLI Golden Path fixture. On the
-current final tree, product/runtime slices pass and the root refresh remains
-pending in socket-capable CI after this local sandbox denied loopback
-listening. Every real provider effect still requires the founder's credentials,
-authorization, and read-back evidence.
+source state completed the founder rail's root-CLI Golden Path fixture. One
+isolated current-tree run completed all three slices on 2026-08-12 outside the
+loopback-restricted sandbox; repeated final-tree runs and hosted CI evidence
+remain pending. Every real provider effect still requires the founder's
+credentials, authorization, and read-back evidence.
 
 This is a five-minute conceptual quickstart, not a promise that provider
 onboarding, DNS propagation, or a production build finishes in five minutes.
 
 ## 1. Run from source
 
-The v0.2 package is not published as a stable release. With Node 20.9 or newer,
-from a reviewed checkout:
+The v0.2 package is not published as a stable release. With Node 22.5 or newer
+(the durable runtime uses `node:sqlite`), from a reviewed checkout:
 
 ```bash
 corepack enable
@@ -25,47 +25,66 @@ pnpm verify
 Commands below use an installed `vh` binary. In this checkout, replace `vh`
 with `pnpm vh --` and keep the remaining arguments unchanged.
 
-## 2. Write one idea file
+## 2. Choose the ventures root and sharpen one rough idea
 
-Create `idea.md` with enough truth to route and price the first journey:
+Generated ventures are independent products and may not live inside the Core
+checkout. Configure their parent directory once:
 
-```markdown
-# Exception Desk
-
-Audience: Small service businesses reconciling recurring client work
-Problem: Delivered work and recurring invoices drift across spreadsheets
-Outcome: See an exception list and prepare the next invoice run
-Journey: Sign in, import a labeled sample, review exceptions, confirm a draft
-Success signal: invoice_draft_confirmed
-Commerce: subscription
-Monthly price: 24.50
-Currency: EUR
-Rail: web
-Domain: app.example.com
-Repository visibility: private
-Auth: yes
-Database: yes
-Transactional email: yes
-Analytics: yes
-Search: yes
-Scheduled learning: yes
-DNS provider: manual
+```bash
+vh config set ventures-root ~/Projects/ventures
 ```
 
-Use one exact monthly or annual price for a Stripe venture. Do not put secrets,
-private customer data, testimonials, or unverified results in the file.
+Write a short, truthful rough idea; unresolved non-critical detail can remain an
+assumption:
+
+```markdown
+# Rough idea
+
+I want a small web product for independent consultants who lose track of which
+client deliverables are ready to invoice. It should show one useful exception
+list and let them confirm a draft invoice run. It must not become a general
+project-management suite. A paid product may make sense, but that is still an
+assumption.
+```
+
+Then produce and review the credential-free Launch Contract, Product
+Constitution, final idea, and sanitized usage summary:
+
+```bash
+vh idea sharpen --input ./rough-idea.md --output ./idea.md --json
+```
+
+The command performs no provider effect. Structured Launch Contract input uses
+zero model calls; rough prose uses one bounded Codex call and at most one repair
+call. Do not put secrets, private customer data, testimonials, or unverified
+results in the input. Before continuing, confirm the one user, painful job,
+outcome, core feature, primary journey, commitment event, first channel,
+success signal, review date, assumptions, and explicit not-building list.
 
 ## 3. Connect the founder Stack once
 
-The fixed v0.2 roles are GitHub, Vercel, Neon, Stripe, RevenueCat, Brevo,
-Google, Bing, and DNS. Register the exact references used by the Stack:
+Use the guided connector first:
+
+```bash
+vh stack connect founder-default
+```
+
+It inspects supported official CLI sessions, saves only credential-free account
+metadata and `cred://` references, runs bounded read-only credential tests, then
+runs Stack doctor. It selects roles from the reviewed Launch Contract: GitHub
+and Vercel for an ordinary web launch, Neon only when persistence is required,
+Stripe only for selected web commerce, and RevenueCat only for selected native
+digital commerce. Brevo, Google, Bing, and DNS may remain exact non-blocking
+actions when the first launch does not require them.
+
+The wizard prints one safe next command for each unresolved role. These
+lower-level commands remain available when an account cannot be discovered:
 
 ```bash
 vh auth login github --ref cred://github/founder-default --scopes repo,workflow
 vh auth login vercel --ref cred://vercel/founder-default
 vh auth login neon --ref cred://neon/founder-default --backend macos_keychain --kind api_key
 vh auth login stripe --ref cred://stripe/founder-default --backend macos_keychain --kind restricted_api_key
-vh auth login revenuecat --ref cred://revenuecat/founder-default --backend macos_keychain --kind restricted_api_key --scopes project_configuration:apps:read_write,project_configuration:entitlements:read_write,project_configuration:offerings:read_write,project_configuration:integrations:read_write
 vh auth login brevo --ref cred://brevo/founder-default --backend macos_keychain --kind api_key
 vh auth login google --ref cred://google/founder-default --backend macos_keychain --kind oauth --scopes https://www.googleapis.com/auth/analytics.edit,https://www.googleapis.com/auth/siteverification,https://www.googleapis.com/auth/webmasters
 vh auth login bing --ref cred://bing/founder-default --backend macos_keychain --kind api_key
@@ -84,20 +103,19 @@ official CLI session reads. Stack doctor repeats the applicable probes and
 persists safe pass/fail metadata. A pass proves credential/account readiness,
 not that a launch resource exists or is correctly configured.
 
-Copy the credential-free Stack example into ignored local state, replace every
-`replace-with-...` value, and select the writable backend available on the host:
+For non-interactive automation, the credential-free Stack example can be copied
+into ignored local state and adjusted to the selected roles:
 
 ```bash
 mkdir -p .venture/input
 cp docs/public/founder-default.example.json .venture/input/founder-default.json
 vh stack create founder-default --file .venture/input/founder-default.json
-vh auth status
 vh stack doctor founder-default
 ```
 
 `stack doctor` is read-only. It checks reference availability, account and
 scope metadata, expiry, required launch defaults, transport readiness, and
-writable targets for captured Neon, Stripe, and Google outputs. It does not
+writable targets for any selected Neon, Stripe, and Google outputs. It does not
 verify any live resource. Do not apply while a required role is
 `auth_required` or `unconfigured`; follow the exact `nextCommand` and rerun it.
 
@@ -213,12 +231,16 @@ More detail lives in [provider authentication](../operations/PROVIDER_AUTHENTICA
 
 - Founder Stack persistence/doctor and idea-to-Launch-Grant preparation are
   locally verified.
-- Prior-source fixture evidence covers the complete public-root-CLI Golden
-  Path—including the independent web seed, production-shaped providers, local
-  source push, launch report, primary journey, idempotent replay, and Core
-  upgrade. The current final-tree root refresh remains pending in
-  socket-capable CI.
+- One isolated current-tree fixture run covers the complete public-root-CLI
+  Golden Path—including the independent web seed, production-shaped providers,
+  local source push, launch report, primary journey, idempotent replay, and Core
+  upgrade. Required repeated final-tree runs and hosted CI remain pending.
+- The focused ordinary web seed separately passed two clean local closures with
+  offline frozen installs, production builds, zero-retry Chromium journeys and
+  child tests; no model or provider call occurred.
 - No provider resource in this central template is live verified.
+- No completed comparable benchmark supports a token, cost, speed or quality
+  saving claim.
 - iOS/TestFlight, delegated-service runtime, Fleet, DistributionPR, and Winner
   Loop remain optional or experimental and do not belong on the default web
   path.

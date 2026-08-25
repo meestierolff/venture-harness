@@ -22,11 +22,18 @@ class ProcessFixtureTransport implements ProviderTransport {
   }
 
   async execute(
-    _operation: ProviderOperation,
+    operation: ProviderOperation,
     _context: ProviderTransportContext,
   ): Promise<ProviderTransportResult> {
-    void _operation;
     void _context;
+    if (operation.action.endsWith(".search_before_create")) {
+      return {
+        status: "succeeded",
+        message: "fixture search found no deterministic resource",
+        output: { data: [], has_more: false },
+        effectOutcome: "confirmed_no_write",
+      };
+    }
     await appendFile(callsPath, `${process.pid}\n`, "utf8");
     try {
       const marker = await open(markerPath, "wx", 0o600);

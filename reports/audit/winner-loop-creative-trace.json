@@ -11,19 +11,19 @@
   },
   "providerObjects": [
     {
-      "provider": "local_renderer",
-      "objectKind": "render_job",
-      "externalId": "fixture-render-1"
-    },
-    {
       "provider": "tiktok_content",
       "objectKind": "organic_post",
-      "externalId": "fixture-tt-post"
+      "externalId": "fixture-publication-3badccb903a8"
+    },
+    {
+      "provider": "local_renderer",
+      "objectKind": "render_job",
+      "externalId": "fixture-render-f9b0b6e16910"
     },
     {
       "provider": "tiktok_ads",
       "objectKind": "spark_ad",
-      "externalId": "fixture-spark-ad"
+      "externalId": "fixture-spark-243f39709f99"
     }
   ],
   "organic": {
@@ -34,6 +34,11 @@
   },
   "evaluation": {
     "recommendationId": "rec_01KZK69SG0BJS07ENW3AHRZ6DM",
+    "baselineId": "baseline_e51ec11b956cbd10a79c561f7031818bca74da8213ca0fb6141f04572badaa8f",
+    "provider": "tiktok_content",
+    "externalAccountId": "fixture-tt-account",
+    "format": "talking_head_with_screen_recording",
+    "durationSeconds": 22,
     "scoringVersion": "winner-score-v1",
     "score": 0.9050179211469533,
     "confidence": "high",
@@ -110,7 +115,10 @@
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
         "ventureId": "sample-venture",
-        "fixture": true
+        "fixture": true,
+        "materialized": true,
+        "materializedFiles": 14,
+        "materializationPlanDigest": "0309d24e46bf012fc3ccfb01d03785e327757b4bf48141486037ebb4b40c4bab"
       }
     },
     {
@@ -119,7 +127,9 @@
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
         "installed": true,
-        "pack": "winner-loop"
+        "pack": "winner-loop",
+        "packVersion": "0.2.0",
+        "packStatus": "installed"
       }
     },
     {
@@ -199,7 +209,8 @@
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
         "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
-        "renderJobId": "fixture-render-1"
+        "renderJobId": "fixture-render-f9b0b6e16910",
+        "provider": "fixture_local_renderer"
       }
     },
     {
@@ -207,7 +218,7 @@
       "name": "reconcile_render_result",
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
-        "renderJobId": "fixture-render-1",
+        "renderJobId": "fixture-render-f9b0b6e16910",
         "reconciled": true
       }
     },
@@ -228,7 +239,8 @@
       "details": {
         "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
         "deliveryVariantId": "dv_01KZK69SG0BJS07ENW3AHRZ001",
-        "draft": true
+        "draft": true,
+        "draftId": "fixture-publication-52ed0ce2602e"
       }
     },
     {
@@ -246,7 +258,7 @@
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
         "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
-        "publicationId": "fixture-tt-post",
+        "publicationId": "fixture-publication-3badccb903a8",
         "fixture": true
       }
     },
@@ -275,7 +287,10 @@
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
         "accountBaselineSampleSize": 40,
-        "format": "talking_head_with_screen_recording"
+        "formatBaselineSampleSize": 40,
+        "durationBaselineSampleSize": 40,
+        "format": "talking_head_with_screen_recording",
+        "durationSeconds": 22
       }
     },
     {
@@ -344,7 +359,7 @@
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
         "creativeId": "cr_01KZK69SG0BJS07ENW3AHRZ6DM",
-        "sparkAdId": "fixture-spark-ad",
+        "sparkAdId": "fixture-spark-243f39709f99",
         "fixture": true
       }
     },
@@ -353,7 +368,7 @@
       "name": "reconcile_paid_result",
       "occurredAt": "2026-08-09T12:00:00.000Z",
       "details": {
-        "sparkAdId": "fixture-spark-ad",
+        "sparkAdId": "fixture-spark-243f39709f99",
         "reconciled": true,
         "settledMinorUnits": 4650
       }
@@ -450,6 +465,7 @@
     },
     "persistence": {
       "spend": true,
+      "creativeLedger": true,
       "manifests": true,
       "paidTests": true,
       "evidence": true,
@@ -463,6 +479,7 @@
       "durableStore": "file",
       "connections": {
         "fixture_organic_content": "ready",
+        "fixture_tiktok_spark": "ready",
         "fixture_local_renderer": "ready",
         "fixture_aggregated_attribution": "ready",
         "fixture_revenuecat": "ready"
@@ -472,7 +489,7 @@
           "adapterId": "fixture_local_renderer",
           "feature": "creative_render",
           "capability": "creative.video.generate",
-          "operationId": "fixture-step-11-render",
+          "operationId": "fixture-render-1",
           "doctor": "ready",
           "dryRun": "planned",
           "apply": "succeeded",
@@ -491,7 +508,7 @@
           "adapterId": "fixture_organic_content",
           "feature": "organic_create_draft",
           "capability": "distribution.content.draft",
-          "operationId": "fixture-step-14-create_organic_draft",
+          "operationId": "fixture-organic-draft-1",
           "doctor": "ready",
           "dryRun": "planned",
           "apply": "succeeded",
@@ -510,7 +527,7 @@
           "adapterId": "fixture_organic_content",
           "feature": "organic_publish_direct",
           "capability": "distribution.content.publish",
-          "operationId": "fixture-step-16-publish_fixture_post",
+          "operationId": "fixture-organic-post-1",
           "doctor": "ready",
           "dryRun": "planned",
           "apply": "succeeded",
@@ -529,7 +546,7 @@
           "adapterId": "fixture_tiktok_spark",
           "feature": "paid_promote_existing_post_contract",
           "capability": "ads.organic-post.boost",
-          "operationId": "fixture-step-26-create_spark_ad_fixture",
+          "operationId": "fixture-spark-ad-1",
           "doctor": "ready",
           "dryRun": "planned",
           "apply": "succeeded",
@@ -548,7 +565,7 @@
           "adapterId": "fixture_revenuecat",
           "feature": "subscription_read_lifecycle",
           "capability": "subscription.lifecycle.read",
-          "operationId": "fixture-step-29-ingest_revenuecat_events",
+          "operationId": "fixture-subscription-read-1",
           "doctor": "ready",
           "dryRun": "planned",
           "apply": "succeeded",
@@ -567,7 +584,7 @@
           "adapterId": "fixture_aggregated_attribution",
           "feature": "attribution_read_aggregates",
           "capability": "attribution.campaign.read",
-          "operationId": "fixture-step-31-classify_attribution",
+          "operationId": "fixture-attribution-read-1",
           "doctor": "ready",
           "dryRun": "planned",
           "apply": "succeeded",
@@ -594,6 +611,7 @@
   },
   "distributionPr": {
     "proposalId": "fixture-distribution-pr-1",
+    "organizationId": "fixture-organization",
     "ventureId": "sample-venture",
     "source": "winner_loop",
     "state": "fixture_proposal_only",

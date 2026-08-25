@@ -45,7 +45,7 @@ const repositoryFiles: readonly SeedFileTemplate[] = [
   file(
     "README.md",
     "venture_owned",
-    "# {{ventureName}}\n\nIndependent venture repository materialized from `{{seedId}}@{{seedVersion}}`.\n\nThe initial web surface is an honest, noindex-by-default product scaffold. Run `pnpm verify` locally, complete the venture brief, and verify provider state before any production launch.\n",
+    "# {{ventureName}}\n\nIndependent venture repository materialized from `{{seedId}}@{{seedVersion}}`.\n\nThe initial web surface is an honest, noindex-by-default product scaffold. Run `pnpm verify` locally, review the Launch Contract and Product Constitution, and verify provider state before any production launch.\n",
   ),
 ];
 
@@ -98,9 +98,9 @@ const ventureConfig = {
   },
   validation: {
     stage: "build",
-    minimum_days: 30,
-    target_days: 60,
-    maximum_days: 90,
+    minimum_days: null,
+    target_days: null,
+    maximum_days: null,
     launch_date: null,
     decision_date: null,
     primary_conversion: null,
@@ -197,20 +197,7 @@ const mobileConfig = {
 };
 
 const analyticsConfig = {
-  providers: {
-    vercel: {
-      layer: 1,
-      purpose: "Aggregate traffic only after consent and provider verification.",
-    },
-    ga4: {
-      layer: 2,
-      purpose: "Consented acquisition and journey aggregates after provider verification.",
-    },
-    neon: {
-      layer: 3,
-      purpose: "First-party commercial evidence after a database is configured.",
-    },
-  },
+  providers: {},
   consent: {
     default_mode: "strict",
     google_analytics: "opt_in",
@@ -237,45 +224,9 @@ const analyticsConfig = {
     "free_text",
     "user_content",
   ],
-  events: {
-    page_view: {
-      purpose: "Measure consented aggregate route usage without private content.",
-      trigger: "A public route becomes visible after analytics consent.",
-      destinations: ["vercel", "ga4"],
-      consent: "analytics",
-      props: ["route_id", "release_version"],
-      neon: false,
-      experiment: false,
-    },
-    core_journey_started: {
-      purpose: "Record that the typed primary journey started without submitted values.",
-      trigger: "The allowlisted primary action is invoked after analytics consent.",
-      destinations: ["neon"],
-      consent: "analytics",
-      props: ["journey_id", "surface_id", "release_version"],
-      neon: true,
-      experiment: false,
-    },
-    core_journey_completed: {
-      purpose: "Record a verified primary outcome without personal or free-form data.",
-      trigger: "The product verifies the allowlisted primary outcome after analytics consent.",
-      destinations: ["neon"],
-      consent: "analytics",
-      props: ["journey_id", "outcome_id", "release_version"],
-      neon: true,
-      experiment: false,
-    },
-  },
-  event_packs: { active: ["core_product", "web_acquisition"] },
-  core_journeys: {
-    core_product: {
-      active: true,
-      required_packs: ["core_product"],
-      start_events: ["core_journey_started"],
-      outcome_events: ["core_journey_completed"],
-      authoritative_destination: "neon",
-    },
-  },
+  events: {},
+  event_packs: { active: [] },
+  core_journeys: {},
 };
 
 function disabledLoop(cadence: string, expression: string, destination: string) {
@@ -495,6 +446,7 @@ const offerConfig = {
     currency: "EUR",
     monthly_price: null,
     annual_price: null,
+    one_time_price: null,
     implementation_fee: null,
     annual_waives_implementation_fee: false,
     usage_price: null,
@@ -505,211 +457,109 @@ const offerConfig = {
     delivery_cost_monthly: null,
     onboarding_cost: null,
     target_contribution_margin: 0.7,
-    payback_target_days: 30,
+    payback_target_days: null,
   },
 };
 
-const coreEvidenceMigration = `-- Venture Harness v0.2 core evidence schema.
--- Additive and idempotent: safe to apply repeatedly in one venture database.
-begin;
-
-create table if not exists vh_schema_migrations (
-  version text primary key,
-  applied_at timestamptz not null default now()
-);
-
-create table if not exists experiment_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  experiment_id text not null,
-  variant_key text,
-  visitor_id text not null,
-  route text,
-  displayed_offer text,
-  displayed_price text,
-  metric text,
-  release_version text,
-  event_id text unique
-);
-
-create table if not exists commercial_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  visitor_id text not null,
-  plan_key text,
-  displayed_price text,
-  billing_period text,
-  experiment_id text,
-  variant_key text,
-  qualified boolean,
-  qualification_tier text,
-  attribution jsonb,
-  provider text,
-  release_version text,
-  event_id text unique,
-  constraint commercial_events_attribution_object
-    check (attribution is null or jsonb_typeof(attribution) = 'object')
-);
-
--- Submitted private values belong only in this first-party table. Analytics
--- call sites must never copy payload fields into product_events or providers.
-create table if not exists submissions (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  form_id text not null,
-  visitor_id text not null,
-  payload jsonb not null,
-  qualified boolean not null,
-  qualification_tier text,
-  event_id text unique,
-  constraint submissions_payload_object check (jsonb_typeof(payload) = 'object')
-);
-
-create table if not exists consent_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  visitor_id text not null,
-  from_state text,
-  to_state text,
-  event_id text unique
-);
-
-create table if not exists product_events (
-  id bigint generated always as identity primary key,
-  occurred_at timestamptz not null default now(),
-  event text not null,
-  visitor_id text,
-  journey_id text,
-  release_version text,
-  props jsonb not null default '{}'::jsonb,
-  event_id text unique,
-  constraint product_events_props_object check (jsonb_typeof(props) = 'object')
-);
-
-create table if not exists provider_webhook_events (
-  id bigint generated always as identity primary key,
-  provider text not null,
-  external_event_id text not null,
-  event_type text not null,
-  received_at timestamptz not null default now(),
-  processed_at timestamptz,
-  status text not null default 'received',
-  payload_hash text not null,
-  error_code text,
-  unique (provider, external_event_id),
-  constraint provider_webhook_status
-    check (status in ('received', 'processed', 'failed', 'ignored'))
-);
-
-create table if not exists analytics_sync_runs (
-  id bigint generated always as identity primary key,
-  dataset_id text not null unique,
-  source text not null,
-  source_account text not null,
-  fetched_at timestamptz not null,
-  window_start timestamptz not null,
-  window_end timestamptz not null,
-  timezone text not null,
-  quality_status text not null,
-  dimensions jsonb not null default '[]'::jsonb,
-  limitations jsonb not null default '[]'::jsonb,
-  release_version text,
-  row_count integer not null,
-  constraint analytics_sync_window check (window_end >= window_start),
-  constraint analytics_sync_row_count check (row_count >= 0),
-  constraint analytics_sync_quality
-    check (quality_status in ('complete', 'partial', 'sampled', 'thresholded', 'stale', 'unavailable')),
-  constraint analytics_sync_dimensions_array check (jsonb_typeof(dimensions) = 'array'),
-  constraint analytics_sync_limitations_array check (jsonb_typeof(limitations) = 'array')
-);
-
-create index if not exists experiment_events_experiment_occurred_idx
-  on experiment_events (experiment_id, occurred_at);
-create index if not exists commercial_events_event_occurred_idx
-  on commercial_events (event, occurred_at);
-create index if not exists submissions_form_occurred_idx
-  on submissions (form_id, occurred_at);
-create index if not exists consent_events_visitor_occurred_idx
-  on consent_events (visitor_id, occurred_at);
-create index if not exists product_events_journey_occurred_idx
-  on product_events (journey_id, occurred_at);
-create index if not exists provider_webhook_events_status_received_idx
-  on provider_webhook_events (status, received_at);
-create index if not exists analytics_sync_runs_source_fetched_idx
-  on analytics_sync_runs (source, fetched_at desc);
-
-insert into vh_schema_migrations (version)
-values ('001_core_evidence')
-on conflict (version) do nothing;
-
-commit;
-`;
-
-const coreEvidenceRollback = `-- Safe rollback for 001_core_evidence.
--- It refuses to drop evidence when any managed table contains data.
-begin;
-
-do $$
-declare
-  table_name text;
-  has_rows boolean;
-begin
-  foreach table_name in array array[
-    'experiment_events',
-    'commercial_events',
-    'submissions',
-    'consent_events',
-    'product_events',
-    'provider_webhook_events',
-    'analytics_sync_runs'
-  ]
-  loop
-    if to_regclass('public.' || table_name) is not null then
-      execute format('select exists (select 1 from %I limit 1)', table_name) into has_rows;
-      if has_rows then
-        raise exception using
-          errcode = '55000',
-          message = format('safe rollback refused: %s contains evidence', table_name),
-          hint = 'Export and explicitly archive/delete the data, then rerun this rollback.';
-      end if;
-    end if;
-  end loop;
-end
-$$;
-
-drop table if exists analytics_sync_runs;
-drop table if exists provider_webhook_events;
-drop table if exists product_events;
-drop table if exists consent_events;
-drop table if exists submissions;
-drop table if exists commercial_events;
-drop table if exists experiment_events;
-
-do $$
-begin
-  if to_regclass('public.vh_schema_migrations') is not null then
-    delete from vh_schema_migrations where version = '001_core_evidence';
-  end if;
-end
-$$;
-
-do $$
-begin
-  if to_regclass('public.vh_schema_migrations') is not null
-     and not exists (select 1 from vh_schema_migrations) then
-    drop table vh_schema_migrations;
-  end if;
-end
-$$;
-
-commit;
-`;
-
 const ordinaryWebFiles: readonly SeedFileTemplate[] = [
   file("pnpm-lock.yaml", "merge_managed", AGENTIC_WEB_PNPM_LOCK),
+  file(
+    "PROJECT.md",
+    "venture_owned",
+    `# {{ventureName}}
+
+## Purpose
+
+Build the smallest trustworthy product described by \`config/launch-contract.yaml\`. The generated neutral surface is a temporary scaffold, not the finished product.
+
+## Source of truth
+
+1. \`config/launch-contract.yaml\` — the typed founder decision when created through the public sharpen-and-launch path.
+2. \`docs/product/PRODUCT_CONSTITUTION.md\` — product identity, truth classes, boundaries, and learning question.
+3. \`docs/product/idea.md\` — human review surface for the same contract.
+4. \`docs/product/PRODUCT_TRUTH.md\` — claims and evidence ceiling.
+
+## Product boundary
+
+- One primary journey; product-specific implementation and design remain venture-owned.
+- Provider configuration begins unconfigured and credential-free.
+- Analytics begins with no provider, event, experiment, or scheduled-learning assumptions.
+- Recursive tenancy, customer Agent Surfaces, Winner Loop, DistributionPR, Fleet, and mobile tooling are absent unless the Launch Contract selects them.
+`,
+  ),
+  file(
+    "AGENTS.md",
+    "venture_owned",
+    `# {{ventureName}} agent instructions
+
+Read \`PROJECT.md\`, \`config/launch-contract.yaml\` when present, \`docs/product/PRODUCT_CONSTITUTION.md\`, \`docs/product/PRODUCT_TRUTH.md\`, and the relevant typed config before changing product code.
+
+Use \`skills/design-director/SKILL.md\` for the first product/design pass. Implement only the Launch Contract's core journey and explicit capabilities. Missing non-critical detail becomes a labeled assumption; never invent users, provider state, demand, metrics, revenue, reviews, or evidence.
+
+Keep credentials and private runtime state out of Git and model context. Product and design files are venture-owned; Core upgrades may not overwrite them. Run \`pnpm verify:fast\` for focused work and \`pnpm verify\` before completion.
+`,
+  ),
+  file(
+    "docs/product/PRODUCT_CONSTITUTION.md",
+    "venture_owned",
+    `# {{ventureName}} Product Constitution
+
+This placeholder records no proposition or evidence. The public founder launch replaces it from the reviewed \`config/launch-contract.yaml\` before product work begins.
+
+Until then, every capability, provider connection, customer outcome, metric, and commercial result is UNKNOWN. Samples must be labeled FIXTURE. Models may improve framing and implementation but may not invent evidence.
+`,
+  ),
+  file(
+    "docs/product/idea.md",
+    "venture_owned",
+    `# {{ventureName}} idea
+
+The canonical founder path writes the human-readable sharpened idea here and the typed source to \`config/launch-contract.yaml\`. This seed placeholder makes no product or market claim.
+`,
+  ),
+  file(
+    "skills/design-director/SKILL.md",
+    "core_owned",
+    `---
+name: design-director
+description: Turn this venture's Launch Contract and Product Constitution into an original, accessible product identity and primary journey. Use for the first product/design pass and material redesigns.
+---
+
+# Design director
+
+## Inputs
+
+Read \`config/launch-contract.yaml\`, \`docs/product/PRODUCT_CONSTITUTION.md\`, \`PROJECT.md\`, and existing product/design files. If the Launch Contract is absent, stop design judgment and report that exact missing input.
+
+## Process
+
+1. Extract the target user, painful job, desired outcome, one core feature, primary journey, design thesis, trust requirements, explicit exclusions, and truth boundaries.
+2. Write one venture-specific visual thesis. Choose type, colour, spacing, shape, density, and motion because they support that thesis.
+3. Implement real product UI for the primary journey at mobile and desktop sizes, with visible focus, semantic structure, readable contrast, and reduced-motion behavior.
+4. Add one memorable interaction only when it clarifies product state or progress. Label sample data as FIXTURE.
+5. Run the originality audit in \`references/originality-audit.md\`, then run the relevant quality commands.
+
+## Ownership and truth
+
+Product and design files are venture-owned: application pages, product components, copy, identity, themes, illustrations, and product-specific tests. Do not copy Venture Harness branding or another venture. Do not add testimonials, customer logos, metrics, outcomes, integrations, or provider state without evidence in Product Truth.
+`,
+  ),
+  file(
+    "skills/design-director/references/originality-audit.md",
+    "core_owned",
+    `# Originality audit
+
+Reject the result if any answer is yes without a product-specific reason:
+
+- Is it a generic purple AI gradient, interchangeable bento grid, or row of identical feature cards?
+- Does it use filler stock imagery, an arbitrary icon logo, fake social proof, fake metrics, or unlabeled sample data?
+- Is it a static marketing page when the Launch Contract requires an application journey?
+- Could the interface belong to an unrelated product after changing only the name?
+- Does it copy Venture Harness identity or overwrite venture-owned design?
+
+Require a coherent design thesis, useful hierarchy, product-specific states, keyboard-visible focus, reduced motion, mobile layout, accessible contrast, one clear primary action, and one purposeful memorable interaction. Unsupported claims fail the audit.
+`,
+  ),
   file(
     "app/layout.tsx",
     "merge_managed",
@@ -788,10 +638,12 @@ export default function StatusPage() {
     "app/api/health/route.ts",
     "core_owned",
     `export function GET() {
+  const localServerNonce = process.env.VH_LOCAL_SERVER_NONCE;
   return Response.json({
     status: "ok",
     venture: "{{ventureSlug}}",
     evidence: "local_build_shape",
+    ...(localServerNonce ? { localServerNonce } : {}),
   });
 }
 `,
@@ -898,11 +750,9 @@ export const SITE = Object.freeze({
   file(
     "src/analytics/events.ts",
     "merge_managed",
-    `export const ANALYTICS_EVENT_NAMES = [
-  "page_view",
-  "core_journey_started",
-  "core_journey_completed",
-] as const;
+    `// The focused seed has no universal analytics events. The Launch Contract
+// and implemented primary journey must justify each allowlisted event.
+export const ANALYTICS_EVENT_NAMES = [] as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];
 export interface SafeAnalyticsProperties {
@@ -923,8 +773,8 @@ export function analyticsEvent(name: AnalyticsEventName, properties: SafeAnalyti
     "core_owned",
     String.raw`import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 const MAX_ENTRIES = 10_000;
@@ -1065,7 +915,9 @@ function assertSourcePath(path: string): void {
     path.split("/").some((part) => !part || part === "." || part === "..") ||
     path === BOOTSTRAP_PATH ||
     path === ".venture" ||
-    path.startsWith(".venture/")
+    path.startsWith(".venture/") ||
+    path === "reports" ||
+    path.startsWith("reports/")
   ) {
     throw new Error("Local source contains an unsafe or private runtime path");
   }
@@ -1088,22 +940,7 @@ function loadSnapshot(root: string): SourceSnapshot {
       "Initialize isolated source index",
     );
     success(
-      run(
-        "git",
-        [
-          "add",
-          "-A",
-          "--",
-          ".",
-          ":(exclude).venture",
-          ":(exclude).venture/**",
-          ":(exclude)reports",
-          ":(exclude)reports/**",
-          ":(exclude)*.tsbuildinfo",
-          ":(exclude)**/*.tsbuildinfo",
-        ],
-        { cwd: sourceRoot, env: gitEnvironment },
-      ),
+      run("git", ["add", "-A", "--", "."], { cwd: sourceRoot, env: gitEnvironment }),
       "Snapshot local venture source",
     );
     const treeOid = success(run("git", ["write-tree"], { cwd: sourceRoot, env: gitEnvironment }), "Write local source tree")
@@ -1328,6 +1165,105 @@ async function verify(
   throw new Error("GitHub exact source read-back remained unavailable");
 }
 
+function githubOriginMatches(origin: string, repository: string): boolean {
+  const normalized = origin.trim().replace(/\/+$/u, "").replace(/\.git$/iu, "");
+  const expected = repository.toLowerCase();
+  const https = normalized.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)$/iu)?.[1];
+  const scp = normalized.match(/^git@github\.com:([^/]+\/[^/]+)$/iu)?.[1];
+  const ssh = normalized.match(/^ssh:\/\/git@github\.com\/([^/]+\/[^/]+)$/iu)?.[1];
+  return [https, scp, ssh].some((candidate) => candidate?.toLowerCase() === expected);
+}
+
+function gitText(cwd: string, args: string[], label: string): string {
+  return success(run("git", args, { cwd }), label).toString("utf8").trim();
+}
+
+function ensureWorkingRepository(
+  repository: string,
+  branch: string,
+  commitOid: string,
+): { originUrl: string; branch: string; head: string; clean: true } {
+  assertRepository(repository);
+  assertBranch(branch);
+  assertOid(commitOid, "Verified GitHub commit id");
+  const root = realpathSync(process.cwd());
+  if (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory()) {
+    throw new Error("Child working repository root must be a real directory");
+  }
+  const gitPath = join(root, ".git");
+  let installed = false;
+  try {
+    if (!existsSync(gitPath)) {
+      const parent = realpathSync(dirname(root));
+      const temporaryRoot = mkdtempSync(join(parent, "." + basename(root) + "-git-"));
+      const cloneDirectory = join(temporaryRoot, "clone");
+      try {
+        success(
+          run(
+            "gh",
+            [
+              "repo",
+              "clone",
+              repository,
+              cloneDirectory,
+              "--",
+              "--no-checkout",
+              "--single-branch",
+              "--branch",
+              branch,
+            ],
+            { cwd: parent },
+          ),
+          "Clone verified GitHub repository metadata",
+        );
+        const stagedGit = join(cloneDirectory, ".git");
+        if (!existsSync(stagedGit) || !lstatSync(stagedGit).isDirectory()) {
+          throw new Error("Verified GitHub metadata clone did not produce a normal .git directory");
+        }
+        if (gitText(cloneDirectory, ["rev-parse", "HEAD"], "Read cloned GitHub HEAD") !== commitOid) {
+          throw new Error("Cloned GitHub HEAD differs from verified remote HEAD");
+        }
+        if (gitText(cloneDirectory, ["symbolic-ref", "--short", "HEAD"], "Read cloned GitHub branch") !== branch) {
+          throw new Error("Cloned GitHub branch differs from the verified default branch");
+        }
+        if (!githubOriginMatches(gitText(cloneDirectory, ["remote", "get-url", "origin"], "Read cloned GitHub origin"), repository)) {
+          throw new Error("Cloned GitHub origin differs from the verified repository");
+        }
+        if (existsSync(gitPath)) throw new Error("Child Git state appeared during metadata staging; refusing overwrite");
+        renameSync(stagedGit, gitPath);
+        installed = true;
+        success(run("git", ["read-tree", commitOid], { cwd: root }), "Bind child Git index to verified remote tree");
+      } finally {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
+    } else if (lstatSync(gitPath).isSymbolicLink() || !lstatSync(gitPath).isDirectory()) {
+      throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+    }
+
+    if (realpathSync(gitText(root, ["rev-parse", "--show-toplevel"], "Resolve child Git root")) !== root) {
+      throw new Error("Child Git root differs from the venture root");
+    }
+    const originUrl = gitText(root, ["remote", "get-url", "origin"], "Read child Git origin");
+    if (!githubOriginMatches(originUrl, repository)) throw new Error("Child Git origin differs from the verified repository");
+    const localBranch = gitText(root, ["symbolic-ref", "--short", "HEAD"], "Read child Git branch");
+    if (localBranch !== branch) throw new Error("Child Git branch differs from the verified default branch");
+    const head = gitText(root, ["rev-parse", "HEAD"], "Read child Git HEAD");
+    if (head !== commitOid) throw new Error("Child Git HEAD differs from verified remote HEAD");
+    const remoteHead = gitText(root, ["rev-parse", "refs/remotes/origin/" + branch], "Read child remote-tracking HEAD");
+    if (remoteHead !== commitOid) throw new Error("Child remote-tracking HEAD differs from verified remote HEAD");
+    if (gitText(root, ["status", "--porcelain=v1", "--untracked-files=all"], "Read child Git status")) {
+      throw new Error("Child Git working tree is not clean after verified publication");
+    }
+    if (gitText(root, ["ls-files", "--", ".venture", "reports"], "Check private runtime tracking")) {
+      throw new Error("Child Git repository tracks private runtime state or launch reports");
+    }
+    return { originUrl, branch: localBranch, head, clean: true };
+  } catch (error) {
+    if (installed) rmSync(gitPath, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 function options(args: string[], required: string[]): Record<string, string> {
   if (args.length !== required.length * 2) throw new Error("Unexpected source publication arguments");
   const allowed = new Set(required);
@@ -1365,7 +1301,8 @@ async function main(args: string[]): Promise<unknown> {
     assertBranch(branch);
     assertOid(commitOid, "Expected GitHub commit id");
     assertOid(treeOid, "Expected GitHub tree id");
-    return verify(repository, visibility, branch, commitOid, treeOid);
+    const verified = await verify(repository, visibility, branch, commitOid, treeOid);
+    return { ...verified, workingRepository: ensureWorkingRepository(repository, branch, commitOid) };
   }
 
   const snapshot = loadSnapshot(process.cwd());
@@ -1440,7 +1377,10 @@ try {
     `import { defineConfig, devices } from "@playwright/test";
 
 const configuredBaseURL = process.env.PLAYWRIGHT_BASE_URL?.trim();
-const baseURL = configuredBaseURL || "http://127.0.0.1:43127";
+if (!configuredBaseURL) {
+  throw new Error("PLAYWRIGHT_BASE_URL is required; use the generated local browser runner or pass one exact deployed origin");
+}
+const baseURL = configuredBaseURL;
 const parsedBaseURL = new URL(baseURL);
 
 if (!["http:", "https:"].includes(parsedBaseURL.protocol) || parsedBaseURL.username || parsedBaseURL.password) {
@@ -1452,23 +1392,15 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 7_500 },
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   workers: 1,
   reporter: "line",
-  outputDir: ".venture/private/test-results",
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR ?? ".venture/private/test-results",
   use: {
     baseURL: parsedBaseURL.origin,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: configuredBaseURL
-    ? undefined
-    : {
-        command: "pnpm exec next start --hostname 127.0.0.1 --port 43127",
-        url: parsedBaseURL.origin,
-        reuseExistingServer: false,
-        timeout: 120_000,
-      },
   projects: [
     {
       name: "desktop-chromium",
@@ -1483,11 +1415,200 @@ export default defineConfig({
 `,
   ),
   file(
-    "tests/e2e/post-deploy-readonly.spec.ts",
-    "venture_owned",
-    String.raw`import { expect, test } from "@playwright/test";
+    "scripts/run-local-browser-check.ts",
+    "core_owned",
+    String.raw`import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { once } from "node:events";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { resolve } from "node:path";
 
-test("deployed primary public journey remains readable without mutation", async ({ page, request }) => {
+const ALLOWED_SPECS = new Set([
+  "tests/e2e/post-deploy-readonly.spec.ts",
+  "tests/e2e/primary-journey.spec.ts",
+  "tests/e2e/primary-journey-cleanup.spec.ts",
+]);
+const READY_TIMEOUT_MS = 120_000;
+
+async function reserveLoopbackPort(): Promise<number> {
+  const reservation = createServer();
+  reservation.listen(0, "127.0.0.1");
+  await once(reservation, "listening");
+  const address = reservation.address();
+  if (!address || typeof address === "string") {
+    reservation.close();
+    throw new Error("Could not reserve an ephemeral loopback port");
+  }
+  const port = address.port;
+  reservation.close();
+  await once(reservation, "close");
+  return port;
+}
+
+async function stopServer(server: ChildProcess): Promise<void> {
+  if (server.exitCode !== null || server.signalCode !== null) return;
+  const exited = once(server, "exit");
+  server.kill("SIGTERM");
+  const forced = setTimeout(() => {
+    if (server.exitCode === null && server.signalCode === null) server.kill("SIGKILL");
+  }, 5_000);
+  try {
+    await exited;
+  } finally {
+    clearTimeout(forced);
+  }
+}
+
+async function runPlaywright(
+  spec: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<Error | null> {
+  const playwright = spawn(
+    "pnpm",
+    ["exec", "playwright", "test", spec, "--retries=0"],
+    { cwd: process.cwd(), env: environment, stdio: "inherit" },
+  );
+  const [code, signal] = (await once(playwright, "exit")) as [
+    number | null,
+    NodeJS.Signals | null,
+  ];
+  return code === 0
+    ? null
+    : new Error("Playwright " + spec + " exited " + (code ?? signal ?? "without status"));
+}
+
+async function main(): Promise<void> {
+  const [spec] = process.argv.slice(2);
+  if (!spec || !ALLOWED_SPECS.has(spec)) {
+    throw new Error("Expected one allowlisted repository-relative Playwright spec");
+  }
+  let port = await reserveLoopbackPort();
+  let origin = "http://127.0.0.1:" + port;
+  const expectedPublicOrigin =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://local-e2e.example.invalid";
+  const serverNonce = randomBytes(24).toString("hex");
+  const environment = {
+    ...process.env,
+    NEXT_PUBLIC_SITE_URL: expectedPublicOrigin,
+    NEXT_PUBLIC_INDEXING_ENABLED: "true",
+    VERCEL: "1",
+    VERCEL_ENV: "production",
+    VH_LOCAL_SERVER_NONCE: serverNonce,
+  };
+  let output = "";
+  let server: ChildProcess | null = null;
+  const spawnServer = () => {
+    output = "";
+    const child = spawn(
+      process.execPath,
+      [resolve("node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(port)],
+      { cwd: process.cwd(), env: environment, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const append = (chunk: Buffer | string) => {
+      output = (output + String(chunk)).slice(-20_000);
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    return child;
+  };
+  server = spawnServer();
+
+  try {
+    const deadline = Date.now() + READY_TIMEOUT_MS;
+    let addressRetries = 0;
+    while (Date.now() < deadline) {
+      if (server.exitCode !== null || server.signalCode !== null) {
+        if (/EADDRINUSE/u.test(output) && addressRetries < 2) {
+          addressRetries += 1;
+          port = await reserveLoopbackPort();
+          origin = "http://127.0.0.1:" + port;
+          server = spawnServer();
+          continue;
+        }
+        throw new Error("Local production server exited before readiness:\n" + output);
+      }
+      try {
+        const health = await fetch(origin + "/api/health", {
+          signal: AbortSignal.timeout(1_000),
+        });
+        const body = health.ok ? await health.json() as { localServerNonce?: unknown } : null;
+        if (body?.localServerNonce === serverNonce) break;
+      } catch {
+        // Continue within the bounded readiness window.
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    }
+    const health = await fetch(origin + "/api/health", {
+      signal: AbortSignal.timeout(1_000),
+    }).catch(() => null);
+    const healthBody = health?.ok
+      ? await health.json().catch(() => null) as { localServerNonce?: unknown } | null
+      : null;
+    if (
+      server.exitCode !== null ||
+      server.signalCode !== null ||
+      healthBody?.localServerNonce !== serverNonce
+    ) {
+      throw new Error("Owned local production server was not ready:\n" + output);
+    }
+
+    const journeyContract = spec.includes("primary-journey")
+      ? JSON.parse(readFileSync("tests/e2e/primary-journey.contract.json", "utf8")) as {
+          production: { identity: { label: string } };
+        }
+      : null;
+    const browserEnvironment = {
+      ...environment,
+      PLAYWRIGHT_BASE_URL: origin,
+      EXPECTED_PUBLIC_ORIGIN: expectedPublicOrigin,
+      VH_PRIMARY_JOURNEY_RUN_ID: "local-mvp-" + process.pid,
+      VH_PRIMARY_JOURNEY_NONCE: randomBytes(24).toString("hex"),
+      VH_PRIMARY_JOURNEY_TEST_IDENTITY:
+        journeyContract?.production.identity.label ?? "local-mvp-test-identity",
+    };
+    const primaryError = await runPlaywright(spec, browserEnvironment);
+    if (spec === "tests/e2e/primary-journey.spec.ts") {
+      const journeyReadBackError = await runPlaywright(
+        "tests/e2e/post-deploy-readonly.spec.ts",
+        { ...browserEnvironment, VH_PRIMARY_JOURNEY_OBSERVER_PHASE: "journey_readback" },
+      );
+      if (journeyReadBackError) throw journeyReadBackError;
+      const cleanupError = await runPlaywright(
+        "tests/e2e/primary-journey-cleanup.spec.ts",
+        browserEnvironment,
+      );
+      if (cleanupError) throw cleanupError;
+      const cleanupReadBackError = await runPlaywright(
+        "tests/e2e/post-deploy-readonly.spec.ts",
+        { ...browserEnvironment, VH_PRIMARY_JOURNEY_OBSERVER_PHASE: "cleanup_readback" },
+      );
+      if (cleanupReadBackError) throw cleanupReadBackError;
+    }
+    if (primaryError) throw primaryError;
+  } finally {
+    if (server) await stopServer(server);
+    const lingering = await fetch(origin + "/api/health", {
+      signal: AbortSignal.timeout(1_000),
+    }).catch(() => null);
+    if (lingering) throw new Error("Owned local production listener remained after teardown");
+  }
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write((error instanceof Error ? error.message : String(error)) + "\n");
+  process.exitCode = 1;
+});
+`,
+  ),
+  file(
+    "tests/e2e/post-deploy-readonly.spec.ts",
+    "core_owned",
+    String.raw`import { readFileSync } from "node:fs";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+test("deployed public surface has raw HTML and a responsive accessibility baseline", async ({ page, request }, testInfo) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   page.on("console", (message) => {
@@ -1499,14 +1620,71 @@ test("deployed primary public journey remains readable without mutation", async 
     else await route.abort("blockedbyclient");
   });
 
+  const observerPhase = process.env.VH_PRIMARY_JOURNEY_OBSERVER_PHASE;
+  if (observerPhase) {
+    const runId = process.env.VH_PRIMARY_JOURNEY_RUN_ID;
+    const nonce = process.env.VH_PRIMARY_JOURNEY_NONCE;
+    const identityLabel = process.env.VH_PRIMARY_JOURNEY_TEST_IDENTITY;
+    if (!runId || !nonce || !identityLabel) throw new Error("Primary-journey observer bindings are required");
+    const contract = JSON.parse(readFileSync("tests/e2e/primary-journey.contract.json", "utf8")) as {
+      journeyId: string;
+      steps: string[];
+      production: {
+        identity: { label: string };
+        readBack: { method: "GET"; path: string; protocol: "venture_harness_primary_journey_v1" };
+      };
+    };
+    expect(identityLabel).toBe(contract.production.identity.label);
+    const response = await request.get(contract.production.readBack.path, {
+      headers: {
+        "x-venture-harness-run-id": runId,
+        "x-venture-harness-nonce": nonce,
+        "x-venture-harness-test-identity": identityLabel,
+      },
+      failOnStatusCode: false,
+    });
+    expect(response.status()).toBe(200);
+    const observed = await response.json() as Record<string, unknown>;
+    expect(observed).toMatchObject({
+      protocol: contract.production.readBack.protocol,
+      runId,
+      nonce,
+      journeyId: contract.journeyId,
+      identityLabel,
+      completedSteps: contract.steps,
+      phase: observerPhase,
+    });
+    console.log("VH_PRIMARY_JOURNEY_OBSERVER_RESULT " + JSON.stringify({
+      schemaVersion: 1,
+      phase: observerPhase,
+      runId,
+      nonce,
+      journeyId: contract.journeyId,
+      identityLabel,
+      completedSteps: contract.steps,
+      project: testInfo.project.name,
+      writes: observed.writes,
+      removedWriteIds: observed.removedWriteIds,
+      remainingWrites: observed.remainingWrites,
+    }));
+    return;
+  }
+
   const smoke = await request.get("/", { failOnStatusCode: false });
   expect(smoke.status()).toBeGreaterThanOrEqual(200);
   expect(smoke.status()).toBeLessThan(400);
+  const rawHtml = await smoke.text();
+  expect(rawHtml).toMatch(/<main(?:\s|>)/iu);
+  expect(rawHtml).toMatch(/<h1(?:\s|>)/iu);
+  expect(rawHtml).toContain("{{ventureName}}");
+  expect(rawHtml).toMatch(/<link[^>]+rel=["']canonical["'][^>]*>/iu);
 
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
   expect(response).not.toBeNull();
   expect(response!.status()).toBeLessThan(400);
   await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator("main")).toHaveCount(1);
+  await expect(page.locator("h1")).toHaveCount(1);
   await expect(page.getByRole("heading", { level: 1, name: "{{ventureName}}" })).toBeVisible();
 
   const canonical = await page.locator('link[rel="canonical"]').getAttribute("href");
@@ -1527,19 +1705,59 @@ test("deployed primary public journey remains readable without mutation", async 
   const robotsText = await robots.text();
   expect(robotsText).toContain("Allow: /");
   expect(robotsText).not.toContain("Disallow: /");
-  expect(robotsText).toContain(\`Sitemap: \${canonicalOrigin}/sitemap.xml\`);
+  expect(robotsText).toContain("Sitemap: " + canonicalOrigin + "/sitemap.xml");
   const sitemap = await request.get("/sitemap.xml", { failOnStatusCode: false });
   expect(sitemap.status()).toBe(200);
   const sitemapText = await sitemap.text();
-  expect(sitemapText).toContain(\`<loc>\${canonicalOrigin}/</loc>\`);
-  expect(sitemapText).toContain(\`<loc>\${canonicalOrigin}/status</loc>\`);
+  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
+  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/status</loc>");
 
   const primaryAction = page.getByRole("link", { name: "Review launch status" });
   await expect(primaryAction).toHaveAttribute("href", "/status");
   await primaryAction.click();
   await expect(page).toHaveURL(/\/status$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("not launched yet");
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+  const unnamedInteractiveControls = await page
+    .locator('a:visible, button:visible, input:visible, select:visible, textarea:visible')
+    .evaluateAll((elements) =>
+      elements.filter((element) => {
+        const html = element as HTMLElement;
+        const label =
+          html.getAttribute("aria-label") ??
+          html.getAttribute("aria-labelledby") ??
+          html.getAttribute("title") ??
+          html.textContent ??
+          (element instanceof HTMLInputElement ? element.value || element.placeholder : "");
+        return label.trim().length === 0;
+      }).length,
+    );
+  expect(unnamedInteractiveControls).toBe(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
+  await page.keyboard.press("Tab");
+  const focusEvidence = await page.evaluate(() => {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || active === document.body) return false;
+    const style = getComputedStyle(active);
+    return style.outlineStyle !== "none" || style.boxShadow !== "none";
+  });
+  expect(focusEvidence).toBe(true);
   expect(runtimeErrors).toEqual([]);
+  console.log(
+    "VH_DEPLOYMENT_SURFACE_RESULT " +
+      JSON.stringify({
+        schemaVersion: 1,
+        project: testInfo.project.name,
+        rawServerHtml: true,
+        accessibilityAxe: true,
+        accessibleNamesAndLandmarks: true,
+        keyboardFocus: true,
+        responsiveOverflow: true,
+      }),
+  );
 });
 `,
   ),
@@ -1606,7 +1824,7 @@ This register describes only the generated seed state.
 | Claim | Status | Evidence | Public boundary |
 | --- | --- | --- | --- |
 | The repository contains an independently buildable Next.js web scaffold. | local implementation | package.json, app/, next.config.mjs | Do not call it launched until production read-back and the primary journey pass. |
-| Analytics uses an allowlisted, free-form-free event baseline. | local contract | config/analytics.yaml, src/analytics/events.ts | No provider is configured and no event delivery is claimed. |
+  | Analytics starts disabled, with no universal provider or event assumptions. | local contract | config/analytics.yaml, src/analytics/events.ts | The product journey must justify each consented allowlisted event; no delivery is claimed. |
 | Provider configuration is credential-reference-only. | local contract | config/providers.yaml, config/connectors.json | Every provider starts unconfigured. |
 
 No customer, revenue, outcome, provider connection, deployment, or market evidence is claimed.
@@ -1620,8 +1838,6 @@ No customer, revenue, outcome, provider connection, deployment, or market eviden
   file("config/providers.yaml", "venture_owned", yaml(providersConfig)),
   file("config/policies.yaml", "venture_owned", yaml(policiesConfig)),
   file("config/offer.yaml", "venture_owned", yaml(offerConfig)),
-  file("migrations/sql/001_core_evidence.up.sql", "core_owned", coreEvidenceMigration),
-  file("migrations/sql/001_core_evidence.down.sql", "core_owned", coreEvidenceRollback),
   file(
     "tests/seed-contract.test.mjs",
     "core_owned",
@@ -1728,6 +1944,7 @@ export const VENTURE_SEEDS: Readonly<Record<SeedId, SeedDefinition>> = Object.fr
       "react-dom": "19.2.7",
     },
     developmentPackages: {
+      "@axe-core/playwright": "4.12.1",
       "@playwright/test": "1.62.1",
       "@types/node": "22.20.1",
       "@types/react": "19.2.17",
@@ -1741,10 +1958,14 @@ export const VENTURE_SEEDS: Readonly<Record<SeedId, SeedDefinition>> = Object.fr
       start: "next start",
       typecheck: "tsc --noEmit",
       test: "node --test tests/*.test.mjs",
-      "test:e2e:readonly": "playwright test tests/e2e/post-deploy-readonly.spec.ts",
+      "test:e2e:readonly":
+        "tsx scripts/run-local-browser-check.ts tests/e2e/post-deploy-readonly.spec.ts",
+      "test:e2e:primary-journey":
+        "tsx scripts/run-local-browser-check.ts tests/e2e/primary-journey.spec.ts",
       verify: "pnpm typecheck && pnpm test && pnpm build",
       "verify:fast": "pnpm typecheck && pnpm test",
-      "verify:mvp": "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly",
+      "verify:mvp":
+        "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly && pnpm test:e2e:primary-journey",
     },
     generatorVersions: { ui: CORE_VERSION },
     files: ordinaryWebFiles,

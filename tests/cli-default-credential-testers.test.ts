@@ -111,6 +111,9 @@ describe("default Founder Stack credential testers", () => {
       if (request.url === "https://api.stripe.com/v1/account") {
         return { status: 200, body: { id: "fixture-stripe-account", private_body: "stripe-body" } };
       }
+      if (request.url === "https://api.stripe.com/v1/balance") {
+        return { status: 200, body: { livemode: false, private_body: "stripe-balance" } };
+      }
       if (request.url === "https://api.brevo.com/v3/account") {
         return {
           status: 200,
@@ -155,6 +158,7 @@ describe("default Founder Stack credential testers", () => {
       stripe: {
         ok: true,
         accountId: "fixture-stripe-account",
+        providerMode: "test",
         message: "stripe credential passed a read-only official API probe",
       },
       revenuecat: {
@@ -195,6 +199,15 @@ describe("default Founder Stack credential testers", () => {
         },
         {
           method: "GET",
+          url: "https://api.stripe.com/v1/balance",
+          headers: {
+            Authorization: `Basic ${Buffer.from(`${secrets.stripe}:`).toString("base64")}`,
+          },
+          sensitiveHeaders: ["Authorization"],
+          sensitiveUrl: false,
+        },
+        {
+          method: "GET",
           url: "https://api.revenuecat.com/v2/projects/fixture-revenuecat-project/apps?limit=1",
           headers: { Authorization: `Bearer ${secrets.revenuecat}` },
           sensitiveHeaders: ["Authorization"],
@@ -223,7 +236,7 @@ describe("default Founder Stack credential testers", () => {
         },
       ]),
     );
-    expect(fetcher.requests).toHaveLength(6);
+    expect(fetcher.requests).toHaveLength(7);
     const serializedResults = JSON.stringify(results);
     for (const secret of Object.values(secrets)) expect(serializedResults).not.toContain(secret);
     expect(serializedResults).not.toContain("private_body");
@@ -322,6 +335,24 @@ describe("default Founder Stack credential testers", () => {
     });
     expect(mismatchedFetches).toBe(0);
   });
+
+  it("rejects a valid Stripe account credential unless balance read-back proves test mode", async () => {
+    const connection = fixture();
+    const fetcher = new CapturingFetcher((request) =>
+      request.url.endsWith("/account")
+        ? { status: 200, body: { id: "fixture-stripe-account" } }
+        : { status: 200, body: { livemode: true } },
+    );
+    const tester = createDefaultFounderCredentialTesters({ fetcher, connection }).stripe!;
+
+    await expect(
+      tester("stripe-live-secret", reference("stripe", "restricted_api_key")),
+    ).resolves.toEqual({ ok: false, message: "stripe credential did not prove test mode" });
+    expect(fetcher.requests.map(({ url }) => url)).toEqual([
+      "https://api.stripe.com/v1/account",
+      "https://api.stripe.com/v1/balance",
+    ]);
+  });
 });
 
 const roleProviders: Readonly<
@@ -385,6 +416,9 @@ function successfulProbeFetcher(responseMarker: string): CapturingFetcher {
         body: { id: "fixture-stripe-account", responseMarker },
       };
     }
+    if (request.url === "https://api.stripe.com/v1/balance") {
+      return { status: 200, body: { livemode: false, responseMarker } };
+    }
     if (request.url === "https://api.brevo.com/v3/account") {
       return {
         status: 200,
@@ -426,6 +460,7 @@ describe("default CLI Founder Stack credential integration", () => {
 
     const result = (await services.auth!({ action: "test", provider: "stripe" })) as {
       tested: Array<Record<string, unknown>>;
+      allPassed: boolean;
       valuesExposed: boolean;
     };
 
@@ -437,13 +472,15 @@ describe("default CLI Founder Stack credential integration", () => {
           result: {
             ok: true,
             accountId: "fixture-stripe-account",
+            providerMode: "test",
             message: "stripe credential passed a read-only official API probe",
           },
         },
       ],
+      allPassed: true,
       valuesExposed: false,
     });
-    expect(fetcher.requests).toHaveLength(1);
+    expect(fetcher.requests).toHaveLength(2);
     expect(fetcher.requests[0]).toMatchObject({
       method: "GET",
       sensitiveHeaders: ["Authorization"],
@@ -453,6 +490,7 @@ describe("default CLI Founder Stack credential integration", () => {
         ref: "cred://stripe/founder-default",
         testStatus: "passed",
         accountId: "fixture-stripe-account",
+        providerMode: "test",
       }),
     );
     const durable = durableText(rootDir);
@@ -485,6 +523,7 @@ describe("default CLI Founder Stack credential integration", () => {
 
     const result = (await services.auth!({ action: "test", provider: "brevo" })) as {
       tested: Array<Record<string, unknown>>;
+      allPassed: boolean;
       valuesExposed: boolean;
     };
 
@@ -499,6 +538,7 @@ describe("default CLI Founder Stack credential integration", () => {
           },
         },
       ],
+      allPassed: false,
       valuesExposed: false,
     });
     expect(loadCredentialCatalog(catalogPath).references).toContainEqual(
@@ -547,7 +587,7 @@ describe("default CLI Founder Stack credential integration", () => {
       externalEffects: false,
     });
     expect(report.roles.filter(({ status }) => status === "ready")).toHaveLength(8);
-    expect(fetcher.requests).toHaveLength(6);
+    expect(fetcher.requests).toHaveLength(7);
     expect(fetcher.requests.every(({ method }) => method === "GET")).toBe(true);
     const durable = durableText(rootDir);
     for (const secret of secrets) expect(durable).not.toContain(secret);
@@ -595,7 +635,7 @@ describe("default CLI Founder Stack credential integration", () => {
     for (const role of ["database.postgres", "commerce.web", "growth.google"]) {
       expect(report.roles.find((item) => item.role === role)?.status).toBe("unconfigured");
     }
-    expect(fetcher.requests).toHaveLength(6);
+    expect(fetcher.requests).toHaveLength(7);
     expect(fetcher.requests.every(({ method }) => method === "GET")).toBe(true);
   });
 });

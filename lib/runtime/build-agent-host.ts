@@ -12,6 +12,12 @@ export interface BuildAgentUsage {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
+  /** Exact requested or provider-reported model identity, when available. */
+  model?: string;
+  /** Completed Codex tool items, when the host can observe them. */
+  toolCalls?: number;
+  /** Command-execution items with a non-zero exit code, when observable. */
+  failedCommands?: number;
 }
 
 export type BuildAgentArtifactRole =

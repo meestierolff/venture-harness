@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import { OwnerPathLock, type LockedDirectoryIdentity } from "../security/owner-path-lock";
 
 const BOOTSTRAP_PATH = ".venture-harness-bootstrap";
 const BOOTSTRAP_CONTENT = Buffer.from("venture-harness-source-bootstrap-v1\n", "utf8");
@@ -148,6 +149,37 @@ export interface GitHubSourcePublicationDependencies {
   snapshots: LocalSourceSnapshotLoader;
 }
 
+export interface VerifiedGitHubWorkingRepositoryInput {
+  repository: string;
+  rootDir: string;
+  branch: string;
+  commitOid: string;
+}
+
+export interface GitHubWorkingRepositoryCloneInput {
+  repository: string;
+  branch: string;
+  destination: string;
+}
+
+export interface GitHubWorkingRepositoryCloner {
+  clone(input: GitHubWorkingRepositoryCloneInput): Promise<void>;
+}
+
+export interface VerifiedGitHubWorkingRepository {
+  originUrl: string;
+  branch: string;
+  head: string;
+  clean: true;
+}
+
+export interface VerifiedGitHubWorkingRepositoryDependencies {
+  runner?: DirectCommandRunner;
+  cloner?: GitHubWorkingRepositoryCloner;
+  /** Deterministic local race-injection hook used only by security regressions. */
+  pathSecurityHook?: (event: string, path: string) => void;
+}
+
 function isDirectBinary(binary: string): boolean {
   const trimmed = binary.trim();
   if (trimmed.length === 0 || /\s/.test(trimmed)) return false;
@@ -236,6 +268,261 @@ function assertOid(oid: string, label: string): void {
   if (!/^[0-9a-f]{40}$/.test(oid)) throw new Error(`${label} is not an exact SHA-1 object id`);
 }
 
+function githubOriginMatchesRepository(origin: string, repository: string): boolean {
+  const expected = repository.toLowerCase();
+  const normalized = origin
+    .trim()
+    .replace(/\/+$/u, "")
+    .replace(/\.git$/iu, "");
+  const https = normalized.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)$/iu)?.[1];
+  const scp = normalized.match(/^git@github\.com:([^/]+\/[^/]+)$/iu)?.[1];
+  const ssh = normalized.match(/^ssh:\/\/git@github\.com\/([^/]+\/[^/]+)$/iu)?.[1];
+  return [https, scp, ssh].some((candidate) => candidate?.toLowerCase() === expected);
+}
+
+async function gitOutput(
+  runner: DirectCommandRunner,
+  cwd: string,
+  args: readonly string[],
+  label: string,
+): Promise<string> {
+  return expectSuccess(await runner.run("git", args, { cwd }), label)
+    .toString("utf8")
+    .trim();
+}
+
+export class GhCliGitHubWorkingRepositoryCloner implements GitHubWorkingRepositoryCloner {
+  constructor(private readonly runner: DirectCommandRunner = new NativeDirectCommandRunner()) {}
+
+  async clone(input: GitHubWorkingRepositoryCloneInput): Promise<void> {
+    assertRepository(input.repository);
+    assertBranch(input.branch);
+    expectSuccess(
+      await this.runner.run(
+        "gh",
+        [
+          "repo",
+          "clone",
+          input.repository,
+          input.destination,
+          "--",
+          "--no-checkout",
+          "--single-branch",
+          "--branch",
+          input.branch,
+        ],
+        { cwd: dirname(input.destination) },
+      ),
+      `Clone verified GitHub repository metadata for ${input.repository}`,
+    );
+  }
+}
+
+/**
+ * Install or verify the ordinary child working repository only after the
+ * provider commit has been read back. Existing Git state is never rewritten:
+ * any target, branch, HEAD, index, or worktree mismatch fails closed.
+ */
+export async function ensureVerifiedGitHubWorkingRepository(
+  input: VerifiedGitHubWorkingRepositoryInput,
+  dependencies: VerifiedGitHubWorkingRepositoryDependencies = {},
+): Promise<VerifiedGitHubWorkingRepository> {
+  assertRepository(input.repository);
+  assertBranch(input.branch);
+  assertOid(input.commitOid, "Verified GitHub commit id");
+  const requestedRoot = resolve(input.rootDir);
+  const requestedRootMetadata = lstatSync(requestedRoot);
+  if (requestedRootMetadata.isSymbolicLink() || !requestedRootMetadata.isDirectory()) {
+    throw new Error("GitHub working repository root must be a real directory");
+  }
+  const root = realpathSync(requestedRoot);
+  const boundary = new OwnerPathLock(dirname(root), {
+    label: "Verified child Git installation",
+    lockName: `.git-install-${createHash("sha256").update(root).digest("hex").slice(0, 16)}.lock`,
+    allowRootOwnedStickyDirectory: true,
+  });
+  const rootIdentity = boundary.captureDirectory(root, "GitHub working repository root");
+  const runner = dependencies.runner ?? new NativeDirectCommandRunner();
+  const gitPath = join(root, ".git");
+  let installed = false;
+  let installedGitIdentity: LockedDirectoryIdentity | null = null;
+
+  const rootGitOutput = async (args: readonly string[], label: string): Promise<string> => {
+    boundary.assertDirectory(root, rootIdentity, "GitHub working repository root");
+    if (installedGitIdentity) {
+      boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+    }
+    const output = await gitOutput(runner, root, args, label);
+    boundary.assertDirectory(root, rootIdentity, "GitHub working repository root");
+    if (installedGitIdentity) {
+      boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+    }
+    return output;
+  };
+
+  try {
+    if (!existsSync(gitPath)) {
+      const parent = boundary.root.path;
+      const temporaryRoot = mkdtempSync(join(parent, `.${basename(root)}-git-`));
+      const temporaryIdentity = boundary.captureDirectory(
+        temporaryRoot,
+        "Child Git staging directory",
+      );
+      const cloneDirectory = join(temporaryRoot, "clone");
+      try {
+        const cloner = dependencies.cloner ?? new GhCliGitHubWorkingRepositoryCloner(runner);
+        await cloner.clone({
+          repository: input.repository,
+          branch: input.branch,
+          destination: cloneDirectory,
+        });
+        boundary.assertDirectory(temporaryRoot, temporaryIdentity, "Child Git staging directory");
+        const cloneIdentity = boundary.captureDirectory(
+          cloneDirectory,
+          "Verified GitHub metadata clone",
+        );
+        const cloneGitPath = join(cloneDirectory, ".git");
+        if (!existsSync(cloneGitPath) || !lstatSync(cloneGitPath).isDirectory()) {
+          throw new Error("Verified GitHub metadata clone did not produce a normal .git directory");
+        }
+        const cloneGitIdentity = boundary.captureDirectory(
+          cloneGitPath,
+          "Verified GitHub metadata clone .git",
+        );
+        const cloneGitOutput = async (args: readonly string[], label: string): Promise<string> => {
+          boundary.assertDirectory(cloneDirectory, cloneIdentity, "Verified GitHub metadata clone");
+          boundary.assertDirectory(
+            cloneGitPath,
+            cloneGitIdentity,
+            "Verified GitHub metadata clone .git",
+          );
+          const output = await gitOutput(runner, cloneDirectory, args, label);
+          boundary.assertDirectory(cloneDirectory, cloneIdentity, "Verified GitHub metadata clone");
+          boundary.assertDirectory(
+            cloneGitPath,
+            cloneGitIdentity,
+            "Verified GitHub metadata clone .git",
+          );
+          return output;
+        };
+        const clonedHead = await cloneGitOutput(["rev-parse", "HEAD"], "Read cloned GitHub HEAD");
+        if (clonedHead !== input.commitOid) {
+          throw new Error(
+            `Cloned GitHub HEAD ${clonedHead} does not match verified remote HEAD ${input.commitOid}`,
+          );
+        }
+        const clonedBranch = await cloneGitOutput(
+          ["symbolic-ref", "--short", "HEAD"],
+          "Read cloned GitHub branch",
+        );
+        if (clonedBranch !== input.branch) {
+          throw new Error(
+            `Cloned GitHub branch ${clonedBranch} does not match verified branch ${input.branch}`,
+          );
+        }
+        const clonedOrigin = await cloneGitOutput(
+          ["remote", "get-url", "origin"],
+          "Read cloned GitHub origin",
+        );
+        if (!githubOriginMatchesRepository(clonedOrigin, input.repository)) {
+          throw new Error(
+            `Cloned GitHub origin does not match the verified repository ${input.repository}`,
+          );
+        }
+        if (existsSync(gitPath)) {
+          throw new Error(
+            "Child Git state appeared during verified metadata staging; refusing overwrite",
+          );
+        }
+        dependencies.pathSecurityHook?.("before-child-git-install", gitPath);
+        boundary.assertDirectory(root, rootIdentity, "GitHub working repository root");
+        installedGitIdentity = boundary.renameDirectory(
+          cloneGitPath,
+          gitPath,
+          cloneGitIdentity,
+          "Verified child Git metadata install",
+        );
+        installed = true;
+        boundary.assertDirectory(root, rootIdentity, "GitHub working repository root");
+        boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+        expectSuccess(
+          await runner.run("git", ["read-tree", input.commitOid], { cwd: root }),
+          "Bind child Git index to verified remote tree",
+        );
+        boundary.assertDirectory(root, rootIdentity, "GitHub working repository root");
+        boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+      } finally {
+        if (existsSync(temporaryRoot)) {
+          boundary.removeDirectory(temporaryRoot, temporaryIdentity, "Child Git staging directory");
+        }
+      }
+    } else if (lstatSync(gitPath).isSymbolicLink() || !lstatSync(gitPath).isDirectory()) {
+      throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+    } else {
+      installedGitIdentity = boundary.captureDirectory(gitPath, "Existing child .git");
+    }
+
+    const topLevel = realpathSync(
+      await rootGitOutput(["rev-parse", "--show-toplevel"], "Resolve child Git root"),
+    );
+    if (topLevel !== root)
+      throw new Error(`Child Git root resolves to ${topLevel}, expected ${root}`);
+    const originUrl = await rootGitOutput(["remote", "get-url", "origin"], "Read child Git origin");
+    if (!githubOriginMatchesRepository(originUrl, input.repository)) {
+      throw new Error(`Child Git origin does not match verified repository ${input.repository}`);
+    }
+    const branch = await rootGitOutput(
+      ["symbolic-ref", "--short", "HEAD"],
+      "Read child Git branch",
+    );
+    if (branch !== input.branch) {
+      throw new Error(`Child Git branch ${branch} does not match verified branch ${input.branch}`);
+    }
+    const head = await rootGitOutput(["rev-parse", "HEAD"], "Read child Git HEAD");
+    if (head !== input.commitOid) {
+      throw new Error(
+        `Child Git HEAD ${head} does not match verified remote HEAD ${input.commitOid}`,
+      );
+    }
+    const remoteHead = await rootGitOutput(
+      ["rev-parse", `refs/remotes/origin/${input.branch}`],
+      "Read child remote-tracking HEAD",
+    );
+    if (remoteHead !== input.commitOid) {
+      throw new Error(
+        `Child remote-tracking HEAD ${remoteHead} does not match verified remote HEAD ${input.commitOid}`,
+      );
+    }
+    const status = await rootGitOutput(
+      ["status", "--porcelain=v1", "--untracked-files=all"],
+      "Read child Git status",
+    );
+    if (status.length > 0) {
+      throw new Error("Child Git working tree is not clean after verified source publication");
+    }
+    const privateTracked = await rootGitOutput(
+      ["ls-files", "--", ".venture", "reports"],
+      "Check child private runtime tracking",
+    );
+    if (privateTracked.length > 0) {
+      throw new Error("Child Git repository tracks private runtime state or launch reports");
+    }
+    return { originUrl, branch, head, clean: true };
+  } catch (error) {
+    if (installed && installedGitIdentity) {
+      try {
+        boundary.assertDirectory(root, rootIdentity, "GitHub working repository root");
+        boundary.removeDirectory(gitPath, installedGitIdentity, "Partially installed child .git");
+      } catch {
+        // Do not chase a changed path during compensation. Leave it for inspection.
+      }
+    }
+    throw error;
+  } finally {
+    boundary.release();
+  }
+}
+
 function gitBlobOid(content: Buffer): string {
   return createHash("sha1")
     .update(Buffer.from(`blob ${content.byteLength}\0`, "utf8"))
@@ -252,7 +539,13 @@ function assertSafeSourcePath(path: string): void {
   ) {
     throw new Error(`Local Git tree contains an unsafe path: ${JSON.stringify(path)}`);
   }
-  if (path === BOOTSTRAP_PATH || path.startsWith(".venture/")) {
+  if (
+    path === BOOTSTRAP_PATH ||
+    path === ".venture" ||
+    path.startsWith(".venture/") ||
+    path === "reports" ||
+    path.startsWith("reports/")
+  ) {
     throw new Error(`Local Git tree contains reserved runtime path ${JSON.stringify(path)}`);
   }
   const basename = path.split("/").at(-1) ?? path;
@@ -270,48 +563,24 @@ export class GitLocalSourceSnapshotLoader implements LocalSourceSnapshotLoader {
 
   async load(rootDir: string): Promise<LocalSourceSnapshot> {
     const requestedRoot = realpathSync(resolve(rootDir));
-    const topLevelResult = await this.runner.run("git", ["rev-parse", "--show-toplevel"], {
-      cwd: requestedRoot,
-    });
-    const topLevel = realpathSync(
-      expectSuccess(topLevelResult, "Resolve local Git repository").toString("utf8").trim(),
-    );
-    if (topLevel !== requestedRoot) {
-      throw new Error(`Source directory must be the Git repository root (${topLevel})`);
-    }
-    const objectFormat = expectSuccess(
-      await this.runner.run("git", ["rev-parse", "--show-object-format"], { cwd: requestedRoot }),
-      "Read local Git object format",
-    )
-      .toString("utf8")
-      .trim();
-    if (objectFormat !== "sha1") {
-      throw new Error(
-        `GitHub source publication currently requires sha1, received ${objectFormat}`,
-      );
+    const metadata = lstatSync(requestedRoot);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+      throw new Error("Local source root must be a real directory");
     }
 
     const temporaryRoot = mkdtempSync(join(tmpdir(), "vh-github-source-"));
     if (!realpathSync(temporaryRoot).startsWith(`${realpathSync(tmpdir())}${sep}`)) {
       throw new Error("Refusing an unresolved temporary Git index path");
     }
-    const indexPath = join(temporaryRoot, "index");
-    const env = { GIT_INDEX_FILE: indexPath };
+    const gitDirectory = join(temporaryRoot, "source.git");
+    const env = { GIT_DIR: gitDirectory, GIT_WORK_TREE: requestedRoot };
     try {
-      const head = await this.runner.run("git", ["rev-parse", "--verify", "HEAD"], {
-        cwd: requestedRoot,
-      });
-      if (head.exitCode === 0) {
-        expectSuccess(
-          await this.runner.run("git", ["read-tree", "HEAD"], { cwd: requestedRoot, env }),
-          "Seed isolated Git index",
-        );
-      } else {
-        expectSuccess(
-          await this.runner.run("git", ["read-tree", "--empty"], { cwd: requestedRoot, env }),
-          "Create isolated Git index",
-        );
-      }
+      expectSuccess(
+        await this.runner.run("git", ["init", "--bare", "--object-format=sha1", gitDirectory], {
+          cwd: requestedRoot,
+        }),
+        "Initialize isolated source repository",
+      );
       expectSuccess(
         await this.runner.run("git", ["add", "-A", "--", "."], {
           cwd: requestedRoot,
@@ -329,6 +598,7 @@ export class GitLocalSourceSnapshotLoader implements LocalSourceSnapshotLoader {
       const tree = expectSuccess(
         await this.runner.run("git", ["ls-tree", "-r", "-z", "--full-tree", treeOid], {
           cwd: requestedRoot,
+          env,
         }),
         "List isolated local source tree",
       );
@@ -355,7 +625,10 @@ export class GitLocalSourceSnapshotLoader implements LocalSourceSnapshotLoader {
         let content = contentByOid.get(oid);
         if (!content) {
           content = expectSuccess(
-            await this.runner.run("git", ["cat-file", "blob", oid], { cwd: requestedRoot }),
+            await this.runner.run("git", ["cat-file", "blob", oid], {
+              cwd: requestedRoot,
+              env,
+            }),
             `Read local blob for ${path}`,
           );
           if (content.byteLength > MAX_SOURCE_BLOB_BYTES) {
@@ -810,6 +1083,23 @@ export async function publishGitHubSource(
   return { ...verification, created, source: "local_git_tree" };
 }
 
+export async function publishVerifiedGitHubWorkingSource(
+  input: PublishGitHubSourceInput,
+  dependencies: GitHubSourcePublicationDependencies & VerifiedGitHubWorkingRepositoryDependencies,
+): Promise<GitHubSourcePublicationResult & { workingRepository: VerifiedGitHubWorkingRepository }> {
+  const publication = await publishGitHubSource(input, dependencies);
+  const workingRepository = await ensureVerifiedGitHubWorkingRepository(
+    {
+      repository: input.repository,
+      rootDir: input.rootDir,
+      branch: publication.branch,
+      commitOid: publication.commitOid,
+    },
+    dependencies,
+  );
+  return { ...publication, workingRepository };
+}
+
 function argValue(args: readonly string[], name: string): string {
   const index = args.indexOf(name);
   if (index < 0 || index === args.length - 1 || args[index + 1]!.startsWith("--")) {
@@ -822,7 +1112,10 @@ export async function runGitHubSourcePublicationCli(
   args: readonly string[],
   options: { cwd?: string; runner?: DirectCommandRunner } = {},
 ): Promise<
-  GitHubSourcePublicationResult | Omit<GitHubSourcePublicationResult, "created" | "source">
+  | GitHubSourcePublicationResult
+  | (Omit<GitHubSourcePublicationResult, "created" | "source"> & {
+      workingRepository: VerifiedGitHubWorkingRepository;
+    })
 > {
   const [command, ...rest] = args;
   if (command !== "apply" && command !== "verify") {
@@ -835,7 +1128,7 @@ export async function runGitHubSourcePublicationCli(
   const runner = options.runner ?? new NativeDirectCommandRunner();
   const gateway = new GhCliGitHubSourceGateway(cwd, runner);
   if (command === "verify") {
-    return verifyGitHubSource(
+    const verification = await verifyGitHubSource(
       {
         repository,
         visibility,
@@ -845,9 +1138,26 @@ export async function runGitHubSourcePublicationCli(
       },
       gateway,
     );
+    const workingRepository = await ensureVerifiedGitHubWorkingRepository(
+      {
+        repository,
+        rootDir: cwd,
+        branch: verification.branch,
+        commitOid: verification.commitOid,
+      },
+      { runner },
+    );
+    return { ...verification, workingRepository };
   }
+  // Apply returns the verified remote reconciliation identifiers before any
+  // local `.git` mutation. The provider read-back command below installs and
+  // verifies the working repository, so a local Git failure can be retried
+  // without losing an already-created remote commit behind an ambiguous exit.
   return publishGitHubSource(
     { repository, visibility, rootDir: cwd },
-    { gateway, snapshots: new GitLocalSourceSnapshotLoader(runner) },
+    {
+      gateway,
+      snapshots: new GitLocalSourceSnapshotLoader(runner),
+    },
   );
 }

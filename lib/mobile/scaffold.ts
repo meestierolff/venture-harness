@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -24,6 +26,7 @@ import {
 } from "./types";
 
 const MANIFEST_NAME = ".venture-scaffold.json";
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -85,28 +88,46 @@ function ensureDirectory(root: string, absolute: string): void {
   }
 }
 
-function readExactFile(root: string, path: string, expected: string): boolean {
-  if (!existsSync(path)) return false;
-  const status = lstatSync(path);
-  if (status.isSymbolicLink() || !status.isFile()) {
-    throw new MobileScaffoldError(
-      "output_conflict",
-      `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`,
-    );
+function readExactFile(root: string, path: string, expected: string): string | null {
+  let descriptor: number;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | NO_FOLLOW);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    if (code === "ELOOP") {
+      throw new MobileScaffoldError(
+        "output_conflict",
+        `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`,
+      );
+    }
+    throw error;
   }
-  if (readFileSync(path, "utf8") !== expected) {
+  let actual: string;
+  try {
+    if (!fstatSync(descriptor).isFile()) {
+      throw new MobileScaffoldError(
+        "output_conflict",
+        `Refusing to replace non-file scaffold target ${relativeReference(root, path)}.`,
+      );
+    }
+    actual = readFileSync(descriptor, "utf8");
+  } finally {
+    closeSync(descriptor);
+  }
+  if (actual !== expected) {
     throw new MobileScaffoldError(
       "output_conflict",
       `Refusing to overwrite existing content at ${relativeReference(root, path)}.`,
     );
   }
-  return true;
+  return actual;
 }
 
 function writeCreateOnly(root: string, path: string, content: string): "created" | "unchanged" {
   assertNoSymlinkBetween(root, path);
   ensureDirectory(root, dirname(path));
-  if (readExactFile(root, path, content)) return "unchanged";
+  if (readExactFile(root, path, content) !== null) return "unchanged";
 
   let descriptor: number | undefined;
   try {
@@ -118,7 +139,7 @@ function writeCreateOnly(root: string, path: string, content: string): "created"
   } catch (error) {
     if (descriptor !== undefined) closeSync(descriptor);
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      if (readExactFile(root, path, content)) return "unchanged";
+      if (readExactFile(root, path, content) !== null) return "unchanged";
       throw new MobileScaffoldError(
         "io_failure",
         `A concurrent writer removed ${relativeReference(root, path)} before read-back.`,
@@ -229,8 +250,8 @@ export function generateMobileScaffold(
   readExactFile(root, absoluteManifestPath, manifestContent);
   for (const file of templateFiles) {
     const absolute = pathInside(root, `${outputDirectory}/${file.relativePath}`);
-    readExactFile(root, absolute, file.content);
-    if (sha256(readFileSync(absolute, "utf8")) !== sha256(file.content)) {
+    const readBack = readExactFile(root, absolute, file.content);
+    if (readBack === null || sha256(readBack) !== sha256(file.content)) {
       throw new MobileScaffoldError(
         "io_failure",
         `Hash read-back failed for ${relativeReference(root, absolute)}.`,

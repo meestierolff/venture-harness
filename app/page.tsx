@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { SectionViewTracker } from "@/components/SectionViewTracker";
 import { SampleLabel } from "@/components/SampleLabel";
 import { StructuredData } from "@/components/StructuredData";
@@ -43,9 +42,6 @@ export default function HomePage() {
           </TruthClaim>
           . Provider plans and end-to-end fixtures use mocks until an authorized account is read
           back; they do not claim a production deployment.
-        </p>
-        <p>
-          <Link href="/pricing">See the pricing-evidence demo →</Link>
         </p>
       </SectionViewTracker>
 

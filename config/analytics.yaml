@@ -56,7 +56,9 @@ persistence:
 # the smallest set needed for its capabilities and core journeys. Pack routing
 # is typed in lib/analytics/packs.ts.
 event_packs:
-  active: [core_product, web_acquisition, lead_generation, subscription, content, reliability]
+  # This Core checkout still contains the legacy public fixture call sites.
+  # Generated ventures receive an empty set and activate only routed packs.
+  active: [core_product, web_acquisition, lead_generation, content, reliability]
   definitions:
     core_product:
       stages: [build, launch, operate]
@@ -234,7 +236,7 @@ core_journeys:
     outcome_events: [authentication_succeeded, activation_completed]
     authoritative_destination: neon
   subscription:
-    active: true
+    active: false
     required_packs: [subscription]
     start_events: [subscription_checkout_started]
     outcome_events: [subscription_started]

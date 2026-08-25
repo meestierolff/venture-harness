@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,6 +17,22 @@ afterEach(() => {
 });
 
 describe("repository checkpoint evidence", () => {
+  it("refuses a symlinked checkpoint evidence file", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "vh-checkpoint-evidence-"));
+    temporaryDirectories.push(rootDir);
+    const runId = "checkpoint-evidence-run";
+    const evidenceArtifact = `reports/launch/${runId}/checkpoints/delete-repository.json`;
+    const path = join(rootDir, evidenceArtifact);
+    const target = join(rootDir, "checkpoint-evidence-target.json");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(target, "{}\n");
+    symlinkSync(target, path);
+
+    expect(() => loadRepositoryCheckpointEvidence({ rootDir, evidenceArtifact, runId })).toThrow(
+      /regular non-symlink/,
+    );
+  });
+
   it("loads typed in-root evidence and verifies every grant scope field", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "vh-checkpoint-evidence-"));
     temporaryDirectories.push(rootDir);

@@ -674,11 +674,11 @@ describe("fixture-backed Winner Loop provider contracts", () => {
     const adapter = createWinnerProviderFixtureAdapters().fixture_local_renderer;
     const context = readyContext("fixture_local_renderer");
     const credentialShapes = [
-      "whsec_secondary_fixture_8Hk2Lm9Q",
+      "whsec_SYNTHETICNOTAREALsecondaryrotation",
       "ghp_abcdefghijklmnopqrstuvwxyz",
       "xoxb-1234567890-abcdefghijkl",
-      "AKIAABCDEFGHIJKLMNOP",
-      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.signature_fixture",
+      "AKIASYNTHETICNOTREAL",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJTWU5USEVUSUNOT1RBUkVBTCJ9.SYNTHETICNOTAREALsignature",
     ];
     for (const [index, credential] of credentialShapes.entries()) {
       expect(() =>
@@ -754,7 +754,7 @@ describe("fixture-backed Winner Loop provider contracts", () => {
         renderer_kind: "local_fixture",
         asset_ref: "fixture://creative/safe",
         content_hash: plan.requestHash,
-        provider_metadata: { secondaryProviderSecret: "whsec_secondary_fixture_8Hk2Lm9Q" },
+        provider_metadata: { secondaryProviderSecret: "whsec_SYNTHETICNOTAREALsecondaryrotation" },
       },
       appliedAt: NOW,
       fixtureLabel: "SYNTHETIC_FIXTURE — no provider was contacted",
@@ -762,7 +762,7 @@ describe("fixture-backed Winner Loop provider contracts", () => {
     for (const operation of [adapter.apply(plan, context), adapter.readBack(plan)]) {
       await expect(operation).rejects.toMatchObject({ code: "unsafe_fixture_payload" });
       await operation.catch((error: unknown) => {
-        expect(String(error)).not.toContain("whsec_secondary_fixture_8Hk2Lm9Q");
+        expect(String(error)).not.toContain("whsec_SYNTHETICNOTAREALsecondaryrotation");
       });
     }
     expect(store.put).not.toHaveBeenCalled();

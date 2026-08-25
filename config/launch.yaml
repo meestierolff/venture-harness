@@ -1,14 +1,14 @@
-# Launch-mode decision contract. The template keeps the v0.1 strategy as a
-# zero-confidence compatibility default; the launch router must reassess it.
+# Launch-mode decision contract. Thin MVP is the reversible zero-confidence
+# default; a reviewed Launch Contract remains authoritative.
 contract_version: 1
 
 launch:
-  selected_mode: validate_first
+  selected_mode: thin_mvp
   confidence: 0
-  rationale: Conservative compatibility default; reroute from the founder brief before launch.
+  rationale: Small-bet compatibility default; reroute from the reviewed Launch Contract.
   rejected_alternatives: []
   assumptions:
-    - The v0.1 validation-first strategy remains active until the launch router runs.
+    - Thin MVP remains a reversible placeholder until the launch router runs.
   evidence_that_could_change_choice:
     - A complete founder brief and the smallest-useful-product assessment.
   rail:

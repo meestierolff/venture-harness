@@ -1,6 +1,25 @@
 import { FileWorkflowStore, WorkflowExecutor, type WorkflowStore } from "../workflow";
 import { sideEffectClassSchema } from "../config/policy-schema";
 import { createDefaultCliServices } from "./default-services";
+import {
+  FOUNDER_CONFIG_KEYS,
+  defaultFounderConfigPath,
+  loadFounderConfig,
+  resolveVenturesRoot,
+  saveFounderConfig,
+} from "../founder-launch/founder-config";
+import { assertNoSecretsInArgv, type DetectedSession } from "../founder-launch/stack-connect";
+import {
+  collectFounderStackWizard,
+  collectedCliSessionRoles,
+  detectSessions,
+  founderStackConnectionDraftRoles,
+  safeCliSessionMetadata,
+  systemFounderStackWizardPrompt,
+  type FounderStackWizardPrompt,
+  type GuidedFounderStackRole,
+} from "../founder-launch/stack-connect-shell";
+import { createFounderStackConnectionDraft } from "../founder-launch/stack";
 import type { CliIo, CliLaunchRequest, CliResult, CliServices } from "./types";
 
 export * from "./types";
@@ -10,6 +29,16 @@ export interface RunCliOptions {
   io?: CliIo;
   services?: CliServices;
   store?: WorkflowStore;
+  /** Deterministic seam for the credential-free Stack wizard session inspection. */
+  stackSessions?: readonly DetectedSession[];
+  /** Deterministic hidden/visible prompt seam for guided Stack connection tests. */
+  stackPrompt?: FounderStackWizardPrompt;
+  /**
+   * Founder settings file. Defaults to the real user config path; tests and
+   * sandboxed runs point it at an isolated file so CLI output never depends on
+   * whichever machine happens to run it.
+   */
+  founderConfigPath?: string;
 }
 
 const HELP = `Venture Harness CLI
@@ -23,8 +52,15 @@ Usage:
     --kind <credential-kind> --scopes <comma-separated>
   vh stack create founder-default --file <connection.json>
                                   Persist one credential-free founder Stack connection
+  vh stack connect founder-default
+                                  Guided one-time connection of the default founder Stack
   vh stack doctor founder-default Inspect every founder Stack role without provider effects
+  vh config show                  Show persistent founder settings
+  vh config set ventures-root <absolute-path>
+                                  Choose where independent ventures are materialized
   vh doctor                       Inspect local launch prerequisites
+  vh idea sharpen --input <idea.md|-> --output <idea.md>
+                                  Produce one bounded Launch Contract and Product Constitution
   vh create --brief <file>        Validate and persist one progressive-commitment brief
   vh plan [--brief <file>]        Compile a launch plan without side effects
   vh launch --dry-run             Show nodes, effects, approvals, cost, and manual work
@@ -70,6 +106,7 @@ function positional(args: string[]): string[] {
       if (
         [
           "--brief",
+          "--input",
           "--idea",
           "--stack",
           "--output",
@@ -90,6 +127,8 @@ function positional(args: string[]): string[] {
           "--scopes",
           "--file",
           "--release",
+          "--role",
+          "--credential-backend",
         ].includes(args[index])
       )
         index += 1;
@@ -117,6 +156,11 @@ function founderLaunchExitCode(value: unknown, mode: "dry-run" | "apply"): 0 | 1
   return status === "blocked" || status === "failed" ? 1 : 0;
 }
 
+function authTestExitCode(value: unknown): 0 | 1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 1;
+  return (value as { allPassed?: unknown }).allPassed === true ? 0 : 1;
+}
+
 function unsupported(io: CliIo, command: string, nextAction: string): CliResult {
   io.stderr(`${command} is not configured; no external action was taken.`);
   io.stderr(`Next: ${nextAction}`);
@@ -136,6 +180,7 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
   const io = options.io ?? defaultIo();
   const store = options.store ?? new FileWorkflowStore();
   const services = options.services ?? createDefaultCliServices({ store });
+  const founderConfigPath = options.founderConfigPath ?? defaultFounderConfigPath();
   const json = args.includes("--json");
   const [command, ...rest] = args;
 
@@ -145,6 +190,39 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
   }
 
   try {
+    if (command === "idea") {
+      const usage = "Usage: vh idea sharpen --input <rough-idea.md|-> --output <idea.md>";
+      const values = positional(rest);
+      const unknownFlag = rest.find(
+        (value) =>
+          value.startsWith("-") &&
+          value !== "-" &&
+          !["--input", "--output", "--json"].includes(value),
+      );
+      const input = flagValue(rest, "--input");
+      const output = flagValue(rest, "--output");
+      if (
+        unknownFlag ||
+        values.length !== 1 ||
+        values[0] !== "sharpen" ||
+        !input ||
+        !output ||
+        !output.toLowerCase().endsWith(".md")
+      ) {
+        io.stderr(usage);
+        return { exitCode: 2 };
+      }
+      if (!services.ideaSharpen) {
+        return unsupported(
+          io,
+          "vh idea sharpen",
+          "install and authenticate the Codex CLI, then rerun the same command",
+        );
+      }
+      emit(io, await services.ideaSharpen({ input, output, json }), json);
+      return { exitCode: 0 };
+    }
+
     if (command === "create") {
       const brief = flagValue(rest, "--brief");
       if (!brief) {
@@ -173,6 +251,166 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
         );
       }
       return { exitCode: 0 };
+    }
+
+    if (command === "stack" && positional(rest)[0] === "connect") {
+      // Refuse before anything else: an argument is already exposed by the time
+      // we could validate it, so this must run ahead of any other parsing.
+      try {
+        assertNoSecretsInArgv(rest);
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 2 };
+      }
+      const values = positional(rest);
+      const unknownStackFlag = rest.find(
+        (value) =>
+          value.startsWith("-") && !["--role", "--credential-backend", "--json"].includes(value),
+      );
+      const missingStackFlagValue = ["--role", "--credential-backend"].find((flag) => {
+        const value = flagValue(rest, flag);
+        return rest.includes(flag) && (!value || value.startsWith("-"));
+      });
+      if (
+        values.length !== 2 ||
+        values[1] !== "founder-default" ||
+        unknownStackFlag ||
+        missingStackFlagValue
+      ) {
+        io.stderr(
+          "Usage: vh stack connect founder-default [--role database.postgres|commerce.web|email.transactional|growth.google|search.bing|dns.records] [--credential-backend macos_keychain|onepassword]",
+        );
+        return { exitCode: 2 };
+      }
+      const sessions = [...(options.stackSessions ?? detectSessions())];
+      const collected = [...collectedCliSessionRoles(sessions, "founder-default")];
+      const prompt = options.stackPrompt ?? systemFounderStackWizardPrompt();
+      const requestedRole = flagValue(rest, "--role") as GuidedFounderStackRole | undefined;
+      const allowedRoles = new Set<GuidedFounderStackRole>([
+        "database.postgres",
+        "commerce.web",
+        "email.transactional",
+        "growth.google",
+        "search.bing",
+        "dns.records",
+      ]);
+      if (requestedRole && !allowedRoles.has(requestedRole)) {
+        io.stderr(
+          "--role must be database.postgres, commerce.web, email.transactional, growth.google, search.bing, or dns.records",
+        );
+        return { exitCode: 2 };
+      }
+      const requestedBackend = flagValue(rest, "--credential-backend");
+      const backend =
+        requestedBackend ?? (process.platform === "darwin" ? "macos_keychain" : "onepassword");
+      if (backend !== "macos_keychain" && backend !== "onepassword") {
+        io.stderr("--credential-backend must be macos_keychain or onepassword");
+        return { exitCode: 2 };
+      }
+      const credentialWrites: NonNullable<
+        Parameters<NonNullable<CliServices["stack"]>>[0]["credentialWrites"]
+      >[number][] = [];
+      let selectedOptionalRoles: Parameters<
+        typeof createFounderStackConnectionDraft
+      >[0]["selectedOptionalRoles"] = [
+        "email.transactional",
+        "growth.google",
+        "search.bing",
+        "dns.records",
+      ];
+      let launchDefaults: Parameters<typeof createFounderStackConnectionDraft>[0]["launchDefaults"];
+      let writableCredentialBackend: Parameters<
+        typeof createFounderStackConnectionDraft
+      >[0]["writableCredentialBackend"] = { mode: "shared", backend };
+      if (prompt.isTty && !json) {
+        const guided = await collectFounderStackWizard({
+          profileId: "founder-default",
+          sessions,
+          prompt,
+          backend,
+          ...(requestedRole ? { onlyRole: requestedRole } : {}),
+          writer: {
+            backendId: backend,
+            async store(request) {
+              credentialWrites.push(request);
+            },
+          },
+        });
+        collected.push(...guided.collected);
+        selectedOptionalRoles = guided.selectedOptionalRoles;
+        launchDefaults = guided.launchDefaults;
+        writableCredentialBackend = guided.writableCredentialBackend;
+      }
+      const githubOwner = sessions.find(
+        ({ provider, authenticated, account }) => provider === "github" && authenticated && account,
+      )?.account;
+      const connection = createFounderStackConnectionDraft({
+        ownerOrganizationId: githubOwner ?? "founder",
+        roles: founderStackConnectionDraftRoles(collected, sessions),
+        inspectedCliSessions: safeCliSessionMetadata(sessions),
+        selectedOptionalRoles,
+        writableCredentialBackend,
+        launchDefaults,
+      });
+      const updatedRoles = [...new Set(collected.map(({ role }) => role))];
+      const venturesRoot = loadFounderConfig(founderConfigPath).venturesRoot ?? null;
+      if (!services.stack) {
+        return unsupported(
+          io,
+          "vh stack connect founder-default",
+          "configure the founder Stack metadata store and credential broker",
+        );
+      }
+      const diagnosed = await services.stack({
+        action: "connect",
+        profileId: "founder-default",
+        connection,
+        credentialWrites,
+        updatedRoles,
+        replaceOptionalRoles: prompt.isTty && !json && requestedRole === undefined,
+        updateWritableCredentialBackend:
+          prompt.isTty &&
+          !json &&
+          (requestedRole === undefined ||
+            requestedRole === "database.postgres" ||
+            requestedRole === "commerce.web" ||
+            requestedRole === "growth.google"),
+      });
+      const doctor =
+        diagnosed && typeof diagnosed === "object" && !Array.isArray(diagnosed)
+          ? diagnosed
+          : { status: "attention_required", launchReady: false, unresolvedActions: [] };
+      const providerActions = Array.isArray(doctor.unresolvedActions)
+        ? doctor.unresolvedActions
+        : [];
+      const launchReady = doctor.launchReady === true && venturesRoot !== null;
+      emit(
+        io,
+        {
+          command: "stack.connect",
+          profileId: "founder-default",
+          saved: true,
+          ...doctor,
+          venturesRoot,
+          launchReady,
+          unresolvedActions: [
+            ...providerActions,
+            ...(venturesRoot
+              ? []
+              : [
+                  {
+                    role: "workspace",
+                    provider: "local",
+                    why: "No ventures root is configured, so a launch has nowhere safe to materialize a venture.",
+                    command: "vh config set ventures-root <absolute-path>",
+                    blocksLaunch: true,
+                  },
+                ]),
+          ],
+        },
+        json,
+      );
+      return { exitCode: launchReady ? 0 : 1 };
     }
 
     if (command === "stack") {
@@ -224,6 +462,49 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
       }
       emit(io, await services.stack({ action, profileId, ...(file ? { file } : {}) }), json);
       return { exitCode: 0 };
+    }
+
+    if (command === "config") {
+      const values = positional(rest);
+      const action = values[0];
+      const usage = "Usage: vh config show | vh config set ventures-root <absolute-path>";
+      if (action === "show" && values.length === 1) {
+        const config = loadFounderConfig(founderConfigPath);
+        emit(
+          io,
+          {
+            command: "config.show",
+            path: founderConfigPath,
+            venturesRoot: config.venturesRoot ?? null,
+            ...(config.venturesRoot
+              ? {}
+              : { nextAction: "vh config set ventures-root <absolute-path>" }),
+          },
+          json,
+        );
+        return { exitCode: 0 };
+      }
+      if (action !== "set" || values.length !== 3) {
+        io.stderr(usage);
+        return { exitCode: 2 };
+      }
+      const [, key, value] = values as [string, string, string];
+      if (!(FOUNDER_CONFIG_KEYS as readonly string[]).includes(key)) {
+        io.stderr(
+          `Unknown founder setting ${key}. Known settings: ${FOUNDER_CONFIG_KEYS.join(", ")}.`,
+        );
+        return { exitCode: 2 };
+      }
+      try {
+        const venturesRoot = resolveVenturesRoot(value, { coreRoot: process.cwd() });
+        const existing = loadFounderConfig(founderConfigPath);
+        saveFounderConfig({ ...existing, venturesRoot }, founderConfigPath);
+        emit(io, { command: "config.set", key, venturesRoot }, json);
+        return { exitCode: 0 };
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 1 };
+      }
     }
 
     if (command === "plan") {
@@ -436,11 +717,29 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
     }
 
     if (command === "auth") {
-      const [action, provider] = positional(rest) as [
-        "login" | "status" | "test" | "revoke",
-        string?,
-      ];
-      if (!(["login", "status", "test", "revoke"] as string[]).includes(action)) {
+      try {
+        assertNoSecretsInArgv(rest);
+      } catch (error) {
+        io.stderr(error instanceof Error ? error.message : String(error));
+        return { exitCode: 2 };
+      }
+      const authValues = positional(rest);
+      const [action, provider] = authValues as ["login" | "status" | "test" | "revoke", string?];
+      const unknownAuthFlag = rest.find(
+        (value) =>
+          value.startsWith("-") &&
+          !["--ref", "--backend", "--kind", "--scopes", "--json"].includes(value),
+      );
+      const missingAuthFlagValue = ["--ref", "--backend", "--kind", "--scopes"].find((flag) => {
+        const value = flagValue(rest, flag);
+        return rest.includes(flag) && (!value || value.startsWith("-"));
+      });
+      if (
+        authValues.length > 2 ||
+        unknownAuthFlag ||
+        missingAuthFlagValue ||
+        !(["login", "status", "test", "revoke"] as string[]).includes(action)
+      ) {
         io.stderr("Usage: vh auth login [provider] | status | test [provider] | revoke <provider>");
         return { exitCode: 2 };
       }
@@ -454,22 +753,55 @@ export async function runCli(args: string[], options: RunCliOptions = {}): Promi
           `vh auth ${action}`,
           "configure the credential broker/provider adapter; credential values must never enter Git",
         );
-      emit(
-        io,
-        await services.auth({
-          action,
-          provider,
-          ref: flagValue(rest, "--ref"),
-          backend: flagValue(rest, "--backend"),
-          kind: flagValue(rest, "--kind"),
-          scopes: flagValue(rest, "--scopes")
-            ?.split(",")
-            .map((scope) => scope.trim())
-            .filter(Boolean),
-        }),
-        json,
-      );
-      return { exitCode: 0 };
+      const requestedBackend = flagValue(rest, "--backend");
+      const backend =
+        action === "login" && provider
+          ? (requestedBackend ??
+            (["github", "vercel", "eas"].includes(provider)
+              ? "cli_session"
+              : process.platform === "darwin"
+                ? "macos_keychain"
+                : "onepassword"))
+          : requestedBackend;
+      const prompt = options.stackPrompt ?? systemFounderStackWizardPrompt();
+      const readValue =
+        action === "login" &&
+        provider !== undefined &&
+        (backend === "macos_keychain" || backend === "onepassword") &&
+        prompt.isTty &&
+        !json
+          ? async () => {
+              const value = await prompt.readCredential(
+                `${provider} credential (input hidden; never argv or output): `,
+              );
+              if (!value) {
+                throw new Error(
+                  `No credential value was entered for ${provider}; rerun the same auth login command.`,
+                );
+              }
+              return value;
+            }
+          : undefined;
+      const result = await services.auth({
+        action,
+        provider,
+        ref: flagValue(rest, "--ref"),
+        backend,
+        kind:
+          flagValue(rest, "--kind") ??
+          (action === "login" && provider === "stripe"
+            ? "restricted_api_key"
+            : action === "login" && provider === "google"
+              ? "oauth"
+              : undefined),
+        scopes: flagValue(rest, "--scopes")
+          ?.split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean),
+        ...(readValue ? { readValue } : {}),
+      });
+      emit(io, result, json);
+      return { exitCode: action === "test" ? authTestExitCode(result) : 0 };
     }
 
     if (command === "data" && positional(rest)[0] === "sync") {

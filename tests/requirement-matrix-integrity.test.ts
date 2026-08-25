@@ -37,6 +37,55 @@ function fixtureRoot(): string {
   return root;
 }
 
+function initializeGitFixture(root: string): { sourceSha: string; sourceTree: string } {
+  for (const args of [
+    ["init", "-b", "fixture"],
+    ["config", "user.email", "fixture@example.test"],
+    ["config", "user.name", "Fixture"],
+    ["add", "."],
+    ["commit", "-m", "fixture source"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    expect(result.status, `${args.join(" ")}: ${result.stderr}`).toBe(0);
+  }
+  const sourceSha = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim();
+  const sourceTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim();
+  return { sourceSha, sourceTree };
+}
+
+function initializeEvidence(root: string): {
+  branch: string;
+  sourceSha: string;
+  sourceTree: string;
+  sourceClean: boolean;
+  records: CommandEvidenceRecord[];
+} {
+  const initializer = join(process.cwd(), "scripts", "initialize-final-evidence.mjs");
+  const result = spawnSync(process.execPath, [initializer], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      VH_EVIDENCE_SOURCE_SHA: "",
+      VH_EVIDENCE_SOURCE_BRANCH: "fixture",
+    },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(readFileSync(join(root, "reports", "audit", "commands-run.json"), "utf8")) as {
+    branch: string;
+    sourceSha: string;
+    sourceTree: string;
+    sourceClean: boolean;
+    records: CommandEvidenceRecord[];
+  };
+}
+
 function digest(value: Buffer | string): { sha256: string; bytes: number } {
   const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8");
   return {
@@ -95,12 +144,14 @@ function command(
     artifacts?: CommandArtifactEvidence[];
     startedAt?: string;
     endedAt?: string;
+    sourceSha?: string;
   } = {},
 ): CommandEvidenceRecord {
   if (!currentFixtureRoot) throw new Error("fixture root must be created before command evidence");
   const id = options.id ?? "unit";
+  const sourceSha = options.sourceSha ?? "a".repeat(40);
   const evidencePath =
-    options.evidencePath ?? `reports/audit/command-logs/${id}.attempt-${attempt}.log`;
+    options.evidencePath ?? `reports/audit/command-logs/${sourceSha}/${id}.attempt-${attempt}.log`;
   const log = "1 test passed\n";
   const absoluteLogPath = join(currentFixtureRoot, evidencePath);
   mkdirSync(dirname(absoluteLogPath), { recursive: true });
@@ -124,6 +175,7 @@ function command(
     evidenceSha256: logDigest.sha256,
     evidenceBytes: logDigest.bytes,
     artifacts: options.artifacts ?? [],
+    sourceSha,
   };
 }
 
@@ -186,6 +238,7 @@ describe("completion-matrix proof integrity", () => {
     const portableRecord = command("PASSED", 0);
     const portableLog = readFileSync(join(originalRoot, portableRecord.evidencePath));
     const movedRoot = fixtureRoot();
+    mkdirSync(dirname(join(movedRoot, portableRecord.evidencePath)), { recursive: true });
     writeFileSync(join(movedRoot, portableRecord.evidencePath), portableLog);
 
     expect(portableRecord.cwd).toBe(".");
@@ -297,6 +350,7 @@ describe("completion-matrix proof integrity", () => {
 
     const copiedRoot = fixtureRoot();
     writeFileSync(join(copiedRoot, artifactPath), readFileSync(join(root, artifactPath)));
+    mkdirSync(dirname(join(copiedRoot, record.evidencePath)), { recursive: true });
     writeFileSync(
       join(copiedRoot, record.evidencePath),
       readFileSync(join(root, record.evidencePath)),
@@ -321,58 +375,74 @@ describe("completion-matrix proof integrity", () => {
     ).toThrow(/artifact hash or length changed after execution/u);
   });
 
-  it("accepts only the canonical release exit 1 with the exact named external SKIPs", () => {
+  it("accepts only the canonical live exit 1 with the exact named external SKIPs", () => {
     const root = fixtureRoot();
-    const reportPath = "reports/audit/quality-release.json";
+    const reportPath = "reports/audit/quality-live.json";
     const releaseBaseline: RequirementBaseline = {
-      id: "QUAL-013",
+      id: "QUAL-020",
       group: "H. Quality",
       priority: "P2",
-      requirement: "vh verify release",
+      requirement: "vh verify live",
       status: "MISSING",
       evidence: [],
-      gap: "Release proof is absent.",
+      gap: "Live provider proof is absent.",
     };
     const releaseCatalog: RequirementProofCatalog = {
       schemaVersion: 2,
       branch: "fixture",
       evidenceCeiling: "LOCAL_RUNTIME_AND_SYNTHETIC_FIXTURES",
       commandContracts: {
-        "final-verify-release": {
-          command: "pnpm verify:release -- --report reports/audit/quality-release.json",
+        "final-verify-live": {
+          command: "pnpm verify:live -- --report reports/audit/quality-live.json",
           cwd: ".",
           artifacts: [reportPath],
         },
+        "final-unit-tests": { command: "pnpm test", cwd: ".", artifacts: [] },
       },
       proofs: [
         {
-          id: "QUAL-013",
+          id: "QUAL-020",
           priority: "P2",
-          requirement: "vh verify release",
-          status: "EXTERNAL_BLOCKER",
-          evidenceCeiling: "EXTERNAL_BLOCKER",
-          evidence: [reportPath],
-          result: "All deterministic checks pass; two named external evidence checks skip.",
+          requirement: "vh verify live",
+          status: "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+          evidenceCeiling: "IMPLEMENTATION_ONLY",
+          evidence: [reportPath, "tests/control.test.ts"],
+          result: "The selected live Stack read-back skips with an exact next action.",
           verification: [
+            { kind: "test", path: "tests/control.test.ts", commandId: "final-unit-tests" },
             {
               kind: "expected_incomplete_quality_profile",
               path: reportPath,
-              commandId: "final-verify-release",
-              profile: "release",
+              commandId: "final-verify-live",
+              profile: "live",
               expectedStatus: "INCOMPLETE",
-              allowedSkipIds: ["analytics_readiness", "live_analytics_readback"],
+              allowedSkipIds: ["live_stack_readback"],
             },
           ],
-          reviewedAt: "2026-08-09",
-          reviewedBy: "codex-independent-audit",
+          liveVerification: {
+            attempted: false,
+            profileAttempted: true,
+            reason: "No founder Stack was connected in this fixture run.",
+            command:
+              "pnpm vh stack connect founder-default && pnpm vh launch --stack founder-default --production --apply && pnpm verify:live",
+            evidenceRequired:
+              "A live report naming the repository identifier and deployment state, founder account ownership, and the provider read-back that produced them.",
+          },
+          reviewedAt: "2026-08-10",
+          reviewedBy: "opus-v0.2-launch-cut",
         },
       ],
     };
     const completeGap = {
       why: "Authorized live analytics data is unavailable.",
+      provider: "Google Analytics",
+      account_scope: "Founder-owned analytics property selected by the reviewed venture.",
       missing: "A verified property and fresh provider data.",
       exact_command: "pnpm vh data sync",
       expected_evidence: "A sanitized provider read-back with source and freshness.",
+      impact: "Live analytics freshness and measurement cannot be claimed.",
+      vercel_url_availability: "Independent; this check does not establish a production URL.",
+      resume_command: "pnpm vh -- resume <run-id>",
     };
     const releaseStartedAt = new Date(Date.now() - 1_000).toISOString();
     const releaseGeneratedAt = new Date().toISOString();
@@ -389,7 +459,7 @@ describe("completion-matrix proof integrity", () => {
       writeFileSync(
         join(root, reportPath),
         `${JSON.stringify({
-          profile: "release",
+          profile: "live",
           generated_at: releaseGeneratedAt,
           results,
           summary,
@@ -401,14 +471,14 @@ describe("completion-matrix proof integrity", () => {
       );
     };
     const expectedResults = [
-      { id: "unit_integration", status: "PASS" as const, gap: null },
-      { id: "analytics_readiness", status: "SKIP" as const, gap: completeGap },
-      { id: "live_analytics_readback", status: "SKIP" as const, gap: completeGap },
+      { id: "live_stack_readback", status: "SKIP" as const, gap: completeGap },
     ];
+    const unitCommand = (): CommandEvidenceRecord =>
+      command("PASSED", 0, 1, { id: "final-unit-tests", command: "pnpm test", artifacts: [] });
     const releaseCommand = (): CommandEvidenceRecord =>
       command("FAILED", 1, 1, {
-        id: "final-verify-release",
-        command: "pnpm verify:release -- --report reports/audit/quality-release.json",
+        id: "final-verify-live",
+        command: "pnpm verify:live -- --report reports/audit/quality-live.json",
         artifacts: [artifactEvidence(root, reportPath)],
         startedAt: releaseStartedAt,
         endedAt: releaseEndedAt,
@@ -420,16 +490,16 @@ describe("completion-matrix proof integrity", () => {
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       })[0]?.status,
-    ).toBe("EXTERNAL_BLOCKER");
+    ).toBe("IMPLEMENTED_LIVE_VERIFICATION_PENDING");
 
     expect(() =>
       validateAndApplyRequirementProofs({
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [{ ...releaseCommand(), exitCode: 2 }],
+        commands: [{ ...releaseCommand(), exitCode: 2 }, unitCommand()],
       }),
     ).toThrow(/requires FAILED exit 1/u);
 
@@ -442,12 +512,14 @@ describe("completion-matrix proof integrity", () => {
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       }),
     ).toThrow(/SKIPs do not exactly match/u);
 
     const widenedCatalog = structuredClone(releaseCatalog);
-    const widenedVerification = widenedCatalog.proofs[0]!.verification[0]!;
+    const widenedVerification = widenedCatalog.proofs[0]!.verification.find(
+      (entry) => entry.kind === "expected_incomplete_quality_profile",
+    )!;
     if (widenedVerification.kind !== "expected_incomplete_quality_profile") {
       throw new Error("fixture expected an incomplete quality-profile verification");
     }
@@ -457,40 +529,32 @@ describe("completion-matrix proof integrity", () => {
         root,
         baselines: [releaseBaseline],
         catalog: widenedCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       }),
     ).toThrow(/allowlist differs from the reviewed external gaps/u);
 
-    writeReport([
-      expectedResults[0]!,
-      { id: "analytics_readiness", status: "SKIP", gap: null },
-      expectedResults[2]!,
-    ]);
+    writeReport([{ id: "live_stack_readback", status: "SKIP", gap: null }]);
     expect(() =>
       validateAndApplyRequirementProofs({
         root,
         baselines: [releaseBaseline],
         catalog: releaseCatalog,
-        commands: [releaseCommand()],
+        commands: [releaseCommand(), unitCommand()],
       }),
-    ).toThrow(/lacks the four required gap fields/u);
+    ).toThrow(/lacks the required actionable provider-gap fields/u);
   });
 
-  it("appends integrity records to a legacy ledger without rewriting its history", () => {
+  it("records sanitized command evidence against one clean source revision", () => {
     const root = fixtureRoot();
-    const legacyRecord = {
-      id: "runner-integrity",
-      command: "pnpm test",
-      status: "PASSED",
-      exitCode: 0,
-      skipped: false,
-      evidencePath: "reports/audit/command-logs/legacy-check.log",
-    };
-    writeFileSync(
-      join(root, "reports", "audit", "commands-run.json"),
-      `${JSON.stringify({ schemaVersion: 1, branch: "fixture", records: [legacyRecord] })}\n`,
-      "utf8",
-    );
+    const source = initializeGitFixture(root);
+    const initialized = initializeEvidence(root);
+    expect(initialized).toMatchObject({
+      branch: "fixture",
+      sourceSha: source.sourceSha,
+      sourceTree: source.sourceTree,
+      sourceClean: true,
+      records: [],
+    });
     const runner = join(process.cwd(), "scripts", "run-audit-command.mjs");
     const credentialChunks = [
       ["wh", "sec_fixture_abcdefghijklmnop"],
@@ -562,19 +626,31 @@ describe("completion-matrix proof integrity", () => {
     }
     const ledger = JSON.parse(
       readFileSync(join(root, "reports", "audit", "commands-run.json"), "utf8"),
-    ) as { schemaVersion: number; records: CommandEvidenceRecord[] };
-    expect(ledger.schemaVersion).toBe(2);
-    expect(ledger.records[0]).toEqual(legacyRecord);
-    const appended = ledger.records[1]!;
+    ) as {
+      schemaVersion: number;
+      branch: string;
+      sourceSha: string;
+      sourceTree: string;
+      records: CommandEvidenceRecord[];
+    };
+    expect(ledger.schemaVersion).toBe(3);
+    expect(ledger.records).toHaveLength(1);
+    const appended = ledger.records[0]!;
     expect(appended).toMatchObject({
       id: "runner-integrity",
-      attempt: 2,
+      attempt: 1,
       integrityVersion: 1,
       cwd: ".",
       status: "PASSED",
       exitCode: 0,
       artifacts: [{ path: "reports/audit/result.json" }],
+      sourceBranch: "fixture",
+      sourceSha: source.sourceSha,
+      sourceTree: source.sourceTree,
     });
+    expect(appended.evidencePath).toBe(
+      `reports/audit/command-logs/${source.sourceSha}/runner-integrity.attempt-1.log`,
+    );
     const log = readFileSync(join(root, appended.evidencePath));
     expect(digest(log)).toEqual({
       sha256: appended.evidenceSha256,
@@ -588,10 +664,188 @@ describe("completion-matrix proof integrity", () => {
     expect(appended.artifacts?.[0]).toEqual(artifactEvidence(root, "reports/audit/result.json"));
   });
 
+  it("rejects and restores child tampering with the ledger and prior evidence", () => {
+    const root = fixtureRoot();
+    initializeGitFixture(root);
+    initializeEvidence(root);
+    const runner = join(process.cwd(), "scripts", "run-audit-command.mjs");
+    const first = spawnSync(
+      process.execPath,
+      [
+        runner,
+        "--id",
+        "first-proof",
+        "--artifact",
+        "reports/audit/first-proof.json",
+        "--",
+        process.execPath,
+        "-e",
+        'require("node:fs").writeFileSync("reports/audit/first-proof.json", "{\\"ok\\":true}\\n")',
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+    expect(first.status, first.stderr).toBe(0);
+
+    const ledgerPath = join(root, "reports", "audit", "commands-run.json");
+    const ledgerBefore = readFileSync(ledgerPath);
+    const ledger = JSON.parse(ledgerBefore.toString("utf8")) as {
+      records: CommandEvidenceRecord[];
+    };
+    const priorLogPath = join(root, ledger.records[0]!.evidencePath);
+    const priorArtifactPath = join(root, "reports", "audit", "first-proof.json");
+    const priorLog = readFileSync(priorLogPath);
+    const priorArtifact = readFileSync(priorArtifactPath);
+    const tamperScript = [
+      'const fs=require("node:fs")',
+      'const path="reports/audit/commands-run.json"',
+      'const ledger=JSON.parse(fs.readFileSync(path,"utf8"))',
+      'fs.writeFileSync(ledger.records[0].evidencePath,"forged log\\n")',
+      'fs.writeFileSync("reports/audit/first-proof.json","{\\"forged\\":true}\\n")',
+      "ledger.records=[]",
+      'fs.writeFileSync(path,JSON.stringify(ledger)+"\\n")',
+    ].join(";");
+    const second = spawnSync(
+      process.execPath,
+      [runner, "--id", "tamper-attempt", "--", process.execPath, "-e", tamperScript],
+      { cwd: root, encoding: "utf8" },
+    );
+    expect(second.status).toBe(1);
+    expect(second.stderr).toMatch(/ledger changed.*prior evidence changed/su);
+    expect(readFileSync(ledgerPath)).toEqual(ledgerBefore);
+    expect(readFileSync(priorLogPath)).toEqual(priorLog);
+    expect(readFileSync(priorArtifactPath)).toEqual(priorArtifact);
+  });
+
+  it("preserves a useful bounded prefix when command output exceeds the audit-log cap", () => {
+    const root = fixtureRoot();
+    const source = initializeGitFixture(root);
+    initializeEvidence(root);
+    const runner = join(process.cwd(), "scripts", "run-audit-command.mjs");
+    const result = spawnSync(
+      process.execPath,
+      [
+        runner,
+        "--id",
+        "large-output",
+        "--",
+        process.execPath,
+        "-e",
+        'process.stdout.write("useful-prefix\\n" + "x".repeat(6 * 1024 * 1024))',
+      ],
+      { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const ledger = JSON.parse(
+      readFileSync(join(root, "reports", "audit", "commands-run.json"), "utf8"),
+    ) as { records: CommandEvidenceRecord[] };
+    const record = ledger.records[0]!;
+    expect(record).toMatchObject({
+      outputTruncated: true,
+      sourceSha: source.sourceSha,
+    });
+    const log = readFileSync(join(root, record.evidencePath), "utf8");
+    expect(log).toContain("useful-prefix");
+    expect(log).toContain("[AUDIT LOG CONTENT OMITTED AFTER EXCEEDING 5 MiB]");
+    expect(log.length).toBeGreaterThan(1024 * 1024);
+    expect(log.length).toBeLessThan(5 * 1024 * 1024 + 200);
+    const truncatedCatalog = catalog();
+    truncatedCatalog.commandContracts = {
+      "large-output": { command: record.command, cwd: ".", artifacts: [] },
+    };
+    const verification = truncatedCatalog.proofs[0]?.verification[0];
+    if (!verification || verification.kind !== "test") {
+      throw new Error("fixture lacks test verification");
+    }
+    verification.commandId = "large-output";
+    expect(() =>
+      validateAndApplyRequirementProofs({
+        root,
+        baselines: [baseline],
+        catalog: truncatedCatalog,
+        commands: [record],
+      }),
+    ).toThrow(/truncated/u);
+  });
+
+  it("rejects legacy ledgers, dirty initialization, and command source drift", () => {
+    const runner = join(process.cwd(), "scripts", "run-audit-command.mjs");
+    const initializer = join(process.cwd(), "scripts", "initialize-final-evidence.mjs");
+
+    const legacyRoot = fixtureRoot();
+    initializeGitFixture(legacyRoot);
+    writeFileSync(
+      join(legacyRoot, "reports", "audit", "commands-run.json"),
+      `${JSON.stringify({ schemaVersion: 2, branch: "fixture", records: [] })}\n`,
+      "utf8",
+    );
+    const legacy = spawnSync(
+      process.execPath,
+      [runner, "--id", "legacy", "--", process.execPath, "-e", 'console.log("no")'],
+      { cwd: legacyRoot, encoding: "utf8" },
+    );
+    expect(legacy.status).toBe(1);
+    expect(legacy.stderr).toMatch(/source-bound schema 3/u);
+
+    const dirtyRoot = fixtureRoot();
+    initializeGitFixture(dirtyRoot);
+    writeFileSync(join(dirtyRoot, "tests", "control.test.ts"), "// drifted\n", "utf8");
+    const dirty = spawnSync(process.execPath, [initializer], {
+      cwd: dirtyRoot,
+      encoding: "utf8",
+      env: { ...process.env, VH_EVIDENCE_SOURCE_BRANCH: "fixture" },
+    });
+    expect(dirty.status).toBe(1);
+    expect(dirty.stderr).toMatch(/source drift detected/u);
+    expect(existsSync(join(dirtyRoot, "reports", "audit", "commands-run.json"))).toBe(false);
+
+    const mismatchRoot = fixtureRoot();
+    initializeGitFixture(mismatchRoot);
+    const mismatch = spawnSync(process.execPath, [initializer], {
+      cwd: mismatchRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VH_EVIDENCE_SOURCE_SHA: "0".repeat(40),
+        VH_EVIDENCE_SOURCE_BRANCH: "fixture",
+      },
+    });
+    expect(mismatch.status).toBe(1);
+    expect(mismatch.stderr).toMatch(/source SHA mismatch/u);
+
+    const driftRoot = fixtureRoot();
+    initializeGitFixture(driftRoot);
+    initializeEvidence(driftRoot);
+    const drift = spawnSync(
+      process.execPath,
+      [
+        runner,
+        "--id",
+        "source-drift",
+        "--",
+        process.execPath,
+        "-e",
+        'require("node:fs").writeFileSync("tests/control.test.ts", "// changed by command\\n")',
+      ],
+      { cwd: driftRoot, encoding: "utf8" },
+    );
+    expect(drift.status).toBe(1);
+    expect(drift.stderr).toMatch(/source drift detected: tests\/control\.test\.ts/u);
+    const driftLedger = JSON.parse(
+      readFileSync(join(driftRoot, "reports", "audit", "commands-run.json"), "utf8"),
+    ) as { records: CommandEvidenceRecord[] };
+    expect(driftLedger.records[0]).toMatchObject({
+      id: "source-drift",
+      status: "FAILED",
+      exitCode: 1,
+    });
+  });
+
   it("canonicalizes an in-repository runner cwd and rejects an outside cwd before execution", () => {
     const root = fixtureRoot();
     const runner = join(process.cwd(), "scripts", "run-audit-command.mjs");
     mkdirSync(join(root, "nested"));
+    initializeGitFixture(root);
+    initializeEvidence(root);
     const inside = spawnSync(
       process.execPath,
       [
@@ -966,10 +1220,15 @@ describe("completion-matrix proof integrity", () => {
       ),
     ) as { requirements: RequirementBaseline[] };
     expect(reviewed.schemaVersion).toBe(2);
-    expect(reviewed.proofs).toHaveLength(174);
-    expect(new Set(reviewed.proofs.map(({ id }) => id)).size).toBe(174);
+    expect(reviewed.proofs).toHaveLength(175);
+    expect(new Set(reviewed.proofs.map(({ id }) => id)).size).toBe(175);
+    // The committed matrix is the previous immutable evidence snapshot. The
+    // source-bound final-evidence run adds QUAL-020 only after its live attempt
+    // has generated and hashed quality-live.json.
     expect(
-      reviewed.proofs.map(({ id, priority, requirement }) => ({ id, priority, requirement })),
+      reviewed.proofs
+        .filter(({ id }) => id !== "QUAL-020")
+        .map(({ id, priority, requirement }) => ({ id, priority, requirement })),
     ).toEqual(
       matrix.requirements.map(({ id, priority, requirement }) => ({ id, priority, requirement })),
     );
@@ -988,6 +1247,10 @@ describe("completion-matrix proof integrity", () => {
       /liveVerificationPending|fixtureVerified|integrationVerified|function terminalStatus/u,
     );
     expect(renderer).toContain("validateAndApplyRequirementProofs");
+    expect(renderer).toContain("validateFinalEvidenceLedger");
+    expect(renderer).toContain("assertFinalEvidenceSource");
+    expect(renderer).toContain("sourceSha: commandLedger.sourceSha");
+    expect(renderer).toContain("sourceTree: commandLedger.sourceTree");
 
     const verificationCommandIds = [
       ...new Set(
@@ -1002,7 +1265,9 @@ describe("completion-matrix proof integrity", () => {
         ...new Set(Object.values(reviewed.commandContracts).flatMap(({ artifacts }) => artifacts)),
       ].sort(),
     ).toEqual([
+      "reports/audit/quality-live.json",
       "reports/audit/quality-release.json",
+      "reports/audit/seed-closure.json",
       "reports/audit/winner-loop-creative-trace.json",
     ]);
     for (const proof of reviewed.proofs) {
@@ -1020,18 +1285,25 @@ describe("completion-matrix proof integrity", () => {
       }
     }
 
+    // The founder-alpha release gate is proved by an ordinary passing report.
+    // It must never rest on an expected-INCOMPLETE profile: that would make a
+    // code-complete alpha permanently unable to show a green release gate.
     const releaseProof = reviewed.proofs.find(({ id }) => id === "QUAL-013");
+    expect(
+      releaseProof?.verification.some(
+        (entry) => entry.kind === "expected_incomplete_quality_profile",
+      ),
+    ).toBe(false);
     expect(releaseProof).toMatchObject({
-      status: "EXTERNAL_BLOCKER",
-      evidenceCeiling: "EXTERNAL_BLOCKER",
+      status: "VERIFIED_INTEGRATION",
+      evidenceCeiling: "LOCAL_INTEGRATION",
       verification: expect.arrayContaining([
         {
-          kind: "expected_incomplete_quality_profile",
+          kind: "artifact",
           path: "reports/audit/quality-release.json",
+          jsonPath: "status",
+          expected: "PASS",
           commandId: "final-verify-release",
-          profile: "release",
-          expectedStatus: "INCOMPLETE",
-          allowedSkipIds: ["analytics_readiness", "live_analytics_readback"],
         },
       ]),
     });
@@ -1039,7 +1311,30 @@ describe("completion-matrix proof integrity", () => {
     expect(reviewed.commandContracts["final-verify-release"]).toEqual({
       command: "pnpm verify:release -- --report reports/audit/quality-release.json",
       cwd: ".",
-      artifacts: ["reports/audit/quality-release.json"],
+      artifacts: ["reports/audit/quality-release.json", "reports/audit/seed-closure.json"],
     });
+    const liveProof = reviewed.proofs.find(({ id }) => id === "QUAL-020");
+    expect(liveProof).toMatchObject({
+      status: "IMPLEMENTED_LIVE_VERIFICATION_PENDING",
+      evidenceCeiling: "IMPLEMENTATION_ONLY",
+      liveVerification: { attempted: false, profileAttempted: true },
+      verification: expect.arrayContaining([
+        {
+          kind: "expected_incomplete_quality_profile",
+          path: "reports/audit/quality-live.json",
+          commandId: "final-verify-live",
+          profile: "live",
+          expectedStatus: "INCOMPLETE",
+          allowedSkipIds: ["live_stack_readback"],
+        },
+      ]),
+    });
+    expect(reviewed.commandContracts["final-verify-live"]).toEqual({
+      command: "pnpm verify:live -- --report reports/audit/quality-live.json",
+      cwd: ".",
+      artifacts: ["reports/audit/quality-live.json"],
+    });
+    expect(reviewed.branch).toBe("sol/vh-v0.2-launch-dogfood");
+    expect(renderer).not.toContain("sol/vh-core-v0.2-winner-loop");
   });
 });

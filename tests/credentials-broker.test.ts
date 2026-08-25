@@ -74,6 +74,7 @@ describe("credential broker", () => {
       ok: true,
       accountId: "acct_example",
       scopes: ["products:write"],
+      providerMode: "test",
       message: `Bearer ${secret}`,
       details: { authorization: secret },
     }));
@@ -81,6 +82,7 @@ describe("credential broker", () => {
       ok: true,
       accountId: "acct_example",
       scopes: ["products:write"],
+      providerMode: "test",
       message: "Bearer [REDACTED]",
       details: { authorization: "[REDACTED]" },
     });
@@ -89,6 +91,7 @@ describe("credential broker", () => {
       accountId: "acct_example",
       scopes: ["products:write"],
       testStatus: "passed",
+      providerMode: "test",
     });
 
     await expect(broker.revoke("cred://stripe/primary")).resolves.toMatchObject({
@@ -254,7 +257,7 @@ describe("credential broker", () => {
     ).rejects.toMatchObject({ code: "backend_read_only" });
   });
 
-  it("uses direct macOS Keychain argv and marks the secret argument sensitive", async () => {
+  it("writes macOS Keychain values through hidden stdin, never argv", async () => {
     const raw = "keychain-secret";
     const runner = new RecordingRunner((invocation) => {
       if (invocation.args.includes("-w") && invocation.args[0] === "find-generic-password") {
@@ -275,12 +278,14 @@ describe("credential broker", () => {
     const write = runner.invocations[0];
     expect(write.command).toBe("/usr/bin/security");
     expect(write.command).not.toMatch(/\s|sh$/);
-    expect(write.args.at(-1)).toBe(raw);
-    expect(write.sensitiveArgs).toEqual([write.args.length - 1]);
+    expect(write.args.at(-1)).toBe("-w");
+    expect(write.args).not.toContain(raw);
+    expect(write.stdin).toBe(`${raw}\n`);
+    expect(write.sensitiveStdin).toBe(true);
     expect(await broker.withSecret("cred://github/keychain", async (value) => value)).toBe(raw);
   });
 
-  it("supports optional 1Password command storage without a shell", async () => {
+  it("supports optional 1Password JSON-template storage without secret argv", async () => {
     const runner = new RecordingRunner((invocation) =>
       invocation.args.includes("--reveal")
         ? { exitCode: 0, stdout: "op-secret\n", stderr: "" }
@@ -302,17 +307,42 @@ describe("credential broker", () => {
 
     expect(runner.invocations[0]).toMatchObject({
       command: "op",
-      args: [
-        "item",
-        "edit",
-        "GitHub automation",
-        "--vault",
-        "Venture Harness",
-        "credential=op-secret",
-      ],
-      sensitiveArgs: [5],
+      args: ["item", "edit", "GitHub automation", "--vault", "Venture Harness"],
+      sensitiveStdin: true,
+    });
+    expect(runner.invocations[0].args).not.toContain("op-secret");
+    expect(JSON.parse(runner.invocations[0].stdin ?? "{}")).toMatchObject({
+      category: "API_CREDENTIAL",
+      fields: [{ label: "credential", type: "CONCEALED", value: "op-secret" }],
     });
     expect(await broker.withSecret("cred://github/onepassword", async (v) => v)).toBe("op-secret");
+  });
+
+  it("creates a missing 1Password item from hidden JSON stdin", async () => {
+    const runner = new RecordingRunner((invocation) =>
+      invocation.args[1] === "edit"
+        ? { exitCode: 1, stdout: "", stderr: "not found" }
+        : { exitCode: 0, stdout: "{}", stderr: "" },
+    );
+    const backend = new OnePasswordCredentialBackend({ runner });
+    const broker = new CredentialBroker([backend]);
+
+    await broker.store({
+      ref: "cred://stripe/founder-default",
+      provider: "stripe",
+      kind: "restricted_api_key",
+      backend: "onepassword",
+      value: "fixture-new-item-secret",
+    });
+
+    expect(runner.invocations.map(({ args }) => args.slice(0, 3))).toEqual([
+      ["item", "edit", "cred://stripe/founder-default"],
+      ["item", "create", "-"],
+    ]);
+    for (const invocation of runner.invocations) {
+      expect(invocation.args).not.toContain("fixture-new-item-secret");
+      expect(invocation.sensitiveStdin).toBe(true);
+    }
   });
 });
 

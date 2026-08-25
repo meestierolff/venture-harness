@@ -26,19 +26,28 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pin the scanner, not just the action. The action's default 8.24.3
+          # ignores the value-scoped allowlist in .gitleaks.toml and reports
+          # every reviewed synthetic canary, while final-evidence.yml and local
+          # runs use 8.30.1 and pass. One repository must not run two scanner
+          # versions with different config support.
+          GITLEAKS_VERSION: 8.30.1
+          # This job has contents:read, so the action cannot write PR comments.
+          # Leaving them enabled produced one permission warning per finding.
+          GITLEAKS_ENABLE_COMMENTS: false
 
   package-and-public-surface:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - name: Inspect working tree and package manifest
         run: pnpm release:check
       - name: Reject high-severity production dependency advisories

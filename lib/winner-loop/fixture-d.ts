@@ -521,8 +521,8 @@ export async function runFixtureD(options: FixtureDOptions): Promise<FixtureDRes
   });
   const publicationExecution = await executeProvider({
     feature: "organic_publish_direct",
-    operationId: "fixture-organic-publish-1",
-    idempotencyKey: "fixture-organic-publish-1",
+    operationId: "fixture-organic-post-1",
+    idempotencyKey: "fixture-organic-post-1",
     payload: {
       creative_id: variant.creativeId,
       delivery_variant_id: delivery.deliveryVariantId,

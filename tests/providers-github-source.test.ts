@@ -1,13 +1,30 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  ensureVerifiedGitHubWorkingRepository,
+  GitLocalSourceSnapshotLoader,
   publishGitHubSource,
+  publishVerifiedGitHubWorkingSource,
   verifyGitHubSource,
   type GitHubBranchState,
   type GitHubRepositoryState,
   type GitHubRepositoryVisibility,
   type GitHubSourceGateway,
   type GitHubTreeEntry,
+  type GitHubWorkingRepositoryCloner,
   type LocalSourceSnapshot,
 } from "@/lib/providers";
 
@@ -125,7 +142,90 @@ function existingGateway(branch: GitHubBranchState): FakeGateway {
   return gateway;
 }
 
+function git(cwd: string, args: readonly string[]): string {
+  const result = spawnSync("git", [...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+function workingRepositoryFixture() {
+  const root = mkdtempSync(join(tmpdir(), "vh-working-repository-"));
+  const publisher = join(root, "publisher");
+  const child = join(root, "child");
+  const remote = join(root, "remote.git");
+  mkdirSync(publisher);
+  mkdirSync(child);
+  for (const directory of [publisher, child]) {
+    writeFileSync(
+      join(directory, ".gitignore"),
+      ".venture/\nreports/\n.env*\n!.env.example\n",
+      "utf8",
+    );
+    writeFileSync(join(directory, "README.md"), "# Verified venture\n", "utf8");
+  }
+  mkdirSync(join(child, ".venture"));
+  mkdirSync(join(child, "reports"));
+  writeFileSync(join(child, ".venture", "state.json"), '{"private":true}\n', "utf8");
+  writeFileSync(join(child, "reports", "launch.json"), '{"private":true}\n', "utf8");
+
+  git(publisher, ["init", "--initial-branch", "main"]);
+  git(publisher, ["config", "user.name", "Venture Harness Test"]);
+  git(publisher, ["config", "user.email", "test@venture-harness.invalid"]);
+  git(publisher, ["add", "--all"]);
+  git(publisher, ["commit", "-m", "test: verified source"]);
+  git(root, ["init", "--bare", remote]);
+  git(publisher, ["remote", "add", "origin", remote]);
+  git(publisher, ["push", "--set-upstream", "origin", "main"]);
+  const commitOid = git(publisher, ["rev-parse", "HEAD"]);
+  return { root, child, remote, commitOid };
+}
+
 describe("GitHub local-source publication", () => {
+  it("snapshots a not-yet-Git child while excluding private runtime state and reports", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-source-snapshot-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# Independent child\n", "utf8");
+      writeFileSync(join(root, ".gitignore"), ".venture/\nreports/\n", "utf8");
+      mkdirSync(join(root, ".venture"));
+      mkdirSync(join(root, "reports"));
+      writeFileSync(join(root, ".venture", "state.json"), '{"private":true}\n', "utf8");
+      writeFileSync(join(root, "reports", "launch.json"), '{"private":true}\n', "utf8");
+
+      const source = await new GitLocalSourceSnapshotLoader().load(root);
+
+      expect(source.blobs.map(({ path }) => path)).toEqual([".gitignore", "README.md"]);
+      expect(source.blobs.map(({ path }) => path)).not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/^(?:\.venture|reports)(?:\/|$)/u)]),
+      );
+      expect(source.treeOid).toMatch(/^[0-9a-f]{40}$/u);
+      expect(existsSync(join(root, ".git"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses private runtime and report paths even if a child ignore file drifts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-source-private-state-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# Unsafe child\n", "utf8");
+      mkdirSync(join(root, "reports"));
+      writeFileSync(join(root, "reports", "launch.json"), '{"private":true}\n', "utf8");
+
+      await expect(new GitLocalSourceSnapshotLoader().load(root)).rejects.toThrow(
+        /reserved runtime path "reports\/launch\.json"/u,
+      );
+      expect(existsSync(join(root, ".git"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates an empty repository, uploads the exact local Git tree, and reads it back", async () => {
     const gateway = new FakeGateway();
     const result = await publishGitHubSource(
@@ -158,6 +258,38 @@ describe("GitHub local-source publication", () => {
       "inspect_repository",
       "inspect_branch",
     ]);
+  });
+
+  it("does not report apply success when the verified working-repository handoff fails", async () => {
+    const gateway = existingGateway({
+      commitOid: sourceCommitOid,
+      treeOid: sourceTreeOid,
+    });
+    // Exercise the Linux CI shape explicitly: /tmp is normally root-owned,
+    // world-writable, and sticky rather than owned by the runner account.
+    const sharedTemporaryRoot = existsSync("/tmp") ? realpathSync("/tmp") : tmpdir();
+    const childRoot = mkdtempSync(join(sharedTemporaryRoot, "vh-source-handoff-failure-"));
+    try {
+      writeFileSync(join(childRoot, "README.md"), "# Verified venture\n", "utf8");
+      await expect(
+        publishVerifiedGitHubWorkingSource(
+          { repository, visibility, rootDir: childRoot },
+          {
+            gateway,
+            snapshots: { load: async () => snapshot },
+            cloner: {
+              async clone() {
+                throw new Error("synthetic clone handoff unavailable");
+              },
+            },
+          },
+        ),
+      ).rejects.toThrow(/synthetic clone handoff unavailable/);
+      expect(existsSync(join(childRoot, ".git"))).toBe(false);
+      expect(gateway.calls).not.toEqual(expect.arrayContaining(["create_blob", "update_branch"]));
+    } finally {
+      rmSync(childRoot, { recursive: true, force: true });
+    }
   });
 
   it("reconciles an already exact branch without issuing another write", async () => {
@@ -221,5 +353,209 @@ describe("GitHub local-source publication", () => {
         gateway,
       ),
     ).rejects.toThrow(/expected exact commit/);
+  });
+
+  it("installs a normal clean child repository only from verified remote metadata", async () => {
+    const fixture = workingRepositoryFixture();
+    let cloneCalls = 0;
+    const cloner: GitHubWorkingRepositoryCloner = {
+      async clone(input) {
+        cloneCalls += 1;
+        git(fixture.root, [
+          "clone",
+          "--no-checkout",
+          "--single-branch",
+          "--branch",
+          input.branch,
+          fixture.remote,
+          input.destination,
+        ]);
+        git(input.destination, [
+          "remote",
+          "set-url",
+          "origin",
+          `https://github.com/${input.repository}.git`,
+        ]);
+      },
+    };
+
+    try {
+      const installed = await ensureVerifiedGitHubWorkingRepository(
+        {
+          repository,
+          rootDir: fixture.child,
+          branch: "main",
+          commitOid: fixture.commitOid,
+        },
+        { cloner },
+      );
+
+      expect(installed).toEqual({
+        originUrl: `https://github.com/${repository}.git`,
+        branch: "main",
+        head: fixture.commitOid,
+        clean: true,
+      });
+      expect(existsSync(join(fixture.child, ".git"))).toBe(true);
+      expect(git(fixture.child, ["rev-parse", "HEAD"])).toBe(fixture.commitOid);
+      expect(git(fixture.child, ["status", "--porcelain=v1", "--untracked-files=all"])).toBe("");
+      expect(git(fixture.child, ["ls-files", "--", ".venture", "reports"])).toBe("");
+      expect(git(fixture.child, ["check-ignore", ".venture/state.json"])).toBe(
+        ".venture/state.json",
+      );
+      expect(git(fixture.child, ["check-ignore", "reports/launch.json"])).toBe(
+        "reports/launch.json",
+      );
+
+      await ensureVerifiedGitHubWorkingRepository(
+        {
+          repository,
+          rootDir: fixture.child,
+          branch: "main",
+          commitOid: fixture.commitOid,
+        },
+        {
+          cloner: {
+            async clone() {
+              throw new Error("idempotent verification must not clone again");
+            },
+          },
+        },
+      );
+      expect(cloneCalls).toBe(1);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed on a mismatched clone or an unrelated existing repository", async () => {
+    const fixture = workingRepositoryFixture();
+    const cloner: GitHubWorkingRepositoryCloner = {
+      async clone(input) {
+        git(fixture.root, [
+          "clone",
+          "--no-checkout",
+          "--single-branch",
+          "--branch",
+          input.branch,
+          fixture.remote,
+          input.destination,
+        ]);
+        git(input.destination, [
+          "remote",
+          "set-url",
+          "origin",
+          `https://github.com/${input.repository}.git`,
+        ]);
+      },
+    };
+
+    try {
+      await expect(
+        ensureVerifiedGitHubWorkingRepository(
+          {
+            repository,
+            rootDir: fixture.child,
+            branch: "main",
+            commitOid: "f".repeat(40),
+          },
+          { cloner },
+        ),
+      ).rejects.toThrow(/does not match verified remote HEAD/);
+      expect(existsSync(join(fixture.child, ".git"))).toBe(false);
+
+      await ensureVerifiedGitHubWorkingRepository(
+        {
+          repository,
+          rootDir: fixture.child,
+          branch: "main",
+          commitOid: fixture.commitOid,
+        },
+        { cloner },
+      );
+      git(fixture.child, [
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/example/unrelated.git",
+      ]);
+      await expect(
+        ensureVerifiedGitHubWorkingRepository({
+          repository,
+          rootDir: fixture.child,
+          branch: "main",
+          commitOid: fixture.commitOid,
+        }),
+      ).rejects.toThrow(/origin does not match verified repository/);
+      expect(git(fixture.child, ["rev-parse", "HEAD"])).toBe(fixture.commitOid);
+
+      git(fixture.child, ["remote", "set-url", "origin", `https://github.com/${repository}.git`]);
+      writeFileSync(join(fixture.child, "README.md"), "# Local uncommitted change\n", "utf8");
+      await expect(
+        ensureVerifiedGitHubWorkingRepository({
+          repository,
+          rootDir: fixture.child,
+          branch: "main",
+          commitOid: fixture.commitOid,
+        }),
+      ).rejects.toThrow(/working tree is not clean/);
+      expect(git(fixture.child, ["rev-parse", "HEAD"])).toBe(fixture.commitOid);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not install .git when the checked child is swapped before metadata rename", async () => {
+    const fixture = workingRepositoryFixture();
+    const outside = mkdtempSync(join(tmpdir(), "vh-working-repository-race-outside-"));
+    const originalChild = join(fixture.root, "child-before-race");
+    let swapped = false;
+    const cloner: GitHubWorkingRepositoryCloner = {
+      async clone(input) {
+        git(fixture.root, [
+          "clone",
+          "--no-checkout",
+          "--single-branch",
+          "--branch",
+          input.branch,
+          fixture.remote,
+          input.destination,
+        ]);
+        git(input.destination, [
+          "remote",
+          "set-url",
+          "origin",
+          `https://github.com/${input.repository}.git`,
+        ]);
+      },
+    };
+
+    try {
+      await expect(
+        ensureVerifiedGitHubWorkingRepository(
+          {
+            repository,
+            rootDir: fixture.child,
+            branch: "main",
+            commitOid: fixture.commitOid,
+          },
+          {
+            cloner,
+            pathSecurityHook(event) {
+              if (event !== "before-child-git-install" || swapped) return;
+              swapped = true;
+              renameSync(fixture.child, originalChild);
+              symlinkSync(outside, fixture.child, "dir");
+            },
+          },
+        ),
+      ).rejects.toThrow(/non-symlink directory|symbolic-link alias|changed/i);
+      expect(swapped).toBe(true);
+      expect(existsSync(join(outside, ".git"))).toBe(false);
+      expect(existsSync(join(originalChild, ".git"))).toBe(false);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

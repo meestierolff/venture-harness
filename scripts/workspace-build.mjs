@@ -27,9 +27,26 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 function parseArguments(args) {
   let target;
   let sourceCommit;
+  let packagesOnly = false;
+  let skipCli = false;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--") continue;
+    // Build every workspace package without touching the root CLI. The CLI
+    // build asserts that the working tree matches a reviewed source commit,
+    // which is correct for a release but wrong for a changed-surface gate that
+    // must run against uncommitted work.
+    if (argument === "--skip-cli") {
+      skipCli = true;
+      continue;
+    }
+    // Prepare only the package entrypoints imported by root TypeScript
+    // commands. Apps and the reviewed root CLI bundle belong to the full
+    // workspace/release build, not to clean-install bootstrap.
+    if (argument === "--packages-only") {
+      packagesOnly = true;
+      continue;
+    }
     if (argument === "--source-commit") {
       if (sourceCommit !== undefined || !args[index + 1] || args[index + 1] === "--") {
         throw new Error("--source-commit requires exactly one full reviewed Git commit SHA");
@@ -42,13 +59,19 @@ function parseArguments(args) {
     if (target !== undefined) throw new Error("workspace build accepts at most one package target");
     target = argument;
   }
-  return { target, sourceCommit };
+  if (packagesOnly && skipCli) {
+    throw new Error("--packages-only and --skip-cli are mutually exclusive");
+  }
+  if (packagesOnly && target) {
+    throw new Error("--packages-only does not accept a package target");
+  }
+  return { packagesOnly, target, sourceCommit, skipCli };
 }
 
 function workspaceEntries() {
   const entries = [];
   for (const parent of ["packages", "apps"]) {
-    for (const name of readdirSync(resolve(root, parent))) {
+    for (const name of readdirSync(resolve(root, parent)).sort()) {
       const directory = resolve(root, parent, name);
       if (!statSync(directory).isDirectory()) continue;
       const manifestPath = join(directory, "package.json");
@@ -159,8 +182,15 @@ function visit(entry) {
 }
 for (const entry of entries) visit(entry);
 
-const { target, sourceCommit: requestedSourceCommit } = parseArguments(process.argv.slice(2));
-let selected = ordered;
+const {
+  packagesOnly,
+  target,
+  sourceCommit: requestedSourceCommit,
+  skipCli,
+} = parseArguments(process.argv.slice(2));
+let selected = packagesOnly
+  ? ordered.filter((entry) => entry.directory.startsWith(resolve(root, "packages")))
+  : ordered;
 if (target) {
   const requested = entries.find(
     (entry) =>
@@ -183,7 +213,15 @@ if (target) {
 }
 
 const buildsRootCli =
-  !target || selected.some(({ manifest }) => manifest.name === "@venture-harness/cli-generator");
+  !packagesOnly &&
+  !skipCli &&
+  (!target || selected.some(({ manifest }) => manifest.name === "@venture-harness/cli-generator"));
+if (skipCli && requestedSourceCommit) {
+  throw new Error("--skip-cli and --source-commit are mutually exclusive");
+}
+if (packagesOnly && requestedSourceCommit) {
+  throw new Error("--packages-only and --source-commit are mutually exclusive");
+}
 if (requestedSourceCommit && !buildsRootCli) {
   throw new Error("--source-commit is valid only when the selected build includes the root CLI");
 }

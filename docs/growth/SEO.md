@@ -16,10 +16,9 @@ exports are an explicit fallback, not the default source.
 <!-- One row per indexable route. "Answer block" = the plain-HTML direct
      answer in the first viewport. -->
 
-| Page     | Primary query | Secondary queries | Intent        | Title | H1  | Answer block | Internal links | Structured data | Conversion goal         | Current performance | Status   | Evidence source |
-| -------- | ------------- | ----------------- | ------------- | ----- | --- | ------------ | -------------- | --------------- | ----------------------- | ------------------- | -------- | --------------- |
-| /        | —             | —                 | commercial    | —     | —   | —            | —              | Organization    | qualification_completed | —                   | template | —               |
-| /pricing | —             | —                 | transactional | —     | —   | —            | —              | Product+Offer   | plan_selected           | —                   | template | —               |
+| Page | Primary query | Secondary queries | Intent     | Title | H1  | Answer block | Internal links | Structured data | Conversion goal         | Current performance | Status   | Evidence source |
+| ---- | ------------- | ----------------- | ---------- | ----- | --- | ------------ | -------------- | --------------- | ----------------------- | ------------------- | -------- | --------------- |
+| /    | —             | —                 | commercial | —     | —   | —            | —              | Organization    | qualification_completed | —                   | template | —               |
 
 ## Query opportunities
 

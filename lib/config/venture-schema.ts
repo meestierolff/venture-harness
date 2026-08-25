@@ -52,6 +52,12 @@ const outcomeSchema = z
   })
   .strict();
 
+const optionalValidationStrategySchema = legacyVentureSchema.shape.validation.extend({
+  minimum_days: z.number().int().min(1).nullable(),
+  target_days: z.number().int().min(1).nullable(),
+  maximum_days: z.number().int().min(1).nullable(),
+});
+
 export const ventureV02Schema = z
   .object({
     venture: z
@@ -133,7 +139,7 @@ export const ventureV02Schema = z
       .passthrough(),
     // Kept as an optional strategy for validate_first and as a compatibility
     // surface for v0.1 tooling. It is no longer a universal launch gate.
-    validation: legacyVentureSchema.shape.validation,
+    validation: optionalValidationStrategySchema,
     // Deprecated compatibility view. Provider lifecycle state lives in
     // config/providers.yaml; this record is retained until downstream scripts migrate.
     infrastructure: z.record(z.boolean()),

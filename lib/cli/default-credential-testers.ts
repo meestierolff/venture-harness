@@ -140,7 +140,7 @@ export function createDefaultFounderCredentialTesters(options: {
 }): Partial<Record<string, CredentialTester>> {
   const testers: Partial<Record<string, CredentialTester>> = {};
   for (const provider of ["neon", "stripe", "revenuecat", "brevo", "google", "bing"] as const) {
-    testers[provider] = async (secret: string, reference: CredentialReference) => {
+    testers[provider] = async (secret: string, reference: CredentialReference, context) => {
       const probe = probeFor(provider, secret, options.connection ?? null);
       if (!probe || reference.provider !== provider) {
         return { ok: false, message: `${provider} credential metadata does not match the probe` };
@@ -151,6 +151,7 @@ export function createDefaultFounderCredentialTesters(options: {
         headers: probe.headers,
         sensitiveHeaders: probe.sensitiveHeaders,
         sensitiveUrl: probe.sensitiveUrl ?? false,
+        signal: context?.signal,
       };
       try {
         const response = await options.fetcher.fetch(request);
@@ -164,6 +165,24 @@ export function createDefaultFounderCredentialTesters(options: {
               : `${provider} credential probe returned HTTP ${response.status}`,
           };
         }
+        if (provider === "stripe") {
+          const balance = await options.fetcher.fetch({
+            ...request,
+            url: "https://api.stripe.com/v1/balance",
+          });
+          if (balance.status < 200 || balance.status >= 300) {
+            return {
+              ok: false,
+              message: `stripe credential test-mode probe returned HTTP ${balance.status}`,
+            };
+          }
+          if (record(balance.body)?.livemode !== false) {
+            return {
+              ok: false,
+              message: "stripe credential did not prove test mode",
+            };
+          }
+        }
         return {
           ok: true,
           // Organization/project/property targets prove access to the selected
@@ -174,6 +193,7 @@ export function createDefaultFounderCredentialTesters(options: {
           ...((provider === "stripe" || provider === "brevo") && probe.accountId
             ? { accountId: probe.accountId }
             : {}),
+          ...(provider === "stripe" ? { providerMode: "test" as const } : {}),
           message: `${provider} credential passed a read-only official API probe`,
         };
       } catch {

@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test("public journey, consent choice, and pricing evidence controls work", async ({ page }) => {
+test("public journey and consent controls work", async ({ page }) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   page.on("console", (message) => {
@@ -27,16 +27,6 @@ test("public journey, consent choice, and pricing evidence controls work", async
   await expect(consent.getByRole("button", { name: "Allow analytics" })).toBeVisible();
   await consent.getByRole("button", { name: "Decline" }).click();
   await expect(consent).toBeHidden();
-
-  await page.getByRole("link", { name: /pricing-evidence demo/i }).click();
-  await expect(page).toHaveURL(/\/pricing$/);
-  await expect(page.getByRole("heading", { level: 1, name: /Pricing/ })).toBeVisible();
-
-  const annual = page.getByRole("button", { name: "Annual" });
-  await annual.click();
-  await expect(annual).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Annual price not set", { exact: false }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Select (records evidence)" }).first().click();
 
   await page.getByRole("button", { name: "Analytics settings" }).click();
   await expect(consent).toBeVisible();

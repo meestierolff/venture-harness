@@ -10,6 +10,7 @@ import {
   operationId,
   optionalNumber,
   optionalString,
+  stableHash,
 } from "./plan-helpers";
 import type {
   JsonValue,
@@ -37,13 +38,28 @@ interface OperationInput {
   command?: ProviderOperation["command"];
   http?: ProviderOperation["http"];
   manual?: ProviderOperation["manual"];
+  existingResource?: ProviderOperation["existingResource"];
   readBack?: ProviderOperation["readBack"];
   verification: ProviderOperation["verification"];
   estimatedCost?: ProviderOperation["estimatedCost"];
   emailRecipientCount?: number;
 }
 
+export const STRIPE_API_VERSION = "2026-07-29.dahlia" as const;
+
+function versionedStripeHttp(
+  provider: ProviderId,
+  spec: ProviderOperation["http"],
+): ProviderOperation["http"] {
+  if (!spec || provider !== "stripe") return spec;
+  return {
+    ...spec,
+    headers: { ...spec.headers, "Stripe-Version": STRIPE_API_VERSION },
+  };
+}
+
 function operation(request: ProviderPlanRequest, input: OperationInput): ProviderOperation {
+  const http = versionedStripeHttp(input.provider, input.http);
   const id = operationId(input.provider, input.action, {
     environment: request.environment,
     identity: input.identity,
@@ -64,14 +80,27 @@ function operation(request: ProviderPlanRequest, input: OperationInput): Provide
     idempotencyKey: idempotencyKey(input.provider, request.environment, input.action, {
       identity: input.identity,
       command: input.command,
-      http: input.http,
+      http,
       manual: input.manual,
     }),
     dependsOn: input.dependsOn ?? [],
     command: input.command,
-    http: input.http,
+    http,
     manual: input.manual,
-    readBack: input.readBack,
+    existingResource:
+      input.existingResource?.http && input.provider === "stripe"
+        ? {
+            ...input.existingResource,
+            http: versionedStripeHttp(input.provider, input.existingResource.http)!,
+          }
+        : input.existingResource,
+    readBack:
+      input.readBack?.http && input.provider === "stripe"
+        ? {
+            ...input.readBack,
+            http: versionedStripeHttp(input.provider, input.readBack.http)!,
+          }
+        : input.readBack,
     verification: input.verification,
     estimatedCost: input.estimatedCost,
     emailRecipientCount: input.emailRecipientCount,
@@ -148,6 +177,17 @@ export function buildGitHubPlan(request: ProviderPlanRequest): ProviderPlan {
             { path: "branch", operator: "equals", expected: "{result.branch}" },
             { path: "commitOid", operator: "equals", expected: "{result.commitOid}" },
             { path: "treeOid", operator: "equals", expected: "{result.treeOid}" },
+            {
+              path: "workingRepository.branch",
+              operator: "equals",
+              expected: "{result.branch}",
+            },
+            {
+              path: "workingRepository.head",
+              operator: "equals",
+              expected: "{result.commitOid}",
+            },
+            { path: "workingRepository.clean", operator: "equals", expected: true },
           ],
         },
         verification: {
@@ -383,28 +423,41 @@ export function buildVercelPlan(request: ProviderPlanRequest): ProviderPlan {
   }
   if (hasCapability(request, "environment_variable")) {
     const project = inputString(request, "project");
+    const scope = optionalString(request, "scope");
     const name = inputString(request, "environmentVariableName");
     const target = optionalString(request, "environmentTarget") ?? "production";
-    const valueRef = credentialInput(request, "environmentValueCredentialRef");
+    const publicValue = optionalString(request, "environmentPublicValue");
+    const valueRef = publicValue
+      ? undefined
+      : credentialInput(request, "environmentValueCredentialRef");
+    if (publicValue?.startsWith("cred://") || publicValue?.includes("\n")) {
+      throw new Error("Vercel public environment values must be bounded public scalar values");
+    }
+    const args = ["env", "add", name, target, "--force", "--yes", "--project", project];
+    if (scope) args.push("--scope", scope);
+    if (publicValue) args.push("--value", publicValue, "--no-sensitive");
     operations.push(
       operation(request, {
         provider: "vercel",
         capability: "environment_variable",
         action: "environment_variable.set",
         title: `Set Vercel environment variable ${name}`,
-        identity: { project, name, target },
+        identity: { project, scope, name, target, publicValue },
         riskClass: "critical",
         effectClass: "reversible_external",
         reversibility: "conditionally_reversible",
         credentialRef: request.credentialRef,
         command: {
           binary: "vercel",
-          args: ["env", "add", name, target, "--force"],
-          stdinCredentialRef: valueRef,
+          args,
+          ...(valueRef ? { stdinCredentialRef: valueRef } : {}),
         },
         readBack: {
           transport: "cli",
-          command: { binary: "vercel", args: ["env", "ls", target] },
+          command: {
+            binary: "vercel",
+            args: ["env", "ls", target, "--project", project, ...(scope ? ["--scope", scope] : [])],
+          },
           description: "Vercel lists the variable name and target; its value remains unreadable",
           assertions: [{ path: "", operator: "contains", expected: name }],
         },
@@ -419,6 +472,7 @@ export function buildVercelPlan(request: ProviderPlanRequest): ProviderPlan {
     const production = request.environment === "production";
     const project = optionalString(request, "project");
     const scope = optionalString(request, "scope");
+    const deploymentPhase = optionalString(request, "deploymentPhase");
     const args = ["deploy", "--yes", "--format=json"];
     if (project) args.push("--project", project);
     if (scope) args.push("--scope", scope);
@@ -432,7 +486,7 @@ export function buildVercelPlan(request: ProviderPlanRequest): ProviderPlan {
         capability: "deployment",
         action: production ? "deployment.production" : "deployment.preview",
         title: `Create a ${production ? "production" : "preview"} deployment`,
-        identity: { project, scope, production },
+        identity: { project, scope, production, deploymentPhase },
         riskClass: production ? "critical" : "high",
         effectClass: "reversible_external",
         reversibility: "conditionally_reversible",
@@ -953,20 +1007,94 @@ function stripeAuth(request: ProviderPlanRequest) {
   return { scheme: "basic" as const, credentialRef: credentialInput(request) };
 }
 
+function stripeVentureIdentity(request: ProviderPlanRequest): {
+  ventureSlug: string;
+  accountId: string;
+  mode: "test" | "live";
+  livemode: boolean;
+} {
+  const ventureSlug = inputString(request, "ventureSlug");
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(ventureSlug) || ventureSlug.length > 63) {
+    throw new Error("Stripe ventureSlug must be one canonical lowercase venture slug");
+  }
+  const mode =
+    optionalString(request, "stripeMode") ?? (request.environment === "sandbox" ? "test" : "live");
+  if (mode !== "test" && mode !== "live") {
+    throw new Error("Stripe stripeMode must be test or live");
+  }
+  if (
+    (mode === "test" && request.environment !== "sandbox") ||
+    (mode === "live" && request.environment !== "production")
+  ) {
+    throw new Error(`Stripe ${mode} mode does not match ${request.environment} environment`);
+  }
+  return {
+    ventureSlug,
+    accountId: inputString(request, "stripeAccountId"),
+    mode,
+    livemode: mode === "live",
+  };
+}
+
+function stripeCredentialPreflight(
+  accountId: string,
+  livemode: boolean,
+): NonNullable<ProviderOperation["http"]>["credentialPreflight"] {
+  return {
+    requests: [
+      {
+        url: "https://api.stripe.com/v1/account",
+        assertions: [{ path: "id", operator: "equals", expected: accountId }],
+      },
+      {
+        url: "https://api.stripe.com/v1/balance",
+        assertions: [{ path: "livemode", operator: "equals", expected: livemode }],
+      },
+    ],
+  };
+}
+
+function stripeMetadata(
+  ventureSlug: string,
+  resource: "product" | "price" | "webhook" | "billing_portal",
+  lookupKey: string,
+): Readonly<Record<string, JsonValue>> {
+  return {
+    venture_harness_venture: ventureSlug,
+    venture_harness_resource: resource,
+    venture_harness_lookup_key: lookupKey,
+  };
+}
+
+function stripeSearchUrl(resource: "products" | "prices", query: string): string {
+  const url = new URL(`https://api.stripe.com/v1/${resource}/search`);
+  url.searchParams.set("query", query);
+  url.searchParams.set("limit", "10");
+  return url.toString();
+}
+
 export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
   const operations: ProviderOperation[] = [];
+  const { ventureSlug, accountId, mode, livemode } = stripeVentureIdentity(request);
   let productOperationId: string | undefined;
   if (hasCapability(request, "product")) {
     const name = inputString(request, "productName");
     const description = optionalString(request, "productDescription");
-    const body: Record<string, JsonValue> = { name };
+    const lookupKey = `vh:${ventureSlug}:product:v1`;
+    const metadata = stripeMetadata(ventureSlug, "product", lookupKey);
+    const body: Record<string, JsonValue> = {
+      id: `vh_${stableHash(lookupKey)}`,
+      name,
+      active: true,
+      metadata,
+    };
     if (description) body.description = description;
     const product = operation(request, {
       provider: "stripe",
       capability: "product",
       action: "product.create",
       title: `Create Stripe product ${name}`,
-      identity: name,
+      identity: { ventureSlug, accountId, lookupKey, name, description, mode },
       riskClass: "high",
       effectClass: "financial",
       reversibility: "conditionally_reversible",
@@ -977,7 +1105,44 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
         body,
         encoding: "form",
         auth: stripeAuth(request),
+        credentialPreflight: stripeCredentialPreflight(accountId, livemode),
         nativeIdempotency: true,
+      },
+      existingResource: {
+        transport: "http",
+        http: {
+          method: "GET",
+          url: stripeSearchUrl("products", `metadata['venture_harness_lookup_key']:'${lookupKey}'`),
+          auth: stripeAuth(request),
+        },
+        candidatesPath: "data",
+        hasMorePath: "has_more",
+        identityAssertions: [
+          {
+            path: "metadata.venture_harness_lookup_key",
+            operator: "equals",
+            expected: lookupKey,
+          },
+        ],
+        stateAssertions: [
+          { path: "name", operator: "equals", expected: name },
+          { path: "active", operator: "equals", expected: true },
+          { path: "livemode", operator: "equals", expected: livemode },
+          {
+            path: "metadata.venture_harness_venture",
+            operator: "equals",
+            expected: ventureSlug,
+          },
+          {
+            path: "metadata.venture_harness_resource",
+            operator: "equals",
+            expected: "product",
+          },
+          ...(description
+            ? [{ path: "description", operator: "equals" as const, expected: description }]
+            : []),
+        ],
+        description: `Locate the deterministic Stripe product for ${ventureSlug}`,
       },
       readBack: {
         transport: "http",
@@ -990,6 +1155,23 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
         assertions: [
           { path: "name", operator: "equals", expected: name },
           { path: "id", operator: "exists" },
+          { path: "active", operator: "equals", expected: true },
+          { path: "livemode", operator: "equals", expected: livemode },
+          {
+            path: "metadata.venture_harness_lookup_key",
+            operator: "equals",
+            expected: lookupKey,
+          },
+          {
+            path: "metadata.venture_harness_venture",
+            operator: "equals",
+            expected: ventureSlug,
+          },
+          {
+            path: "metadata.venture_harness_resource",
+            operator: "equals",
+            expected: "product",
+          },
         ],
       },
       verification: {
@@ -1008,10 +1190,15 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
       throw new Error("Stripe unitAmount must be a non-negative integer in minor units");
     }
     const interval = optionalString(request, "recurringInterval");
+    const lookupKey = `vh_${ventureSlug.replaceAll("-", "_")}_${currency}_${unitAmount}_${interval ?? "once"}`;
+    const metadata = stripeMetadata(ventureSlug, "price", lookupKey);
     const body: Record<string, JsonValue> = {
       product: productId,
       currency,
       unit_amount: unitAmount,
+      active: true,
+      lookup_key: lookupKey,
+      metadata,
     };
     if (interval) body.recurring = { interval };
     operations.push(
@@ -1020,7 +1207,16 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
         capability: "price",
         action: "price.create",
         title: `Create ${currency.toUpperCase()} ${unitAmount} Stripe price`,
-        identity: { productId, currency, unitAmount, interval },
+        identity: {
+          ventureSlug,
+          accountId,
+          lookupKey,
+          productId,
+          currency,
+          unitAmount,
+          interval,
+          mode,
+        },
         riskClass: "critical",
         effectClass: "financial",
         reversibility: "irreversible",
@@ -1032,7 +1228,51 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
           body,
           encoding: "form",
           auth: stripeAuth(request),
+          credentialPreflight: stripeCredentialPreflight(accountId, livemode),
           nativeIdempotency: true,
+        },
+        existingResource: {
+          transport: "http",
+          http: {
+            method: "GET",
+            url: stripeSearchUrl("prices", `lookup_key:'${lookupKey}'`),
+            auth: stripeAuth(request),
+          },
+          candidatesPath: "data",
+          hasMorePath: "has_more",
+          identityAssertions: [{ path: "lookup_key", operator: "equals", expected: lookupKey }],
+          stateAssertions: [
+            { path: "product", operator: "equals", expected: productId },
+            { path: "currency", operator: "equals", expected: currency },
+            { path: "unit_amount", operator: "equals", expected: unitAmount },
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "type",
+              operator: "equals",
+              expected: interval ? "recurring" : "one_time",
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug,
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "price",
+            },
+            ...(interval
+              ? [
+                  {
+                    path: "recurring.interval",
+                    operator: "equals" as const,
+                    expected: interval,
+                  },
+                ]
+              : [{ path: "recurring", operator: "equals" as const, expected: null }]),
+          ],
+          description: `Locate the deterministic Stripe price ${lookupKey}`,
         },
         readBack: {
           transport: "http",
@@ -1046,6 +1286,33 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
             { path: "product", operator: "equals", expected: productId },
             { path: "currency", operator: "equals", expected: currency },
             { path: "unit_amount", operator: "equals", expected: unitAmount },
+            { path: "lookup_key", operator: "equals", expected: lookupKey },
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "type",
+              operator: "equals",
+              expected: interval ? "recurring" : "one_time",
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug,
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "price",
+            },
+            ...(interval
+              ? [
+                  {
+                    path: "recurring.interval",
+                    operator: "equals" as const,
+                    expected: interval,
+                  },
+                ]
+              : [{ path: "recurring", operator: "equals" as const, expected: null }]),
           ],
         },
         verification: {
@@ -1057,15 +1324,17 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
   }
   if (hasCapability(request, "webhook")) {
     const url = inputString(request, "webhookUrl");
-    const enabledEvents = inputStrings(request, "enabledEvents");
+    const enabledEvents = inputStrings(request, "enabledEvents").sort();
     const webhookSecretCredentialRef = credentialInput(request, "webhookSecretCredentialRef");
+    const lookupKey = `vh:${ventureSlug}:webhook:v1`;
+    const metadata = stripeMetadata(ventureSlug, "webhook", lookupKey);
     operations.push(
       operation(request, {
         provider: "stripe",
         capability: "webhook",
         action: "webhook_endpoint.create",
         title: `Create Stripe webhook endpoint ${url}`,
-        identity: { url, enabledEvents: [...enabledEvents].sort() },
+        identity: { ventureSlug, accountId, lookupKey, url, enabledEvents, mode },
         riskClass: "critical",
         effectClass: "communication",
         reversibility: "reversible",
@@ -1073,14 +1342,55 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
         http: {
           method: "POST",
           url: "https://api.stripe.com/v1/webhook_endpoints",
-          body: { url, enabled_events: enabledEvents },
+          body: {
+            url,
+            enabled_events: enabledEvents,
+            description: `Venture Harness webhook for ${ventureSlug}`,
+            metadata,
+          },
           encoding: "form",
           auth: stripeAuth(request),
+          credentialPreflight: stripeCredentialPreflight(accountId, livemode),
           nativeIdempotency: true,
           captureCredential: {
             credentialRef: webhookSecretCredentialRef,
             outputPath: "secret",
           },
+        },
+        existingResource: {
+          transport: "http",
+          http: {
+            method: "GET",
+            url: "https://api.stripe.com/v1/webhook_endpoints?limit=100",
+            auth: stripeAuth(request),
+          },
+          candidatesPath: "data",
+          hasMorePath: "has_more",
+          identityAssertions: [
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey,
+            },
+          ],
+          stateAssertions: [
+            { path: "url", operator: "equals", expected: url },
+            { path: "enabled_events", operator: "contains", expected: enabledEvents },
+            { path: "status", operator: "equals", expected: "enabled" },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug,
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "webhook",
+            },
+          ],
+          reuseRequiresCredentialRef: webhookSecretCredentialRef,
+          description: `Locate the deterministic Stripe webhook for ${ventureSlug}`,
         },
         readBack: {
           transport: "http",
@@ -1097,6 +1407,23 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
               operator: "contains",
               expected: enabledEvents,
             },
+            { path: "status", operator: "equals", expected: "enabled" },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey,
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug,
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "webhook",
+            },
           ],
         },
         verification: {
@@ -1108,15 +1435,23 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
   }
   if (hasCapability(request, "billing_portal")) {
     const headline = optionalString(request, "headline");
-    const body: Record<string, JsonValue> = {};
+    const returnUrl = optionalString(request, "portalReturnUrl");
+    const lookupKey = `vh:${ventureSlug}:billing-portal:v1`;
+    const metadata = stripeMetadata(ventureSlug, "billing_portal", lookupKey);
+    const body: Record<string, JsonValue> = {
+      name: `Venture Harness ${ventureSlug}`,
+      features: { invoice_history: { enabled: true } },
+      metadata,
+    };
     if (headline) body.business_profile = { headline };
+    if (returnUrl) body.default_return_url = returnUrl;
     operations.push(
       operation(request, {
         provider: "stripe",
         capability: "billing_portal",
         action: "billing_portal.configuration.create",
         title: "Create Stripe billing portal configuration",
-        identity: body,
+        identity: { ventureSlug, accountId, lookupKey, body, mode },
         riskClass: "high",
         effectClass: "financial",
         reversibility: "conditionally_reversible",
@@ -1127,7 +1462,63 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
           body,
           encoding: "form",
           auth: stripeAuth(request),
+          credentialPreflight: stripeCredentialPreflight(accountId, livemode),
           nativeIdempotency: true,
+        },
+        existingResource: {
+          transport: "http",
+          http: {
+            method: "GET",
+            url: "https://api.stripe.com/v1/billing_portal/configurations?active=true&limit=100",
+            auth: stripeAuth(request),
+          },
+          candidatesPath: "data",
+          hasMorePath: "has_more",
+          identityAssertions: [
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey,
+            },
+          ],
+          stateAssertions: [
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "features.invoice_history.enabled",
+              operator: "equals",
+              expected: true,
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug,
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "billing_portal",
+            },
+            ...(headline
+              ? [
+                  {
+                    path: "business_profile.headline",
+                    operator: "equals" as const,
+                    expected: headline,
+                  },
+                ]
+              : []),
+            ...(returnUrl
+              ? [
+                  {
+                    path: "default_return_url",
+                    operator: "equals" as const,
+                    expected: returnUrl,
+                  },
+                ]
+              : []),
+          ],
+          description: `Locate the deterministic Stripe portal for ${ventureSlug}`,
         },
         readBack: {
           transport: "http",
@@ -1137,15 +1528,49 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
             auth: stripeAuth(request),
           },
           description: "Stripe returned the portal configuration by id",
-          assertions: headline
-            ? [
-                {
-                  path: "business_profile.headline",
-                  operator: "equals",
-                  expected: headline,
-                },
-              ]
-            : [{ path: "id", operator: "exists" }],
+          assertions: [
+            { path: "id", operator: "exists" },
+            { path: "active", operator: "equals", expected: true },
+            { path: "livemode", operator: "equals", expected: livemode },
+            {
+              path: "metadata.venture_harness_lookup_key",
+              operator: "equals",
+              expected: lookupKey,
+            },
+            {
+              path: "metadata.venture_harness_venture",
+              operator: "equals",
+              expected: ventureSlug,
+            },
+            {
+              path: "metadata.venture_harness_resource",
+              operator: "equals",
+              expected: "billing_portal",
+            },
+            {
+              path: "features.invoice_history.enabled",
+              operator: "equals",
+              expected: true,
+            },
+            ...(headline
+              ? [
+                  {
+                    path: "business_profile.headline",
+                    operator: "equals" as const,
+                    expected: headline,
+                  },
+                ]
+              : []),
+            ...(returnUrl
+              ? [
+                  {
+                    path: "default_return_url",
+                    operator: "equals" as const,
+                    expected: returnUrl,
+                  },
+                ]
+              : []),
+          ],
         },
         verification: {
           strategy: "response_then_read_back",
@@ -1156,6 +1581,8 @@ export function buildStripePlan(request: ProviderPlanRequest): ProviderPlan {
   }
   return createPlan("stripe", request, operations, [
     "Prices cannot be corrected in place; create a new price when exact values differ.",
+    "This adapter configures catalog, webhook, and portal resources only; it has no charge, capture, PaymentIntent, or Checkout Session capability.",
+    "Stripe search is eventually consistent; deterministic product IDs, price lookup keys, native idempotency, and the durable client ledger remain the duplicate barriers when search has not propagated.",
   ]);
 }
 

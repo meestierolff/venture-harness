@@ -30,6 +30,7 @@ profiles:
   fast:
     description: Changed-surface feedback plus invariant config, secret, PII, and graph checks.
     checks:
+      - workspace_packages_build
       - changed_format
       - changed_lint
       - changed_tests
@@ -38,43 +39,66 @@ profiles:
       - analytics_pii
       - agent_parity_changed
   mvp:
-    description: Full deterministic gate, build, critical contracts, and capability-selected MVP checks.
+    description: >-
+      Full deterministic core gate. This tier owns the workspace build,
+      typecheck, complete unit/integration suite, production build, critical
+      contracts, and capability-selected MVP checks.
     checks:
+      - workspace_build
       - compatibility_verify
       - full_format
       - full_lint
       - typecheck
       - unit_integration
-      - workspace_build
       - workspace_contract
       - production_build
       - migration_tests
       - provider_contract_tests
       - synthetic_fixture_tests
       - analytics_pack_tests
-      - analytics_readiness
-      - provider_dry_run
   release:
-    description: MVP evidence plus release safety, resume/rollback, live read-back gaps, and human audits.
+    description: >-
+      Founder-alpha release-specific gate, run after MVP. This tier owns
+      package distribution, release safety, resume/rollback, and deterministic
+      Golden Paths without rerunning the MVP full suite, core build, typecheck,
+      or focused MVP subsets. It must reach PASS with no live provider
+      connected and never contains a live provider read-back.
     checks:
+      - public_release_safety
+      - workspace_pack_consumer
+      - synthetic_launch_golden_path
+      - seed_dependency_closure
+      - analytics_readiness
+  live:
+    description: >-
+      Real founder Stack and provider read-backs only. Reports INCOMPLETE with
+      an exact command and expected evidence per unresolved provider. It passes
+      only for the provider, account, and resource scope actually observed.
+    checks:
+      - live_stack_readback
+  stable:
+    description: >-
+      Stable-release gate. The deterministic MVP and release tiers plus the
+      required live provider read-back evidence. Remains INCOMPLETE until all
+      three tiers are satisfied.
+    checks:
+      - workspace_pack_consumer
       - compatibility_verify
       - public_release_safety
       - full_format
       - full_lint
       - typecheck
       - unit_integration
-      - workspace_build
       - workspace_contract
-      - workspace_pack_consumer
       - production_build
       - migration_tests
-      - migration_rollback_tests
       - provider_contract_tests
       - synthetic_fixture_tests
-      - graph_resume_idempotency
       - analytics_pack_tests
       - analytics_readiness
-      - provider_dry_run
+      - synthetic_launch_golden_path
+      - seed_dependency_closure
+      - live_stack_readback
 
 checks:
   changed_format:
@@ -83,9 +107,16 @@ checks:
   changed_lint:
     kind: changed_lint
     phase: 1
+  # Workspace packages publish only from dist/, which is not committed. Any test
+  # importing @venture-harness/* therefore needs package preparation first. The
+  # preparation path excludes apps and the reviewed root CLI bundle.
+  workspace_packages_build:
+    kind: command
+    phase: 1
+    command: [pnpm, workspace:prepare]
   changed_tests:
     kind: changed_tests
-    phase: 1
+    phase: 2
   config_schemas:
     kind: command
     phase: 1
@@ -102,13 +133,18 @@ checks:
     phase: 1
     command: [pnpm, agents:check]
     when_paths: [skills/, .agents/, .claude/skills/, AGENTS.md, CLAUDE.md, GEMINI.md]
+  # `pnpm verify` runs the always-required command list, which includes
+  # `pnpm test` and `pnpm typecheck`. The profiles own those two as separate
+  # checks, so running them again here executed the whole unit suite twice,
+  # concurrently, against the same temporary directories and SQLite files.
+  # Delegating is explicit and reported; it is never counted as a pass.
   compatibility_verify:
     kind: command
-    phase: 1
-    command: [pnpm, verify]
+    phase: 2
+    command: [pnpm, verify, --, --delegate, pnpm test, --delegate, pnpm typecheck]
   public_release_safety:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, release:check]
   full_format:
     kind: command
@@ -120,31 +156,43 @@ checks:
     command: [pnpm, exec, eslint, --max-warnings=0, .]
   typecheck:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, typecheck]
   unit_integration:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, test]
+  # MVP owns the one full workspace build. Package preparation at the command
+  # boundary makes the profile runner importable from a clean install; this
+  # check additionally builds app boundaries and the reviewed root CLI before
+  # the workspace contract inspects them.
   workspace_build:
     kind: command
-    phase: 2
+    phase: 1
     command: [pnpm, workspace:build]
   workspace_contract:
     kind: command
-    phase: 3
+    phase: 4
     command: [pnpm, workspace:check]
   workspace_pack_consumer:
     kind: command
-    phase: 4
+    phase: 1
     command: [pnpm, test:workspace]
-  production_build:
+  synthetic_launch_golden_path:
+    kind: command
+    phase: 2
+    command: [pnpm, fixture:venture-launch, --, --json]
+  seed_dependency_closure:
     kind: command
     phase: 3
+    command: [pnpm, verify:seed-closure]
+  production_build:
+    kind: command
+    phase: 4
     command: [pnpm, build]
   migration_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -158,7 +206,7 @@ checks:
       ]
   migration_rollback_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -171,11 +219,11 @@ checks:
       ]
   provider_contract_tests:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, test:providers]
   synthetic_fixture_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -189,7 +237,7 @@ checks:
       ]
   graph_resume_idempotency:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -204,88 +252,175 @@ checks:
       ]
   analytics_pack_tests:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [pnpm, exec, vitest, run, tests/analytics-packs.test.ts, tests/analytics-taxonomy.test.ts]
   analytics_readiness:
     kind: analytics_readiness
-    phase: 1
+    phase: 2
   provider_dry_run:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [pnpm, exec, vitest, run, tests/providers-contract.test.ts, tests/providers-execution.test.ts]
   seo_static:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify:seo]
   consent_contract:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify:consent]
   pricing_integrity:
     kind: command
-    phase: 1
+    phase: 2
     command: [pnpm, verify:pricing-recording]
+  # Must run after production_build, never beside it. `raw_html` inspects the
+  # build result of a prior phase, and a check sharing production_build's phase
+  # sees an incomplete result map.
   raw_html:
     kind: raw_html
-    phase: 3
+    phase: 5
     command: [pnpm, verify:raw-html]
+  # The E2E wrapper starts an ephemeral production server, so this cannot share a phase with
+  # production_build: checks inside a phase run concurrently, and web_e2e was
+  # intermittently starting before .next existed.
   web_e2e:
     kind: command
-    phase: 3
-    command: [pnpm, exec, playwright, test, tests/e2e/critical-journeys.spec.ts]
+    phase: 5
+    command: [pnpm, test:e2e, --, tests/e2e/critical-journeys.spec.ts]
   accessibility_audit:
     kind: command
-    phase: 4
-    command: [pnpm, exec, playwright, test, tests/e2e/accessibility.spec.ts]
+    phase: 6
+    command: [pnpm, test:e2e, --, tests/e2e/accessibility.spec.ts]
   responsive_screenshots:
     kind: command
-    phase: 5
-    command: [pnpm, exec, playwright, test, tests/e2e/responsive-screenshots.spec.ts]
+    phase: 7
+    command: [pnpm, test:e2e, --, tests/e2e/responsive-screenshots.spec.ts]
+  live_stack_readback:
+    kind: provider_readback
+    phase: 3
+    provider: github
+    command: [pnpm, vh, stack, doctor, founder-default]
+    readback:
+      bundle_manifest: reports/dogfood/launch-receipt/bundle/manifest.json
+      # The canonical Launch Receipt dogfood is a commerce web venture. Stripe
+      # proof is unconditional here even though the root template deliberately
+      # keeps the generic `stripe` capability inactive.
+      required_providers: [github, vercel, neon, stripe]
+      required_receipt_states:
+        - stack.github
+        - stack.vercel
+        - stack.neon
+        - verification.repository
+        - verification.deployment
+        - verification.database
+        - stack.commerce
+        - verification.commerce
+        - verification.primaryJourney
+        - verification.accessibility
+        - verification.rawHtml
+    gap:
+      origin: external
+      provider: GitHub, Vercel, and Neon
+      account_scope: Founder-owned accounts selected by the founder-default Stack, with credential values excluded.
+      why: >-
+        Founder Stack proof requires a connected Stack plus GitHub, Vercel, and
+        Neon resource read-back from a real launch. Configuration and a doctor
+        exit are readiness, not read-back.
+      missing: >-
+        A connected founder-default Stack and one applied launch with GitHub
+        commit, Vercel production deployment, and Neon migration read-back.
+      exact_command: pnpm vh stack connect founder-default && pnpm vh launch --idea <idea.md> --stack founder-default --production --apply --non-interactive
+      expected_evidence: >-
+        Redacted repository/commit, production URL and deployment state, and
+        migration ledger read-back recorded in the launch report.
+      impact: Independent source ownership, a production deployment, and database migration cannot be claimed.
+      vercel_url_availability: Unavailable until Vercel returns one verified production HTTPS deployment URL.
+      resume_command: pnpm vh -- resume <run-id>
   live_stripe_readback:
     kind: provider_readback
     phase: 3
     provider: stripe
     command: [pnpm, vh, doctor]
+    readback:
+      bundle_manifest: reports/dogfood/launch-receipt/bundle/manifest.json
+      required_providers: [stripe]
+      required_receipt_states: [stack.commerce, verification.commerce]
     gap:
+      origin: external
+      provider: Stripe
+      account_scope: Founder-owned Stripe test-mode account selected by founder-default commerce.web.
       why: Stripe read-back requires an authorized sandbox or live credential and resource IDs.
       missing: A verified Stripe credential_ref and configured product, price, webhook, and mode.
       exact_command: pnpm vh doctor
       expected_evidence: Redacted Stripe product/price/webhook read-back with sandbox or live mode labeled.
+      impact: Test commerce configuration and webhook delivery cannot be claimed.
+      vercel_url_availability: Independent; use only the separately verified Vercel production HTTPS URL.
+      resume_command: pnpm vh -- resume <run-id>
   live_revenuecat_readback:
     kind: provider_readback
     phase: 3
     provider: revenuecat
     command: [pnpm, vh, doctor]
+    readback:
+      bundle_manifest: reports/dogfood/launch-receipt/bundle/manifest.json
+      required_providers: [revenuecat]
+      required_receipt_states: [stack.commerce, verification.commerce]
     gap:
+      origin: external
+      provider: RevenueCat
+      account_scope: Founder-owned RevenueCat project selected only by a compatible mobile Launch Contract.
       why: RevenueCat read-back requires an authorized project credential and identifiers.
       missing: A verified RevenueCat credential_ref and project/app/offering identifiers.
       exact_command: pnpm vh doctor
       expected_evidence: Redacted project, entitlement, offering, and package read-back with store labeled.
+      impact: Native entitlement and purchase configuration cannot be claimed.
+      vercel_url_availability: Not established by RevenueCat; a hybrid web URL requires separate Vercel read-back.
+      resume_command: pnpm vh -- resume <run-id>
   live_brevo_readback:
     kind: provider_readback
     phase: 3
     provider: brevo
     command: [pnpm, vh, doctor]
+    readback:
+      bundle_manifest: reports/dogfood/launch-receipt/bundle/manifest.json
+      required_providers: [brevo]
+      required_receipt_states: [stack.email]
     gap:
+      origin: external
+      provider: Brevo
+      account_scope: Founder-owned Brevo account and reviewed test recipient selected by the active run envelope.
       why: Brevo read-back and test delivery require an authorized credential and verified sender.
       missing: A verified Brevo credential_ref, sender/domain, template IDs, and approved test recipient.
       exact_command: pnpm vh doctor
       expected_evidence: Redacted sender/template read-back and provider-confirmed test delivery artifact.
+      impact: Transactional sender readiness and delivery cannot be claimed.
+      vercel_url_availability: Independent; use only the separately verified Vercel production HTTPS URL.
+      resume_command: pnpm vh -- resume <run-id>
   live_analytics_readback:
     kind: provider_readback
     phase: 3
     provider: google
     command: [pnpm, vh, doctor]
+    readback:
+      bundle_manifest: reports/dogfood/launch-receipt/bundle/manifest.json
+      required_providers: [google]
+      required_receipt_states: [stack.analytics]
     gap:
+      origin: external
+      provider: Google Analytics, Google Search Console, and Bing Webmaster
+      account_scope: Founder-owned properties selected by the active venture and founder-default Stack.
       why: Analytics read-back requires authorized provider properties and fresh direct data.
       missing: Verified GA4/GSC/Bing credential_refs, property IDs, and a completed vh data sync.
       exact_command: pnpm vh data sync
       expected_evidence: Normalized datasets with source, account, window, timezone, freshness, and limitations.
+      impact: Live measurement, discovery ownership, and freshness cannot be claimed.
+      vercel_url_availability: Independent; analytics readiness never substitutes for Vercel deployment read-back.
+      resume_command: pnpm vh -- resume <run-id>
   mobile_fixture_validation:
     kind: command
-    phase: 1
+    phase: 2
     command:
       [
         pnpm,
@@ -313,52 +448,60 @@ checks:
       exact_command: pnpm vh launch --dry-run
       expected_evidence: Validated ASO metadata and labeled screenshot narrative in the launch report.
 
+# A capability may add deterministic checks to fast/mvp/release and live
+# provider read-backs to live/stable. A live read-back must never appear under
+# `release`: that profile has to stay reachable without a connected provider.
 capability_checks:
   public_website:
-    mvp: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
-    release: [seo_static, raw_html, web_e2e, accessibility_audit, responsive_screenshots]
+    mvp: [raw_html, web_e2e, accessibility_audit, responsive_screenshots]
+    stable: [raw_html, web_e2e, accessibility_audit, responsive_screenshots]
   authenticated_product:
-    mvp: [consent_contract]
-    release: [consent_contract, web_e2e]
+    mvp: [web_e2e]
+    stable: [web_e2e]
   database:
     mvp: [migration_tests]
-    release: [migration_tests, migration_rollback_tests]
+    stable: [migration_tests]
   transactional_email:
     mvp: [provider_contract_tests]
-    release: [live_brevo_readback]
+    live: [live_brevo_readback]
+    stable: [provider_contract_tests, live_brevo_readback]
   lifecycle_email:
     mvp: [provider_contract_tests]
-    release: [live_brevo_readback]
+    live: [live_brevo_readback]
+    stable: [provider_contract_tests, live_brevo_readback]
   stripe:
-    mvp: [pricing_integrity, provider_contract_tests]
-    release: [pricing_integrity, live_stripe_readback]
+    mvp: [provider_contract_tests]
+    live: [live_stripe_readback]
+    stable: [provider_contract_tests, live_stripe_readback]
   revenuecat:
-    mvp: [pricing_integrity, provider_contract_tests]
-    release: [pricing_integrity, live_revenuecat_readback]
+    mvp: [provider_contract_tests]
+    live: [live_revenuecat_readback]
+    stable: [provider_contract_tests, live_revenuecat_readback]
   ga4:
-    mvp: [analytics_pack_tests, consent_contract]
-    release: [analytics_pack_tests, consent_contract, live_analytics_readback]
+    mvp: [analytics_pack_tests]
+    live: [live_analytics_readback]
+    stable: [analytics_pack_tests, live_analytics_readback]
   gsc:
-    mvp: [seo_static]
-    release: [seo_static, live_analytics_readback]
+    live: [live_analytics_readback]
+    stable: [live_analytics_readback]
   bing_webmaster:
-    mvp: [seo_static]
-    release: [seo_static, live_analytics_readback]
+    live: [live_analytics_readback]
+    stable: [live_analytics_readback]
   vercel_analytics:
-    mvp: [analytics_pack_tests, consent_contract]
-    release: [analytics_pack_tests, consent_contract]
+    mvp: [analytics_pack_tests]
+    stable: [analytics_pack_tests]
   web_seo_aeo_geo:
-    mvp: [seo_static, raw_html]
-    release: [seo_static, raw_html]
+    mvp: [raw_html]
+    stable: [raw_html]
   ios_aso:
-    mvp: [mobile_fixture_validation]
-    release: [mobile_fixture_validation, aso_validation]
+    release: [aso_validation]
+    stable: [aso_validation]
   app_store_connect:
-    mvp: [mobile_fixture_validation]
-    release: [mobile_fixture_validation, mobile_build_readiness, aso_validation]
+    release: [mobile_build_readiness, aso_validation]
+    stable: [mobile_build_readiness, aso_validation]
   eas:
-    mvp: [mobile_fixture_validation]
-    release: [mobile_fixture_validation, mobile_build_readiness]
+    release: [mobile_build_readiness]
+    stable: [mobile_build_readiness]
 
 # Documents that must exist and pass validate:docs.
 required_documents:

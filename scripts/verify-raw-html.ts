@@ -28,10 +28,7 @@ const USER_AGENTS: Record<string, string> = {
   "bingbot-like": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
 };
 
-const ROUTES: { path: string; expectPrice: boolean }[] = [
-  { path: "/", expectPrice: false },
-  { path: "/pricing", expectPrice: true },
-];
+const ROUTES: { path: string; expectPrice: boolean }[] = [{ path: "/", expectPrice: false }];
 
 export type AuditHostResolver = (hostname: string) => Promise<string[]>;
 

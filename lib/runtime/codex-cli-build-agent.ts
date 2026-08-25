@@ -123,6 +123,8 @@ export interface CodexCliBuildAgentHostOptions {
   runner: CommandRunner;
   redactor?: Redactor;
   binary?: string;
+  /** Pins a comparable model for dogfood and benchmark runs. */
+  model?: string;
 }
 
 const CODEX_ENVIRONMENT_KEYS = [
@@ -230,8 +232,9 @@ function promptFor(request: BuildAgentRequest, redactor: Redactor): string {
   const context = redactor.redact(request.context);
   return [
     "Execute one bounded Venture Harness product-build task in the current repository.",
-    "Read AGENTS.md, PROJECT.md, docs/product/PRODUCT_TRUTH.md, the typed config, and only the skill/docs needed for this task.",
+    "Read only the repository files listed in bounded JSON context.contextManifest.selectedFiles. Each entry states why it was selected. Do not crawl the repository, reread historical plans, or load excluded optional packs. If one indispensable file is absent from the manifest, stop and report that exact blocker instead of silently widening context.",
     "Work only inside the repository. Do not deploy, publish, send, charge, change DNS, create provider resources, commit, push, or expose credentials.",
+    "Never modify or report a modification to Core-owned or launch-authority inputs: .venture state, harness.lock, venture.manifest.json, the canonical Launch Contract, Product Constitution, founder idea, provider/offer/venture/launch/policy/mobile/connector config, or any file marked core_owned in harness.lock. Product source and explicitly requested dependency manifests are the writable product boundary; the harness independently fingerprints protected inputs and rejects the task if they change.",
     "Use deterministic code and existing scripts when they are sufficient. Preserve venture-owned work and label samples, prototypes, and unverified state honestly.",
     "Never read or print credential values. Repository config may contain only cred:// references.",
     `Run ID: ${request.runId}`,
@@ -283,7 +286,9 @@ function usageFrom(event: unknown): BuildAgentUsage | undefined {
   ) {
     return undefined;
   }
-  return { inputTokens, cachedInputTokens, outputTokens };
+  const model =
+    typeof record.model === "string" && record.model.trim() ? record.model.trim() : undefined;
+  return { inputTokens, cachedInputTokens, outputTokens, ...(model ? { model } : {}) };
 }
 
 function parseJsonLines(stdout: string): {
@@ -295,6 +300,15 @@ function parseJsonLines(stdout: string): {
   const finalTexts: string[] = [];
   const eventTypes = new Set<string>();
   let usage: BuildAgentUsage | undefined;
+  let toolCalls = 0;
+  let failedCommands = 0;
+  const toolItemTypes = new Set([
+    "command_execution",
+    "file_change",
+    "mcp_tool_call",
+    "web_search",
+    "dynamic_tool_call",
+  ]);
 
   for (const [index, line] of lines.entries()) {
     let event: unknown;
@@ -308,6 +322,18 @@ function parseJsonLines(stdout: string): {
     }
     const type = asRecord(event)?.type;
     if (typeof type === "string") eventTypes.add(type);
+    if (type === "item.completed") {
+      const item = asRecord(asRecord(event)?.item);
+      const itemType = typeof item?.type === "string" ? item.type : null;
+      if (itemType && toolItemTypes.has(itemType)) toolCalls += 1;
+      if (
+        itemType === "command_execution" &&
+        typeof item?.exit_code === "number" &&
+        item.exit_code !== 0
+      ) {
+        failedCommands += 1;
+      }
+    }
     const text = assistantText(event);
     if (text) finalTexts.push(text);
     usage = usageFrom(event) ?? usage;
@@ -320,6 +346,7 @@ function parseJsonLines(stdout: string): {
       "Codex JSONL contained no final structured agent result; no task result was accepted.",
     );
   }
+  if (usage) usage = { ...usage, toolCalls, failedCommands };
   return { finalText, eventTypes: [...eventTypes].sort(), usage };
 }
 
@@ -337,6 +364,7 @@ export class CodexCliBuildAgentHost implements BuildAgentHost {
   private readonly runner: CommandRunner;
   private readonly redactor: Redactor;
   private readonly binary: string;
+  private readonly model: string | null;
   private inspection?: Promise<BuildAgentHostInspection>;
 
   constructor(options: CodexCliBuildAgentHostOptions) {
@@ -344,6 +372,7 @@ export class CodexCliBuildAgentHost implements BuildAgentHost {
     this.runner = options.runner;
     this.redactor = options.redactor ?? new Redactor();
     this.binary = options.binary ?? "codex";
+    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
   }
 
   inspect(): Promise<BuildAgentHostInspection> {
@@ -421,7 +450,13 @@ export class CodexCliBuildAgentHost implements BuildAgentHost {
     const prompt = promptFor(request, this.redactor);
     const result = await this.runner.run({
       command: this.binary,
-      args: [...CODEX_EXEC_ARGS, "-C", this.rootDir, "-"],
+      args: [
+        ...CODEX_EXEC_ARGS,
+        ...(this.model ? ["--model", this.model] : []),
+        "-C",
+        this.rootDir,
+        "-",
+      ],
       cwd: this.rootDir,
       stdin: prompt,
       sensitiveStdin: true,
@@ -473,7 +508,12 @@ export class CodexCliBuildAgentHost implements BuildAgentHost {
             },
           }
         : null,
-      usage: parsedJsonLines.usage,
+      usage: parsedJsonLines.usage
+        ? {
+            ...parsedJsonLines.usage,
+            ...(parsedJsonLines.usage.model || !this.model ? {} : { model: this.model }),
+          }
+        : undefined,
     };
   }
 }

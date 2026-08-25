@@ -13,8 +13,11 @@ Run from a clean release candidate:
 pnpm install --frozen-lockfile
 pnpm release:check
 pnpm verify
-pnpm verify:release
+pnpm verify:mvp && pnpm verify:release
 ```
+
+The final line is the complete local founder-alpha code and fixture gate. Both
+staged profiles must pass; neither command alone establishes code readiness.
 
 `pnpm release:check` verifies:
 
@@ -105,9 +108,15 @@ advisories, or prove production security.
 
 Repository configuration cannot prove these external settings:
 
+- [ ] `VH_GITHUB_SECURITY_READ_TOKEN` exists as an Actions secret and is scoped
+      only to this repository with Metadata read, Administration read,
+      Dependabot alerts read, Secret scanning alerts read, and Code scanning
+      alerts read;
+
 - [ ] private vulnerability reporting enabled;
 - [ ] secret scanning and push protection enabled;
 - [ ] Dependabot alerts and security updates enabled;
+- [ ] zero open Dependabot, secret-scanning, and code-scanning alerts read back;
 - [ ] branch rules require pull requests and the quality/security/CodeQL/
       dependency-review checks;
 - [ ] default workflow token is read-only and release environments protect any

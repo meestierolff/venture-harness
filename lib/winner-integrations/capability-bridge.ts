@@ -15,6 +15,7 @@ import {
 } from "../../packages/command-bus/src/index";
 import {
   assertCredentialFree,
+  initializeSqliteWal,
   stableJson,
   tenantKey,
   type JsonObject,
@@ -150,10 +151,7 @@ function fixtureSqliteDatabase(path: string, label: string): FixtureSqliteDataba
   }
   const database = withBoundedSqliteRetry(`${label} open`, () => new DatabaseSync(path));
   try {
-    database.exec("PRAGMA busy_timeout = 100");
-    withBoundedSqliteRetry(`${label} WAL initialization`, () =>
-      database.exec("PRAGMA journal_mode = WAL"),
-    );
+    initializeSqliteWal(database, { label, busyTimeoutMs: 100, retryTimeoutMs: 500 });
     database.exec("PRAGMA synchronous = FULL");
     chmodSync(path, 0o600);
     return database;

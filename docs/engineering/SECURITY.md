@@ -62,6 +62,16 @@ explicit CLI approval reference. Switching profiles during renewal is rejected.
 | CI               | references/env mappings only; no committed secret or cross-venture reuse |
 | Upgrades         | ownership hashes, conflict stop, atomic writes and lock last             |
 
+Founder venture creation, continuation, idea-sharpen output, and verified
+child `.git` installation additionally hold an exclusive `0600` operation
+lock in a current-user-owned root that is not group/world writable. Path
+mutations pin the root and relevant directory inodes, reject symlink
+ancestors, and revalidate canonical containment immediately before and after
+rename or write. This is a portable cooperative boundary: Node does not expose
+descriptor-relative `openat2`/`renameat` operations, so a malicious process
+running as the same OS user could ignore the lock and race the final pathname
+syscall. Do not run mutually hostile local principals under one OS account.
+
 ## Rotation and revocation
 
 Rotate by creating/testing a replacement reference, updating the provider or

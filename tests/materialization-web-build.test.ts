@@ -213,8 +213,12 @@ describe("materialized standalone web venture", () => {
       expect(packageJson.scripts).toMatchObject({
         test: "node --test tests/*.test.mjs",
         "verify:fast": "pnpm typecheck && pnpm test",
-        "verify:mvp": "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly",
-        "test:e2e:readonly": "playwright test tests/e2e/post-deploy-readonly.spec.ts",
+        "verify:mvp":
+          "pnpm verify:fast && pnpm build && pnpm test:e2e:readonly && pnpm test:e2e:primary-journey",
+        "test:e2e:readonly":
+          "tsx scripts/run-local-browser-check.ts tests/e2e/post-deploy-readonly.spec.ts",
+        "test:e2e:primary-journey":
+          "tsx scripts/run-local-browser-check.ts tests/e2e/primary-journey.spec.ts",
       });
 
       const storeDirectory = installedRootStore();
@@ -301,6 +305,36 @@ describe("materialized standalone web venture", () => {
       expect(sitemapText).toContain(`<loc>${origin}/</loc>`);
       expect(sitemapText).toContain(`<loc>${origin}/status</loc>`);
 
+      productionServer.kill("SIGTERM");
+      await once(productionServer, "exit");
+      productionServer = null;
+
+      const localServerNonce = "materialized-child-owner-check";
+      productionOutput = "";
+      productionServer = spawn(
+        "pnpm",
+        ["exec", "next", "start", "--hostname", "127.0.0.1", "--port", String(port)],
+        {
+          cwd: childRoot,
+          env: { ...childEnv, VH_LOCAL_SERVER_NONCE: localServerNonce },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      productionServer.stdout?.setEncoding("utf8");
+      productionServer.stderr?.setEncoding("utf8");
+      productionServer.stdout?.on("data", (chunk: string) => {
+        productionOutput += chunk;
+      });
+      productionServer.stderr?.on("data", (chunk: string) => {
+        productionOutput += chunk;
+      });
+      const ownedHealth = await waitForResponse(`${origin}/api/health`, () => productionOutput);
+      expect(await ownedHealth.json()).toEqual({
+        status: "ok",
+        venture: "payout-rank",
+        evidence: "local_build_shape",
+        localServerNonce,
+      });
       productionServer.kill("SIGTERM");
       await once(productionServer, "exit");
       productionServer = null;

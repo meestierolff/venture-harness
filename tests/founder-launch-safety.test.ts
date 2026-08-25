@@ -4,7 +4,9 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -101,6 +103,7 @@ async function createHarness(): Promise<SafetyHarness> {
       expiresAt: selected.expiresAt,
       testedAt: NOW.toISOString(),
       testStatus: "passed",
+      ...(provider === "stripe" ? { providerMode: "test" as const } : {}),
       value: `fixture-${provider}-credential-value`,
     });
   }
@@ -384,7 +387,7 @@ describe("canonical founder launch safety preflight", () => {
     const harness = await createHarness();
     writeFileSync(
       join(harness.root, "idea.md"),
-      readFileSync(IDEA_FIXTURE, "utf8").replace(/^Synthetic: yes\n/mu, ""),
+      readFileSync(IDEA_FIXTURE, "utf8").replace(/^synthetic: true\n/mu, ""),
       { mode: 0o600 },
     );
     let runCalls = 0;
@@ -460,6 +463,69 @@ describe("canonical founder launch safety preflight", () => {
     );
     expect(continuationReached).toHaveBeenCalledTimes(1);
     expect(planFactories).not.toHaveBeenCalled();
+    expect(harness.cliTransport.calls).toEqual([]);
+    expect(harness.httpTransport.calls).toEqual([]);
+  });
+
+  it("fails closed when a checked venture parent is swapped before the staging rename", async () => {
+    const harness = await createHarness();
+    const outside = temporaryDirectory();
+    const realParent = join(harness.root, "ventures-before-swap");
+    let swapped = false;
+    const services = createDefaultCliServices({
+      ...commonOptions(harness),
+      rootDir: harness.root,
+      store: new FileWorkflowStore({ rootDir: join(harness.root, ".race-root-runs") }),
+      launchBindings: async () => {
+        throw new Error("launch bindings must not run after a path swap");
+      },
+      providerPlanFactories: () => {
+        throw new Error("provider planning must not run after a path swap");
+      },
+      pathSecurityHook(event) {
+        if (event !== "before-founder-staging-rename" || swapped) return;
+        swapped = true;
+        renameSync(join(harness.root, "ventures"), realParent);
+        symlinkSync(outside, join(harness.root, "ventures"), "dir");
+      },
+    });
+
+    await expect(services.founderLaunch!(founderRequest())).rejects.toThrow(
+      /non-symlink directory|symbolic-link alias|changed|ENOENT/i,
+    );
+    expect(swapped).toBe(true);
+    expect(existsSync(join(outside, "exception-desk"))).toBe(false);
+    expect(harness.cliTransport.calls).toEqual([]);
+    expect(harness.httpTransport.calls).toEqual([]);
+  });
+
+  it("fails closed when a checked venture parent is swapped before continuation reads", async () => {
+    const harness = await createPendingChild();
+    const outside = temporaryDirectory();
+    const realParent = join(harness.root, "ventures-before-continuation-swap");
+    const continuationBindings = vi.fn(() => {
+      throw new Error("swapped continuation reached launch bindings");
+    });
+    let swapped = false;
+    const restarted = createDefaultCliServices({
+      ...commonOptions(harness),
+      rootDir: harness.root,
+      store: new FileWorkflowStore({ rootDir: join(harness.root, ".race-continuation-runs") }),
+      launchBindings: continuationBindings,
+      pathSecurityHook(event) {
+        if (event !== "before-founder-continuation" || swapped) return;
+        swapped = true;
+        renameSync(join(harness.root, "ventures"), realParent);
+        symlinkSync(outside, join(harness.root, "ventures"), "dir");
+      },
+    });
+
+    await expect(restarted.founderLaunch!(founderRequest())).rejects.toThrow(
+      /non-symlink directory|symbolic-link alias|changed|ENOENT/i,
+    );
+    expect(swapped).toBe(true);
+    expect(continuationBindings).not.toHaveBeenCalled();
+    expect(existsSync(join(outside, "exception-desk", ".venture"))).toBe(false);
     expect(harness.cliTransport.calls).toEqual([]);
     expect(harness.httpTransport.calls).toEqual([]);
   });

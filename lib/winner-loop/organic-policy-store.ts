@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, closeSync, lstatSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { initializeSqliteWal } from "@venture-harness/core";
 
 export type OrganicReviewMode =
   "AUTOMATIC_WITHIN_POLICY" | "REVIEW_BEFORE_PUBLISH" | "PLATFORM_DRAFT";
@@ -518,9 +519,7 @@ export function createSqliteOrganicPolicyStore(
   const key = loadOrCreateIntegrityKey(options.integrityKeyPath ?? `${filename}.organic-key`);
   const { DatabaseSync } = loadSqlite();
   const db = new DatabaseSync(filename);
-  db.exec("PRAGMA busy_timeout = 5000");
-  const journal = db.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
-  if (journal.journal_mode.toLowerCase() !== "wal") db.exec("PRAGMA journal_mode = WAL");
+  initializeSqliteWal(db, { label: "organic policy store" });
   db.exec("PRAGMA foreign_keys = ON");
   try {
     assertOrganizationScopedSchema(db);

@@ -4,49 +4,49 @@
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 79,
-      "sha256": "7438757f2996a1b43385c0936df0c1cf91c6355bf322b1a9b1ae4d722725897b",
+      "line": 199,
+      "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 83,
-      "sha256": "7438757f2996a1b43385c0936df0c1cf91c6355bf322b1a9b1ae4d722725897b",
+      "line": 203,
+      "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/mobile-scaffold.test.ts",
       "rule": "stripe-access-token",
-      "line": 293,
-      "sha256": "014c07288c45eaf54c4b9b7b252576e7a5cd30ac39cbdf7342602166c949a51a",
+      "line": 294,
+      "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
       "reason": "Synthetic scaffold leak canary."
     },
     {
       "path": "tests/runtime-provider-lifecycle.test.ts",
       "rule": "stripe-access-token",
-      "line": 203,
-      "sha256": "c71dc50c6d0af42b23a5ff24d7885193ce30ab962a1e412441ff90058c9383da",
+      "line": 219,
+      "sha256": "235d330ebeee14d682470b1d2200c90be55f2df0c3599a1d65b4ca127293ac31",
       "reason": "Synthetic lifecycle redaction canary."
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "stripe-access-token",
-      "line": 255,
-      "sha256": "014c07288c45eaf54c4b9b7b252576e7a5cd30ac39cbdf7342602166c949a51a",
+      "line": 272,
+      "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
       "reason": "Synthetic model-context leak canary."
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 351,
+      "line": 368,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic model-context database URL canary."
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 371,
+      "line": 388,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic generated-product command environment isolation canary."
     },
@@ -58,6 +58,13 @@
       "reason": "Synthetic learning-runtime database fixture."
     },
     {
+      "path": "tests/cli-runtime.test.ts",
+      "rule": "stripe-access-token",
+      "line": 356,
+      "sha256": "da1d41cc114416e1d22c1c6a2b0901f14dd775ea69ae413b2e48e57523465ccd",
+      "reason": "Synthetic argv-rejection canary; proves vh auth login refuses credential values as arguments."
+    },
+    {
       "path": "tests/default-data-learning-runtime.test.ts",
       "rule": "database-url-with-credentials",
       "line": 21,
@@ -67,70 +74,70 @@
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 88,
+      "line": 89,
       "sha256": "8cfc98b5bec74acf368a20fa99b33766793f1236e6723d3af5881d716ca2ea88",
       "reason": "Synthetic Neon transport fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 117,
+      "line": 118,
       "sha256": "8a3a1c048002344b520beaa34d499e3fde439459bf65e1e26b9260232d4d3c26",
       "reason": "Synthetic Neon read-back fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 159,
+      "line": 160,
       "sha256": "a30436991af76413d1f54efce3c59c81ff729203ca1c230fc0f4c071b7558de3",
       "reason": "Synthetic Neon mismatch fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 407,
+      "line": 464,
       "sha256": "5a95d93ad5b54d238723c5d68a3381a26648c172e4e6624969f5620e9c852116",
       "reason": "Synthetic Neon generated-secret fixture."
     },
     {
       "path": "tests/providers-neon.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 460,
+      "line": 517,
       "sha256": "8a3a1c048002344b520beaa34d499e3fde439459bf65e1e26b9260232d4d3c26",
       "reason": "Synthetic Neon retry fixture."
     },
     {
       "path": "tests/providers-execution.test.ts",
       "rule": "stripe-access-token",
-      "line": 371,
+      "line": 620,
       "sha256": "a7f61932adf6fb44cbcdb79e8e93c5380f3a7c0025af9dc8ef1ba028247065d6",
       "reason": "Synthetic provider-output redaction canary."
     },
     {
       "path": "tests/providers-execution.test.ts",
       "rule": "stripe-access-token",
-      "line": 490,
+      "line": 748,
       "sha256": "186c65f3bc9edbf6c15cfece405e33dcd74c1fa86a13d908d181245f696aeca7",
       "reason": "Synthetic HTTP-boundary redaction canary."
     },
     {
       "path": "tests/providers-execution.test.ts",
       "rule": "stripe-access-token",
-      "line": 264,
+      "line": 508,
       "sha256": "7e306ff7dca038cc8639c0113c89d207fd4cfa7d23e272ff7618987a4f316bba",
       "reason": "Synthetic provider dependency-output credential capture fixture."
     },
     {
       "path": "tests/fixtures/founder-golden-path-runtime.ts",
       "rule": "database-url-with-credentials",
-      "line": 296,
+      "line": 298,
       "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
       "reason": "Synthetic founder Golden Path credential-capture fixture."
     },
     {
       "path": "tests/fixtures/synthetic-founder-golden-path.ts",
       "rule": "database-url-with-credentials",
-      "line": 779,
+      "line": 930,
       "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
       "reason": "Synthetic Golden Path durable-secret absence canary."
     },
@@ -144,14 +151,14 @@
     {
       "path": "tests/provider-idempotency-safety.test.ts",
       "rule": "stripe-access-token",
-      "line": 179,
-      "sha256": "19c90a6d5f305cbd85b8db30328ed4c956d4e41e0564d4cdcfc256cf8a3d17a2",
+      "line": 260,
+      "sha256": "42540ee5794dceb4c730d62655ba090cf29cff62820b0a50ff04a2213ecdad5f",
       "reason": "Synthetic provider-ledger private-output canary."
     },
     {
       "path": "tests/provider-idempotency-safety.test.ts",
       "rule": "stripe-access-token",
-      "line": 218,
+      "line": 303,
       "sha256": "59c3dace5da2015a1e7fa0ed3267965b75a4df83a13892e15f30e456e48c801f",
       "reason": "Synthetic provider-ledger dependency-replay canary."
     },
@@ -173,7 +180,7 @@
       "path": "tests/recursive-command-surfaces.test.ts",
       "rule": "aws-access-key",
       "line": 481,
-      "sha256": "457643f44d19aed85fd756aa50cc0cd6b57376d4e8f5a72f9f85972a522002a3",
+      "sha256": "35bda0fa107dbfda4d320cc1f49c6f59f73d54a1044593fab8bd1fd6ab7a15e4",
       "reason": "Synthetic recursive parser credential-classifier canary."
     },
     {
@@ -194,8 +201,29 @@
       "path": "tests/winner-loop-integrations.test.ts",
       "rule": "aws-access-key",
       "line": 680,
-      "sha256": "457643f44d19aed85fd756aa50cc0cd6b57376d4e8f5a72f9f85972a522002a3",
+      "sha256": "35bda0fa107dbfda4d320cc1f49c6f59f73d54a1044593fab8bd1fd6ab7a15e4",
       "reason": "Synthetic Winner fixture credential-classifier canary."
+    },
+    {
+      "path": "tests/stack-connect.test.ts",
+      "rule": "stripe-access-token",
+      "line": 56,
+      "sha256": "4a745ec7531f18aed7965c7ba7bab96593b32ec2664c2a48f546cc4b0f12f328",
+      "reason": "Synthetic argv-rejection canary; proves vh stack connect refuses a credential value as an argument."
+    },
+    {
+      "path": "tests/stack-connect.test.ts",
+      "rule": "stripe-access-token",
+      "line": 57,
+      "sha256": "235d330ebeee14d682470b1d2200c90be55f2df0c3599a1d65b4ca127293ac31",
+      "reason": "Synthetic argv-rejection canary; proves vh stack connect refuses a credential value as an argument."
+    },
+    {
+      "path": "tests/stack-connect.test.ts",
+      "rule": "stripe-access-token",
+      "line": 175,
+      "sha256": "6a1028875fa018d6aac3cebcc43f046cf29c427a6d94b1ad57d23ca652af0ce2",
+      "reason": "Synthetic canary; proves connection planning refuses a value where a cred:// reference is required."
     }
   ]
 }

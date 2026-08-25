@@ -3,9 +3,10 @@
 Venture Harness v0.2 is being prepared as a founder alpha: an open-source,
 agent-native app launch factory operated from the founder's machine and
 provider accounts. It is not a hosted SaaS, a stable public release, or proof of
-a live founder launch. A prior source state completed its founder web Golden
-Path fixture through the public root CLI; the current final-tree refresh remains
-pending in socket-capable CI.
+a live founder launch. One isolated current-tree run completed all three founder
+web Golden Path fixture slices through the public root CLI on 2026-08-12 outside
+the loopback-restricted sandbox. Repeated final-tree runs and hosted CI evidence
+remain pending.
 
 ## Public product contract
 
@@ -61,10 +62,9 @@ CI, provider accounts, or a release are live.
   migrations.
 - Unit/integration/provider/graph/upgrade/security/privacy/claim checks.
 - Rerun the definitive founder Golden Path through the public root CLI and
-  child graph. The prior 2026-08-09 source-state fixture passed all three
-  slices; on the current final tree, product/runtime pass and the root slice
-  reached the standalone child server check before this local sandbox denied
-  loopback listening with `EPERM`.
+  child graph after source settles. One isolated current-tree run passed all
+  three slices outside the loopback-restricted sandbox; required repetitions
+  and hosted CI are not yet evidence.
 - Standalone web production build, raw HTML, desktop/mobile journey,
   accessibility and venture-owned-file upgrade survival.
 - `vh doctor`, `vh auth status`, `vh stack doctor founder-default`, and one
@@ -75,6 +75,22 @@ CI, provider accounts, or a release are live.
 A skipped live-provider check is incomplete evidence, not a pass. Its record
 must name the missing credential/environment, exact command, expected read-back
 and limitation.
+
+## Current local prototype evidence
+
+- Launch Contract schema/projection, bounded idea sharpening, compact
+  capability-scoped build context and conservative local Launch Receipt have
+  focused local tests.
+- The focused ordinary web seed completed two separate clean child closures:
+  offline frozen install, typecheck, production build, zero-retry Chromium
+  journey and child test, with no model or provider call.
+- Fixture source publication and read-back install or verify a normal clean
+  child Git repository at the exact origin, branch and commit while keeping
+  private runtime/report paths untracked.
+
+These are `PROTOTYPE` boundaries. No real dogfood, live provider read-back or
+comparable model benchmark has completed, and no token or cost saving is
+claimed.
 
 ## External settings requiring read-back
 
@@ -92,6 +108,17 @@ through GitHub:
 Record screenshots or API/CLI read-back outside the public repository when they
 contain private account data. A YAML workflow is not evidence that a hosted run
 succeeded.
+
+The final-evidence workflow expects the protected
+`founder-alpha-final-evidence` environment and its environment secret
+`VH_GITHUB_SECURITY_READ_TOKEN`. Restrict that environment to the exact
+`sol/vh-v0.2-launch-dogfood` branch and require an explicit maintainer review
+before the job starts. Use a fine-grained token scoped only to this
+repository with Metadata read, Administration read, Dependabot alerts read,
+Secret scanning alerts read, and Code scanning alerts read. The verifier uses
+GET requests only, persists no response bodies or token value, and fails closed
+on a missing/403 response, disabled control, or any open alert. Do not replace
+it with a write-capable publication token.
 
 ## Dogfood before stable
 

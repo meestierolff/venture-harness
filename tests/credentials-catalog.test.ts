@@ -42,6 +42,7 @@ describe("credential metadata catalog", () => {
       scopes: ["repo"],
       testedAt: "2026-08-04T10:00:00.000Z",
       testStatus: "passed",
+      providerMode: "test",
       revokedAt: "2026-08-04T11:00:00.000Z",
     });
     saveCredentialCatalog(catalog, path);
@@ -95,5 +96,31 @@ describe("credential metadata catalog", () => {
         path,
       ),
     ).toThrow(/testedAt and testStatus together/);
+  });
+
+  it("rejects provider mode without successful bound remote-test evidence", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vh-credential-catalog-"));
+    directories.push(directory);
+    const path = join(directory, "credentials.json");
+    expect(() =>
+      saveCredentialCatalog(
+        {
+          schemaVersion: 1,
+          references: [
+            {
+              ref: "cred://stripe/unproven-mode",
+              provider: "stripe",
+              kind: "restricted_api_key",
+              backend: "environment",
+              scopes: [],
+              testedAt: "2026-08-04T10:00:00.000Z",
+              testStatus: "failed",
+              providerMode: "test",
+            },
+          ],
+        },
+        path,
+      ),
+    ).toThrow(/providerMode requires passed/);
   });
 });

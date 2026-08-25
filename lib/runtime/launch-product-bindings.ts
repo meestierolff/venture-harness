@@ -1,17 +1,26 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { inflateRawSync } from "node:zlib";
 import { parse } from "yaml";
+import { z } from "zod";
+import { loadHarnessLock } from "../config/harness-lock";
 import { mobileSchema } from "../config/mobile-schema";
-import { routeRail, type FounderBrief } from "../launch";
+import type { AuthorizationEnvelope } from "../config/policy-schema";
+import { routeRail, type FounderBrief, type LaunchDecision } from "../launch";
+import type { LaunchContract } from "../founder-launch";
 import { Redactor, type CommandRunner } from "../credentials";
 import {
   generateMobileScaffold,
@@ -22,10 +31,12 @@ import {
   WorkflowExecutionError,
   type JsonValue,
   type WorkflowBindings,
+  type WorkflowCostCharge,
   type WorkflowHandlerContext,
   type WorkflowHandlerResult,
   type WorkflowReconciliationContext,
   type WorkflowReconciliationResult,
+  type WorkflowRunState,
 } from "../workflow";
 import type {
   BuildAgentArtifactRole,
@@ -33,10 +44,22 @@ import type {
   BuildAgentHost,
   BuildAgentResult,
 } from "./build-agent-host";
+import { createBuildContextManifest } from "./build-context-manifest";
+import {
+  launchReceiptPrimaryJourneyEvidenceSchema,
+  type LaunchReceipt,
+  type LaunchReceiptPrimaryJourneyEvidence,
+} from "./launch-receipt";
+
+export const PRIMARY_JOURNEY_SPEC_PATH = "tests/e2e/primary-journey.spec.ts";
+export const PRIMARY_JOURNEY_CONTRACT_PATH = "tests/e2e/primary-journey.contract.json";
+export const PRIMARY_JOURNEY_CLEANUP_SPEC_PATH = "tests/e2e/primary-journey-cleanup.spec.ts";
 
 const AGENT_TASKS: Readonly<Record<string, string>> = {
   "launch.prepareRepository":
-    "Inspect the selected rail and existing repository, then create or adapt only the smallest venture-owned scaffold needed for the brief. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Preserve managed contracts and existing project-owned work. Record assumptions instead of inventing non-critical product detail.",
+    "Complete the first and primary bounded product-build call. Inspect the selected rail and compact Launch Contract context, then create or adapt only the smallest venture-owned scaffold needed for the brief. In this same coherent pass, refine the venture proposition, implement one original accessible responsive design direction, build the declared primary journey and affected tests, and wire only the minimum privacy-safe capability-driven event instrumentation. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Include only selected-mode evidence: one validation gate for validate-first, bounded human operations for concierge-first, or real usage/failure/deletion proof for product-first. Preserve managed contracts and existing venture-owned work. Record assumptions instead of inventing non-critical detail. Do not regenerate standard infrastructure that the seed already provides. For a canonical web Launch Contract, create tests/e2e/primary-journey.spec.ts as the product-specific Playwright path, tests/e2e/primary-journey-cleanup.spec.ts as its independently runnable cleanup, and tests/e2e/primary-journey.contract.json as their machine-readable binding. The binding must contain schemaVersion 1, scope product_specific_end_to_end, the exact Launch Contract primarySuccessSignal as journeyId, the exact ordered Launch Contract primaryJourney strings as steps, both exact spec paths, launchContractPath config/launch-contract.yaml, a visibly TEST/SYNTHETIC/FIXTURE-labeled identity, required-and-verified cleanup, allowedEffects containing reversible_external_write plus transactional_email only when needed and separately authorized, and the unique complete forbidden-effect list supplied in context. Both specs must read that binding and require VH_PRIMARY_JOURNEY_RUN_ID, VH_PRIMARY_JOURNEY_NONCE, and VH_PRIMARY_JOURNEY_TEST_IDENTITY. After observed success, each desktop/mobile test prints exactly `VH_PRIMARY_JOURNEY_RESULT ` followed by JSON with schemaVersion=1, phase, the runId and nonce environment values, contract journeyId and steps, testInfo.project.name, contract identity, observedEffects, recipientCount, recipientsAllMatchTestIdentity, and forbiddenEffectsObserved=[]. Cleanup markers additionally include cleanup={state:'verified',removedWrites,remainingWrites:0} only after read-back. The cleanup spec must remove only the labeled test identity's reversible writes. A customer charge or checkout, unrelated deletion, DNS/provider configuration, bulk/cold send, recipient outside the test identity, or irreversible publication is forbidden. The seed's generic post-deploy-readonly surface check is never journey proof.",
+  "launch.reviewProduct":
+    "Perform the second and final normal product-build call as an independent reviewer. Exercise the primary journey and inspect proposition clarity, venture-specific design, responsive/mobile behavior, accessibility, truthfulness, labeled samples, relevant event privacy and exact displayed-price recording. Run direct affected checks, repair only observed defects, and do not broaden product scope or mutate dependency manifests/lockfiles. Return typed evidence for the reviewed core journey, affected tests, design implementation, and event instrumentation. For a canonical web Launch Contract, independently read tests/e2e/primary-journey.contract.json, confirm its journeyId and ordered steps exactly match config/launch-contract.yaml, and run both tests/e2e/primary-journey.spec.ts and tests/e2e/primary-journey-cleanup.spec.ts directly. Confirm production uses only the labeled test identity, the bounded authorized effects, and cleanup read-back; no model-authored step may widen authority. Keep the seed's generic post-deploy-readonly check separate. If a blocker remains, state it exactly instead of claiming completion.",
   "launch.designDirection":
     "Create and implement an original, accessible visual direction for the smallest core journey. Record the design thesis, tokens, responsive composition, accessibility constraints, and anti-template audit. Do not copy a reference identity or fabricate product proof.",
   "launch.buildCoreJourney":
@@ -50,6 +73,9 @@ const AGENT_TASKS: Readonly<Record<string, string>> = {
   "launch.defineUsageProof":
     "Connect the real core journey to bounded activation, usage, retention, quality, failure, and deletion evidence. Prefer first-party behavioral evidence, keep private content out of analytics, and do not infer causation from release timing alone.",
 };
+
+const PRIMARY_JOURNEY_OBSERVER_INSTRUCTIONS =
+  " The journey contract production block must also declare readBack={method:'GET',path:'/api/<venture-specific-path>',protocol:'venture_harness_primary_journey_v1'}. Implement that read-only endpoint so the locked harness observer can independently query the exact runId, nonce, journeyId, and test-identity label after the journey and after cleanup. Journey read-back must return the exact ordered completedSteps and at least one labeled reversible write with a stable ID and verified/published state; cleanup read-back must return zero writes plus the exact removed write IDs. Wrap every immutable Launch Contract step in test.step(step) in order and perform a real browser navigation/input/control action and assertion for it; a visit plus a trivial assertion or stdout markers alone is not evidence.";
 
 const QUALITY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
   "launch.verifyLocal": ["verify:fast"],
@@ -65,6 +91,9 @@ export const CHILD_DEPENDENCY_INSTALL_ARGS = [
 ] as const;
 
 const DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION = 1;
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+
+class NonRegularFileError extends Error {}
 
 interface DependencyInstallCheckpoint {
   schemaVersion: typeof DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION;
@@ -82,12 +111,394 @@ interface DependencyInstallReadBack extends DependencyInstallCheckpoint {
   message: string | null;
 }
 
-const POST_DEPLOY_TEST_ARGS = [
+const POST_DEPLOY_SURFACE_TEST_ARGS = [
   "exec",
   "playwright",
   "test",
   "tests/e2e/post-deploy-readonly.spec.ts",
+  "--retries=0",
 ] as const;
+
+const POST_DEPLOY_SURFACE_SPEC_PATH = "tests/e2e/post-deploy-readonly.spec.ts";
+
+const POST_DEPLOY_PRIMARY_JOURNEY_ARGS = [
+  "exec",
+  "playwright",
+  "test",
+  PRIMARY_JOURNEY_SPEC_PATH,
+  "--retries=0",
+  "--trace=on",
+] as const;
+
+const POST_DEPLOY_PRIMARY_CLEANUP_ARGS = [
+  "exec",
+  "playwright",
+  "test",
+  PRIMARY_JOURNEY_CLEANUP_SPEC_PATH,
+  "--retries=0",
+  "--trace=on",
+] as const;
+const POST_DEPLOY_PRIMARY_OBSERVER_ARGS = [
+  "exec",
+  "playwright",
+  "test",
+  POST_DEPLOY_SURFACE_SPEC_PATH,
+  "--retries=0",
+] as const;
+
+const productionJourneyOperationCheckpointSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    kind: z.literal("production_primary_journey"),
+    deploymentUrl: z.string().url(),
+    runId: z.string().min(1).max(128),
+    nonce: z.string().regex(/^[a-f0-9]{48}$/u),
+    journeyId: z.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+    identityLabel: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
+const PRIMARY_JOURNEY_FORBIDDEN_EFFECTS = [
+  "customer_charge",
+  "checkout",
+  "external_delete",
+  "dns_or_provider_configuration",
+  "bulk_or_cold_send",
+  "recipient_outside_test_identity",
+  "irreversible_publication",
+] as const;
+
+const primaryJourneyTestContractSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    scope: z.literal("product_specific_end_to_end"),
+    journeyId: z.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+    steps: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+    specPath: z.literal(PRIMARY_JOURNEY_SPEC_PATH),
+    cleanupSpecPath: z.literal(PRIMARY_JOURNEY_CLEANUP_SPEC_PATH),
+    launchContractPath: z.literal("config/launch-contract.yaml"),
+    production: z
+      .object({
+        effect: z.literal("reversible_external_write"),
+        identity: z
+          .object({
+            kind: z.literal("labeled_test_identity"),
+            label: z.string().trim().min(1).max(200),
+          })
+          .strict(),
+        cleanup: z.literal("required_and_verified"),
+        readBack: z
+          .object({
+            method: z.literal("GET"),
+            path: z.string().regex(/^\/api\/[a-z0-9][a-z0-9/_-]{0,199}$/u),
+            protocol: z.literal("venture_harness_primary_journey_v1"),
+          })
+          .strict(),
+        allowedEffects: z
+          .array(z.enum(["reversible_external_write", "transactional_email"]))
+          .min(1)
+          .max(2),
+        forbiddenEffects: z
+          .array(
+            z.enum([
+              "customer_charge",
+              "checkout",
+              "external_delete",
+              "dns_or_provider_configuration",
+              "bulk_or_cold_send",
+              "recipient_outside_test_identity",
+              "irreversible_publication",
+            ]),
+          )
+          .length(PRIMARY_JOURNEY_FORBIDDEN_EFFECTS.length),
+      })
+      .strict()
+      .superRefine((value, context) => {
+        if (!value.allowedEffects.includes(value.effect)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["allowedEffects"],
+            message: "must contain the declared reversible_external_write effect",
+          });
+        }
+        if (
+          JSON.stringify([...new Set(value.forbiddenEffects)].sort()) !==
+          JSON.stringify([...PRIMARY_JOURNEY_FORBIDDEN_EFFECTS].sort())
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["forbiddenEffects"],
+            message: "must be the unique complete canonical forbidden-effect set",
+          });
+        }
+      }),
+  })
+  .strict();
+
+type PrimaryJourneyTestContract = z.infer<typeof primaryJourneyTestContractSchema>;
+
+const PRIMARY_JOURNEY_MARKER_PREFIX = "VH_PRIMARY_JOURNEY_RESULT ";
+const DEPLOYMENT_SURFACE_MARKER_PREFIX = "VH_DEPLOYMENT_SURFACE_RESULT ";
+const PRIMARY_JOURNEY_OBSERVER_MARKER_PREFIX = "VH_PRIMARY_JOURNEY_OBSERVER_RESULT ";
+const PRIMARY_JOURNEY_RUN_ID_ENV = "VH_PRIMARY_JOURNEY_RUN_ID";
+const PRIMARY_JOURNEY_NONCE_ENV = "VH_PRIMARY_JOURNEY_NONCE";
+const PRIMARY_JOURNEY_TEST_IDENTITY_ENV = "VH_PRIMARY_JOURNEY_TEST_IDENTITY";
+const PRIMARY_JOURNEY_OBSERVER_PHASE_ENV = "VH_PRIMARY_JOURNEY_OBSERVER_PHASE";
+
+const productionJourneyMarkerSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    phase: z.enum(["journey", "cleanup"]),
+    runId: z.string().min(1).max(128),
+    nonce: z.string().regex(/^[a-f0-9]{48}$/u),
+    journeyId: z.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+    steps: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+    project: z.enum(["desktop-chromium", "mobile-chromium"]),
+    identity: z
+      .object({ kind: z.literal("labeled_test_identity"), label: z.string().min(1).max(200) })
+      .strict(),
+    observedEffects: z.array(z.enum(["reversible_external_write", "transactional_email"])).max(2),
+    recipientCount: z.number().int().nonnegative(),
+    recipientsAllMatchTestIdentity: z.boolean(),
+    forbiddenEffectsObserved: z.array(z.never()).length(0),
+    cleanup: z
+      .object({
+        state: z.literal("verified"),
+        removedWrites: z.number().int().nonnegative(),
+        remainingWrites: z.literal(0),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.phase === "cleanup" && !value.cleanup) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["cleanup"], message: "required" });
+    }
+    if (value.phase === "journey" && value.cleanup) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cleanup"],
+        message: "journey marker cannot claim cleanup",
+      });
+    }
+  });
+
+const deploymentSurfaceMarkerSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    project: z.enum(["desktop-chromium", "mobile-chromium"]),
+    rawServerHtml: z.literal(true),
+    accessibilityAxe: z.literal(true),
+    accessibleNamesAndLandmarks: z.literal(true),
+    keyboardFocus: z.literal(true),
+    responsiveOverflow: z.literal(true),
+  })
+  .strict();
+
+const primaryJourneyObserverMarkerSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    phase: z.enum(["journey_readback", "cleanup_readback"]),
+    runId: z.string().min(1).max(128),
+    nonce: z.string().regex(/^[a-f0-9]{48}$/u),
+    journeyId: z.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+    identityLabel: z.string().trim().min(1).max(200),
+    completedSteps: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+    project: z.enum(["desktop-chromium", "mobile-chromium"]),
+    writes: z.array(
+      z
+        .object({
+          id: z.string().trim().min(1).max(200),
+          label: z.string().trim().min(1).max(200),
+          state: z.enum(["verified", "published"]),
+        })
+        .strict(),
+    ),
+    removedWriteIds: z.array(z.string().trim().min(1).max(200)),
+    remainingWrites: z.number().int().nonnegative(),
+  })
+  .strict();
+
+type PrimaryJourneyObserverMarker = z.infer<typeof primaryJourneyObserverMarkerSchema>;
+
+export const productionJourneyRuntimeEvidenceSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    scope: z.literal("product_specific_end_to_end"),
+    runId: z.string().min(1).max(128),
+    journeyId: z.string().regex(/^[a-z][a-z0-9_]{0,99}$/u),
+    steps: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+    identity: z
+      .object({ kind: z.literal("labeled_test_identity"), label: z.string().min(1).max(200) })
+      .strict(),
+    journeyProjects: z.tuple([z.literal("desktop-chromium"), z.literal("mobile-chromium")]),
+    cleanupProjects: z.tuple([z.literal("desktop-chromium"), z.literal("mobile-chromium")]),
+    traceFiles: z
+      .array(
+        z
+          .object({
+            path: z.string().trim().min(1).max(1_000),
+            sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+            bytes: z.number().int().min(1_000),
+          })
+          .strict(),
+      )
+      .min(4),
+    stateReadBack: z
+      .object({
+        observer: z.literal(POST_DEPLOY_SURFACE_SPEC_PATH),
+        journeyProjects: z.tuple([z.literal("desktop-chromium"), z.literal("mobile-chromium")]),
+        cleanupProjects: z.tuple([z.literal("desktop-chromium"), z.literal("mobile-chromium")]),
+        writeIds: z.array(z.string().trim().min(1).max(200)).min(1),
+        completedSteps: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+        remainingWrites: z.literal(0),
+      })
+      .strict(),
+    observedEffects: z.array(z.enum(["reversible_external_write", "transactional_email"])).max(2),
+    recipientCount: z.number().int().nonnegative(),
+    recipientsAllMatchTestIdentity: z.literal(true),
+    forbiddenEffectsObserved: z.array(z.never()).length(0),
+    cleanup: z
+      .object({
+        state: z.literal("verified"),
+        removedWrites: z.number().int().nonnegative(),
+        remainingWrites: z.literal(0),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type ProductionJourneyRuntimeEvidence = z.infer<
+  typeof productionJourneyRuntimeEvidenceSchema
+>;
+
+export const launchProductionVerificationOutputSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    runId: z.string().min(1).max(128),
+    evidenceRef: z.string().trim().min(1).max(1_000),
+    deploymentUrl: z.string().url(),
+    target: z.enum(["verified_provider_production_url", "verified_custom_domain"]),
+    customDomain: z
+      .object({
+        state: z.enum(["not_configured", "waiting", "verified"]),
+        origin: z.string().url().nullable(),
+      })
+      .strict(),
+    deploymentSurface: z
+      .object({
+        scope: z.literal("generic_read_only_deployment_surface"),
+        command: z.array(z.string().min(1)).min(1),
+        exitCode: z.literal(0),
+        verified: z.literal(true),
+      })
+      .strict(),
+    primaryJourneyEvidence: launchReceiptPrimaryJourneyEvidenceSchema,
+    runtimeEvidence: productionJourneyRuntimeEvidenceSchema,
+    accessibility: z
+      .object({
+        state: z.enum(["verified", "fixture"]),
+        projects: z.tuple([z.literal("desktop-chromium"), z.literal("mobile-chromium")]),
+        evidenceRef: z.string().trim().min(1).max(1_000),
+      })
+      .strict(),
+    rawHtml: z
+      .object({
+        state: z.enum(["verified", "fixture"]),
+        evidenceRef: z.string().trim().min(1).max(1_000),
+      })
+      .strict(),
+    cleanup: z
+      .object({
+        state: z.literal("verified"),
+        evidenceRef: z.string().trim().min(1).max(1_000),
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    for (const [path, reference] of [
+      [["primaryJourneyEvidence", "evidenceRef"], value.primaryJourneyEvidence.evidenceRef],
+      [["accessibility", "evidenceRef"], value.accessibility.evidenceRef],
+      [["rawHtml", "evidenceRef"], value.rawHtml.evidenceRef],
+      [["cleanup", "evidenceRef"], value.cleanup.evidenceRef],
+    ] as const) {
+      if (reference !== value.evidenceRef) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [...path],
+          message: "must reference this exact run-scoped production evidence artifact",
+        });
+      }
+    }
+  });
+
+export type LaunchProductionVerificationOutput = z.infer<
+  typeof launchProductionVerificationOutputSchema
+>;
+
+export function sameRunLaunchReceiptVerification(
+  state: WorkflowRunState,
+  customDomainConfigured: boolean,
+): {
+  accessibility: LaunchReceipt["verification"]["accessibility"];
+  rawHtml: LaunchReceipt["verification"]["rawHtml"];
+  primaryJourneyEvidence?: LaunchReceiptPrimaryJourneyEvidence;
+  deploymentEvidence?: {
+    state: "verified" | "fixture";
+    productionUrl: string;
+    customDomain: string | null;
+    evidenceRef: string;
+  };
+} {
+  const customDomainNode = state.nodes["verify-custom-domain"];
+  const planned = { accessibility: "planned" as const, rawHtml: "planned" as const };
+  if (
+    customDomainConfigured &&
+    customDomainNode &&
+    customDomainNode.attempts > 0 &&
+    customDomainNode.state !== "succeeded"
+  ) {
+    // Once the custom origin was actually selected and attempted, a failure is
+    // material. Never silently fall back to earlier provider-URL evidence.
+    return planned;
+  }
+  const nodeId =
+    customDomainConfigured && customDomainNode?.state === "succeeded"
+      ? "verify-custom-domain"
+      : "verify-production";
+  const node = state.nodes[nodeId];
+  const expectedArtifact = `reports/launch/${state.runId}/product/${nodeId}.json`;
+  if (
+    !node ||
+    node.state !== "succeeded" ||
+    !node.effectVerified ||
+    node.evidenceArtifact !== expectedArtifact
+  ) {
+    return planned;
+  }
+  const parsed = launchProductionVerificationOutputSchema.safeParse(node.output);
+  if (
+    !parsed.success ||
+    parsed.data.runId !== state.runId ||
+    parsed.data.evidenceRef !== expectedArtifact
+  ) {
+    return planned;
+  }
+  return {
+    accessibility: parsed.data.accessibility.state,
+    rawHtml: parsed.data.rawHtml.state,
+    primaryJourneyEvidence: parsed.data.primaryJourneyEvidence,
+    deploymentEvidence: {
+      state: parsed.data.primaryJourneyEvidence.state === "fixture" ? "fixture" : "verified",
+      productionUrl: parsed.data.deploymentUrl,
+      customDomain:
+        parsed.data.target === "verified_custom_domain" ? parsed.data.customDomain.origin : null,
+      evidenceRef: parsed.data.evidenceRef,
+    },
+  };
+}
 
 interface AgentCompletionPolicy {
   requiredArtifactRoles: readonly BuildAgentArtifactRole[];
@@ -96,9 +507,28 @@ interface AgentCompletionPolicy {
 
 const COMPLETION_POLICIES: Readonly<Record<string, AgentCompletionPolicy>> = {
   "launch.prepareRepository": {
-    requiredArtifactRoles: ["repository_scaffold", "managed_manifest"],
+    requiredArtifactRoles: [
+      "repository_scaffold",
+      "managed_manifest",
+      "design_record",
+      "design_implementation",
+      "core_journey",
+      "affected_test",
+      "event_contract",
+      "event_instrumentation",
+    ],
     relevantValidator:
-      /(?:scaffold|manifest|harness[-:]?lock|validate:configs|verify:(?:fast|mvp)|test[^\n]*(?:config|scaffold))/i,
+      /(?:journey|e2e|playwright|design|accessib|responsive|analytics|event|consent|pii|\btest\b|verify:(?:fast|mvp)|\bbuild\b)/i,
+  },
+  "launch.reviewProduct": {
+    requiredArtifactRoles: [
+      "design_implementation",
+      "core_journey",
+      "affected_test",
+      "event_instrumentation",
+    ],
+    relevantValidator:
+      /(?:journey|e2e|playwright|design|accessib|responsive|analytics|event|consent|pii|\btest\b|verify:(?:fast|mvp)|\bbuild\b)/i,
   },
   "launch.designDirection": {
     requiredArtifactRoles: ["design_record", "design_implementation"],
@@ -125,6 +555,28 @@ const SNAPSHOT_IGNORED_DIRECTORIES = new Set([
   "reports",
 ]);
 
+const MODEL_PROTECTED_CONTROL_PATHS = new Set([
+  "harness.lock",
+  "venture.manifest.json",
+  "config/connectors.json",
+  "config/launch-contract.yaml",
+  "config/launch.yaml",
+  "config/mobile.yaml",
+  "config/offer.yaml",
+  "config/policies.yaml",
+  "config/providers.yaml",
+  "config/venture.yaml",
+  "docs/product/PRODUCT_CONSTITUTION.md",
+  "docs/product/idea.md",
+]);
+
+const LOCK_PROTECTED_OWNERSHIPS = new Set(["core_owned", "harness", "generated"]);
+
+const MODEL_ALLOWED_VOLATILE_PATH_PREFIXES = [
+  ".venture/test-results",
+  ".venture/private/test-results",
+] as const;
+
 interface RepositoryFileState {
   path: string;
   beforeSha256: string | null;
@@ -133,9 +585,17 @@ interface RepositoryFileState {
 
 type RepositorySnapshot = Map<string, string>;
 
+interface ProtectedInputSnapshot {
+  entries: Map<string, string>;
+  protectedPaths: Set<string>;
+}
+
 export interface LaunchProductBindingsOptions {
   rootDir: string;
   brief: FounderBrief;
+  decision?: LaunchDecision;
+  launchContract?: LaunchContract;
+  authorization?: AuthorizationEnvelope;
   agentHost: BuildAgentHost;
   commandRunner: CommandRunner;
   redactor?: Redactor;
@@ -177,8 +637,636 @@ function repositoryReference(root: string, path: string): { absolute: string; re
   return { absolute, reference };
 }
 
+function readRegularFile(path: string): Buffer;
+function readRegularFile(path: string, encoding: "utf8"): string;
+function readRegularFile(path: string, encoding?: "utf8"): Buffer | string {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | NO_FOLLOW);
+    if (!fstatSync(descriptor).isFile()) {
+      throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
+    }
+    return encoding === "utf8" ? readFileSync(descriptor, encoding) : readFileSync(descriptor);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+      throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
+    }
+    throw error;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function unavailableRegularFile(error: unknown): boolean {
+  return (
+    error instanceof NonRegularFileError ||
+    ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")
+  );
+}
+
 function sha256(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  return createHash("sha256").update(readRegularFile(path)).digest("hex");
+}
+
+function sha256IfRegular(path: string): string | null {
+  try {
+    return sha256(path);
+  } catch (error) {
+    if (unavailableRegularFile(error)) return null;
+    throw error;
+  }
+}
+
+function assertCoreOwnedSurfaceSpec(root: string): void {
+  let lock: ReturnType<typeof loadHarnessLock>;
+  let actual: string;
+  try {
+    lock = loadHarnessLock(inside(root, "harness.lock"));
+    actual = sha256(inside(root, POST_DEPLOY_SURFACE_SPEC_PATH));
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "DEPLOYMENT_SURFACE_CONTRACT_INVALID",
+      `Core-owned deployment-surface contract or harness.lock is unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+  const entry = lock.managed_files.find(({ path }) => path === POST_DEPLOY_SURFACE_SPEC_PATH);
+  if (entry?.ownership !== "core_owned" || entry.sha256 === null || entry.sha256 !== actual) {
+    throw new WorkflowExecutionError(
+      "DEPLOYMENT_SURFACE_CONTRACT_TAMPERED",
+      `${POST_DEPLOY_SURFACE_SPEC_PATH} must match its exact core-owned harness.lock digest before execution.`,
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+}
+
+interface PlaywrightTraceEvidence {
+  traceFiles: readonly { path: string; sha256: string; bytes: number }[];
+}
+
+function zipEntries(archive: Buffer): Map<string, Buffer> {
+  let end = archive.length - 22;
+  while (end >= 0 && archive.readUInt32LE(end) !== 0x06054b50) end -= 1;
+  if (end < 0) throw new Error("trace archive has no ZIP directory");
+  const count = archive.readUInt16LE(end + 10);
+  let cursor = archive.readUInt32LE(end + 16);
+  const entries = new Map<string, Buffer>();
+  for (let index = 0; index < count; index += 1) {
+    if (archive.readUInt32LE(cursor) !== 0x02014b50) throw new Error("invalid ZIP directory");
+    const method = archive.readUInt16LE(cursor + 10);
+    const compressedSize = archive.readUInt32LE(cursor + 20);
+    const fileNameLength = archive.readUInt16LE(cursor + 28);
+    const extraLength = archive.readUInt16LE(cursor + 30);
+    const commentLength = archive.readUInt16LE(cursor + 32);
+    const localOffset = archive.readUInt32LE(cursor + 42);
+    const name = archive.subarray(cursor + 46, cursor + 46 + fileNameLength).toString("utf8");
+    if (archive.readUInt32LE(localOffset) !== 0x04034b50) throw new Error("invalid ZIP entry");
+    const localNameLength = archive.readUInt16LE(localOffset + 26);
+    const localExtraLength = archive.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = archive.subarray(dataStart, dataStart + compressedSize);
+    entries.set(
+      name,
+      method === 0
+        ? Buffer.from(compressed)
+        : method === 8
+          ? inflateRawSync(compressed)
+          : (() => {
+              throw new Error(`unsupported ZIP compression method ${method}`);
+            })(),
+    );
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function traceProvesBrowserJourney(
+  traces: readonly Buffer[],
+  expectedOrigin: string,
+  steps: readonly string[],
+  phase: "journey" | "cleanup",
+): boolean {
+  const events = traces
+    .flatMap((trace) => trace.toString("utf8").split(/\r?\n/u))
+    .flatMap((line) => {
+      if (!line) return [];
+      try {
+        return [JSON.parse(line) as Record<string, unknown>];
+      } catch {
+        return [];
+      }
+    });
+  const serialized = events.map((event) => JSON.stringify(event)).join("\n");
+  if (!serialized.includes(expectedOrigin)) return false;
+  const beforeById = new Map(
+    events
+      .filter(({ type, callId }) => type === "before" && typeof callId === "string")
+      .map((event) => [event.callId as string, event]),
+  );
+  const succeeded = new Set(
+    events
+      .filter(
+        ({ type, callId, error }) =>
+          type === "after" && typeof callId === "string" && error === undefined,
+      )
+      .map(({ callId }) => callId as string),
+  );
+  const successfulAssertions = [...beforeById.entries()].filter(
+    ([callId, event]) => succeeded.has(callId) && /expect|assert/iu.test(JSON.stringify(event)),
+  );
+  const successfulActions = [...beforeById.entries()].filter(
+    ([callId, event]) =>
+      succeeded.has(callId) &&
+      /navigate|goto|click|fill|check|press|select|tap|request\.(?:get|post|put|patch|delete)/iu.test(
+        JSON.stringify(event),
+      ),
+  );
+  if (successfulAssertions.length < 1 || successfulActions.length < 1) return false;
+  if (phase === "cleanup") return true;
+  const parentContainsStep = (event: Record<string, unknown>, step: string): boolean => {
+    let parentId = typeof event.parentId === "string" ? event.parentId : null;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = beforeById.get(parentId);
+      if (!parent) return false;
+      if (parent.title === step) return true;
+      parentId = typeof parent.parentId === "string" ? parent.parentId : null;
+    }
+    return false;
+  };
+  return steps.every(
+    (step) =>
+      [...beforeById.values()].some(({ title }) => title === step) &&
+      successfulActions.some(([, event]) => parentContainsStep(event, step)) &&
+      successfulAssertions.some(([, event]) => parentContainsStep(event, step)),
+  );
+}
+
+function playwrightTraceEvidence(
+  root: string,
+  outputReference: string,
+  deploymentUrl: string,
+  contract: PrimaryJourneyTestContract,
+): PlaywrightTraceEvidence {
+  const outputRoot = inside(root, outputReference);
+  const files: { path: string; sha256: string; bytes: number }[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = resolve(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.isFile() && entry.name === "trace.zip") {
+        const stat = lstatSync(absolute);
+        if (stat.size < 1_000) continue;
+        const entries = zipEntries(readRegularFile(absolute));
+        const traces = [...entries.entries()]
+          .filter(([name]) => name.endsWith(".trace") || name.endsWith(".network"))
+          .map(([, content]) => content);
+        const normalized = relative(outputRoot, absolute).split(sep).join("/");
+        const phase = normalized.startsWith("journey/")
+          ? "journey"
+          : normalized.startsWith("cleanup/")
+            ? "cleanup"
+            : null;
+        if (!phase || !traceProvesBrowserJourney(traces, deploymentUrl, contract.steps, phase)) {
+          continue;
+        }
+        files.push({
+          path: relative(root, absolute).split(sep).join("/"),
+          sha256: sha256(absolute),
+          bytes: stat.size,
+        });
+      }
+    }
+  };
+  try {
+    if (!lstatSync(outputRoot).isDirectory()) throw new Error("not a directory");
+    visit(outputRoot);
+  } catch {
+    // Missing trace output is handled by the exact-count check below.
+  }
+  const phases = files.map(({ path }) =>
+    path.includes("/journey/") ? "journey" : path.includes("/cleanup/") ? "cleanup" : "other",
+  );
+  if (
+    phases.filter((phase) => phase === "journey").length < 2 ||
+    phases.filter((phase) => phase === "cleanup").length < 2
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_TRACE_EVIDENCE_MISSING",
+      "Marker-only output is not journey proof: product journey and cleanup must produce current-run Playwright traces for desktop and mobile.",
+    );
+  }
+  return { traceFiles: files.sort((left, right) => left.path.localeCompare(right.path)) };
+}
+
+function primaryJourneyTestContract(
+  root: string,
+  launchContract: LaunchContract | undefined,
+): PrimaryJourneyTestContract {
+  if (!launchContract) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_MISSING",
+      "A canonical Launch Contract is required before the product-specific primary journey can be verified.",
+    );
+  }
+  const contractPath = inside(root, PRIMARY_JOURNEY_CONTRACT_PATH);
+  const specPath = inside(root, PRIMARY_JOURNEY_SPEC_PATH);
+  const cleanupSpecPath = inside(root, PRIMARY_JOURNEY_CLEANUP_SPEC_PATH);
+  let parsed: PrimaryJourneyTestContract;
+  let spec: string;
+  let cleanupSpec: string;
+  try {
+    parsed = primaryJourneyTestContractSchema.parse(
+      JSON.parse(readRegularFile(contractPath, "utf8")),
+    );
+    spec = readRegularFile(specPath, "utf8");
+    cleanupSpec = readRegularFile(cleanupSpecPath, "utf8");
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_INVALID",
+      `The product build must provide regular non-symlink ${PRIMARY_JOURNEY_SPEC_PATH}, ${PRIMARY_JOURNEY_CLEANUP_SPEC_PATH}, and ${PRIMARY_JOURNEY_CONTRACT_PATH} files: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (
+    parsed.journeyId !== launchContract.decision.primarySuccessSignal ||
+    JSON.stringify(parsed.steps) !== JSON.stringify(launchContract.product.primaryJourney)
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_MISMATCH",
+      "The product-specific Playwright binding does not exactly match the Launch Contract primary success signal and ordered journey steps.",
+    );
+  }
+  const requiredRuntimeBindings = [
+    "primary-journey.contract.json",
+    PRIMARY_JOURNEY_RUN_ID_ENV,
+    PRIMARY_JOURNEY_NONCE_ENV,
+    PRIMARY_JOURNEY_TEST_IDENTITY_ENV,
+    PRIMARY_JOURNEY_MARKER_PREFIX.trim(),
+  ];
+  if (
+    requiredRuntimeBindings.some((binding) => !spec.includes(binding)) ||
+    !spec.includes("test.step")
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_SPEC_UNBOUND",
+      `${PRIMARY_JOURNEY_SPEC_PATH} must read its machine-readable contract and emit run-, nonce-, identity-, and project-bound runtime evidence.`,
+    );
+  }
+  if (
+    requiredRuntimeBindings.some((binding) => !cleanupSpec.includes(binding)) ||
+    !cleanupSpec.includes("test.step")
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CLEANUP_UNBOUND",
+      `${PRIMARY_JOURNEY_CLEANUP_SPEC_PATH} must read the same contract and emit verified cleanup read-back for only the labeled test identity.`,
+    );
+  }
+  return parsed;
+}
+
+function primaryJourneyEvidence(
+  contract: PrimaryJourneyTestContract,
+  state: "verified" | "fixture",
+  evidenceRef: string,
+): LaunchReceiptPrimaryJourneyEvidence {
+  return launchReceiptPrimaryJourneyEvidenceSchema.parse({
+    scope: contract.scope,
+    journeyId: contract.journeyId,
+    steps: contract.steps,
+    state,
+    evidenceRef,
+  });
+}
+
+function assertProductionJourneyAuthorization(
+  authorization: AuthorizationEnvelope | undefined,
+  context: Pick<WorkflowHandlerContext, "runId">,
+  now: Date,
+): AuthorizationEnvelope {
+  if (!authorization) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_AUTHORIZATION_MISSING",
+      "Production primary-journey verification requires the current run authorization envelope.",
+    );
+  }
+  if (
+    authorization.run_id !== context.runId ||
+    Date.parse(authorization.expires_at) <= now.getTime() ||
+    !authorization.allowed_capabilities.includes("product.primary_journey.verify") ||
+    !authorization.allowed_side_effect_classes.includes("reversible_external_write") ||
+    !authorization.environments.includes("production") ||
+    authorization.profile === "read_only" ||
+    authorization.profile === "build_local" ||
+    authorization.profile === "preview_launch"
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_AUTHORIZATION_INVALID",
+      "The current run envelope does not authorize bounded reversible production primary-journey verification.",
+    );
+  }
+  return authorization;
+}
+
+function productionJourneyMarkers(output: string) {
+  try {
+    return output.split(/\r?\n/u).flatMap((line) => {
+      const markerIndex = line.indexOf(PRIMARY_JOURNEY_MARKER_PREFIX);
+      if (markerIndex < 0) return [];
+      return [
+        productionJourneyMarkerSchema.parse(
+          JSON.parse(line.slice(markerIndex + PRIMARY_JOURNEY_MARKER_PREFIX.length)),
+        ),
+      ];
+    });
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RUNTIME_EVIDENCE_INVALID",
+      `Product-specific production journey marker is invalid: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function validatedDeploymentSurfaceMarkers(output: string) {
+  try {
+    const markers = output.split(/\r?\n/u).flatMap((line) => {
+      const markerIndex = line.indexOf(DEPLOYMENT_SURFACE_MARKER_PREFIX);
+      if (markerIndex < 0) return [];
+      return [
+        deploymentSurfaceMarkerSchema.parse(
+          JSON.parse(line.slice(markerIndex + DEPLOYMENT_SURFACE_MARKER_PREFIX.length)),
+        ),
+      ];
+    });
+    const projects = markers.map(({ project }) => project).sort();
+    if (JSON.stringify(projects) !== JSON.stringify(["desktop-chromium", "mobile-chromium"])) {
+      throw new Error("expected one exact marker from desktop-chromium and mobile-chromium");
+    }
+    return markers;
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_SURFACE_EVIDENCE_INVALID",
+      `The deployment surface did not emit exact raw-HTML and accessibility-baseline evidence: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+}
+
+function primaryJourneyObserverMarkers(output: string): PrimaryJourneyObserverMarker[] {
+  try {
+    return output.split(/\r?\n/u).flatMap((line) => {
+      const markerIndex = line.indexOf(PRIMARY_JOURNEY_OBSERVER_MARKER_PREFIX);
+      if (markerIndex < 0) return [];
+      return [
+        primaryJourneyObserverMarkerSchema.parse(
+          JSON.parse(line.slice(markerIndex + PRIMARY_JOURNEY_OBSERVER_MARKER_PREFIX.length)),
+        ),
+      ];
+    });
+  } catch (error) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_STATE_READBACK_INVALID",
+      `The locked observer emitted invalid product-state read-back: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function validatedPrimaryJourneyStateReadBack(
+  journeyOutput: string,
+  cleanupOutput: string,
+  runId: string,
+  nonce: string,
+  contract: PrimaryJourneyTestContract,
+) {
+  const journey = primaryJourneyObserverMarkers(journeyOutput);
+  const cleanup = primaryJourneyObserverMarkers(cleanupOutput);
+  const expectedProjects = ["desktop-chromium", "mobile-chromium"];
+  const commonInvalid = (marker: PrimaryJourneyObserverMarker) =>
+    marker.runId !== runId ||
+    marker.nonce !== nonce ||
+    marker.journeyId !== contract.journeyId ||
+    marker.identityLabel !== contract.production.identity.label ||
+    JSON.stringify(marker.completedSteps) !== JSON.stringify(contract.steps);
+  if (
+    JSON.stringify(journey.map(({ project }) => project).sort()) !==
+      JSON.stringify(expectedProjects) ||
+    JSON.stringify(cleanup.map(({ project }) => project).sort()) !==
+      JSON.stringify(expectedProjects) ||
+    journey.some(
+      (marker) =>
+        commonInvalid(marker) ||
+        marker.phase !== "journey_readback" ||
+        marker.writes.length < 1 ||
+        marker.removedWriteIds.length !== 0 ||
+        marker.remainingWrites !== marker.writes.length ||
+        marker.writes.some(({ label }) => label !== contract.production.identity.label),
+    ) ||
+    cleanup.some(
+      (marker) =>
+        commonInvalid(marker) ||
+        marker.phase !== "cleanup_readback" ||
+        marker.writes.length !== 0 ||
+        marker.remainingWrites !== 0,
+    )
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_STATE_READBACK_MISMATCH",
+      "The locked observer must independently read back the exact contract steps and labeled writes after the journey, then zero remaining writes after cleanup on desktop and mobile.",
+    );
+  }
+  const writeIds = [...new Set(journey.flatMap(({ writes }) => writes.map(({ id }) => id)))].sort();
+  const removedWriteIds = [...new Set(cleanup.flatMap(({ removedWriteIds: ids }) => ids))].sort();
+  if (
+    writeIds.length < 1 ||
+    journey.some(
+      ({ writes }) =>
+        JSON.stringify([...new Set(writes.map(({ id }) => id))].sort()) !==
+        JSON.stringify(writeIds),
+    ) ||
+    cleanup.some(
+      ({ removedWriteIds: ids }) =>
+        JSON.stringify([...new Set(ids)].sort()) !== JSON.stringify(writeIds),
+    ) ||
+    JSON.stringify(removedWriteIds) !== JSON.stringify(writeIds)
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_STATE_CLEANUP_MISMATCH",
+      "Cleanup read-back must remove the exact stable write IDs independently observed after the journey.",
+    );
+  }
+  return {
+    observer: POST_DEPLOY_SURFACE_SPEC_PATH as typeof POST_DEPLOY_SURFACE_SPEC_PATH,
+    journeyProjects: expectedProjects as ["desktop-chromium", "mobile-chromium"],
+    cleanupProjects: expectedProjects as ["desktop-chromium", "mobile-chromium"],
+    writeIds,
+    completedSteps: contract.steps,
+    remainingWrites: 0 as const,
+  };
+}
+
+function validatedReconciliationCleanupReadBack(
+  output: string,
+  runId: string,
+  nonce: string,
+  contract: PrimaryJourneyTestContract,
+): void {
+  const markers = primaryJourneyObserverMarkers(output);
+  if (
+    JSON.stringify(markers.map(({ project }) => project).sort()) !==
+      JSON.stringify(["desktop-chromium", "mobile-chromium"]) ||
+    markers.some(
+      (marker) =>
+        marker.phase !== "cleanup_readback" ||
+        marker.runId !== runId ||
+        marker.nonce !== nonce ||
+        marker.journeyId !== contract.journeyId ||
+        marker.identityLabel !== contract.production.identity.label ||
+        JSON.stringify(marker.completedSteps) !== JSON.stringify(contract.steps) ||
+        marker.writes.length !== 0 ||
+        marker.remainingWrites !== 0,
+    )
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RECONCILIATION_READBACK_MISMATCH",
+      "The locked observer did not independently confirm zero labeled writes after reconciliation cleanup on desktop and mobile.",
+    );
+  }
+}
+
+function validatedCleanupMarkers(
+  output: string,
+  runId: string,
+  nonce: string,
+  contract: PrimaryJourneyTestContract,
+) {
+  const markers = productionJourneyMarkers(output);
+  const projects = markers.map(({ project }) => project).sort();
+  if (
+    JSON.stringify(projects) !== JSON.stringify(["desktop-chromium", "mobile-chromium"]) ||
+    markers.some(
+      (marker) =>
+        marker.phase !== "cleanup" ||
+        marker.runId !== runId ||
+        marker.nonce !== nonce ||
+        marker.journeyId !== contract.journeyId ||
+        JSON.stringify(marker.steps) !== JSON.stringify(contract.steps) ||
+        marker.identity.kind !== contract.production.identity.kind ||
+        marker.identity.label !== contract.production.identity.label ||
+        marker.recipientsAllMatchTestIdentity !== true ||
+        marker.cleanup?.state !== "verified" ||
+        marker.cleanup.remainingWrites !== 0,
+    )
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CLEANUP_EVIDENCE_MISMATCH",
+      "Cleanup must emit one exact run-, nonce-, identity-, contract-, and project-bound zero-remaining-write read-back for desktop and mobile.",
+    );
+  }
+  return markers;
+}
+
+function validateProductionJourneyMarkers(
+  primaryOutput: string,
+  cleanupOutput: string,
+  runId: string,
+  nonce: string,
+  contract: PrimaryJourneyTestContract,
+  authorization: AuthorizationEnvelope,
+  fixture: boolean,
+  traceEvidence: PlaywrightTraceEvidence,
+  stateReadBack: ReturnType<typeof validatedPrimaryJourneyStateReadBack>,
+): ProductionJourneyRuntimeEvidence {
+  const primaryMarkers = productionJourneyMarkers(primaryOutput);
+  const cleanupMarkers = validatedCleanupMarkers(cleanupOutput, runId, nonce, contract);
+  const expectedProjects = ["desktop-chromium", "mobile-chromium"] as const;
+  const allMarkers = [...primaryMarkers, ...cleanupMarkers];
+  const invalidBinding = allMarkers.some(
+    (marker) =>
+      marker.runId !== runId ||
+      marker.nonce !== nonce ||
+      marker.journeyId !== contract.journeyId ||
+      JSON.stringify(marker.steps) !== JSON.stringify(contract.steps) ||
+      marker.identity.kind !== contract.production.identity.kind ||
+      marker.identity.label !== contract.production.identity.label,
+  );
+  const primaryProjects = primaryMarkers.map(({ project }) => project).sort();
+  const cleanupProjects = cleanupMarkers.map(({ project }) => project).sort();
+  if (
+    invalidBinding ||
+    primaryMarkers.some(({ phase }) => phase !== "journey") ||
+    cleanupMarkers.some(({ phase }) => phase !== "cleanup") ||
+    JSON.stringify(primaryProjects) !== JSON.stringify([...expectedProjects].sort()) ||
+    JSON.stringify(cleanupProjects) !== JSON.stringify([...expectedProjects].sort())
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RUNTIME_EVIDENCE_MISMATCH",
+      "Production journey markers must contain exactly one run-, nonce-, identity-, contract-, and project-bound journey and cleanup result for desktop and mobile.",
+    );
+  }
+  const observedEffects = [
+    ...new Set(primaryMarkers.flatMap(({ observedEffects: effects }) => effects)),
+  ];
+  if (
+    (!fixture && !observedEffects.includes(journeyContractEffect(contract))) ||
+    observedEffects.some(
+      (effect) =>
+        !contract.production.allowedEffects.includes(effect) ||
+        !authorization.allowed_side_effect_classes.includes(effect),
+    ) ||
+    (observedEffects.includes("transactional_email") &&
+      !authorization.transactional_test_email_allowed)
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_EFFECT_OUTSIDE_AUTHORIZATION",
+      "The product journey reported an effect outside both its reviewed contract and the current run envelope.",
+    );
+  }
+  const recipientCount = Math.max(...primaryMarkers.map(({ recipientCount }) => recipientCount), 0);
+  if (
+    allMarkers.some(({ recipientsAllMatchTestIdentity }) => !recipientsAllMatchTestIdentity) ||
+    recipientCount > authorization.max_email_recipients ||
+    (!observedEffects.includes("transactional_email") && recipientCount !== 0)
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_RECIPIENT_OUTSIDE_AUTHORIZATION",
+      "Production journey recipients must be bounded by the envelope and match only the labeled test identity.",
+    );
+  }
+  const cleanupRemovedWrites = Math.max(
+    ...cleanupMarkers.map(({ cleanup }) => cleanup?.removedWrites ?? 0),
+    0,
+  );
+  return productionJourneyRuntimeEvidenceSchema.parse({
+    schemaVersion: 1,
+    scope: contract.scope,
+    runId,
+    journeyId: contract.journeyId,
+    steps: contract.steps,
+    identity: contract.production.identity,
+    journeyProjects: expectedProjects,
+    cleanupProjects: expectedProjects,
+    traceFiles: traceEvidence.traceFiles,
+    stateReadBack,
+    observedEffects,
+    recipientCount,
+    recipientsAllMatchTestIdentity: true,
+    forbiddenEffectsObserved: [],
+    cleanup: { state: "verified", removedWrites: cleanupRemovedWrites, remainingWrites: 0 },
+  });
+}
+
+function journeyContractEffect(contract: PrimaryJourneyTestContract): "reversible_external_write" {
+  return contract.production.effect;
 }
 
 function dependencyInstallCheckpoint(value: unknown): DependencyInstallCheckpoint | null {
@@ -210,12 +1298,9 @@ function readDependencyInstallState(
 ): DependencyInstallReadBack {
   const packagePath = inside(root, expected.packageManifest);
   const lockPath = inside(root, expected.lockfile);
-  if (
-    !existsSync(packagePath) ||
-    !lstatSync(packagePath).isFile() ||
-    !existsSync(lockPath) ||
-    !lstatSync(lockPath).isFile()
-  ) {
+  const currentPackageSha256 = sha256IfRegular(packagePath);
+  const currentLockSha256 = sha256IfRegular(lockPath);
+  if (currentPackageSha256 === null || currentLockSha256 === null) {
     return {
       ...expected,
       state: "input_mismatch",
@@ -226,8 +1311,6 @@ function readDependencyInstallState(
     };
   }
 
-  const currentPackageSha256 = sha256(packagePath);
-  const currentLockSha256 = sha256(lockPath);
   if (
     currentPackageSha256 !== expected.packageManifestSha256 ||
     currentLockSha256 !== expected.lockfileSha256
@@ -247,10 +1330,7 @@ function readDependencyInstallState(
   const installedModulesReadBack = existsSync(modulesPath) && lstatSync(modulesPath).isDirectory();
   const installedLockPath = inside(root, "node_modules/.pnpm/lock.yaml");
   const installedLockfileReadBack =
-    installedModulesReadBack &&
-    existsSync(installedLockPath) &&
-    lstatSync(installedLockPath).isFile() &&
-    sha256(installedLockPath) === expected.lockfileSha256;
+    installedModulesReadBack && sha256IfRegular(installedLockPath) === expected.lockfileSha256;
   const binaryDirectory = inside(root, "node_modules/.bin");
   const commandInstalled = (name: string) =>
     [name, `${name}.cmd`, `${name}.ps1`].some((candidate) =>
@@ -304,6 +1384,139 @@ function repositoryChanges(
     const afterSha256 = after.get(path) ?? null;
     return beforeSha256 === afterSha256 ? [] : [{ path, beforeSha256, afterSha256 }];
   });
+}
+
+function protectedPathState(root: string, reference: string): string {
+  const segments = reference.split("/");
+  let cursor = root;
+  for (const [index, segment] of segments.entries()) {
+    cursor = resolve(cursor, segment);
+    let metadata: ReturnType<typeof lstatSync>;
+    try {
+      metadata = lstatSync(cursor);
+    } catch (error) {
+      if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        return "missing";
+      }
+      throw error;
+    }
+    if (metadata.isSymbolicLink()) return `symbolic_link:${index}`;
+    if (index < segments.length - 1) {
+      if (!metadata.isDirectory()) return `non_directory_component:${index}`;
+      continue;
+    }
+    if (metadata.isDirectory()) return "directory";
+    if (metadata.isFile()) return `file:${sha256(cursor)}`;
+    return "non_regular";
+  }
+  return "missing";
+}
+
+function lockDeclaredProtectedPaths(root: string): string[] {
+  const lockPath = inside(root, "harness.lock");
+  let value: unknown;
+  try {
+    value = parse(readRegularFile(lockPath, "utf8"));
+  } catch {
+    return [];
+  }
+  if (!value || Array.isArray(value) || typeof value !== "object") return [];
+  const managedFiles = (value as Record<string, unknown>).managed_files;
+  if (!Array.isArray(managedFiles)) return [];
+  return managedFiles.flatMap((entry) => {
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    if (
+      typeof record.path !== "string" ||
+      typeof record.ownership !== "string" ||
+      !LOCK_PROTECTED_OWNERSHIPS.has(record.ownership)
+    ) {
+      return [];
+    }
+    return [repositoryReference(root, record.path).reference];
+  });
+}
+
+function protectedInputSnapshot(root: string, handler: string): ProtectedInputSnapshot {
+  const protectedPaths = new Set([
+    ...MODEL_PROTECTED_CONTROL_PATHS,
+    ...lockDeclaredProtectedPaths(root),
+    ...(handler === "launch.prepareRepository" ? [] : ["package.json", "pnpm-lock.yaml"]),
+  ]);
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (/^\.env(?:\.|$)/u.test(entry.name) || entry.name === ".npmrc") {
+      protectedPaths.add(entry.name);
+    }
+  }
+  const entries = new Map<string, string>();
+  for (const reference of [...protectedPaths].sort()) {
+    entries.set(reference, protectedPathState(root, reference));
+  }
+
+  const allowedVolatileRoot = (reference: string) =>
+    MODEL_ALLOWED_VOLATILE_PATH_PREFIXES.some((prefix) => reference === prefix);
+  const visitProtectedTree = (reference: string): void => {
+    const state = protectedPathState(root, reference);
+    // These parent directories may be created solely to hold disposable
+    // Playwright results. Missing <-> directory is allowed, while a file,
+    // symlink, or other non-regular replacement remains a protected mutation.
+    const volatileParent =
+      reference === ".venture" ||
+      reference === ".venture/private" ||
+      allowedVolatileRoot(reference);
+    entries.set(
+      reference,
+      volatileParent && (state === "missing" || state === "directory")
+        ? "allowed_directory"
+        : state,
+    );
+    protectedPaths.add(reference);
+    if (allowedVolatileRoot(reference)) return;
+    if (state !== "directory") return;
+    const directory = inside(root, reference);
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      visitProtectedTree(`${reference}/${entry.name}`);
+    }
+  };
+  visitProtectedTree(".venture");
+  for (const reference of [".venture/private", ...MODEL_ALLOWED_VOLATILE_PATH_PREFIXES]) {
+    if (entries.has(reference)) continue;
+    const state = protectedPathState(root, reference);
+    entries.set(
+      reference,
+      state === "missing" || state === "directory" ? "allowed_directory" : state,
+    );
+    protectedPaths.add(reference);
+  }
+  visitProtectedTree("reports");
+  return { entries, protectedPaths };
+}
+
+function protectedInputViolations(
+  before: ProtectedInputSnapshot,
+  after: ProtectedInputSnapshot,
+  reportedPaths: readonly string[],
+): string[] {
+  const protectedPaths = new Set([...before.protectedPaths, ...after.protectedPaths]);
+  const observed = [...new Set([...before.entries.keys(), ...after.entries.keys()])].filter(
+    (path) => before.entries.get(path) !== after.entries.get(path),
+  );
+  const reported = reportedPaths.filter(
+    (path) =>
+      !MODEL_ALLOWED_VOLATILE_PATH_PREFIXES.some(
+        (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+      ) &&
+      (protectedPaths.has(path) ||
+        path === ".venture" ||
+        path.startsWith(".venture/") ||
+        path === "reports" ||
+        path.startsWith("reports/") ||
+        /^\.env(?:\.|$)/u.test(path) ||
+        path === ".npmrc"),
+  );
+  return [...new Set([...observed, ...reported])].sort();
 }
 
 function artifactRoleAllowsPath(role: BuildAgentArtifactRole, path: string): boolean {
@@ -429,10 +1642,9 @@ function checkpointFromInstallEvidence(
   nodeId: string,
 ): DependencyInstallCheckpoint | null {
   const paths = dependencyInstallEvidencePaths(root, runId, nodeId);
-  if (!existsSync(paths.absolute) || !lstatSync(paths.absolute).isFile()) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(paths.absolute, "utf8"));
+    parsed = JSON.parse(readRegularFile(paths.absolute, "utf8"));
   } catch {
     return null;
   }
@@ -482,6 +1694,7 @@ function validateAgentCompletion(
   result: BuildAgentResult,
   before: RepositorySnapshot,
   after: RepositorySnapshot,
+  launchContract?: LaunchContract,
 ): AgentCompletionValidation {
   if (!result.completion) {
     throw new WorkflowExecutionError(
@@ -557,6 +1770,23 @@ function validateAgentCompletion(
       );
     }
   }
+  if (launchContract && ["launch.prepareRepository", "launch.reviewProduct"].includes(handler)) {
+    for (const path of [
+      PRIMARY_JOURNEY_SPEC_PATH,
+      PRIMARY_JOURNEY_CLEANUP_SPEC_PATH,
+      PRIMARY_JOURNEY_CONTRACT_PATH,
+    ]) {
+      if (
+        !artifacts.some((artifact) => artifact.role === "affected_test" && artifact.path === path)
+      ) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_EVIDENCE_INVALID",
+          `Build agent completion for ${handler} must report ${path} as an affected_test artifact.`,
+        );
+      }
+    }
+    primaryJourneyTestContract(root, launchContract);
+  }
   if (
     result.completion.outcome === "changed" &&
     !artifacts.some(({ path }) => reportedPaths.has(path))
@@ -608,7 +1838,7 @@ function persistEvidence(
 ): string {
   const paths = artifactPaths(root, context);
   writeJsonAtomic(paths.absolute, redactor.redact(evidence));
-  const readBack = JSON.parse(readFileSync(paths.absolute, "utf8")) as {
+  const readBack = JSON.parse(readRegularFile(paths.absolute, "utf8")) as {
     runId?: string;
     nodeId?: string;
   };
@@ -640,9 +1870,12 @@ function configuredMobileScaffold(
   explicit: LaunchProductBindingsOptions["mobileScaffold"],
 ): LaunchProductBindingsOptions["mobileScaffold"] {
   const configPath = inside(root, "config/mobile.yaml");
-  const configured = existsSync(configPath)
-    ? mobileSchema.parse(parse(readFileSync(configPath, "utf8"))).mobile
-    : undefined;
+  let configured: ReturnType<typeof mobileSchema.parse>["mobile"] | undefined;
+  try {
+    configured = mobileSchema.parse(parse(readRegularFile(configPath, "utf8"))).mobile;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   return {
     bundleIdentifier:
       explicit?.bundleIdentifier ??
@@ -764,17 +1997,37 @@ async function runMobileScaffoldTask(
 }
 
 async function runAgentTask(
-  options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "brief" | "agentHost">> & {
-    redactor: Redactor;
-    now: () => Date;
-  },
+  options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "brief" | "agentHost">> &
+    Pick<LaunchProductBindingsOptions, "decision" | "launchContract"> & {
+      redactor: Redactor;
+      now: () => Date;
+    },
   instructions: string,
   context: WorkflowHandlerContext,
 ): Promise<WorkflowHandlerResult> {
   const startedAt = options.now().toISOString();
   const handler = context.node.handler ?? context.node.id;
   const policy = COMPLETION_POLICIES[handler];
+  const contextManifest = createBuildContextManifest({
+    rootDir: options.rootDir,
+    brief: options.brief,
+    runId: context.runId,
+    nodeId: context.node.id,
+    capabilitiesRequired: options.decision?.capabilities,
+    paymentProvider: options.decision?.payment.provider,
+    requireCanonicalContract: options.launchContract !== undefined,
+    agentNative: options.launchContract?.agentNative,
+  });
+  const contextManifestReference = `reports/launch/${safeSegment(
+    context.runId,
+    "run ID",
+  )}/context/${safeSegment(context.node.id, "node ID")}.json`;
+  writeJsonAtomic(
+    inside(options.rootDir, contextManifestReference),
+    options.redactor.redact(contextManifest),
+  );
   const before = repositorySnapshot(options.rootDir);
+  const protectedBefore = protectedInputSnapshot(options.rootDir, handler);
   let result: BuildAgentResult;
   try {
     result = options.redactor.redact(
@@ -798,13 +2051,17 @@ async function runAgentTask(
                 validator: "one relevant direct passed check with observed evidence",
               }
             : null,
-          dependencyOutputs: context.dependencyOutputs,
+          contextManifest,
+          contextManifestArtifact: contextManifestReference,
         } as unknown as JsonValue,
         signal: context.signal,
       }),
     );
   } catch (error) {
-    const changes = repositoryChanges(before, repositorySnapshot(options.rootDir));
+    const after = repositorySnapshot(options.rootDir);
+    const changes = repositoryChanges(before, after);
+    const protectedAfter = protectedInputSnapshot(options.rootDir, handler);
+    const protectedViolations = protectedInputViolations(protectedBefore, protectedAfter, []);
     const evidenceArtifact = persistEvidence(
       options.rootDir,
       context,
@@ -818,12 +2075,19 @@ async function runAgentTask(
         finishedAt: options.now().toISOString(),
         status: "failed",
         repositoryChanges: changes,
+        protectedInputViolations: protectedViolations,
         error: options.redactor.redactText(error instanceof Error ? error.message : String(error)),
         rawPromptPersisted: false,
         rawJsonlPersisted: false,
       },
       options.redactor,
     );
+    if (protectedViolations.length > 0) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_PROTECTED_INPUT_MUTATION",
+        `Build agent changed protected launch input(s) during ${context.node.id}: ${protectedViolations.join(", ")}. No source or provider node may continue; inspect ${evidenceArtifact}.`,
+      );
+    }
     throw new WorkflowExecutionError(
       "BUILD_AGENT_FAILED",
       `Build agent failed ${context.node.id}; inspect ${evidenceArtifact}.`,
@@ -832,6 +2096,38 @@ async function runAgentTask(
 
   const after = repositorySnapshot(options.rootDir);
   const observedChanges = repositoryChanges(before, after);
+  const protectedAfter = protectedInputSnapshot(options.rootDir, handler);
+  const protectedViolations = protectedInputViolations(
+    protectedBefore,
+    protectedAfter,
+    result.changedFiles,
+  );
+  if (protectedViolations.length > 0) {
+    const evidenceArtifact = persistEvidence(
+      options.rootDir,
+      context,
+      {
+        schemaVersion: 1,
+        runId: context.runId,
+        nodeId: context.node.id,
+        handler: context.node.handler,
+        host: options.agentHost.id,
+        startedAt,
+        finishedAt: options.now().toISOString(),
+        status: "protected_input_mutation",
+        result: hostOutput(result),
+        repositoryChanges: observedChanges,
+        protectedInputViolations: protectedViolations,
+        rawPromptPersisted: false,
+        rawJsonlPersisted: false,
+      },
+      options.redactor,
+    );
+    throw new WorkflowExecutionError(
+      "BUILD_AGENT_PROTECTED_INPUT_MUTATION",
+      `Build agent changed or reported protected launch input(s) during ${context.node.id}: ${protectedViolations.join(", ")}. No source or provider node may continue; inspect ${evidenceArtifact}.`,
+    );
+  }
   if (result.status === "blocked" || result.checks.some((check) => check.status === "failed")) {
     const evidenceArtifact = persistEvidence(
       options.rootDir,
@@ -853,7 +2149,12 @@ async function runAgentTask(
       },
       options.redactor,
     );
-    context.trace({ host: options.agentHost.id, evidenceArtifact, status: result.status });
+    context.trace({
+      host: options.agentHost.id,
+      evidenceArtifact,
+      contextManifestArtifact: contextManifestReference,
+      status: result.status,
+    });
     throw new WorkflowExecutionError(
       "BUILD_AGENT_BLOCKED",
       `Build agent did not complete ${context.node.id}; inspect ${evidenceArtifact}.`,
@@ -862,7 +2163,14 @@ async function runAgentTask(
 
   let validation: AgentCompletionValidation;
   try {
-    validation = validateAgentCompletion(options.rootDir, handler, result, before, after);
+    validation = validateAgentCompletion(
+      options.rootDir,
+      handler,
+      result,
+      before,
+      after,
+      options.launchContract,
+    );
   } catch (error) {
     const evidenceArtifact = persistEvidence(
       options.rootDir,
@@ -918,33 +2226,64 @@ async function runAgentTask(
     },
     options.redactor,
   );
-  context.trace({ host: options.agentHost.id, evidenceArtifact, status: result.status });
+  context.trace({
+    host: options.agentHost.id,
+    evidenceArtifact,
+    contextManifestArtifact: contextManifestReference,
+    status: result.status,
+  });
   const meteredTokens = result.usage ? result.usage.inputTokens + result.usage.outputTokens : 0;
+  const observedUsageCost: WorkflowCostCharge | null = result.usage
+    ? {
+        kind: "model",
+        category:
+          context.node.cost.unit === "tokens"
+            ? context.node.budgetCategory
+            : "launch.observed_model_tokens",
+        amount: meteredTokens,
+        unit: "tokens",
+        budgeted: context.node.cost.unit === "tokens",
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        tool: options.agentHost.id,
+        ...(result.usage.model ? { model: result.usage.model } : {}),
+        metadata: {
+          usageObservation: true,
+          cachedInputTokens: result.usage.cachedInputTokens,
+          contextFileCount: contextManifest.selectedFiles.length,
+          contextEstimatedTokens: contextManifest.estimatedTotalTokens,
+          contextTokenCap: contextManifest.tokenCap,
+          contextSelectionTruncated: contextManifest.selectionTruncated,
+          ...(result.usage.toolCalls === undefined ? {} : { toolCalls: result.usage.toolCalls }),
+          ...(result.usage.failedCommands === undefined
+            ? {}
+            : { failedCommands: result.usage.failedCommands }),
+        },
+      }
+    : null;
+  const costs: WorkflowCostCharge[] = [];
+  if (context.node.cost.unit !== "tokens") {
+    costs.push({
+      kind: "model",
+      category: context.node.budgetCategory,
+      amount: context.node.cost.amount,
+      unit: context.node.cost.unit,
+      budgeted: true,
+    });
+  }
+  if (observedUsageCost) costs.push(observedUsageCost);
   return {
     output,
     effectVerified: true,
     evidenceArtifact,
-    ...(context.node.cost.unit === "tokens" && meteredTokens > 0
-      ? {
-          costs: [
-            {
-              kind: "model" as const,
-              category: context.node.budgetCategory,
-              amount: meteredTokens,
-              unit: "tokens",
-              inputTokens: result.usage!.inputTokens,
-              outputTokens: result.usage!.outputTokens,
-              tool: options.agentHost.id,
-              metadata: { cachedInputTokens: result.usage!.cachedInputTokens },
-            },
-          ],
-        }
-      : {}),
+    ...(costs.length > 0 ? { costs } : {}),
   };
 }
 
 async function runQualityCommand(
   options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "commandRunner">> & {
+    brief: FounderBrief;
+    launchContract?: LaunchContract;
     redactor: Redactor;
     now: () => Date;
   },
@@ -952,6 +2291,10 @@ async function runQualityCommand(
   context: WorkflowHandlerContext,
 ): Promise<WorkflowHandlerResult> {
   const startedAt = options.now().toISOString();
+  const isMvp = args.length === 1 && args[0] === "verify:mvp";
+  const journeyContract = isMvp
+    ? primaryJourneyTestContract(options.rootDir, options.launchContract)
+    : null;
   const result = await options.commandRunner.run({
     command: "pnpm",
     args,
@@ -969,6 +2312,17 @@ async function runQualityCommand(
       startedAt,
       finishedAt: options.now().toISOString(),
       command: ["pnpm", ...args],
+      ...(journeyContract
+        ? {
+            primaryJourneyContract: {
+              scope: journeyContract.scope,
+              journeyId: journeyContract.journeyId,
+              steps: journeyContract.steps,
+              specPath: journeyContract.specPath,
+              cleanupSpecPath: journeyContract.cleanupSpecPath,
+            },
+          }
+        : {}),
       exitCode: result.exitCode,
       stdoutExcerpt: options.redactor.redactText(result.stdout).slice(-4_000),
       stderrExcerpt: options.redactor.redactText(result.stderr).slice(-4_000),
@@ -983,7 +2337,11 @@ async function runQualityCommand(
     );
   }
   return {
-    output: { command: ["pnpm", ...args], exitCode: result.exitCode },
+    output: {
+      command: ["pnpm", ...args],
+      exitCode: result.exitCode,
+      ...(journeyContract ? { primaryJourneyContractChecked: true } : {}),
+    },
     evidenceArtifact,
   };
 }
@@ -1010,14 +2368,14 @@ async function runDependencyInstall(
   let checkpoint: DependencyInstallCheckpoint | null = null;
 
   try {
-    if (!existsSync(packagePath) || !lstatSync(packagePath).isFile()) {
+    packageManifestSha256 = sha256IfRegular(packagePath);
+    if (packageManifestSha256 === null) {
       throw new Error("package.json is missing or is not a regular file");
     }
-    if (!existsSync(lockPath) || !lstatSync(lockPath).isFile()) {
+    lockfileSha256 = sha256IfRegular(lockPath);
+    if (lockfileSha256 === null) {
       throw new Error("pnpm-lock.yaml is missing or is not a regular file");
     }
-    packageManifestSha256 = sha256(packagePath);
-    lockfileSha256 = sha256(lockPath);
     checkpoint = {
       schemaVersion: DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION,
       packageManifest: "package.json",
@@ -1044,7 +2402,7 @@ async function runDependencyInstall(
       }
       if (readBack.state !== "verified") {
         throw new Error(
-          "pnpm exited successfully but the exact locked modules and required development tools were absent on read-back",
+          `pnpm exited successfully but dependency read-back was incomplete (modules=${readBack.installedModulesReadBack}, installedLock=${readBack.installedLockfileReadBack}, requiredTooling=${readBack.requiredToolingReadBack})`,
         );
       }
     }
@@ -1141,7 +2499,7 @@ function persistDependencyReconciliationEvidence(
       ...readBack,
     }),
   );
-  const persisted = JSON.parse(readFileSync(paths.absolute, "utf8")) as {
+  const persisted = JSON.parse(readRegularFile(paths.absolute, "utf8")) as {
     runId?: string;
     nodeId?: string;
     state?: string;
@@ -1306,6 +2664,66 @@ async function ensureCurrentDependencyInstall(
   }
 }
 
+function safeHttpsOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const privateIpv4 = /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(
+      url.hostname,
+    );
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      privateIpv4 ||
+      url.hostname === "localhost" ||
+      url.hostname === "::1" ||
+      url.hostname.endsWith(".local")
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function verifiedCustomDomain(context: WorkflowHandlerContext, domain: string): string {
+  const expected = new URL(`https://${domain}`).origin;
+  if (expected !== `https://${domain}`) {
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_DOMAIN_INVALID",
+      "The Launch Contract custom domain is not one canonical HTTPS hostname.",
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+  const project = context.dependencyOutputs["vercel-project"];
+  const dns = context.dependencyOutputs["dns-records"];
+  const refs =
+    project && typeof project === "object" && !Array.isArray(project)
+      ? (project as Record<string, unknown>).resourceRefs
+      : null;
+  const attached =
+    Array.isArray(refs) &&
+    refs.some((reference) => {
+      if (typeof reference !== "string") return false;
+      const separator = reference.indexOf("=");
+      if (separator < 0 || !["domain", "site_url", "url"].includes(reference.slice(0, separator))) {
+        return false;
+      }
+      const value = reference.slice(separator + 1);
+      return value === domain || safeHttpsOrigin(value) === expected;
+    });
+  if (!attached || !dns || typeof dns !== "object" || Array.isArray(dns)) {
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_CUSTOM_DOMAIN_UNVERIFIED",
+      "Custom-domain verification requires same-run Vercel attachment and DNS propagation read-back before any journey is attempted.",
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+  return expected;
+}
+
 function productionDeploymentUrl(context: WorkflowHandlerContext): string {
   const dependency = context.dependencyOutputs["production-deploy"];
   if (!dependency || typeof dependency !== "object" || Array.isArray(dependency)) {
@@ -1324,27 +2742,8 @@ function productionDeploymentUrl(context: WorkflowHandlerContext): string {
   const origins = new Set<string>();
   for (const reference of resourceRefs) {
     if (typeof reference !== "string" || !reference.startsWith("url=")) continue;
-    try {
-      const url = new URL(reference.slice("url=".length));
-      const privateIpv4 = /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(
-        url.hostname,
-      );
-      if (
-        url.protocol !== "https:" ||
-        url.username ||
-        url.password ||
-        url.port ||
-        privateIpv4 ||
-        url.hostname === "localhost" ||
-        url.hostname === "::1" ||
-        url.hostname.endsWith(".local")
-      ) {
-        continue;
-      }
-      origins.add(url.origin);
-    } catch {
-      // A malformed provider value is never guessed at.
-    }
+    const origin = safeHttpsOrigin(reference.slice("url=".length));
+    if (origin) origins.add(origin);
   }
   if (origins.size !== 1) {
     throw new WorkflowExecutionError(
@@ -1358,25 +2757,252 @@ function productionDeploymentUrl(context: WorkflowHandlerContext): string {
 async function runPostDeployVerification(
   options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "commandRunner">> & {
     brief: FounderBrief;
+    launchContract?: LaunchContract;
+    authorization?: AuthorizationEnvelope;
     redactor: Redactor;
     now: () => Date;
   },
   context: WorkflowHandlerContext,
 ): Promise<WorkflowHandlerResult> {
   const startedAt = options.now().toISOString();
-  const deploymentUrl = productionDeploymentUrl(context);
-  const result = await options.commandRunner.run({
+  const customDomainVerification = context.node.id === "verify-custom-domain";
+  const deploymentUrl = customDomainVerification
+    ? verifiedCustomDomain(context, options.brief.domain ?? "")
+    : productionDeploymentUrl(context);
+  const target = customDomainVerification
+    ? ("verified_custom_domain" as const)
+    : ("verified_provider_production_url" as const);
+  const customDomain = {
+    state: customDomainVerification
+      ? ("verified" as const)
+      : options.brief.domain
+        ? ("waiting" as const)
+        : ("not_configured" as const),
+    origin: customDomainVerification ? deploymentUrl : null,
+  };
+  const journeyContract = primaryJourneyTestContract(options.rootDir, options.launchContract);
+  assertCoreOwnedSurfaceSpec(options.rootDir);
+  const authorization = assertProductionJourneyAuthorization(
+    options.authorization,
+    context,
+    options.now(),
+  );
+  if (
+    journeyContract.production.allowedEffects.some(
+      (effect) =>
+        !authorization.allowed_side_effect_classes.includes(effect) ||
+        (effect === "transactional_email" && !authorization.transactional_test_email_allowed),
+    )
+  ) {
+    throw new WorkflowExecutionError(
+      "PRIMARY_JOURNEY_CONTRACT_OUTSIDE_AUTHORIZATION",
+      "The reviewed product journey contract requests an effect outside the current run envelope.",
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+  const nonce = randomBytes(24).toString("hex");
+  const traceOutputReference = `.venture/private/test-results/${safeSegment(
+    context.runId,
+    "run ID",
+  )}/${safeSegment(context.node.id, "node ID")}-${nonce}`;
+  const commandEnvironment = {
+    PLAYWRIGHT_BASE_URL: deploymentUrl,
+    [PRIMARY_JOURNEY_RUN_ID_ENV]: context.runId,
+    [PRIMARY_JOURNEY_NONCE_ENV]: nonce,
+    [PRIMARY_JOURNEY_TEST_IDENTITY_ENV]: journeyContract.production.identity.label,
+    EXPECTED_PUBLIC_ORIGIN: deploymentUrl,
+  };
+  const surfaceResult = await options.commandRunner.run({
     command: "pnpm",
-    args: POST_DEPLOY_TEST_ARGS,
+    args: POST_DEPLOY_SURFACE_TEST_ARGS,
     cwd: options.rootDir,
-    env: {
-      PLAYWRIGHT_BASE_URL: deploymentUrl,
-      ...(options.brief.domain
-        ? { EXPECTED_PUBLIC_ORIGIN: `https://${options.brief.domain}` }
-        : {}),
-    },
+    env: { ...commandEnvironment, PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/surface` },
     signal: context.signal,
   });
+  let surfaceEvidenceError: string | null = null;
+  if (surfaceResult.exitCode === 0) {
+    try {
+      validatedDeploymentSurfaceMarkers(surfaceResult.stdout);
+    } catch (error) {
+      surfaceEvidenceError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (surfaceResult.exitCode !== 0 || surfaceEvidenceError !== null) {
+    const evidenceArtifact = persistEvidence(
+      options.rootDir,
+      context,
+      {
+        schemaVersion: 1,
+        runId: context.runId,
+        nodeId: context.node.id,
+        handler: context.node.handler,
+        startedAt,
+        finishedAt: options.now().toISOString(),
+        deploymentUrl,
+        target,
+        customDomain,
+        deploymentSurface: {
+          scope: "generic_read_only_deployment_surface",
+          command: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+          exitCode: surfaceResult.exitCode,
+          stdoutExcerpt: options.redactor.redactText(surfaceResult.stdout).slice(-4_000),
+          stderrExcerpt: options.redactor.redactText(surfaceResult.stderr).slice(-4_000),
+          evidenceError:
+            surfaceEvidenceError === null
+              ? null
+              : options.redactor.redactText(surfaceEvidenceError),
+        },
+        primaryJourney: { state: "not_run", reason: "deployment surface failed" },
+      },
+      options.redactor,
+    );
+    throw new WorkflowExecutionError(
+      "POST_DEPLOY_SURFACE_VERIFICATION_FAILED",
+      `The generic production surface, raw-HTML, and desktop/mobile accessibility baseline did not produce exact passing evidence; inspect ${evidenceArtifact}.`,
+      { details: { effectOutcome: "confirmed_no_write" } },
+    );
+  }
+
+  const operationCheckpoint = {
+    schemaVersion: 1,
+    kind: "production_primary_journey" as const,
+    deploymentUrl,
+    runId: context.runId,
+    nonce,
+    journeyId: journeyContract.journeyId,
+    identityLabel: journeyContract.production.identity.label,
+  };
+  context.checkpointOperation?.(operationCheckpoint);
+  context.checkpointExternalEffect?.(operationCheckpoint);
+  let primaryResult: Awaited<ReturnType<CommandRunner["run"]>> | null = null;
+  let primaryError: unknown;
+  try {
+    primaryResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_JOURNEY_ARGS,
+      cwd: options.rootDir,
+      env: { ...commandEnvironment, PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/journey` },
+      signal: context.signal,
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+  let journeyReadBackResult: Awaited<ReturnType<CommandRunner["run"]>> | null = null;
+  try {
+    assertCoreOwnedSurfaceSpec(options.rootDir);
+    journeyReadBackResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_OBSERVER_ARGS,
+      cwd: options.rootDir,
+      env: {
+        ...commandEnvironment,
+        [PRIMARY_JOURNEY_OBSERVER_PHASE_ENV]: "journey_readback",
+        PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/journey-readback`,
+      },
+      signal: context.signal,
+    });
+  } catch (error) {
+    primaryError ??= error;
+  }
+  let cleanupResult: Awaited<ReturnType<CommandRunner["run"]>> | null = null;
+  let cleanupError: unknown;
+  try {
+    cleanupResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_CLEANUP_ARGS,
+      cwd: options.rootDir,
+      env: { ...commandEnvironment, PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/cleanup` },
+    });
+  } catch (error) {
+    cleanupError = error;
+  }
+  let cleanupReadBackResult: Awaited<ReturnType<CommandRunner["run"]>> | null = null;
+  if (cleanupResult?.exitCode === 0) {
+    try {
+      assertCoreOwnedSurfaceSpec(options.rootDir);
+      cleanupReadBackResult = await options.commandRunner.run({
+        command: "pnpm",
+        args: POST_DEPLOY_PRIMARY_OBSERVER_ARGS,
+        cwd: options.rootDir,
+        env: {
+          ...commandEnvironment,
+          [PRIMARY_JOURNEY_OBSERVER_PHASE_ENV]: "cleanup_readback",
+          PLAYWRIGHT_OUTPUT_DIR: `${traceOutputReference}/cleanup-readback`,
+        },
+        signal: context.signal,
+      });
+    } catch (error) {
+      cleanupError ??= error;
+    }
+  }
+  const evidenceReference = artifactPaths(options.rootDir, context).reference;
+  let runtimeEvidence: ProductionJourneyRuntimeEvidence | null = null;
+  let runtimeEvidenceError: string | null = null;
+  if (
+    primaryResult?.exitCode === 0 &&
+    journeyReadBackResult?.exitCode === 0 &&
+    cleanupResult?.exitCode === 0 &&
+    cleanupReadBackResult?.exitCode === 0
+  ) {
+    try {
+      const traceEvidence = playwrightTraceEvidence(
+        options.rootDir,
+        traceOutputReference,
+        deploymentUrl,
+        journeyContract,
+      );
+      const stateReadBack = validatedPrimaryJourneyStateReadBack(
+        journeyReadBackResult.stdout,
+        cleanupReadBackResult.stdout,
+        context.runId,
+        nonce,
+        journeyContract,
+      );
+      runtimeEvidence = validateProductionJourneyMarkers(
+        primaryResult.stdout,
+        cleanupResult.stdout,
+        context.runId,
+        nonce,
+        journeyContract,
+        authorization,
+        options.brief.synthetic ?? false,
+        traceEvidence,
+        stateReadBack,
+      );
+    } catch (error) {
+      runtimeEvidenceError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const evidenceState = options.brief.synthetic ? "fixture" : "verified";
+  const journeyEvidence = runtimeEvidence
+    ? primaryJourneyEvidence(journeyContract, evidenceState, evidenceReference)
+    : null;
+  const output =
+    runtimeEvidence && journeyEvidence
+      ? launchProductionVerificationOutputSchema.parse({
+          schemaVersion: 1,
+          runId: context.runId,
+          evidenceRef: evidenceReference,
+          deploymentUrl,
+          target,
+          customDomain,
+          deploymentSurface: {
+            scope: "generic_read_only_deployment_surface",
+            command: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+            exitCode: 0,
+            verified: true,
+          },
+          primaryJourneyEvidence: journeyEvidence,
+          runtimeEvidence,
+          accessibility: {
+            state: evidenceState,
+            projects: ["desktop-chromium", "mobile-chromium"],
+            evidenceRef: evidenceReference,
+          },
+          rawHtml: { state: evidenceState, evidenceRef: evidenceReference },
+          cleanup: { state: "verified", evidenceRef: evidenceReference },
+        })
+      : null;
   const evidenceArtifact = persistEvidence(
     options.rootDir,
     context,
@@ -1388,38 +3014,242 @@ async function runPostDeployVerification(
       startedAt,
       finishedAt: options.now().toISOString(),
       deploymentUrl,
-      command: ["pnpm", ...POST_DEPLOY_TEST_ARGS],
-      checks: ["HTTPS response", "desktop read-only journey", "mobile read-only journey"],
-      exitCode: result.exitCode,
-      stdoutExcerpt: options.redactor.redactText(result.stdout).slice(-4_000),
-      stderrExcerpt: options.redactor.redactText(result.stderr).slice(-4_000),
+      target,
+      customDomain,
+      deploymentSurface: {
+        scope: "generic_read_only_deployment_surface",
+        command: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+        exitCode: surfaceResult.exitCode,
+        verifiedChecks: {
+          rawServerHtml: true,
+          accessibilityAxe: true,
+          accessibleNamesAndLandmarks: true,
+          keyboardFocus: true,
+          responsiveOverflow: true,
+          projects: ["desktop-chromium", "mobile-chromium"],
+        },
+        stdoutExcerpt: options.redactor.redactText(surfaceResult.stdout).slice(-4_000),
+        stderrExcerpt: options.redactor.redactText(surfaceResult.stderr).slice(-4_000),
+      },
+      primaryJourney: {
+        command: ["pnpm", ...POST_DEPLOY_PRIMARY_JOURNEY_ARGS],
+        exitCode: primaryResult?.exitCode ?? null,
+        stdoutExcerpt: options.redactor.redactText(primaryResult?.stdout ?? "").slice(-4_000),
+        stderrExcerpt: options.redactor.redactText(primaryResult?.stderr ?? "").slice(-4_000),
+        runnerError:
+          primaryError === undefined
+            ? null
+            : options.redactor.redactText(
+                primaryError instanceof Error ? primaryError.message : String(primaryError),
+              ),
+        evidence: journeyEvidence,
+      },
+      cleanup: {
+        command: ["pnpm", ...POST_DEPLOY_PRIMARY_CLEANUP_ARGS],
+        exitCode: cleanupResult?.exitCode ?? null,
+        stdoutExcerpt: options.redactor.redactText(cleanupResult?.stdout ?? "").slice(-4_000),
+        stderrExcerpt: options.redactor.redactText(cleanupResult?.stderr ?? "").slice(-4_000),
+        runnerError:
+          cleanupError === undefined
+            ? null
+            : options.redactor.redactText(
+                cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              ),
+      },
+      stateReadBack: {
+        observerCommand: ["pnpm", ...POST_DEPLOY_PRIMARY_OBSERVER_ARGS],
+        journeyExitCode: journeyReadBackResult?.exitCode ?? null,
+        cleanupExitCode: cleanupReadBackResult?.exitCode ?? null,
+        journeyStdoutExcerpt: options.redactor
+          .redactText(journeyReadBackResult?.stdout ?? "")
+          .slice(-4_000),
+        cleanupStdoutExcerpt: options.redactor
+          .redactText(cleanupReadBackResult?.stdout ?? "")
+          .slice(-4_000),
+      },
+      runtimeEvidence,
+      runtimeEvidenceError:
+        runtimeEvidenceError === null ? null : options.redactor.redactText(runtimeEvidenceError),
+      output,
       limitations: [
-        "This is a read-only post-deploy smoke and critical-surface check; it does not prove provider uptime or conversion behavior.",
+        "The generic read-only check proves only deployment surface, raw server HTML, responsive semantics, canonical metadata, and crawlability; it is not primary-journey evidence.",
+        "A passing product-specific journey proves only the declared path in this tested environment; it does not prove customer demand, provider uptime, or conversion behavior.",
       ],
     },
     options.redactor,
   );
   context.trace({
-    command: ["pnpm", ...POST_DEPLOY_TEST_ARGS],
+    surfaceCommand: ["pnpm", ...POST_DEPLOY_SURFACE_TEST_ARGS],
+    primaryJourneyCommand: ["pnpm", ...POST_DEPLOY_PRIMARY_JOURNEY_ARGS],
+    cleanupCommand: ["pnpm", ...POST_DEPLOY_PRIMARY_CLEANUP_ARGS],
     deploymentUrl,
-    exitCode: result.exitCode,
+    target,
+    customDomain,
+    surfaceExitCode: surfaceResult.exitCode,
+    primaryJourneyExitCode: primaryResult?.exitCode ?? null,
+    cleanupExitCode: cleanupResult?.exitCode ?? null,
+    journeyReadBackExitCode: journeyReadBackResult?.exitCode ?? null,
+    cleanupReadBackExitCode: cleanupReadBackResult?.exitCode ?? null,
     evidenceArtifact,
   });
-  if (result.exitCode !== 0) {
+  if (
+    !primaryResult ||
+    primaryResult.exitCode !== 0 ||
+    !cleanupResult ||
+    cleanupResult.exitCode !== 0 ||
+    !journeyReadBackResult ||
+    journeyReadBackResult.exitCode !== 0 ||
+    !cleanupReadBackResult ||
+    cleanupReadBackResult.exitCode !== 0 ||
+    !journeyEvidence ||
+    !runtimeEvidence ||
+    !output
+  ) {
+    const cleanupVerified = (() => {
+      if (cleanupResult?.exitCode !== 0) return false;
+      try {
+        validatedCleanupMarkers(cleanupResult.stdout, context.runId, nonce, journeyContract);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
     throw new WorkflowExecutionError(
-      "POST_DEPLOY_VERIFICATION_FAILED",
-      `Read-only production journey checks exited ${result.exitCode}; inspect ${evidenceArtifact}.`,
+      "POST_DEPLOY_PRIMARY_JOURNEY_FAILED",
+      `The product-specific production journey or its cleanup did not produce exact verified runtime evidence; inspect ${evidenceArtifact}.`,
+      cleanupVerified
+        ? { details: { effectOutcome: "confirmed_no_write" } }
+        : { retryable: true, details: { effectOutcome: "unknown" } },
     );
   }
   return {
-    output: {
-      deploymentUrl,
-      command: ["pnpm", ...POST_DEPLOY_TEST_ARGS],
-      exitCode: 0,
-      verified: true,
-    },
+    output,
+    effectVerified: true,
     evidenceArtifact,
   };
+}
+
+async function reconcilePostDeployVerification(
+  options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "commandRunner">> & {
+    launchContract?: LaunchContract;
+    authorization?: AuthorizationEnvelope;
+    now: () => Date;
+  },
+  context: WorkflowReconciliationContext,
+): Promise<WorkflowReconciliationResult> {
+  if (!context.operation.checkpoint) return { status: "not_applied" };
+  let checkpoint: z.infer<typeof productionJourneyOperationCheckpointSchema>;
+  let contract: PrimaryJourneyTestContract;
+  try {
+    checkpoint = productionJourneyOperationCheckpointSchema.parse(context.operation.checkpoint);
+    contract = primaryJourneyTestContract(options.rootDir, options.launchContract);
+    assertProductionJourneyAuthorization(options.authorization, context, options.now());
+  } catch (error) {
+    return {
+      status: "failed",
+      code:
+        error instanceof WorkflowExecutionError
+          ? error.code
+          : "PRIMARY_JOURNEY_RECONCILIATION_INVALID",
+      message: error instanceof Error ? error.message : String(error),
+      effectState: "unknown",
+    };
+  }
+  if (
+    checkpoint.runId !== context.runId ||
+    checkpoint.journeyId !== contract.journeyId ||
+    checkpoint.identityLabel !== contract.production.identity.label
+  ) {
+    return {
+      status: "failed",
+      code: "PRIMARY_JOURNEY_RECONCILIATION_MISMATCH",
+      message:
+        "Refusing cleanup because the persisted operation target no longer matches the immutable journey contract.",
+      effectState: "unknown",
+    };
+  }
+  const reconciliationEnvironment = {
+    PLAYWRIGHT_BASE_URL: checkpoint.deploymentUrl,
+    EXPECTED_PUBLIC_ORIGIN: checkpoint.deploymentUrl,
+    [PRIMARY_JOURNEY_RUN_ID_ENV]: checkpoint.runId,
+    [PRIMARY_JOURNEY_NONCE_ENV]: checkpoint.nonce,
+    [PRIMARY_JOURNEY_TEST_IDENTITY_ENV]: checkpoint.identityLabel,
+  };
+  const result = await options.commandRunner.run({
+    command: "pnpm",
+    args: POST_DEPLOY_PRIMARY_CLEANUP_ARGS,
+    cwd: options.rootDir,
+    env: reconciliationEnvironment,
+    signal: context.signal,
+  });
+  context.trace({
+    command: ["pnpm", ...POST_DEPLOY_PRIMARY_CLEANUP_ARGS],
+    exitCode: result.exitCode,
+    reconciliation: true,
+  });
+  if (result.exitCode !== 0) {
+    return {
+      status: "partially_applied",
+      message: `Production primary-journey cleanup exited ${result.exitCode}; no replay is permitted until cleanup read-back succeeds.`,
+    };
+  }
+  try {
+    validatedCleanupMarkers(result.stdout, checkpoint.runId, checkpoint.nonce, contract);
+    assertCoreOwnedSurfaceSpec(options.rootDir);
+  } catch (error) {
+    return {
+      status: "partially_applied",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  let observerResult: Awaited<ReturnType<CommandRunner["run"]>>;
+  try {
+    observerResult = await options.commandRunner.run({
+      command: "pnpm",
+      args: POST_DEPLOY_PRIMARY_OBSERVER_ARGS,
+      cwd: options.rootDir,
+      env: {
+        ...reconciliationEnvironment,
+        [PRIMARY_JOURNEY_OBSERVER_PHASE_ENV]: "cleanup_readback",
+        PLAYWRIGHT_OUTPUT_DIR: `.venture/private/test-results/${safeSegment(
+          context.runId,
+          "run ID",
+        )}/${safeSegment(context.node.id, "node ID")}-${checkpoint.nonce}/reconcile-readback`,
+      },
+      signal: context.signal,
+    });
+  } catch (error) {
+    return {
+      status: "partially_applied",
+      message: `Locked cleanup observer failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  context.trace({
+    command: ["pnpm", ...POST_DEPLOY_PRIMARY_OBSERVER_ARGS],
+    exitCode: observerResult.exitCode,
+    phase: "cleanup_readback",
+    reconciliation: true,
+  });
+  if (observerResult.exitCode !== 0) {
+    return {
+      status: "partially_applied",
+      message: `Locked cleanup observer exited ${observerResult.exitCode}; replay remains forbidden.`,
+    };
+  }
+  try {
+    validatedReconciliationCleanupReadBack(
+      observerResult.stdout,
+      checkpoint.runId,
+      checkpoint.nonce,
+      contract,
+    );
+  } catch (error) {
+    return {
+      status: "partially_applied",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return { status: "not_applied" };
 }
 
 export async function assertBuildAgentHostAvailable(host: BuildAgentHost): Promise<void> {
@@ -1451,8 +3281,18 @@ export function createLaunchProductBindings(
         );
       }
       return runAgentTask(
-        { rootDir, brief: options.brief, agentHost: options.agentHost, redactor, now },
-        instructions,
+        {
+          rootDir,
+          brief: options.brief,
+          agentHost: options.agentHost,
+          redactor,
+          now,
+          ...(options.decision ? { decision: options.decision } : {}),
+          ...(options.launchContract ? { launchContract: options.launchContract } : {}),
+        },
+        ["launch.prepareRepository", "launch.reviewProduct"].includes(handler)
+          ? instructions + PRIMARY_JOURNEY_OBSERVER_INSTRUCTIONS
+          : instructions,
         context,
       );
     };
@@ -1493,7 +3333,14 @@ export function createLaunchProductBindings(
         );
       }
       return runQualityCommand(
-        { rootDir, commandRunner: options.commandRunner, redactor, now },
+        {
+          rootDir,
+          commandRunner: options.commandRunner,
+          brief: options.brief,
+          ...(options.launchContract ? { launchContract: options.launchContract } : {}),
+          redactor,
+          now,
+        },
         args,
         context,
       );
@@ -1507,9 +3354,28 @@ export function createLaunchProductBindings(
       );
     }
     return runPostDeployVerification(
-      { rootDir, commandRunner: options.commandRunner, brief: options.brief, redactor, now },
+      {
+        rootDir,
+        commandRunner: options.commandRunner,
+        brief: options.brief,
+        ...(options.launchContract ? { launchContract: options.launchContract } : {}),
+        ...(options.authorization ? { authorization: options.authorization } : {}),
+        redactor,
+        now,
+      },
       context,
     );
   };
+  reconcilers["launch.verifyProduction"] = (context) =>
+    reconcilePostDeployVerification(
+      {
+        rootDir,
+        commandRunner: options.commandRunner,
+        ...(options.launchContract ? { launchContract: options.launchContract } : {}),
+        ...(options.authorization ? { authorization: options.authorization } : {}),
+        now,
+      },
+      context,
+    );
   return { handlers, reconcilers };
 }

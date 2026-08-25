@@ -21,44 +21,30 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
+      # The fast changed-test router can select child materialization and
+      # Golden Path tests. Those children install their own frozen lockfile
+      # offline with --ignore-workspace, so prepare that distinct closure too.
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:ensure agentic-web-saas
       - name: Capability-aware fast profile
         env:
           QUALITY_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         run: pnpm verify:fast -- --base "$QUALITY_BASE"
       - name: Upload fast quality report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quality-fast
           path: .venture/reports/quality/
           if-no-files-found: warn
           retention-days: 30
-
-  workspace-distribution:
-    if: github.event_name == 'pull_request'
-    needs: fast
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 9
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Packed workspace distribution
-        run: pnpm test:workspace
 
   mvp:
     needs: fast
@@ -68,18 +54,24 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - run: pnpm exec playwright install --with-deps chromium
+      # A materialized venture installs from its own lockfile with
+      # --ignore-workspace, so its dependency closure is not the root closure and
+      # a root install never fetches it. Prepare it before any check that
+      # materializes or builds a child.
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:ensure agentic-web-saas
       - name: Capability-aware MVP profile
         run: pnpm verify:mvp
       - name: Upload MVP quality report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quality-mvp
@@ -88,7 +80,6 @@ jobs:
           retention-days: 30
 
   release:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: mvp
     runs-on: ubuntu-latest
     steps:
@@ -96,18 +87,60 @@ jobs:
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 9
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare workspace packages
+        run: pnpm workspace:prepare
       - run: pnpm exec playwright install --with-deps chromium
+      # A materialized venture installs from its own lockfile with
+      # --ignore-workspace, so its dependency closure is not the root closure and
+      # a root install never fetches it. Prepare it before any check that
+      # materializes or builds a child.
+      - name: Prepare child seed dependency closure
+        run: pnpm seed:ensure agentic-web-saas
       - name: Capability-aware release profile
         run: pnpm verify:release
+      # Live provider proof is a separate question from code readiness. This
+      # step records the real read-back state without letting an unconnected
+      # provider mark a code-complete alpha red. An executed live check that
+      # actually FAILS still fails the job.
+      - name: Live provider read-back state
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set +e
+          pnpm verify:live -- --report .venture/reports/quality/live-latest.json
+          command_exit=$?
+          set -e
+          status="$(node -e '
+            const { readFileSync } = require("node:fs");
+            const path = ".venture/reports/quality/live-latest.json";
+            try {
+              process.stdout.write(String(JSON.parse(readFileSync(path, "utf8")).status));
+            } catch {
+              process.stdout.write("missing");
+            }
+          ')"
+          echo "Live verification status: $status"
+          {
+            echo "### Live provider verification"
+            echo
+            echo "Status: \`$status\`"
+            if [ "$status" = "INCOMPLETE" ]; then
+              echo
+              echo "Live provider proof is pending. See the uploaded report for the exact"
+              echo "command and expected read-back evidence per unresolved provider."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "${command_exit}:${status}" in
+            0:PASS|1:INCOMPLETE) exit 0 ;;
+            *) echo "::error title=Live verification failed::Command/report pair was ${command_exit}:${status}."; exit 1 ;;
+          esac
       - name: Upload release quality report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quality-release

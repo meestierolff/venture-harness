@@ -218,6 +218,15 @@ async function createFixtureProviderExecutor(input: FixtureExecutorOptions) {
   const state = new Map<string, Record<string, unknown>>();
   let crashPending = input.crashAfterWriteOnce === true;
   const execute = async (operation: ProviderOperation) => {
+    if (operation.action.endsWith(".search_before_create")) {
+      return {
+        status: "succeeded" as const,
+        message: "Fixture provider found no existing deterministic resource",
+        output: { data: [], has_more: false },
+        verified: true,
+        effectOutcome: "confirmed_no_write" as const,
+      };
+    }
     externalWrites.push(operation);
     const output = {
       fixture: true,
@@ -304,7 +313,12 @@ async function createFixtureProviderExecutor(input: FixtureExecutorOptions) {
     "commerce.configure": {
       environment: "production",
       credentialRef: credentialRefs.stripe,
-      inputs: { productName: input.grant.ventureName },
+      inputs: {
+        ventureSlug: input.grant.ventureSlug,
+        stripeAccountId: "acct_payout_rank_live",
+        stripeMode: "live",
+        productName: input.grant.ventureName,
+      },
     },
   };
   const executorOptions = {

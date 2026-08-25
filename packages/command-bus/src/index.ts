@@ -6,6 +6,7 @@ import type { AuditSink } from "@venture-harness/audit";
 import type { RuntimeSchema } from "@venture-harness/config";
 import {
   canonicalCommandId,
+  initializeSqliteWal,
   stableJson,
   tenantKey,
   type CommandExecutionContext,
@@ -398,8 +399,7 @@ export class SqliteIdempotencyStore implements IdempotencyStore {
     }
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#database = sqliteDatabase(path);
-    this.#database.exec("PRAGMA busy_timeout = 5000");
-    this.#database.exec("PRAGMA journal_mode = WAL");
+    initializeSqliteWal(this.#database, { label: "durable command idempotency store" });
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS command_idempotency (
         ledger_key TEXT PRIMARY KEY,

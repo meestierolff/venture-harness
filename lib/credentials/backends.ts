@@ -158,20 +158,12 @@ export class MacOSKeychainCredentialBackend implements CredentialBackend {
   }
 
   async set(reference: CredentialReference, value: string): Promise<void> {
-    const args = [
-      "add-generic-password",
-      "-U",
-      "-s",
-      this.service,
-      "-a",
-      reference.ref,
-      "-w",
-      value,
-    ];
+    const args = ["add-generic-password", "-U", "-s", this.service, "-a", reference.ref, "-w"];
     const result = await runDirect(this.runner, {
       command: this.binary,
       args,
-      sensitiveArgs: [args.length - 1],
+      stdin: `${value}\n`,
+      sensitiveStdin: true,
     });
     if (result.exitCode !== 0) throw commandFailure(this.id, "store", result);
   }
@@ -253,13 +245,33 @@ export class OnePasswordCredentialBackend implements CredentialBackend {
   }
 
   async set(reference: CredentialReference, value: string): Promise<void> {
-    const assignment = `${this.field}=${value}`;
-    const args = ["item", "edit", this.itemForRef(reference.ref), ...this.vaultArgs(), assignment];
-    const result = await runDirect(this.runner, {
+    const item = this.itemForRef(reference.ref);
+    const template = `${JSON.stringify({
+      title: item,
+      category: "API_CREDENTIAL",
+      fields: [
+        {
+          id: this.field,
+          type: "CONCEALED",
+          label: this.field,
+          value,
+        },
+      ],
+    })}\n`;
+    let result = await runDirect(this.runner, {
       command: this.binary,
-      args,
-      sensitiveArgs: [args.length - 1],
+      args: ["item", "edit", item, ...this.vaultArgs()],
+      stdin: template,
+      sensitiveStdin: true,
     });
+    if (result.exitCode === 1) {
+      result = await runDirect(this.runner, {
+        command: this.binary,
+        args: ["item", "create", "-", ...this.vaultArgs()],
+        stdin: template,
+        sensitiveStdin: true,
+      });
+    }
     if (result.exitCode !== 0) throw commandFailure(this.id, "store", result);
   }
 

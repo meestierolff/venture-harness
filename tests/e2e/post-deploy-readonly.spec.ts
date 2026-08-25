@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  if (process.env.VH_LOCAL_E2E_FIXTURE !== "1") return;
+
+  // The local release gate deliberately runs without a live evidence store.
+  // Keep this read-only surface check deterministic while leaving configured
+  // deployment checks unmocked so a real persistence failure remains visible.
+  await page.route("**/api/evidence", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+});
+
 test("deployed public surface serves a read-only critical journey", async ({ page, request }) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
