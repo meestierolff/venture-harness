@@ -355,7 +355,7 @@ describe("founder alpha final-evidence workflow", () => {
     const mvpIndex = steps.findIndex((step) => step.name === "MVP verification profile");
     expect(preparationIndex).toBeGreaterThan(-1);
     expect(preparationIndex).toBeLessThan(mvpIndex);
-    expect(steps[preparationIndex]?.run).toBe("pnpm seed:fetch agentic-web-saas");
+    expect(steps[preparationIndex]?.run).toBe("pnpm seed:ensure agentic-web-saas");
 
     expect(runText).toContain("pnpm verify:release");
     expect(runText).toContain("pnpm release:check");

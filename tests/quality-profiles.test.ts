@@ -429,7 +429,7 @@ describe("capability-aware quality profiles", () => {
       step.run ? [step.run] : [],
     );
     const fastWorkspacePreparation = fastCommands.indexOf("pnpm workspace:prepare");
-    const fastSeedPreparation = fastCommands.indexOf("pnpm seed:fetch agentic-web-saas");
+    const fastSeedPreparation = fastCommands.indexOf("pnpm seed:ensure agentic-web-saas");
     const fastVerification = fastCommands.findIndex((command) =>
       command.startsWith("pnpm verify:fast"),
     );
@@ -457,17 +457,24 @@ describe("capability-aware quality profiles", () => {
     expect(manifest.scripts["workspace:prepare"]).toBe(
       "node scripts/workspace-build.mjs --packages-only",
     );
+    // Type checking and the CLI need only the package entrypoints.
+    for (const lifecycle of ["pretypecheck", "prevh"]) {
+      expect(manifest.scripts[lifecycle], lifecycle).toBe("pnpm workspace:prepare");
+    }
+    // Quality profiles can select child materialization tests, and those
+    // children install their own frozen lockfile offline, so every profile
+    // must also have the child's dependency closure prepared.
     for (const lifecycle of [
-      "pretypecheck",
       "preverify",
       "preverify:fast",
       "preverify:mvp",
       "preverify:release",
       "preverify:live",
       "preverify:stable",
-      "prevh",
     ]) {
-      expect(manifest.scripts[lifecycle], lifecycle).toBe("pnpm workspace:prepare");
+      expect(manifest.scripts[lifecycle], lifecycle).toBe(
+        "pnpm workspace:prepare && pnpm seed:ensure",
+      );
     }
 
     const buildScript = readFileSync("scripts/workspace-build.mjs", "utf8");
