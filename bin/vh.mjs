@@ -21217,7 +21217,7 @@ var repositoryFiles = [
   file(
     ".github/workflows/venture-core.yml",
     "core_owned",
-    "name: Venture Core\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  verify:\n    uses: meestierolff/venture-harness/.github/workflows/venture-verify.yml@{{workflowRefSha}}\n"
+    "name: Venture Core\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  verify:\n    uses: {{workflowRepository}}/.github/workflows/venture-verify.yml@{{workflowRefSha}}\n"
   ),
   file(
     "src/app-shell.ts",
@@ -23229,6 +23229,9 @@ function compileVentureMaterialization(input) {
   if (!/^[a-f0-9]{40}$/.test(input.workflowRefSha)) {
     throw new Error("Reusable workflow reference must be an immutable 40-character SHA");
   }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.workflowRepository)) {
+    throw new Error("Reusable workflow repository must be exactly owner/repository");
+  }
   const seed = ventureSeed(grant.seed.id, grant.seed.version);
   if (!seed.coreCompatibility.startsWith(`^${input.coreVersion.split(".")[0]}.`)) {
     throw new Error(`${seed.id}@${seed.version} is incompatible with Core ${input.coreVersion}`);
@@ -23271,6 +23274,7 @@ function compileVentureMaterialization(input) {
     seedVersion: seed.version,
     rail: seed.rail,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     accentHue,
     secondaryHue,
     motifStep,
@@ -24612,6 +24616,37 @@ function loadFounderIdeaFile(file2, baseDir = process.cwd()) {
     boundary.release();
   }
 }
+var WORKFLOW_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+function gitHubSlug(remoteUrl) {
+  const match = /^https?:\/\/[^/]+\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(remoteUrl) ?? /^(?:ssh:\/\/)?git@[^:/]+[:/](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(remoteUrl);
+  const owner = match?.groups?.owner;
+  const repo = match?.groups?.repo;
+  if (!owner || !repo) return void 0;
+  const slug4 = `${owner}/${repo}`;
+  return WORKFLOW_REPOSITORY.test(slug4) ? slug4 : void 0;
+}
+function resolveFounderWorkflowRepository(baseDir, explicit) {
+  const candidate = explicit ?? process.env.VH_WORKFLOW_REPOSITORY;
+  if (candidate) {
+    if (!WORKFLOW_REPOSITORY.test(candidate)) {
+      throw new Error("VH_WORKFLOW_REPOSITORY must be exactly owner/repository");
+    }
+    return candidate;
+  }
+  try {
+    const origin = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: resolve10(baseDir),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    const slug4 = gitHubSlug(origin);
+    if (slug4) return slug4;
+  } catch {
+  }
+  throw new Error(
+    "Founder launch cannot resolve the Core repository for the venture reusable workflow. Set VH_WORKFLOW_REPOSITORY to the owner/repository of this Venture Harness checkout."
+  );
+}
 function resolveFounderWorkflowRefSha(baseDir, explicit) {
   const candidate = explicit ?? process.env.VH_WORKFLOW_REF_SHA;
   if (candidate) {
@@ -24885,6 +24920,7 @@ function compileFounderLaunchPreparation(input) {
     at: input.at,
     coreVersion: CORE_VERSION2,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: []
   });
   const stackOverrides = renderFounderStackProviderConfigOverrides(connection, {
@@ -36042,6 +36078,7 @@ function validateFounderLaunchContinuation(input) {
     at: new Date(grant.createdAt),
     coreVersion: "0.2.0",
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: []
   });
   if (plan.planDigest !== transaction.planDigest) {
@@ -37879,6 +37916,10 @@ function createDefaultCliServices(options = {}) {
       });
       const ideaSource = loadFounderIdeaFile(request2.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
+      const workflowRepository = resolveFounderWorkflowRepository(
+        root,
+        options.founderWorkflowRepository
+      );
       const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
       if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
       const canonicalVenturesRoot = realpathSync9(resolve24(venturesRoot));
@@ -37894,6 +37935,7 @@ function createDefaultCliServices(options = {}) {
           baseDir: canonicalVenturesRoot,
           output: request2.output,
           workflowRefSha,
+          workflowRepository,
           executionMode: request2.mode,
           production: request2.production,
           nonInteractive: request2.nonInteractive,
@@ -37917,6 +37959,7 @@ function createDefaultCliServices(options = {}) {
           founderStackRoot: founderStackStore.rootDir,
           founderOutputRoot: options.founderOutputRoot,
           founderWorkflowRefSha: options.founderWorkflowRefSha,
+          founderWorkflowRepository: options.founderWorkflowRepository,
           allowFixtureFounderStack: options.allowFixtureFounderStack,
           launchBindings: options.launchBindings,
           buildAgentHost: options.buildAgentHost,
@@ -37960,7 +38003,8 @@ function createDefaultCliServices(options = {}) {
             childRoot,
             preparation,
             stackConnectionHash,
-            workflowRefSha
+            workflowRefSha,
+            workflowRepository
           });
           founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
           transaction = continuation.transaction;
@@ -44321,9 +44365,10 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "9508d1e1869535c86dc368f37a51faa5542d8b87" : void 0;
+  const workflowRefSha = true ? "930851b31cd55c7dce4139e0932c15b1bdc9bb7a" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
-  if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
+  const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
+  if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
     throw new Error(
       "The vh executable is missing immutable Venture Harness Core build provenance. Rebuild it with pnpm workspace:build before packing or installing it."
     );
@@ -44331,7 +44376,8 @@ function founderCoreBuildProvenance() {
   return Object.freeze({
     packageName: "venture-harness",
     packageVersion,
-    workflowRefSha
+    workflowRefSha,
+    workflowRepository
   });
 }
 var FOUNDER_CORE_DOMAINS = /* @__PURE__ */ new Set([
@@ -44357,7 +44403,8 @@ function runDefaultFounderCli(args, options) {
   const store = new FileWorkflowStore();
   const services = (options.servicesFactory ?? defaultFounderServicesFactory)({
     store,
-    founderWorkflowRefSha: founderCoreBuildProvenance().workflowRefSha
+    founderWorkflowRefSha: founderCoreBuildProvenance().workflowRefSha,
+    founderWorkflowRepository: founderCoreBuildProvenance().workflowRepository
   });
   return runCli([...args], { io: options.io, services, store });
 }

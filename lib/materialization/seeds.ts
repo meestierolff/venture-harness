@@ -20,7 +20,7 @@ const repositoryFiles: readonly SeedFileTemplate[] = [
   file(
     ".github/workflows/venture-core.yml",
     "core_owned",
-    "name: Venture Core\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  verify:\n    uses: meestierolff/venture-harness/.github/workflows/venture-verify.yml@{{workflowRefSha}}\n",
+    "name: Venture Core\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  verify:\n    uses: {{workflowRepository}}/.github/workflows/venture-verify.yml@{{workflowRefSha}}\n",
   ),
   file(
     "src/app-shell.ts",

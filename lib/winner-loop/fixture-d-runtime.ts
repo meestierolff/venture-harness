@@ -672,6 +672,7 @@ export async function runFixtureDThroughProductionBoundaries(
       at: FIXED_NOW,
       coreVersion: "0.2.0",
       workflowRefSha: "a".repeat(40),
+      workflowRepository: "venture-harness/venture-harness",
       effects: [],
     });
     const materialized = await materializeVenture(

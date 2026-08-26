@@ -41,6 +41,7 @@ export const provenance = {
   git(root, ["init", "--quiet"]);
   git(root, ["config", "user.email", "generated-parity@example.invalid"]);
   git(root, ["config", "user.name", "Generated Parity Fixture"]);
+  git(root, ["remote", "add", "origin", "https://github.com/venture-harness/venture-harness.git"]);
   git(root, ["add", "package.json", "scripts/vh-bundle.ts"]);
   git(root, ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "source"]);
   return { root, sourceCommit: git(root, ["rev-parse", "HEAD"]) };
@@ -60,6 +61,7 @@ async function buildRecordedFixture(root: string, sourceCommit: string): Promise
       executable,
       packageVersion: provenance.packageVersion,
       sourceCommit: provenance.workflowRefSha,
+      coreRepository: provenance.coreRepository,
     }),
   );
 }
@@ -206,6 +208,7 @@ describe("vh generated executable parity", () => {
         executable,
         packageVersion: "0.2.0",
         sourceCommit,
+        coreRepository: "venture-harness/venture-harness",
       }),
     );
 

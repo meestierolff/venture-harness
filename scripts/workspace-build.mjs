@@ -303,6 +303,7 @@ if (buildsRootCli) {
       executable: stagedExecutable,
       packageVersion: provenance.packageVersion,
       sourceCommit: provenance.workflowRefSha,
+      coreRepository: provenance.coreRepository,
     });
     renameSync(stagedExecutable, resolve(binDirectory, "vh.mjs"));
     writeVhBuildProvenance(provenancePath, recorded);

@@ -106,6 +106,7 @@ export function seedDependencyFiles(seed: SeedId): {
     at: new Date("2026-01-01T00:00:00.000Z"),
     coreVersion: "0.2.0",
     workflowRefSha: "0".repeat(40),
+    workflowRepository: "venture-harness/venture-harness",
   });
   const find = (path: string): string => {
     const file = plan.files.find((entry) => entry.path === path);

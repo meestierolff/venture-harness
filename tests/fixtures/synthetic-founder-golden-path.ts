@@ -454,6 +454,7 @@ export async function runSyntheticFounderGoldenPath(
     founderStackRoot: stackRoot,
     founderOutputRoot: rootDir,
     founderWorkflowRefSha: workflowRefSha,
+    founderWorkflowRepository: "venture-harness/venture-harness",
     allowFixtureFounderStack: true,
     credentialBroker: broker,
     credentialCatalogPath: catalogPath,

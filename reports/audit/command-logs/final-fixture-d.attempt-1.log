@@ -1,5 +1,5 @@
 
-> venture-harness@0.2.0 fixture:winner-loop /Users/meestierolff/projects/venture-harness
+> venture-harness@0.2.0 fixture:winner-loop <workspace>
 > tsx scripts/run-winner-loop-fixture.ts
 
 SYNTHETIC_FIXTURE — no provider was contacted
