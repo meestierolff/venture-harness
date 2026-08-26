@@ -57,6 +57,7 @@ export function founderCoreBuildProvenance(): FounderCoreBuildProvenance {
 
 export const FOUNDER_CORE_DOMAINS = new Set([
   "auth",
+  "config",
   "create",
   "data",
   "doctor",
