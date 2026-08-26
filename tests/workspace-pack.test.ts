@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   mkdirSync,
@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -16,16 +17,50 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
+const execFileAsync = promisify(execFile);
+
+/**
+ * Run a long child process without blocking this worker.
+ *
+ * pnpm installs and the pack script take tens of seconds. Held synchronously,
+ * they stall the Vitest worker event loop past its RPC deadline, so the run
+ * fails with `Timeout calling "onTaskUpdate"` while reporting every test as
+ * passed. Awaiting keeps the loop responsive; the returned shape matches
+ * spawnSync so the assertions below are unchanged.
+ */
+async function runDetached(
+  file: string,
+  args: readonly string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv },
+): Promise<{ status: number; stdout: string; stderr: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(file, [...args], {
+      ...options,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return { status: 0, stdout, stderr };
+  } catch (error) {
+    const failure = error as { code?: number; stdout?: string; stderr?: string };
+    return {
+      status: failure.code ?? 1,
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+    };
+  }
+}
+
 describe("workspace distribution", () => {
-  it("packs allowlisted artifacts and runs CLI, SDK, and MCP in a clean consumer", () => {
+  it("packs allowlisted artifacts and runs CLI, SDK, and MCP in a clean consumer", async () => {
     const packDirectory = mkdtempSync(join(tmpdir(), "vh-workspace-pack-test-"));
     const consumer = mkdtempSync(join(tmpdir(), "vh-workspace-consumer-"));
     const rootConsumer = mkdtempSync(join(tmpdir(), "vh-root-package-consumer-"));
-    execFileSync(
+    const packed = await runDetached(
       process.execPath,
       [resolve(root, "scripts/workspace-pack.mjs"), "--output", packDirectory],
-      { cwd: root, stdio: "pipe" },
+      { cwd: root },
     );
+    expect(packed.status, `${packed.stdout}\n${packed.stderr}`).toBe(0);
     const tarballs = readdirSync(packDirectory)
       .filter((name) => name.endsWith(".tgz"))
       .map((name) => join(packDirectory, name))
@@ -132,10 +167,10 @@ describe("workspace distribution", () => {
         2,
       )}\n`,
     );
-    const rootInstall = spawnSync(
+    const rootInstall = await runDetached(
       "pnpm",
       ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
-      { cwd: rootConsumer, encoding: "utf8" },
+      { cwd: rootConsumer },
     );
     const rootInstallOutput = `${rootInstall.stdout ?? ""}\n${rootInstall.stderr ?? ""}`;
     expect(rootInstall.status, rootInstallOutput).toBe(0);
@@ -171,17 +206,14 @@ describe("workspace distribution", () => {
       binSha256: createHash("sha256").update(installedExecutable).digest("hex"),
     });
 
-    const install = spawnSync(
+    const install = await runDetached(
       "pnpm",
       // --prefer-offline rather than --offline: a `--frozen-lockfile` install
       // resolves from the lockfile and never populates the registry metadata
       // cache, so a strict offline install fails on missing metadata for a
       // third-party dependency rather than on anything this test is about.
       ["install", "--prefer-offline", "--ignore-scripts", "--store-dir", storeDirectory],
-      {
-        cwd: consumer,
-        encoding: "utf8",
-      },
+      { cwd: consumer },
     );
     expect(install.status, `${install.stdout}\n${install.stderr}`).toBe(0);
     expect(`${install.stdout}\n${install.stderr}`).not.toMatch(
