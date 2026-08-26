@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 930851b31cd55c7dce4139e0932c15b1bdc9bb7a
-  tree_digest: 89e17af76a883547568b2566f6398d16bb2043a2dbf1e423b46b43904f961dee
+  ref: de1e57182b7aae770775014ce70e35ec3b0b61df
+  tree_digest: ff98ee4f4ae17f7e8a22cdaa06177d8cef00bbf87acd47dee3a65222029d7f99
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -260,7 +260,7 @@ managed_files:
     sha256: d51b6633f2aa0c28072e1eb2e54acadc915fd08c47d74026c6eeadcb4d248268
   - path: .github/dependabot.yml
     ownership: harness
-    sha256: 03553629031b40f9d553e537b3c8ea42a93bbaef0007b55b63a16955e84bd727
+    sha256: cc1b287c32a62d53cf5dbc637e26fb5281d0c026def25a2894f5835542902ec3
   - path: .github/ISSUE_TEMPLATE/bug_report.md
     ownership: harness
     sha256: 32daffb18e6018e325f7284c726a818494070ca17864ccf2d41f1aad86c38046
@@ -308,10 +308,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 4e2e2d67c6672848f954203ef1f1baa41d066efe556cc35b9976c602baddc9b5
+    sha256: d214ebaaa892798b944368f3afd6b7ee4ada7745ee37bd81cf216d42ad1dd85f
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 45c00465362461422aeac994f2089383e15e0afbaddbdaf451136b2a190fdb39
+    sha256: 6ec986484c9e2eb730a1ac0cc013c5916db2f89fd556e8a79ac9dbd66eceb20c
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -1067,7 +1067,7 @@ managed_files:
     sha256: 7f8f55fa1b1998cddc8accf765867180533c90f01e9108d3a98ee0851b7d6397
   - path: scripts/vh-bundle.ts
     ownership: harness
-    sha256: 70cda14f743207ed1a3324e834de36d3154429010787b4fc506133093263c371
+    sha256: a8b0b21c82ef14938e5dd310d4c6422a527715c5de8add6ccec12395df317b88
   - path: scripts/vh.ts
     ownership: harness
     sha256: fe37282bd6b11feae0edea29c53c65f86527cf3bb2031856ef69f248bde86d5a

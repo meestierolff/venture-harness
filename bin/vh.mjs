@@ -44365,7 +44365,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "930851b31cd55c7dce4139e0932c15b1bdc9bb7a" : void 0;
+  const workflowRefSha = true ? "de1e57182b7aae770775014ce70e35ec3b0b61df" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
@@ -44382,6 +44382,7 @@ function founderCoreBuildProvenance() {
 }
 var FOUNDER_CORE_DOMAINS = /* @__PURE__ */ new Set([
   "auth",
+  "config",
   "create",
   "data",
   "doctor",
