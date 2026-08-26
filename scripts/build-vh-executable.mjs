@@ -14,20 +14,10 @@ export const VH_BUILD_PROVENANCE_PATH = "bin/vh-build-provenance.json";
 const ALLOWED_POST_SOURCE_EXACT_PATHS = new Set([
   VH_BUILD_PROVENANCE_PATH,
   "bin/vh.mjs",
-  "docs/audits/VH_V02_CODEX_VERIFICATION.md",
-  "docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md",
-  "docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md",
   "harness.lock",
-  "reports/audit/commands-run.json",
-  "reports/audit/founder-alpha-evidence.json",
-  "reports/audit/github-readback.json",
-  "reports/audit/quality-live.json",
-  "reports/audit/quality-release.json",
   "reports/audit/seed-closure.json",
-  "reports/audit/vh-v0.2-codex-requirement-matrix.json",
   "reports/audit/winner-loop-creative-trace.json",
 ]);
-const SOURCE_SCOPED_AUDIT_LOG = /^[a-z0-9][a-z0-9._-]*\.attempt-[1-9][0-9]*\.log$/u;
 const LOCAL_CODEX_AGENT_CONFIG = /^\.codex\/agents\/[a-z0-9][a-z0-9_-]*\.toml$/u;
 
 function commandOutput(root, args) {
@@ -67,13 +57,9 @@ function nulSeparatedGitPaths(root, args) {
   return output.split("\0").filter(Boolean);
 }
 
-export function isAllowedPostSourceArtifact(path, sourceCommits = []) {
+export function isAllowedPostSourceArtifact(path) {
   if (ALLOWED_POST_SOURCE_EXACT_PATHS.has(path)) return true;
-  if (/^(?:apps|packages)\/[^/]+\/dist\//u.test(path)) return true;
-  return sourceCommits.some((commit) => {
-    const prefix = `reports/audit/command-logs/${commit}/`;
-    return path.startsWith(prefix) && SOURCE_SCOPED_AUDIT_LOG.test(path.slice(prefix.length));
-  });
+  return /^(?:apps|packages)\/[^/]+\/dist\//u.test(path);
 }
 
 /**
@@ -113,7 +99,7 @@ export function assertReviewedCoreSourceState({ rootDirectory, sourceCommit }) {
     throw new Error(`Cannot inspect reviewed Venture Harness Core source drift: ${detail}`);
   }
   const unexpectedPaths = [...changedPaths]
-    .filter((path) => !isAllowedPostSourceArtifact(path, [reviewedCommit, currentCommit]))
+    .filter((path) => !isAllowedPostSourceArtifact(path))
     .sort();
   if (unexpectedPaths.length > 0) {
     throw new Error(

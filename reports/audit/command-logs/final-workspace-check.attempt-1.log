@@ -1,5 +1,0 @@
-
-> venture-harness@0.2.0 workspace:check <workspace>
-> node scripts/workspace-check.mjs
-
-{"status":"passed","packages":30,"apps":5,"cycles":0}
