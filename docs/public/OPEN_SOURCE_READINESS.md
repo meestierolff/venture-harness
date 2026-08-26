@@ -109,16 +109,12 @@ Record screenshots or API/CLI read-back outside the public repository when they
 contain private account data. A YAML workflow is not evidence that a hosted run
 succeeded.
 
-The final-evidence workflow expects the protected
-`founder-alpha-final-evidence` environment and its environment secret
-`VH_GITHUB_SECURITY_READ_TOKEN`. Restrict that environment to the exact
-`sol/vh-v0.2-launch-dogfood` branch and require an explicit maintainer review
-before the job starts. Use a fine-grained token scoped only to this
-repository with Metadata read, Administration read, Dependabot alerts read,
-Secret scanning alerts read, and Code scanning alerts read. The verifier uses
-GET requests only, persists no response bodies or token value, and fails closed
-on a missing/403 response, disabled control, or any open alert. Do not replace
-it with a write-capable publication token.
+This repository previously shipped a source-bound final-evidence workflow that
+verified one specific release pull request against a hardcoded repository,
+branch, reviewer and pull-request number. It was removed: a fork cannot use a
+verifier that asserts facts about somebody else's repository. Record release
+evidence for your own fork with the capability-aware quality profiles
+(`pnpm verify:mvp && pnpm verify:release`) and your own provider read-back.
 
 ## Dogfood before stable
 

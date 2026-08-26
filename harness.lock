@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: de1e57182b7aae770775014ce70e35ec3b0b61df
-  tree_digest: ff98ee4f4ae17f7e8a22cdaa06177d8cef00bbf87acd47dee3a65222029d7f99
+  ref: 0fd2aafd1a57e19207390124155a0ef3819cccd9
+  tree_digest: 427e8f6675282d5b3a8ffff05376d3be1799e6138dd1431b93b4ebd45510afef
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -282,12 +282,9 @@ managed_files:
   - path: .github/workflows/dependency-review.yml
     ownership: harness
     sha256: a48d175f7269485e8bf500bf7df7c6e0a2447434b90ebc833b57fba1be7c1caa
-  - path: .github/workflows/final-evidence.yml
-    ownership: harness
-    sha256: 3c1fdf0d2c7e6d25e00d15dea4fbceb3dcfd3020d69c9914d2c79d5eaeb802c7
   - path: .github/workflows/learning-cadence.yml
     ownership: harness
-    sha256: b203a818c0bac757212516cc98de575147ea88a6bfd5f3ea95fdc7c8b927fb78
+    sha256: dddc99a48f309d051ef074cf1c135bb6cef2cb4f84eaedc269127201b8ffee59
   - path: .github/workflows/public-release.yml
     ownership: harness
     sha256: 18e63763e064f1e98e0808021f3b8b9062a3164f84b4a59fcb18ef0f64c40ca0
@@ -296,7 +293,7 @@ managed_files:
     sha256: a8dbaa8158fef7dddda4c1033b4864e3349cdeecbc4e003be167ecba108e662c
   - path: .github/workflows/security.yml
     ownership: harness
-    sha256: 5b70437a1cc9a5ed3c648ea79d236e5cc4d71c51930ebc46b3cbae8291f3bddc
+    sha256: fb56f9b1db0e771b66efe0ec2ab9c5ba43671d9b0ba4f267591f280ef6d960ab
   - path: .github/workflows/venture-verify.yml
     ownership: harness
     sha256: d90f6af82280f33ad4edceb40104054e82b59fe55a26dab0df1fe74af5a17a32
@@ -308,10 +305,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: d214ebaaa892798b944368f3afd6b7ee4ada7745ee37bd81cf216d42ad1dd85f
+    sha256: 0e563a51269a5001063babb2aeb6a6dcc7fa4864050041a7da78bdddfe18d2e1
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 6ec986484c9e2eb730a1ac0cc013c5916db2f89fd556e8a79ac9dbd66eceb20c
+    sha256: e2d09fa483548904d10f09a81c600667f4ba94f69a050131cd068426e732aae7
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -938,7 +935,7 @@ managed_files:
     sha256: e27fadcea64f623fbaaf5e7545873fe0ed758da3e89f696f891fa1bc40bd8e3b
   - path: scripts/build-vh-executable.mjs
     ownership: harness
-    sha256: 25fb5a04e3a5b2067d71b86c20c816599ec28520b6a2672db518b4bd49ba120b
+    sha256: 1929f9f49389fa887b9d1d451009ad036dd5e3276f5c3971c1703ad25e7a3b20
   - path: scripts/check-agent-parity.ts
     ownership: harness
     sha256: ac9d66f797b290acfb1262f235027bdb4b752fa49b1e0fc2e5674b85994ab313
@@ -954,24 +951,12 @@ managed_files:
   - path: scripts/init-venture.ts
     ownership: harness
     sha256: 42b1597ad330a15855d93ea69b236997e9563aa8a1a5c9e5144f803218e6d423
-  - path: scripts/initialize-final-evidence.mjs
-    ownership: harness
-    sha256: 5074c627bacbeca2efbc607b162f1263cc3e841d29163d163565d5645ba13ced
-  - path: scripts/lib/final-evidence-source.mjs
-    ownership: harness
-    sha256: 1c8e0bf90d3505046934a401d7c7ca05ef13ffc6925729cdddf9b9264d217fa6
-  - path: scripts/lib/founder-alpha-evidence.ts
-    ownership: harness
-    sha256: 2b229196c8f9a4ccd599e7dbf18941e6994e783862c8796d20010cf9a07a4ad5
   - path: scripts/lib/local-production-server.mjs
     ownership: harness
     sha256: 753f3de47fdc24edae0273728398d2cc15039fc80d4f6700e18e20407cc33013
   - path: scripts/lib/release-security.ts
     ownership: harness
     sha256: 33c8d4933a6a9763edc205de6f71c008e5950315853d38c6b84b5b05f5fa25c5
-  - path: scripts/lib/requirement-proofs.ts
-    ownership: harness
-    sha256: ef61f573dbb76fa5601fbbdee589238176acfee32023c7329f2bbaceed6d9a28
   - path: scripts/lib/skill-sync.ts
     ownership: harness
     sha256: 7009b6e75305d4903485b922db82de22a9886e31d43ac8c4802ea489cf9aa768
@@ -987,15 +972,6 @@ managed_files:
   - path: scripts/refresh-harness-lock.ts
     ownership: harness
     sha256: 070aab36bfd9036b2472e88cc81f735cc6370e6b4972ca51e098b576fd85b9cc
-  - path: scripts/render-founder-alpha-evidence.ts
-    ownership: harness
-    sha256: b8b509aec740882266287f01b087c8be2c11d70fa4ccbdee00d431de41433de4
-  - path: scripts/render-vh-v02-completion-matrix.ts
-    ownership: harness
-    sha256: 4326aa7442607d96ef80d4f8742bb082053015585f42ca948b76b1841e876dca
-  - path: scripts/run-audit-command.mjs
-    ownership: harness
-    sha256: 5e147a875df7ffd0c5ef776aa10bb4fb551822b8c31ad7d1f3d8e11becae8852
   - path: scripts/run-local-e2e.mjs
     ownership: harness
     sha256: e1505eaa8b5aee461eb2ce37cdd2166ad033b6b784dda32ec40d617ec1cbeb14
@@ -1020,9 +996,6 @@ managed_files:
   - path: scripts/seed-fetch.ts
     ownership: harness
     sha256: a659a5ffd385444f6d32bdb5127a9b8c4309684b0c7725ea86ef57d10c9d8c1c
-  - path: scripts/stage-final-evidence-upload.mjs
-    ownership: harness
-    sha256: 3ded5906ea230afa646d8db17d14af70ca8ebc5b631eef55b3e5c6e7d45e6307
   - path: scripts/sync-agent-skills.ts
     ownership: harness
     sha256: 7dee18bf2ed44d0121ca6786b8cd8f4b688ef4663dfd4fe63107d4faae44d9c5
@@ -1050,9 +1023,6 @@ managed_files:
   - path: scripts/verify-experiment-assignment.ts
     ownership: harness
     sha256: 9e1032789f5bc9c44ea78725286c46e5200be56cd41381ae30d2856fea313ad0
-  - path: scripts/verify-final-github-readback.mjs
-    ownership: harness
-    sha256: 35747d627632b83c0c30975a2b27e0ef1ea8bef60e01d6d01f2d1fafa4f40ffe
   - path: scripts/verify-pricing-recording.ts
     ownership: harness
     sha256: f0dc61abbba5c9b8bfcf21d09cbb4575df52812781cf4cf4668e9e53a691f09c
@@ -1320,12 +1290,6 @@ managed_files:
   - path: tests/experiments.test.ts
     ownership: harness
     sha256: 006d6dc90f57e3cba669355fb72067146d744fee5b563fec0f268f37a5d9076b
-  - path: tests/final-evidence-workflow.test.ts
-    ownership: harness
-    sha256: 0e18e2c318956e8a47a1e802e0dcd97f61f93bf0bb11736b56012b24f15262af
-  - path: tests/final-github-readback.test.ts
-    ownership: harness
-    sha256: a8cae435e6f5fb77727150c8f7b4d4ab727d0ab673d100ff8f0a8777a13799d1
   - path: tests/fixtures/command-bus-process.ts
     ownership: harness
     sha256: 801e6dda0a036e47c6fa0bc66fb7772c96b249c0d81bd87b090dd10afe4715e0
@@ -1374,9 +1338,6 @@ managed_files:
   - path: tests/fleet-controller.test.ts
     ownership: harness
     sha256: bddcbc7ea080c9b99761231e27ea72e5e6296a131556192283178706d7f2f62e
-  - path: tests/founder-alpha-evidence.test.ts
-    ownership: harness
-    sha256: 174fe4c1f0ad8d99b7fcf3afa2b52c16bd2ce2fb3bb9f8fc6e026a9ffce89bcf
   - path: tests/founder-config.test.ts
     ownership: harness
     sha256: cf0b832a78f80d40c4754d1387bf411bd1fd3727740236864e77566c6d076e2d
@@ -1433,7 +1394,7 @@ managed_files:
     sha256: 46a0a074a5aa4cc7422bf95b8968b1a1bf5642bc09c26b8e5f9f26ba678b3b16
   - path: tests/learning-cadence-workflow.test.ts
     ownership: harness
-    sha256: 658a6074edaa5a18e00bc82fbbbb94bdddb113ca205cf67441f5e94cfa9f2e9b
+    sha256: 41ea05b611a39f139ee292c6ceaecc769e258709672ccb50ce213847619c5454
   - path: tests/learning-loops.test.ts
     ownership: harness
     sha256: 13eb46c9e9309232bcfd5ace2be05326172e36a811ab735139a58f2455ea714a
@@ -1506,9 +1467,6 @@ managed_files:
   - path: tests/recursive-packed-credential.test.ts
     ownership: harness
     sha256: 92cd8fca2f1456ebebff11686e6258d8cdcf49641b427dd48c87bfd1b2b44169
-  - path: tests/requirement-matrix-integrity.test.ts
-    ownership: harness
-    sha256: 3cabdfd873cc125193d3075c91d796820b4f814df2c0264f80ee3a0ffe42077d
   - path: tests/root-cli-dispatch.test.ts
     ownership: harness
     sha256: 88fceed69e7a6dc22cbacb06d935de628cba098c4e2ac3d1f51a4c34825104da
@@ -1568,7 +1526,7 @@ managed_files:
     sha256: 72ab0d02eeae1e4d2eb7f477c8bc08b8b3919663e569d7d8d18a36310b11e166
   - path: tests/vh-generated-parity.test.ts
     ownership: harness
-    sha256: 1fe055073810363aa2b10d22a25cbcdfaf105bac6ba209670eb120041932c296
+    sha256: 4d238d96c3efca4085e3bc5cf1f994e745210e6029b4336d975005a86aeee3b3
   - path: tests/winner-loop-attribution-cohorts.test.ts
     ownership: harness
     sha256: 06a4c4c543eca5141b8517cc559d840cda66eecb98b07cb494005ff5f0dcfc71

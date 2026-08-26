@@ -1,5 +1,0 @@
-
-> venture-harness@0.2.0 agents:sync <workspace>
-> tsx scripts/sync-agent-skills.ts
-
-sync-agent-skills: already in sync (17 skills, 2 targets)
