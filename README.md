@@ -274,6 +274,12 @@ pnpm verify:release   # packaging and public-surface checks
 Profiles are capability-aware: a skipped check names the credential, command, and
 evidence still required rather than reporting a pass.
 
+Before a release, run the complete local founder-alpha gate:
+
+```bash
+pnpm verify:mvp && pnpm verify:release
+```
+
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and
