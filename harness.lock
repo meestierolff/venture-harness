@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 98fdaff15538a17002a34257bf62a4f85bcb2454
-  tree_digest: 65390246ecd372b3acd4e0cc3e506ec6484813db0eaea3ed2e492df54269a407
+  ref: 83bef48bf73d3ad8c306121719fc920b5182acd8
+  tree_digest: a163f71e008cb88c852184b39a536c3facd5606dda1cf39fb860e40e8a7fdb90
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -308,10 +308,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 7c237fd1d8c3798b36e7db5a55731b96052a05f2d65471878d116bd85b64281e
+    sha256: 30b493bb55c91ed4436023f7fb9fac1696477b48f3ab4d81b8e54681a19f0917
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 60788c678909b8378d01dd79773fa564e130fd9762053c72857226f74f40f3cc
+    sha256: 903cdf765bde611b063ff322ec58b709cefa1e536e6648e5399e12540f94e3d1
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -1634,7 +1634,7 @@ managed_files:
     sha256: d832b609c038356c69110d233ae217c9ea21660e62364fe738b1ba9d5e5026a1
   - path: tests/workspace-pack.test.ts
     ownership: harness
-    sha256: 25b91d0163ea6b70dd07d182e6ca20a37e509870a30963b81888a17739b06837
+    sha256: a28ee522a2f7629bee217f114a844303ffe6d63000dcaff1e2859d0cfeb87b07
   - path: tsconfig.json
     ownership: harness
     sha256: d8cf838419ad00e94cf202d83e9b183042185ed6b51ff1d23b2e852d2584c49d
