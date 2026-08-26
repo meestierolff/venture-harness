@@ -31,6 +31,7 @@ migrations, the quality profiles, and the upgrade logic.
 - [No hidden telemetry](#no-hidden-telemetry)
 - [Core upgrades](#core-upgrades)
 - [Verification](#verification)
+- [Forking this repository](#forking-this-repository)
 - [Contributing](#contributing)
 
 ---
@@ -279,6 +280,25 @@ Before a release, run the complete local founder-alpha gate:
 ```bash
 pnpm verify:mvp && pnpm verify:release
 ```
+
+## Forking this repository
+
+Venture Harness is meant to be forked and used as your own launch factory. It
+carries no account of its author: generated ventures reference whichever Core
+they were launched from, resolved from your fork's git origin, an explicit
+option, or `VH_WORKFLOW_REPOSITORY`.
+
+Two files still name the upstream repository, because they are its identity
+rather than framework behaviour. Point them at your fork:
+
+| File                                | Change                           |
+| ----------------------------------- | -------------------------------- |
+| `.github/ISSUE_TEMPLATE/config.yml` | the security-advisory URL        |
+| `README.md`                         | the clone URL in [Setup](#setup) |
+
+Nothing else needs editing. `config/venture.yaml` and `inputs/VENTURE_BRIEF.yaml`
+ship in template state, no workflow runs on a schedule that requires provider
+credentials, and there is no telemetry to switch off.
 
 ## Contributing
 
