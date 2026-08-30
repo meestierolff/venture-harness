@@ -2506,7 +2506,7 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
     expect(robotsText).not.toContain("Disallow: /");
     expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
     expect(sitemapText).not.toMatch(/\/(?:api|auth|account|edit|draft|private|status|user)(?:\/|<)/u);
-    expect(sitemapText).not.toContain("?");
+    expect(sitemapText).not.toMatch(/<loc>[^<]*\?[^<]*<\/loc>/u);
     expect(await page.locator('a[href^="/"]').count()).toBeGreaterThan(0);
   } else {
     expect(robotsContent).toContain("noindex");

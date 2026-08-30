@@ -399,6 +399,9 @@ describe("ordinary web venture seed", () => {
     expect(journey?.content).toContain('link[rel="canonical"]');
     expect(journey?.content).toContain('request.get("/robots.txt"');
     expect(journey?.content).toContain('request.get("/sitemap.xml"');
+    expect(journey?.content).toContain("sitemapText).not.toMatch");
+    expect(journey?.content).toContain("<loc>[^<]*\\?");
+    expect(journey?.content).not.toContain('sitemapText).not.toContain("?")');
     expect(journey?.content).toContain('script[type="application/ld+json"]');
     expect(journey?.content).toContain("Unverified rating/review structured data is forbidden");
     expect(journey?.content).toContain("EXPECTED_PUBLIC_ORIGIN");
