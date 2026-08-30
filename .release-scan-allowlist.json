@@ -18,7 +18,7 @@
     {
       "path": "tests/mobile-scaffold.test.ts",
       "rule": "stripe-access-token",
-      "line": 295,
+      "line": 294,
       "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
       "reason": "Synthetic scaffold leak canary."
     },
@@ -32,16 +32,23 @@
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 201,
+      "line": 379,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic model-context database URL canary."
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 221,
+      "line": 399,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic generated-product command environment isolation canary."
+    },
+    {
+      "path": "tests/idea-sharpener.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 101,
+      "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
+      "reason": "Synthetic idea-sharpener environment isolation canary."
     },
     {
       "path": "tests/core-credential-scanner.test.ts",

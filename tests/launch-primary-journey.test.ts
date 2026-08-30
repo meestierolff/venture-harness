@@ -117,7 +117,6 @@ const unusedHost: BuildAgentHost = {
   inspect: async () => ({
     host: "unused",
     status: "available",
-    readIsolation: "fixture_no_model_execution",
     version: "fixture",
     billingMode: "fixture_no_model_execution",
     billingEvidence: "fixture_attestation",

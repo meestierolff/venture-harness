@@ -153,9 +153,12 @@ repository, manual DNS.
 
 The intended dogfood still requires a real configured Codex build-agent host
 through the public `vh launch` path, never a fixture builder. Founder alpha now
-stops before that work because no audited outer read-isolation driver is
-installed. This is a recorded terminal prerequisite, not permission to inject a
-runner or reuse the Exception Desk fixture.
+constructs that practical host internally with bounded credential-free stdin
+context, a safe environment projection and no provider capability. The boundary
+is not perfect OS-level read isolation. The focused repair, protected-main merge,
+authenticated host inspection and real public-path product run still require
+verification; this is not permission to inject a runner or reuse the Exception
+Desk fixture.
 
 ## Verification evidence
 
@@ -200,9 +203,10 @@ not treat the legacy 175-row matrix as proof that this assignment is complete.
 
 At this source-editing checkpoint, the final workflow report has not run for
 the final source SHA. Real dogfood and its dependent upgrade proof require both
-explicit model-transmission approval and the unresolved authenticated founder
-Stack prerequisites; the controlled blank-repository benchmark likewise
-requires an approved model call. Repository metadata, the main ruleset, and
+the focused Codex-host repair on protected `main` and the unresolved
+authenticated founder Stack prerequisites; the controlled blank-repository
+benchmark remains validation-only under its separate evidence protocol.
+Repository metadata, the main ruleset, and
 final PR delivery are external effects whose final read-backs are still
 `NOT_RUN`. These states must remain machine-visible as `EXTERNAL_BLOCKER` or
 `NOT_RUN`; they may not be converted to `VERIFIED` by prose or by the older
@@ -214,14 +218,17 @@ row is an evidenced external blocker. Any failed or not-run implementable row
 forces `INCOMPLETE`. `FOUNDER ALPHA READY` requires every focused row to be
 `VERIFIED`.
 
-## Exact external blockers
+## Exact remaining prerequisites
 
 Recorded as they are observed. A provider request acceptance is never read-back.
 
-1. **Model transmission.** Real idea sharpening and the controlled
-   blank-repository comparison both require explicit approval to transmit the
-   supplied idea to the authenticated Codex CLI host. That approval has not
-   been received, so neither run may be represented as attempted.
+1. **Protected-main Codex host repair.** The founder goal authorizes the bounded
+   idea and product calls. A focused branch is restoring the internally owned
+   practical Codex CLI hosts after the current protected-main regression. The
+   repair must pass its focused and release checks, merge through a focused PR,
+   and be re-read from `main` before a real product-build call is represented as
+   available. This practical boundary must not be described as perfect OS-level
+   read isolation.
 2. **Founder Stack.** Real dogfood requires authenticated founder-owned GitHub,
    Vercel, Neon and Stripe test-mode prerequisites plus the exact Stack doctor
    read-back. Exact sequence: run
@@ -242,22 +249,22 @@ Recorded as they are observed. A provider request acceptance is never read-back.
 
 ## Current implementation status
 
-| Area                                      | Evidence-backed state                                                                                |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| pnpm and Node source of truth             | Implemented locally; final hosted CI still required                                                  |
-| Launch Contract and bounded sharpener     | Focused local tests pass; no approved real idea/model run                                            |
-| Build-context manifest and Launch Receipt | Focused local tests pass; no comparative savings or live-launch claim                                |
-| Founder Stack and ventures root           | Credential-free local behavior tested; real founder account doctor pending                           |
-| Local child Git working repository        | Fixture publication/read-back and exact clean working-repository handoff tested                      |
-| Focused ordinary web seed                 | Two separate clean child closures passed offline install, typecheck, build, journey and child tests  |
-| Current-tree founder Golden Path          | One isolated three-slice run passed outside the restricted sandbox; required repetitions remain      |
-| Release/live/stable verification split    | Schema and local contracts implemented; final-tree profiles and source-bound workflow still pending  |
-| Gitleaks and security checks              | Implementation and regression coverage present; final-tree scans and hosted evidence still pending   |
-| `harness.lock` and CLI provenance         | Source-bound refresh/build flow implemented; reviewed-source and artifact-only commits still pending |
-| Repository security settings              | Workflow/config intent exists; GitHub metadata/ruleset and required-check read-backs still pending   |
-| Real dogfood and child upgrade            | External-blocked by model approval and founder Stack prerequisites                                   |
-| Blank-repository benchmark/token savings  | Not run; no token, cost, speed or quality saving is claimed                                          |
-| Public dogfood evidence                   | Not run; no live provider, customer, demand or market result is claimed                              |
+| Area                                      | Evidence-backed state                                                                                                                                     |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pnpm and Node source of truth             | Implemented locally; final hosted CI still required                                                                                                       |
+| Launch Contract and bounded sharpener     | The repaired source path completed one bounded in-worktree sharpener call; the exact external input path and paid-offer result still need focused repairs |
+| Build-context manifest and Launch Receipt | Focused local tests pass; no comparative savings or live-launch claim                                                                                     |
+| Founder Stack and ventures root           | Credential-free local behavior tested; real founder account doctor pending                                                                                |
+| Local child Git working repository        | Fixture publication/read-back and exact clean working-repository handoff tested                                                                           |
+| Focused ordinary web seed                 | Two separate clean child closures passed offline install, typecheck, build, journey and child tests                                                       |
+| Current-tree founder Golden Path          | One isolated three-slice run passed outside the restricted sandbox; required repetitions remain                                                           |
+| Release/live/stable verification split    | Schema and local contracts implemented; final-tree profiles and source-bound workflow still pending                                                       |
+| Gitleaks and security checks              | Implementation and regression coverage present; final-tree scans and hosted evidence still pending                                                        |
+| `harness.lock` and CLI provenance         | Source-bound refresh/build flow implemented; reviewed-source and artifact-only commits still pending                                                      |
+| Repository security settings              | Workflow/config intent exists; GitHub metadata/ruleset and required-check read-backs still pending                                                        |
+| Real dogfood and child upgrade            | Incomplete pending protected-main host repair plus founder Stack prerequisites and provider read-back                                                     |
+| Blank-repository benchmark/token savings  | Not run; no token, cost, speed or quality saving is claimed                                                                                               |
+| Public dogfood evidence                   | Not run; no live provider, customer, demand or market result is claimed                                                                                   |
 
 Additionally repaired, all pre-existing on `0716a1a`: the `String.raw` seed bug
 that made every materialized venture fail its own typecheck, the drifted packed
@@ -295,12 +302,13 @@ and force-push protection, and the eight successful required check names from
 PR #9. Hosted `quality`, `security`, and `codeql` runs are green for the current
 remote `main` SHA.
 
-The current founder goal authorizes bounded model calls, but authorization does
-not prove a safe execution boundary. A macOS Seatbelt probe proved repository
+At that checkpoint, the founder goal authorized bounded model calls, but
+authorization did not prove a safe execution boundary. A macOS Seatbelt probe proved repository
 allowlisting and private-home denial, yet Codex could not start with only the
 single auth-file allowance; broader `.codex` access was rejected because it
-would expose private auth/session state. Therefore the audited-driver
-prerequisite remains the present blocker. GitHub CLI read-back proves the intended founder
+would expose private auth/session state. The team therefore treated the
+audited-driver prerequisite as the blocker at that checkpoint. GitHub CLI
+read-back proves the intended founder
 account. Vercel CLI identity, Stripe CLI test-mode availability, and Neon CLI
 identity also read back successfully; this does not establish a saved
 founder-default Stack, authorize a provider write, or prove any dogfood resource.
@@ -315,3 +323,29 @@ dogfood repository, Vercel
 deployment, Neon project, Stripe product/price/webhook/portal, comparable token
 result, real-child Core upgrade, social-preview upload, prerelease, charge, or
 advertising spend is claimed at this checkpoint.
+
+## Continuation checkpoint — 2026-08-30
+
+Remote `main` at `60a11864e7658212239e49805d3eeadbaeabb394` still contains the
+unconditional host-disable regression. A focused local repair restores the
+production-owned idea and product Codex CLI hosts with credential-free stdin
+context, safe environment projection, typed results and a separate provider
+runtime. That implementation is a practical founder-alpha boundary, not perfect
+OS-level read isolation. It is not authoritative until focused tests, the full
+applicable gates, protected-branch checks, merge and `main` read-back complete.
+
+The founder goal already authorizes the bounded idea and product model calls, so
+model transmission is no longer the current approval blocker. The saved
+founder-default Stack still lacks the required Neon and Stripe credential
+references/readiness evidence. No dogfood repository, deployment, provider
+resource, primary-journey proof, child upgrade or prerelease is claimed here.
+
+The repaired public source path was exercised with the exact Launch Receipt
+rough text from a temporary in-worktree file. It completed one authenticated
+`codex_cli` call with 20,120 input, 9,984 cached-input and 1,656 output tokens
+(21,776 total) in 41,092 ms; the CLI emitted no model identifier, stored no
+transcript and performed no provider effect. The assignment's exact external
+`~/Projects/venture-inputs/...` command first failed before model invocation
+with `Path escapes the venture root`, and the successful retry classified the
+offer as free with payments not applicable. Those are two separate focused
+compatibility defects; neither result is an accepted dogfood Launch Contract.

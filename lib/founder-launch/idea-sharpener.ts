@@ -1,6 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { findCredentialMaterial } from "../../packages/core/src/index";
 import { looksLikeCredentialLabeledText, looksLikeCredentialValue } from "../config/contracts";
-import type { Redactor } from "../credentials";
+import { Redactor, type CommandRunner } from "../credentials";
 import {
   assertLaunchContractSafe,
   launchContractSchema,
@@ -75,23 +78,130 @@ export interface SharpenIdeaOptions {
   signal?: AbortSignal;
 }
 
+const CODEX_IDEA_SHARPENER_ARGS = [
+  "exec",
+  "--sandbox",
+  "read-only",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--skip-git-repo-check",
+  "--json",
+] as const;
+
+const SAFE_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "CODEX_HOME",
+  "XDG_CONFIG_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "PATHEXT",
+] as const;
+
+export function ideaSharpenerEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    NODE_ENV: source.NODE_ENV ?? "production",
+    ...Object.fromEntries(
+      SAFE_ENVIRONMENT_KEYS.flatMap((key) =>
+        source[key] === undefined ? [] : [[key, source[key]]],
+      ),
+    ),
+  };
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function assistantText(event: unknown): string | null {
+  const record = objectRecord(event);
+  if (!record) return null;
+  if (record.type === "item.completed") {
+    const item = objectRecord(record.item);
+    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
+  }
+  if (record.type === "turn.completed" && typeof record.final_output === "string") {
+    return record.final_output;
+  }
+  if (record.type === "result" && typeof record.result === "string") return record.result;
+  return null;
+}
+
+function eventUsage(event: unknown): IdeaSharpenerUsage | undefined {
+  const record = objectRecord(event);
+  if (record?.type !== "turn.completed") return undefined;
+  const usage = objectRecord(record.usage);
+  if (!usage) return undefined;
+  if (
+    typeof usage.input_tokens !== "number" ||
+    typeof usage.cached_input_tokens !== "number" ||
+    typeof usage.output_tokens !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    inputTokens: usage.input_tokens,
+    cachedInputTokens: usage.cached_input_tokens,
+    outputTokens: usage.output_tokens,
+    ...(typeof record.model === "string" && record.model.trim()
+      ? { model: record.model.trim() }
+      : {}),
+  };
+}
+
+function parseCodexJsonLines(stdout: string): IdeaSharpenerModelResult {
+  const finalTexts: string[] = [];
+  let usage: IdeaSharpenerUsage | undefined;
+  for (const [index, line] of stdout
+    .split(/\r?\n/u)
+    .filter((candidate) => candidate.trim().length > 0)
+    .entries()) {
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new Error(`Codex sharpener JSONL line ${index + 1} was invalid`);
+    }
+    const text = assistantText(event);
+    if (text) finalTexts.push(text);
+    usage = eventUsage(event) ?? usage;
+  }
+  const finalText = finalTexts.at(-1);
+  if (!finalText) throw new Error("Codex sharpener returned no final Launch Contract");
+  return { finalText, usage };
+}
+
 export interface CodexCliIdeaSharpenerHostOptions {
+  runner: CommandRunner;
   binary?: string;
   redactor?: Redactor;
   /** Pins the same model identity used by a controlled benchmark. */
   model?: string;
 }
 
-/** Inert public host until Core owns an audited, unforgeable isolation driver. */
+/** A no-provider Codex host launched read-only from a disposable non-repository directory. */
 export class CodexCliIdeaSharpenerHost implements IdeaSharpenerHost {
   readonly id = "codex_cli";
+  private readonly runner: CommandRunner;
+  private readonly binary: string;
+  private readonly redactor: Redactor;
+  private readonly model: string | null;
 
-  constructor(options: CodexCliIdeaSharpenerHostOptions = {}) {
-    // No caller-supplied runner or trust attestation is accepted. The shipped
-    // founder-alpha host stays inert until Core owns an audited driver factory.
-    void options.binary;
-    void options.redactor;
-    void options.model;
+  constructor(options: CodexCliIdeaSharpenerHostOptions) {
+    this.runner = options.runner;
+    this.binary = options.binary ?? "codex";
+    this.redactor = options.redactor ?? new Redactor();
+    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
   }
 
   async run(input: {
@@ -99,10 +209,41 @@ export class CodexCliIdeaSharpenerHost implements IdeaSharpenerHost {
     phase: "primary" | "refinement";
     signal?: AbortSignal;
   }): Promise<IdeaSharpenerModelResult> {
-    void input;
-    throw new Error(
-      "Codex idea sharpening is disabled before invocation because no audited outer read-isolation driver is available. Supply a valid Launch Contract for the zero-model path; model execution is not installed in founder alpha.",
-    );
+    const isolatedRoot = mkdtempSync(join(tmpdir(), "vh-idea-sharpen-"));
+    try {
+      const result = await this.runner.run({
+        command: this.binary,
+        args: [
+          ...CODEX_IDEA_SHARPENER_ARGS,
+          ...(this.model ? ["--model", this.model] : []),
+          "-C",
+          isolatedRoot,
+          "-",
+        ],
+        cwd: isolatedRoot,
+        stdin: input.prompt,
+        sensitiveStdin: true,
+        signal: input.signal,
+      });
+      if (result.exitCode !== 0) {
+        const detail = this.redactor
+          .redactText(result.stderr || result.stdout)
+          .trim()
+          .slice(0, 2_000);
+        throw new Error(
+          `Codex idea ${input.phase} call exited ${result.exitCode}${detail ? `: ${detail}` : ""}`,
+        );
+      }
+      const parsed = parseCodexJsonLines(result.stdout);
+      return {
+        ...parsed,
+        usage: parsed.usage
+          ? { ...parsed.usage, ...(parsed.usage.model || !this.model ? {} : { model: this.model }) }
+          : undefined,
+      };
+    } finally {
+      rmSync(isolatedRoot, { force: true, recursive: true });
+    }
   }
 }
 

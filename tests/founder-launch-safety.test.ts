@@ -34,6 +34,7 @@ import {
   type LaunchGrantInput,
 } from "@/lib/materialization";
 import { MockProviderTransport, type ProviderExecutionContext } from "@/lib/providers";
+import { CodexCliBuildAgentHost } from "@/lib/runtime";
 import { FileWorkflowStore } from "@/lib/workflow";
 
 const NOW = new Date("2026-08-09T12:00:00.000Z");
@@ -246,6 +247,7 @@ async function expectLaunchRejectedBeforeBindings(input: {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -339,6 +341,14 @@ describe("canonical founder launch safety preflight", () => {
 
   it("blocks an unavailable build host before creating a child or staging directory", async () => {
     const harness = await createHarness();
+    vi.spyOn(CodexCliBuildAgentHost.prototype, "inspect").mockResolvedValue({
+      host: "codex_cli",
+      status: "missing",
+      version: null,
+      billingMode: "unknown",
+      billingEvidence: null,
+      nextAction: "Install and authenticate the Codex CLI, then retry founder launch.",
+    });
     const planFactories = vi.fn(() => {
       throw new Error("provider planning must not run without a build host");
     });
@@ -350,7 +360,43 @@ describe("canonical founder launch safety preflight", () => {
     });
 
     await expect(services.founderLaunch!(founderRequest())).rejects.toThrow(
-      /no audited outer read-isolation driver.*No run or external action was created/i,
+      /Install and authenticate the Codex CLI.*No run or external action was created/i,
+    );
+    expect(planFactories).not.toHaveBeenCalled();
+    expect(harness.cliTransport.calls).toEqual([]);
+    expect(harness.httpTransport.calls).toEqual([]);
+    expect(existsSync(harness.childRoot)).toBe(false);
+    const ventures = join(harness.root, "ventures");
+    expect(existsSync(ventures) ? readdirSync(ventures) : []).toEqual([]);
+  });
+
+  it("blocks API-key-billed Codex before creating a child or calling providers", async () => {
+    const harness = await createHarness();
+    writeFileSync(
+      join(harness.root, "idea.md"),
+      readFileSync(join(harness.root, "idea.md"), "utf8").replace("synthetic: true\n", ""),
+      { mode: 0o600 },
+    );
+    vi.spyOn(CodexCliBuildAgentHost.prototype, "inspect").mockResolvedValue({
+      host: "codex_cli",
+      status: "available",
+      version: "codex-cli fixture",
+      billingMode: "api_key_metered",
+      billingEvidence: "codex_login_status",
+      nextAction: "Authenticate Codex with a ChatGPT subscription account.",
+    });
+    const planFactories = vi.fn(() => {
+      throw new Error("provider planning must not run with API-key-billed Codex");
+    });
+    const services = createDefaultCliServices({
+      ...commonOptions(harness),
+      rootDir: harness.root,
+      store: new FileWorkflowStore({ rootDir: join(harness.root, ".root-runs") }),
+      providerPlanFactories: planFactories,
+    });
+
+    await expect(services.founderLaunch!(founderRequest())).rejects.toThrow(
+      /requires `codex login status` to attest ChatGPT subscription use.*blocked before child creation/i,
     );
     expect(planFactories).not.toHaveBeenCalled();
     expect(harness.cliTransport.calls).toEqual([]);
@@ -371,7 +417,6 @@ describe("canonical founder launch safety preflight", () => {
         inspect: vi.fn(async () => ({
           host: "caller-controlled-host",
           status: "available",
-          readIsolation: "verified_outer_read_isolation",
           version: "caller-v1",
           billingMode: "chatgpt_subscription",
           billingEvidence: "codex_login_status",

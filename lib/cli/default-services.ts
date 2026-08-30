@@ -72,6 +72,7 @@ import {
   FileFounderStackStore,
   CodexCliIdeaSharpenerHost,
   IdeaSharpenError,
+  ideaSharpenerEnvironment,
   compileFounderIdea,
   compileFounderLaunchPreparation,
   defaultFounderStackStateRoot,
@@ -147,6 +148,7 @@ import {
 import {
   assertBuildAgentHostAvailable,
   CodexCliBuildAgentHost,
+  codexBuildAgentEnvironment,
   createRepositoryCheckpointEvidenceVerifier,
   createLaunchProductBindings,
   createLaunchReceipt,
@@ -2030,7 +2032,6 @@ async function assertFounderBuildAgentHostPolicy(
   if (!policy) throw new Error("Canonical founder Launch Grant has no model execution policy");
   if (policy.mode === "fixture_no_model_execution") {
     if (
-      inspection.readIsolation !== "fixture_no_model_execution" ||
       inspection.billingMode !== "fixture_no_model_execution" ||
       inspection.billingEvidence !== "fixture_attestation"
     ) {
@@ -2041,12 +2042,11 @@ async function assertFounderBuildAgentHostPolicy(
     return;
   }
   if (
-    inspection.readIsolation !== "verified_outer_read_isolation" ||
     inspection.billingMode !== "chatgpt_subscription" ||
     inspection.billingEvidence !== "codex_login_status"
   ) {
     throw new Error(
-      "Founder production launch requires verified outer model read isolation plus `codex login status` attesting ChatGPT subscription use; unavailable isolation, API-key, or unknown billing is blocked before child creation and provider transport.",
+      "Founder production launch requires `codex login status` to attest ChatGPT subscription use; API-key or unknown billing is blocked before child creation and provider transport.",
     );
   }
 }
@@ -2318,7 +2318,7 @@ function assertNoCallerInjectedModelHosts(options: DefaultCliServicesOptions): v
   const candidate = options as unknown as Record<string, unknown>;
   if ("buildAgentHost" in candidate || "ideaSharpenerHost" in candidate) {
     throw new Error(
-      "Production CLI services do not accept caller-injected model hosts. The shipped founder-alpha model boundary is inert until Core installs an audited outer read-isolation driver.",
+      "Production CLI services do not accept caller-injected model hosts. The shipped founder-alpha path constructs its bounded Codex CLI hosts internally.",
     );
   }
 }
@@ -2459,9 +2459,11 @@ function createDefaultCliServicesInternal(options: DefaultCliServicesOptions): C
     new NodeCommandRunner({ env: productCommandEnvironment(process.env, productRuntimeHome) });
   const buildAgentHost = new CodexCliBuildAgentHost({
     rootDir: root,
+    runner: new NodeCommandRunner({ env: codexBuildAgentEnvironment(process.env) }),
     redactor: credentialBroker.redactor,
   });
   const ideaSharpenerHost = new CodexCliIdeaSharpenerHost({
+    runner: new NodeCommandRunner({ env: ideaSharpenerEnvironment(process.env) }),
     redactor: credentialBroker.redactor,
   });
 

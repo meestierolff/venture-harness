@@ -25,7 +25,7 @@ pnpm verify
 Commands below use an installed `vh` binary. In this checkout, replace `vh`
 with `pnpm vh --` and keep the remaining arguments unchanged.
 
-## 2. Choose the ventures root and validate one Launch Contract
+## 2. Choose the ventures root and sharpen or validate one idea
 
 Generated ventures are independent products and may not live inside the Core
 checkout. Configure their parent directory once:
@@ -36,7 +36,7 @@ vh config set ventures-root ~/Projects/ventures
 
 Copy the complete synthetic contract, replace its decisions with reviewed
 founder inputs, then produce the credential-free Product Constitution, final
-idea, and zero-call usage summary:
+idea, and sanitized usage summary:
 
 ```bash
 cp examples/idea-to-launch/launch-contract.yaml ./launch-contract.yaml
@@ -46,10 +46,14 @@ vh idea sharpen --input ./launch-contract.yaml --output ./idea.md --json
 The command performs no provider effect. An existing valid `schemaVersion: 1`
 Launch Contract uses the locally tested zero-model-call path. Malformed Launch
 Contract-like YAML or front matter fails closed before any model call.
-Unambiguously freeform prose also fails before invocation because founder alpha
-ships no audited outer read-isolation driver. Do not put secrets, private
-customer data, testimonials, or unverified results in the input. Before
-continuing, confirm the one user, painful job,
+Unambiguously freeform prose uses the internally owned Codex CLI sharpener for
+one bounded primary call and at most one schema-repair call. That host runs
+read-only from a disposable non-repository directory, receives its prompt only
+through stdin, and uses a small environment projection that excludes provider
+credentials. It is a practical local prototype, not perfect OS-level read
+isolation or a model-quality guarantee. Do not put secrets, private customer
+data, testimonials, or unverified results in the input. Before continuing,
+confirm the one user, painful job,
 outcome, reviewable proposition hypothesis, core feature, primary journey,
 commitment event, first channel, success signal, review date, assumptions,
 explicit not-building list, and all 15 capability classifications. Every
@@ -136,20 +140,23 @@ The founder-default preparation reports `setup.analytics = google_analytics`.
 Vercel Web Analytics is not enabled by the apply-once plan; add it only as a
 separately reviewed/manual option.
 
-## 5. Inspect the fail-closed apply boundary
+## 5. Inspect and authorize the apply boundary
 
-Founder alpha has no audited production model executor. Retain the command below
-only as the exact continuation printed by the dry run; do not invoke it until an
-audited driver exists. It currently stops before product-build model work:
+Retain the command below as the exact continuation printed by the dry run. Invoke
+it only after reviewing its destinations, effects and immutable Launch Grant and
+explicitly authorizing that exact scope:
 
 ```bash
 vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
 ```
 
-When an audited model executor exists, the CLI will derive graph authorization
-from an immutable Launch Grant; do not add `--authorization`. The intended graph
-stages a local child before any venture directory or provider effect. None of
-those future nodes is live evidence until its provider read-back succeeds.
+The CLI derives graph authorization from an immutable Launch Grant; do not add
+`--authorization`. It stages a local child before any venture directory or
+provider effect. Its internally owned Codex build host receives only bounded,
+credential-free product context; Venture Harness passes it no provider
+credential value, provider transport, or external-effect authority. Provider
+work runs later through the separately authorized provider runtime. None of
+those nodes is live evidence until its required read-back succeeds.
 
 For a web child, the first code-owned node installs the exact child
 `pnpm-lock.yaml` with `--frozen-lockfile`, ignores the parent workspace, disables
@@ -161,10 +168,12 @@ interrupted install is retried only through the same bounded durable run.
 The Grant's provider budget is an operation count plus direct-charge estimates
 for an exact reviewed provider/capability/action allowlist. `0` means no known
 direct charge for those operations; it does not include an account's recurring
-plan usage. The compiled graph and Launch Grant bound two product-build tasks,
-but founder alpha installs no production model executor: rough-prose sharpening
-and product-build nodes fail closed before invocation. A future driver must
-prove outer read isolation and non-metered policy before that status changes.
+plan usage. The compiled graph and Launch Grant bound two product-build tasks.
+Before either runs, `codex login status` must attest a ChatGPT-subscription
+session; API-key or unknown billing blocks before child creation and provider
+transport. The host projects only the environment needed for the CLI session and
+runs workspace-write inside the staged child. This practical boundary is not an
+audited OS-isolation guarantee.
 
 A terminal success points to
 `reports/launch/<run-id>/final.{json,md}` inside the child venture. A legitimate
@@ -184,13 +193,15 @@ scope; it cannot widen the persisted Grant.
 An agent with access to this checkout should translate the instruction, not
 invent a second launch path:
 
-> Validate `./idea.md`, run `vh doctor`, and run the complete production dry run
-> using my `founder-default` Stack. Show every blocker and the reserved apply
-> command, but do not invoke it. Do not expose credentials, widen the Launch
-> Grant, or claim a live result.
+> Sharpen and review `./idea.md`, run `vh doctor`, and run the complete production
+> dry run using my `founder-default` Stack. Show every blocker and the exact apply
+> command. Invoke it only after I explicitly authorize that exact Launch Grant.
+> Do not expose credentials, widen authority, or claim a live result without
+> provider and primary-journey read-back.
 
-The currently supported public semantics stop at validation and dry run. The
-apply command remains fail-closed until an audited model executor is installed.
+The apply path is an alpha prototype. An authenticated model host, authorized
+Founder Stack and matching provider read-backs are prerequisites, not evidence
+that the path has already succeeded.
 
 ## What you own
 

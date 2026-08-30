@@ -68,7 +68,6 @@ export interface BuildAgentRequest {
 export interface BuildAgentHostInspection {
   host: string;
   status: "available" | "missing" | "unavailable";
-  readIsolation: "verified_outer_read_isolation" | "fixture_no_model_execution" | "unavailable";
   version: string | null;
   billingMode:
     "chatgpt_subscription" | "api_key_metered" | "fixture_no_model_execution" | "unknown";

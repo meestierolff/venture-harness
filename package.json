@@ -2,7 +2,7 @@
   "name": "venture-harness",
   "version": "0.2.0",
   "private": false,
-  "description": "Open-source founder-alpha Launch Factory with locally tested Launch Contracts, fixture-tested app seeds and provider plans, bounded launch plans, and conservative Launch Receipts. Production model execution is unavailable.",
+  "description": "Open-source founder-alpha Launch Factory with bounded Codex CLI prototypes, locally tested Launch Contracts, fixture-tested app seeds and provider plans, and conservative Launch Receipts.",
   "license": "MIT",
   "repository": {
     "type": "git",
