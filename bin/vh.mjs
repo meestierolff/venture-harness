@@ -30407,6 +30407,37 @@ var ROLLBACK_IGNORED_DIRECTORIES = /* @__PURE__ */ new Set([
 ]);
 var ROLLBACK_MAX_FILE_BYTES = 16 * 1024 * 1024;
 var ROLLBACK_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
+function readRollbackPreimageFile(path, reference, expectedDevice, expectedInode) {
+  let descriptor2;
+  try {
+    descriptor2 = openSync7(path, constants7.O_RDONLY | NO_FOLLOW5);
+    const metadata = fstatSync7(descriptor2);
+    if (!metadata.isFile() || metadata.nlink !== 1 || metadata.size > ROLLBACK_MAX_FILE_BYTES || metadata.dev !== expectedDevice || metadata.ino !== expectedInode) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a private bounded rollback preimage for ${reference}.`
+      );
+    }
+    const content = readFileSync12(descriptor2);
+    if (content.byteLength > ROLLBACK_MAX_FILE_BYTES) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a private bounded rollback preimage for ${reference}.`
+      );
+    }
+    return { content, mode: metadata.mode & 511 };
+  } catch (error) {
+    if (error.code === "ELOOP") {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a rollback preimage for unsafe repository entry ${reference}.`
+      );
+    }
+    throw error;
+  } finally {
+    if (descriptor2 !== void 0) closeSync7(descriptor2);
+  }
+}
 function repositoryPreimage(root) {
   const files = /* @__PURE__ */ new Map();
   const directories = /* @__PURE__ */ new Map();
@@ -30430,13 +30461,8 @@ function repositoryPreimage(root) {
         visit(absolute);
         continue;
       }
-      if (metadata.nlink !== 1 || metadata.size > ROLLBACK_MAX_FILE_BYTES) {
-        throw new WorkflowExecutionError(
-          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
-          `Cannot establish a private bounded rollback preimage for ${reference}.`
-        );
-      }
-      totalBytes += metadata.size;
+      const file2 = readRollbackPreimageFile(absolute, reference, metadata.dev, metadata.ino);
+      totalBytes += file2.content.byteLength;
       if (totalBytes > ROLLBACK_MAX_TOTAL_BYTES) {
         throw new WorkflowExecutionError(
           "BUILD_AGENT_UNSAFE_FILE_ENTRY",
@@ -30444,8 +30470,8 @@ function repositoryPreimage(root) {
         );
       }
       files.set(reference, {
-        content: readFileSync12(absolute),
-        mode: metadata.mode & 511
+        content: file2.content,
+        mode: file2.mode
       });
     }
   };
@@ -45404,7 +45430,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "7633864e36e83ebfae219becf254756512983677" : void 0;
+  const workflowRefSha = true ? "ac5533b8e00662fdb4fa97417846417ad6b401fd" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
