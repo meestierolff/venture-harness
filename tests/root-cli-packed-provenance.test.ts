@@ -73,6 +73,7 @@ describe("packed root vh provenance", () => {
         executable,
         packageVersion: provenance.packageVersion,
         sourceCommit: provenance.workflowRefSha,
+        coreRepository: provenance.coreRepository,
       }),
     );
 
@@ -141,10 +142,13 @@ describe("packed root vh provenance", () => {
     const packed = (await import(
       `${pathToFileURL(installedExecutable).href}?test=${Date.now()}`
     )) as typeof import("../scripts/vh-bundle");
+    // The packed executable carries the Core repository too, because it cannot
+    // read a caller's git remote to discover which reusable workflow to call.
     expect(packed.founderCoreBuildProvenance()).toEqual({
       packageName: "venture-harness",
       packageVersion: "0.2.0",
       workflowRefSha: coreCommit,
+      workflowRepository: provenance.coreRepository,
     });
 
     writeFileSync(resolve(consumer, "idea.md"), "# Packed provenance fixture\n");
@@ -215,6 +219,7 @@ describe("packed root vh provenance", () => {
                 at,
                 coreVersion: provenance.packageVersion,
                 workflowRefSha: options.founderWorkflowRefSha!,
+                workflowRepository: options.founderWorkflowRepository!,
                 effects: [],
               });
               await materializeVenture(plan, new NodeMaterializationFileSystem(childRoot), at);

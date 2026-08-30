@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "command": "idea.sharpen",
+  "status": "already_structured",
+  "sourceDigest": "415d81eb563c874c6cfdf68564f0777b025a0943f528e756649df01be2ecf661",
+  "output": "reports/dogfood/launch-receipt/idea.md",
+  "productConstitution": "reports/dogfood/launch-receipt/idea.product-constitution.md",
+  "launchContract": "reports/dogfood/launch-receipt/idea.launch-contract.yaml",
+  "inputTokens": 0,
+  "cachedInputTokens": 0,
+  "outputTokens": 0,
+  "totalTokens": 0,
+  "modelCalls": 0,
+  "elapsedMs": 14,
+  "assumptionsAdded": [],
+  "contradictionsDetected": [],
+  "contextCharacters": 5676,
+  "host": null,
+  "model": null,
+  "transcriptStored": false,
+  "providerEffects": false
+}

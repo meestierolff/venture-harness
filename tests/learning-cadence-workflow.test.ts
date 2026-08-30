@@ -16,7 +16,7 @@ interface WorkflowStep {
 }
 
 interface LearningWorkflow {
-  on: { schedule: { cron: string }[] };
+  on: { schedule?: { cron: string }[]; workflow_dispatch?: unknown };
   jobs: { report: { steps: WorkflowStep[] } };
 }
 
@@ -55,8 +55,12 @@ describe("scheduled learning workflow", () => {
     expect(scheduledLoops).toHaveLength(4);
     expect(scheduledLoops.every((loop) => loop.enabled === false)).toBe(true);
 
-    const workflowCrons = workflow.on.schedule.map(({ cron }) => cron).sort();
-    expect(workflowCrons).toEqual(scheduledLoops.map((loop) => loop.trigger.expression).sort());
+    // The workflow is deliberately dispatch-only. Every cadence reads direct
+    // provider data, so on a fork with no configured connectors a schedule
+    // would fire forever with nothing to learn from. The cadence contracts stay
+    // declared and disabled; a founder runs one on demand once data exists.
+    expect(workflow.on.schedule).toBeUndefined();
+    expect(workflow.on).toHaveProperty("workflow_dispatch");
     const disabled = step("disabled");
     expect(disabled.if).toBe("steps.cadence.outputs.enabled != 'true'");
     expect(disabled.run).toContain('kind: "learning_schedule_skip"');

@@ -151,10 +151,11 @@ founder-authorized transactional receipt email. Success signal
 `launch_receipt_published`. Subscription, EUR 9.00/month, web rail, private
 repository, manual DNS.
 
-It must be built by the real configured Codex CLI build-agent host through the
-public `vh launch` path. `FounderGoldenPathBuildAgentFixture` stays a regression
-test and must not build this product. The Exception Desk fixture product must
-not be reused.
+The intended dogfood still requires a real configured Codex build-agent host
+through the public `vh launch` path, never a fixture builder. Founder alpha now
+stops before that work because no audited outer read-isolation driver is
+installed. This is a recorded terminal prerequisite, not permission to inject a
+runner or reuse the Exception Desk fixture.
 
 ## Verification evidence
 
@@ -281,3 +282,36 @@ check is green, including both halves of the local gate
 `pnpm verify:mvp && pnpm verify:release`, and only evidenced external
 prerequisites remain. Any other state is `INCOMPLETE`; it is not a release
 classification.
+
+## Continuation checkpoint — 2026-08-27
+
+The continuation run inspected local and remote state before trusting the
+historical branch name. It started on `main` at
+`770f4bd49f8e8fc328b9a83a0c057a807fd3c010`; PR #9 had already been
+squash-merged as `c3d8999198fc74f8dfb5bdb3cdaaed6a59c82303` on 2026-08-25.
+The protected `main` ruleset is active with pull requests, linear history,
+conversation resolution, squash-only merging, zero required approvals, deletion
+and force-push protection, and the eight successful required check names from
+PR #9. Hosted `quality`, `security`, and `codeql` runs are green for the current
+remote `main` SHA.
+
+The current founder goal authorizes bounded model calls, but authorization does
+not prove a safe execution boundary. A macOS Seatbelt probe proved repository
+allowlisting and private-home denial, yet Codex could not start with only the
+single auth-file allowance; broader `.codex` access was rejected because it
+would expose private auth/session state. Therefore the audited-driver
+prerequisite remains the present blocker. GitHub CLI read-back proves the intended founder
+account. Vercel CLI identity, Stripe CLI test-mode availability, and Neon CLI
+identity also read back successfully; this does not establish a saved
+founder-default Stack, authorize a provider write, or prove any dogfood resource.
+
+Local continuation work is still uncommitted while focused verification runs.
+The current tree includes a fail-closed 15-capability Launch Contract with a reviewable
+proposition hypothesis, reproducible normal child installation, hardened child
+Git publication, schemaVersion 2 Launch Receipts that embed the canonical
+contract and explicit model-call count, and a truth-bounded public README/visual
+system; the isolated benchmark harness remains in implementation and review. No
+dogfood repository, Vercel
+deployment, Neon project, Stripe product/price/webhook/portal, comparable token
+result, real-child Core upgrade, social-preview upload, prerelease, charge, or
+advertising spend is claimed at this checkpoint.

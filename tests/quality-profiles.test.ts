@@ -25,6 +25,8 @@ import {
 } from "@/scripts/run-quality-profile";
 import { hasServerRenderedCoreContent } from "@/scripts/verify-raw-html";
 import { qualitySchema } from "@/lib/config/schemas";
+import { launchReceiptSchema } from "@/lib/runtime/launch-receipt";
+import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
 
 const contract = parse(readFileSync("config/quality.yaml", "utf8")) as QualityContract & {
   required_commands: { always: string[] };
@@ -244,6 +246,7 @@ describe("capability-aware quality profiles", () => {
 
   it("rejects matching hand-written report and receipt summaries without a strict bundle", () => {
     const definition = contract.checks.live_stack_readback;
+    const canonicalContract = launchReceiptContract();
     const root = mkdtempSync(join(tmpdir(), "vh-live-readback-"));
     try {
       const reportPath = join(root, "reports/dogfood/launch-receipt/final.json");
@@ -272,67 +275,75 @@ describe("capability-aware quality profiles", () => {
           providers,
         })}\n`,
       );
-      writeFileSync(
-        receiptPath,
-        `${JSON.stringify({
-          schemaVersion: 1,
-          venture: {
-            name: "Launch Receipt",
-            repository: "https://github.com/founder/launch-receipt",
-            productionUrl: "https://launch-receipt.vercel.app",
-            customDomain: null,
+      const receipt = launchReceiptSchema.parse({
+        schemaVersion: 2,
+        launchContract: canonicalContract,
+        venture: {
+          name: "Launch Receipt",
+          repository: "https://github.com/founder/launch-receipt",
+          productionUrl: "https://launch-receipt.vercel.app",
+          customDomain: null,
+        },
+        decision: {
+          launchMode: canonicalContract.decision.launchMode,
+          primarySuccessSignal: canonicalContract.decision.primarySuccessSignal,
+          reviewDate: canonicalContract.decision.reviewDate,
+          firstValidationAction: canonicalContract.distribution.firstValidationAction,
+        },
+        build: {
+          seed: "agentic-web-saas",
+          coreVersion: "0.2.0",
+          buildAgent: "codex",
+          taskCount: 2,
+          modelCalls: 2,
+          inputTokens: null,
+          cachedInputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+          toolCalls: null,
+          retries: 0,
+          failedCommands: null,
+          elapsedMs: 100,
+          filesRead: null,
+          filesChanged: 12,
+        },
+        stack: {
+          github: "verified",
+          vercel: "verified",
+          neon: "verified",
+          commerce: "waiting",
+          email: "waiting",
+          analytics: "waiting",
+          search: "waiting",
+          dns: "planned",
+        },
+        verification: {
+          repository: "verified",
+          deployment: "verified",
+          database: "verified",
+          commerce: "waiting",
+          primaryJourney: "verified",
+          primaryJourneyEvidence: {
+            scope: "product_specific_end_to_end",
+            journeyId: canonicalContract.decision.primarySuccessSignal,
+            steps: canonicalContract.product.primaryJourney,
+            state: "verified",
+            evidenceRef: "reports/dogfood/launch-receipt/production-verification.json",
           },
-          decision: {
-            launchMode: "product_first",
-            primarySuccessSignal: "launch_receipt_published",
-            reviewDate: "2026-09-01",
-            firstValidationAction: "Founder review",
-          },
-          build: {
-            seed: "agentic-web-saas",
-            coreVersion: "0.2.0",
-            buildAgent: "codex",
-            taskCount: 2,
-            inputTokens: null,
-            cachedInputTokens: null,
-            outputTokens: null,
-            totalTokens: null,
-            toolCalls: null,
-            retries: 0,
-            failedCommands: null,
-            elapsedMs: 100,
-            filesRead: null,
-            filesChanged: 12,
-          },
-          stack: {
-            github: "verified",
-            vercel: "verified",
-            neon: "verified",
-            commerce: "waiting",
-            email: "waiting",
-            analytics: "waiting",
-            search: "waiting",
-            dns: "planned",
-          },
-          verification: {
-            repository: "verified",
-            deployment: "verified",
-            database: "verified",
-            commerce: "waiting",
-            primaryJourney: "verified",
-            accessibility: "verified",
-            rawHtml: "verified",
-            providerReadBack: providers.map((provider) => ({
-              provider: provider.provider,
-              capability: provider.capability,
-              state: "verified",
-              evidenceRef: provider.evidenceRef,
-            })),
-          },
-          manualActions: [],
-          limitations: ["Stripe remains externally blocked"],
-        })}\n`,
-      );
+          evidenceArtifact: "reports/dogfood/launch-receipt/production-verification.json",
+          accessibility: "verified",
+          rawHtml: "verified",
+          providerReadBack: providers.map((provider) => ({
+            provider: provider.provider,
+            capability: provider.capability,
+            state: "verified",
+            evidenceRef: provider.evidenceRef,
+          })),
+        },
+        manualActions: [],
+        limitations: ["Stripe remains externally blocked"],
+      });
+      writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`);
 
       expect(
         evaluateProviderReadbackEvidence("live_stack_readback", definition, {
@@ -489,9 +500,9 @@ describe("capability-aware quality profiles", () => {
     const workflowDirectory = ".github/workflows";
     const childWorkflow = "venture-verify.yml";
     const childWorkflowSource = readFileSync(`${workflowDirectory}/${childWorkflow}`, "utf8");
-    expect(childWorkflowSource).toContain(
-      "pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false",
-    );
+    expect(childWorkflowSource).toContain("pnpm install --frozen-lockfile --ignore-workspace");
+    expect(childWorkflowSource).not.toContain("--ignore-scripts");
+    expect(childWorkflowSource).not.toContain("--prod=false");
     expect(childWorkflowSource).not.toContain("pnpm workspace:prepare");
 
     const rootInstall = "pnpm install --frozen-lockfile";

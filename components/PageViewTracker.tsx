@@ -9,14 +9,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { track } from "@/lib/analytics/track";
-
-function referrerDomain(): string {
-  try {
-    return document.referrer ? new URL(document.referrer).hostname : "";
-  } catch {
-    return "";
-  }
-}
+import { safeLandingAttribution } from "@/lib/analytics/attribution";
 
 export function PageViewTracker() {
   const pathname = usePathname();
@@ -24,20 +17,14 @@ export function PageViewTracker() {
 
   useEffect(() => {
     if (previous.current === null) {
-      const params = new URLSearchParams(window.location.search);
+      const attribution = safeLandingAttribution(window.location.search, document.referrer);
       track("site_visit", {
         landing_route: pathname,
-        referrer_domain: referrerDomain(),
-        utm_source: params.get("utm_source") ?? "",
-        utm_medium: params.get("utm_medium") ?? "",
-        utm_campaign: params.get("utm_campaign") ?? "",
+        ...attribution,
       });
       track("landing_page_view", {
         route: pathname,
-        referrer_domain: referrerDomain(),
-        utm_source: params.get("utm_source") ?? "",
-        utm_medium: params.get("utm_medium") ?? "",
-        utm_campaign: params.get("utm_campaign") ?? "",
+        ...attribution,
       });
     } else if (previous.current !== pathname) {
       track("route_change", { from_route: previous.current, to_route: pathname });

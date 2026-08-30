@@ -1,6 +1,7 @@
 import {
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,7 +14,10 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 import { Redactor, type CommandInvocation, type CommandRunner } from "@/lib/credentials";
-import { createDefaultCliServices } from "@/lib/cli/default-services";
+import {
+  createDefaultCliServices,
+  type DefaultCliServicesOptions,
+} from "@/lib/cli/default-services";
 import { compileLaunchGraph, founderBriefSchema } from "@/lib/launch";
 import {
   assertBuildAgentHostAvailable,
@@ -74,6 +78,9 @@ class FakeBuildAgentHost implements BuildAgentHost {
     return {
       host: this.id,
       status: this.available ? ("available" as const) : ("missing" as const),
+      readIsolation: this.available
+        ? ("fixture_no_model_execution" as const)
+        : ("unavailable" as const),
       version: this.available ? "fake 1.0" : null,
       billingMode: this.available ? ("fixture_no_model_execution" as const) : ("unknown" as const),
       billingEvidence: this.available ? ("fixture_attestation" as const) : null,
@@ -162,199 +169,25 @@ afterEach(() => {
 });
 
 describe("Codex CLI build-agent host", () => {
-  it("uses the official shell-free exec argv and sends the brief only through stdin", async () => {
+  it("fails closed before CLI inspection and cannot accept a caller-supplied executor", async () => {
     const root = temporaryRoot();
-    mkdirSync(join(root, "app"));
-    writeFileSync(join(root, "app/page.tsx"), "export default function Page() {}\n");
-    const finalResult = {
-      status: "completed",
-      summary: "Built the bounded journey.",
-      changed_files: ["app/page.tsx"],
-      checks: [{ command: "pnpm test", status: "passed", evidence: "1 test passed" }],
-      limitations: [],
-      completion: {
-        outcome: "changed",
-        artifacts: [{ path: "app/page.tsx", role: "core_journey" }],
-        validator: { check_command: "pnpm test" },
-      },
-    };
-    const runner = new FakeRunner([
-      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
-      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
-      {
-        exitCode: 0,
-        stdout: [
-          JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
-          JSON.stringify({
-            type: "item.completed",
-            item: { type: "command_execution", command: "pnpm test", exit_code: 0 },
-          }),
-          JSON.stringify({
-            type: "item.completed",
-            item: { type: "agent_message", text: JSON.stringify(finalResult) },
-          }),
-          JSON.stringify({
-            type: "turn.completed",
-            usage: { input_tokens: 12, cached_input_tokens: 3, output_tokens: 7 },
-          }),
-        ].join("\n"),
-        stderr: "",
-      },
-    ]);
-    const host = new CodexCliBuildAgentHost({
-      rootDir: root,
-      runner,
-      model: "gpt-test-fixed",
-    });
+    const host = new CodexCliBuildAgentHost({ rootDir: root });
 
-    const result = await host.run({
-      runId: "launch-one",
-      nodeId: "build-core-journey",
-      purpose: "Build a private founder concept",
-      instructions: "Change the smallest useful journey.",
-      context: { brief: "private founder concept appears only on stdin" },
+    await expect(host.inspect()).resolves.toMatchObject({
+      status: "unavailable",
+      readIsolation: "unavailable",
+      billingMode: "unknown",
+      nextAction: expect.stringMatching(/outer read-isolation/iu),
     });
-
-    expect(result).toMatchObject({
-      status: "completed",
-      changedFiles: ["app/page.tsx"],
-      completion: { outcome: "changed" },
-      eventTypes: ["item.completed", "thread.started", "turn.completed"],
-      usage: {
-        inputTokens: 12,
-        cachedInputTokens: 3,
-        outputTokens: 7,
-        toolCalls: 1,
-        failedCommands: 0,
-      },
-    });
-    expect(runner.calls[0]).toMatchObject({ command: "codex", args: ["--version"], cwd: root });
-    expect(runner.calls[1]).toMatchObject({
-      command: "codex",
-      args: ["login", "status"],
-      cwd: root,
-    });
-    expect(runner.calls[2]).toMatchObject({
-      command: "codex",
-      args: [
-        "exec",
-        "--sandbox",
-        "workspace-write",
-        "--ephemeral",
-        "--ignore-user-config",
-        "--json",
-        "--model",
-        "gpt-test-fixed",
-        "-C",
-        root,
-        "-",
-      ],
-      cwd: root,
-      sensitiveStdin: true,
-    });
-    expect(runner.calls[2].args.join(" ")).not.toContain("private founder concept");
-    expect(runner.calls[2].stdin).toContain("private founder concept appears only on stdin");
-  });
-
-  it("rejects credential material before starting Codex and rejects malformed final output", async () => {
-    const root = temporaryRoot();
-    const credentialRunner = new FakeRunner([
-      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
-      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
-    ]);
-    const credentialHost = new CodexCliBuildAgentHost({ rootDir: root, runner: credentialRunner });
     await expect(
-      credentialHost.run({
-        runId: "launch-secret",
+      host.run({
+        runId: "blocked-isolation",
         nodeId: "build-core-journey",
-        purpose: "Build",
-        instructions: "Build",
-        context: { value: "sk_live_SYNTHETICNOTAREALa" },
-      }),
-    ).rejects.toMatchObject({ code: "credential_material" });
-    expect(credentialRunner.calls).toHaveLength(2);
-
-    const malformedRunner = new FakeRunner([
-      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
-      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
-      { exitCode: 0, stdout: "not-jsonl\n", stderr: "" },
-    ]);
-    const malformedHost = new CodexCliBuildAgentHost({ rootDir: root, runner: malformedRunner });
-    await expect(
-      malformedHost.run({
-        runId: "launch-invalid",
-        nodeId: "build-core-journey",
-        purpose: "Build",
-        instructions: "Build",
+        purpose: "must not run",
+        instructions: "must not run",
         context: {},
       }),
-    ).rejects.toMatchObject({ code: "invalid_jsonl" });
-
-    const noCompletionRunner = new FakeRunner([
-      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
-      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
-      {
-        exitCode: 0,
-        stdout: JSON.stringify({
-          type: "item.completed",
-          item: {
-            type: "agent_message",
-            text: JSON.stringify({
-              status: "completed",
-              summary: "Claimed completion without proof.",
-              changed_files: [],
-              checks: [],
-              limitations: [],
-              completion: null,
-            }),
-          },
-        }),
-        stderr: "",
-      },
-    ]);
-    const noCompletionHost = new CodexCliBuildAgentHost({
-      rootDir: root,
-      runner: noCompletionRunner,
-    });
-    await expect(
-      noCompletionHost.run({
-        runId: "launch-no-completion",
-        nodeId: "build-core-journey",
-        purpose: "Build",
-        instructions: "Build",
-        context: {},
-      }),
-    ).rejects.toMatchObject({ code: "invalid_final_result" });
-  });
-
-  it("attests ChatGPT subscription login and fails closed for API-key billing", async () => {
-    const root = temporaryRoot();
-    const subscription = new CodexCliBuildAgentHost({
-      rootDir: root,
-      runner: new FakeRunner([
-        { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
-        { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
-      ]),
-    });
-    await expect(subscription.inspect()).resolves.toMatchObject({
-      status: "available",
-      billingMode: "chatgpt_subscription",
-      billingEvidence: "codex_login_status",
-      nextAction: null,
-    });
-
-    const apiKey = new CodexCliBuildAgentHost({
-      rootDir: root,
-      runner: new FakeRunner([
-        { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
-        { exitCode: 0, stdout: "Logged in using an API key\n", stderr: "" },
-      ]),
-    });
-    await expect(apiKey.inspect()).resolves.toMatchObject({
-      status: "available",
-      billingMode: "api_key_metered",
-      nextAction: expect.stringMatching(/ChatGPT subscription/i),
-    });
+    ).rejects.toMatchObject({ code: "host_unavailable" });
   });
 
   it("passes only a credential-free environment allowlist to the default host runner", () => {
@@ -399,6 +232,33 @@ describe("Codex CLI build-agent host", () => {
       npm_config_userconfig: "/venture/.venture/product-command-home/.npmrc",
       NPM_CONFIG_USERCONFIG: "/venture/.venture/product-command-home/.npmrc",
     });
+  });
+
+  it("refuses generated-child quality commands without the Core package policy", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "venture.manifest.json"), "{}\n");
+    const runner = new FakeRunner([]);
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "blocked",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+    });
+
+    await expect(
+      bindings.handlers!["launch.verifyLocal"](
+        handlerContext("launch-package-policy", "verify-local", "launch.verifyLocal", "none"),
+      ),
+    ).rejects.toMatchObject({ code: "PACKAGE_EXECUTION_POLICY_INVALID" });
+    expect(runner.calls).toEqual([]);
   });
 });
 
@@ -709,7 +569,7 @@ describe("default launch product bindings", () => {
       command: ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
       frozenLockfile: true,
       parentWorkspaceIgnored: true,
-      lifecycleScriptsDisabled: true,
+      lifecycleScriptsDisabled: false,
       installedModulesReadBack: true,
       installedLockfileReadBack: true,
       requiredToolingReadBack: true,
@@ -1186,7 +1046,11 @@ describe("default launch product bindings", () => {
           "utf8",
         ),
       ),
-    ).toMatchObject({ status: "invalid_evidence", repositoryChanges: [] });
+    ).toMatchObject({
+      status: "rolled_back_after_failure",
+      rollbackRestored: true,
+      originalErrorCode: "BUILD_AGENT_EVIDENCE_INVALID",
+    });
   });
 
   it("rejects a pre-existing unchanged file reported as a completed core-journey change", async () => {
@@ -1323,11 +1187,17 @@ describe("default launch product bindings", () => {
       ),
     ).rejects.toMatchObject({ code: "BUILD_AGENT_EVIDENCE_INVALID" });
     expect(
-      readFileSync(
-        join(root, "reports/launch/launch-missing-role/product/build-core-journey.json"),
-        "utf8",
+      JSON.parse(
+        readFileSync(
+          join(root, "reports/launch/launch-missing-role/product/build-core-journey.json"),
+          "utf8",
+        ),
       ),
-    ).toContain("missing required artifact role affected_test");
+    ).toMatchObject({
+      status: "rolled_back_after_failure",
+      rollbackRestored: true,
+      originalErrorCode: "BUILD_AGENT_EVIDENCE_INVALID",
+    });
   });
 
   it("rejects already_compliant when its passed command is not relevant to the node", async () => {
@@ -1365,12 +1235,59 @@ describe("default launch product bindings", () => {
       ),
     ).rejects.toMatchObject({ code: "BUILD_AGENT_EVIDENCE_INVALID" });
     expect(
-      readFileSync(
-        join(root, "reports/launch/launch-irrelevant-check/product/build-core-journey.json"),
-        "utf8",
+      JSON.parse(
+        readFileSync(
+          join(root, "reports/launch/launch-irrelevant-check/product/build-core-journey.json"),
+          "utf8",
+        ),
       ),
-    ).toContain("relevant direct passed check");
+    ).toMatchObject({
+      status: "rolled_back_after_failure",
+      rollbackRestored: true,
+      originalErrorCode: "BUILD_AGENT_EVIDENCE_INVALID",
+    });
   });
+
+  it.each(["symbolic link", "hard link"] as const)(
+    "rejects an untrusted %s before accepting model-authored source",
+    async (entryKind) => {
+      const root = temporaryRoot();
+      const outside = temporaryRoot();
+      mkdirSync(join(root, "public"), { recursive: true });
+      const canary = join(outside, "private-canary.txt");
+      writeFileSync(canary, "outside-private-canary\n");
+      const host = new FakeBuildAgentHost(() => {
+        const target = join(root, "public/leak.txt");
+        if (entryKind === "symbolic link") symlinkSync(canary, target);
+        else linkSync(canary, target);
+        return {
+          status: "blocked",
+          summary: "Unsafe fixture entry created.",
+          changedFiles: [],
+          checks: [],
+          limitations: ["fixture"],
+          eventTypes: [],
+          completion: null,
+        };
+      });
+      const bindings = createLaunchProductBindings({
+        rootDir: root,
+        brief: webBrief,
+        agentHost: host,
+        commandRunner: new FakeRunner([]),
+      });
+
+      await expect(
+        bindings.handlers!["launch.buildCoreJourney"](
+          handlerContext(
+            `launch-${entryKind.replace(" ", "-")}`,
+            "build-core-journey",
+            "launch.buildCoreJourney",
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "BUILD_AGENT_UNSAFE_FILE_ENTRY" });
+    },
+  );
 
   it("fails closed when the configured build host is missing", async () => {
     const host = new FakeBuildAgentHost(
@@ -1390,33 +1307,36 @@ describe("default launch product bindings", () => {
     });
   });
 
+  it.each(["buildAgentHost", "ideaSharpenerHost"] as const)(
+    "refuses a caller-injected %s on the production services factory",
+    (field) => {
+      const run = vi.fn();
+      const options = {
+        rootDir: temporaryRoot(),
+        [field]: { id: "caller-controlled-host", run },
+      } as unknown as DefaultCliServicesOptions;
+
+      expect(() => createDefaultCliServices(options)).toThrow(
+        /do not accept caller-injected model hosts/i,
+      );
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
   it("uses the default host branch before creating a CLI launch run", async () => {
     const root = temporaryRoot();
     mkdirSync(join(root, "config"));
     copyFileSync("config/policies.yaml", join(root, "config/policies.yaml"));
     copyFileSync("config/providers.yaml", join(root, "config/providers.yaml"));
     const store = new FileWorkflowStore({ rootDir: join(root, ".venture/runs") });
-    const unavailableHost = new FakeBuildAgentHost(
-      {
-        status: "blocked",
-        summary: "Unavailable",
-        changedFiles: [],
-        checks: [],
-        limitations: [],
-        eventTypes: [],
-        completion: null,
-      },
-      false,
-    );
     const services = createDefaultCliServices({
       rootDir: root,
       store,
-      buildAgentHost: unavailableHost,
       productCommandRunner: new FakeRunner([]),
       now: () => new Date("2026-08-04T12:00:00.000Z"),
     });
     await services.create!({
-      brief: resolve("fixtures/web-saas/brief.yaml"),
+      brief: resolve("fixtures/ideas/synthetic-founder-web.md"),
       json: true,
     });
 
@@ -1427,7 +1347,7 @@ describe("default launch product bindings", () => {
         runId: "launch-no-build-host",
         json: true,
       }),
-    ).rejects.toThrow(/Install the fake host.*No run or external action was created/);
+    ).rejects.toThrow(/no audited outer read-isolation driver.*No run or external action/i);
     expect(store.exists("launch-no-build-host")).toBe(false);
     expect(existsSync(join(root, "reports/launch/launch-no-build-host"))).toBe(false);
   });

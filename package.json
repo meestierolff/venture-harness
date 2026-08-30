@@ -2,8 +2,30 @@
   "name": "venture-harness",
   "version": "0.2.0",
   "private": false,
-  "description": "An open-source founder-alpha CLI for turning one idea into an independent app through a fixture-tested, founder-operated launch workflow.",
+  "description": "Open-source founder-alpha Launch Factory with locally tested Launch Contracts, fixture-tested app seeds and provider plans, bounded launch plans, and conservative Launch Receipts. Production model execution is unavailable.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meestierolff/venture-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/meestierolff/venture-harness/issues"
+  },
+  "homepage": "https://github.com/meestierolff/venture-harness#readme",
+  "keywords": [
+    "ai-agents",
+    "agentic-ai",
+    "app-launcher",
+    "saas-boilerplate",
+    "startup",
+    "nextjs",
+    "vercel",
+    "neon",
+    "stripe",
+    "mcp",
+    "cli",
+    "open-source"
+  ],
   "bin": {
     "vh": "bin/vh.mjs"
   },
@@ -96,6 +118,7 @@
     "seed:ensure": "tsx scripts/seed-ensure.ts",
     "verify:seed-closure": "tsx scripts/verify-seed-closure.ts",
     "evidence:dogfood": "tsx scripts/export-dogfood-evidence.ts",
+    "benchmark:standard-saas": "tsx scripts/run-standard-saas-token-benchmark.ts",
     "prevh": "pnpm workspace:prepare",
     "vh": "tsx scripts/vh.ts",
     "fixture:winner-loop": "tsx scripts/run-winner-loop-fixture.ts",

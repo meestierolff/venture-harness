@@ -3,12 +3,11 @@ name: learning-cadence
 # Disabled cadences emit a neutral skip artifact. Enabled cadences sync direct
 # data first, persist an honest report even when evidence is insufficient, then
 # fail unless the sync and report are complete. No fixture is a live fallback.
+# Deliberately not scheduled. Every cadence reads direct provider data and fails
+# rather than substituting a fixture, so on a checkout without configured
+# connectors — which is every fork on day one — a schedule would fail daily and
+# forever. Run it on demand once real connectors exist, matching weekly-analysis.
 on:
-  schedule:
-    - cron: "15 5 * * *"
-    - cron: "25 5 * * 1"
-    - cron: "0 7 1,15 * *"
-    - cron: "35 5 1 * *"
   workflow_dispatch:
     inputs:
       cadence:

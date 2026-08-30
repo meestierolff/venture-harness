@@ -16,19 +16,25 @@ The primary v0.2 product is one founder-operated web-app launch rail:
 
 ```text
 one-time founder-default connection
-  -> idea.md
+  -> reviewed Launch Contract -> idea.md (zero model calls)
   -> complete production dry run
   -> immutable Launch Grant
   -> independent ordinary Next.js child
+  -> BLOCKED before product model work until an audited driver is installed
   -> provider graph, source push, production deployment and primary journey
   -> sanitized report, exact waiting action, and later Core upgrade
 ```
 
-The exact apply command is:
+The exact apply command is shown by the dry run:
 
 ```bash
 vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
 ```
+
+Founder alpha does not ship an audited outer read-isolation driver, so this
+command cannot currently pass the product-build model nodes. Valid Launch
+Contracts still use the locally tested zero-model parsing path; rough prose and
+real product-build model execution stop before invocation.
 
 One isolated current-tree run of the complete Exception Desk root-CLI Golden
 Path passed on 2026-08-12 outside the loopback-restricted sandbox: idea
@@ -52,8 +58,9 @@ Use the [Founder quickstart](docs/public/FOUNDER_QUICKSTART.md). In outline:
    [founder-default example](docs/public/founder-default.example.json).
 3. Run `vh stack create founder-default --file <connection.json>` and the
    read-only `vh stack doctor founder-default`.
-4. Write `idea.md` with the initial user, outcome, journey, success signal,
-   rail, capabilities, domain and one exact price when using Stripe.
+4. Write and review a complete Launch Contract with the initial user, outcome,
+   journey, success signal, rail, capabilities, domain and one exact price when
+   using Stripe, then validate it into `idea.md` on the zero-model path.
 5. Run:
 
    ```bash

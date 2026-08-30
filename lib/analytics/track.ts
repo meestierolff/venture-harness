@@ -11,6 +11,7 @@
 import { EVENTS, type EventName, type EventProps, type EventSpec } from "./taxonomy";
 import { hasAnalyticsConsent } from "../consent";
 import { getVisitorId } from "../visitor";
+import { isSafeAnalyticsProperty } from "./safe-value";
 
 interface TrackOptions {
   /** Set false when the server already persisted the neon leg. */
@@ -24,11 +25,13 @@ declare global {
   }
 }
 
-function filterProps(name: EventName, props: EventProps): EventProps {
+export function filterAnalyticsProps(name: EventName, props: EventProps): EventProps {
   const allowed = new Set<string>(EVENTS[name].props);
   const clean: EventProps = {};
   for (const [key, value] of Object.entries(props)) {
-    if (allowed.has(key)) clean[key] = value;
+    if (allowed.has(key) && isSafeAnalyticsProperty(key, value)) {
+      clean[key] = value;
+    }
   }
   return clean;
 }
@@ -39,7 +42,7 @@ export function track(name: EventName, props: EventProps = {}, options: TrackOpt
     // Array.includes' parameter to never across the union.
     const spec: EventSpec = EVENTS[name];
     if (!spec) return;
-    const clean = filterProps(name, props);
+    const clean = filterAnalyticsProps(name, props);
     const consented = hasAnalyticsConsent();
 
     // Consent requirement for recording the event at all.

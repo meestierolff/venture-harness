@@ -22,18 +22,19 @@ class FixtureProbeRunner implements ReadOnlyCliProbeRunner {
 }
 
 describe("Founder Stack official CLI detection", () => {
-  it("performs only bounded read checks and retains safe Stripe test-mode metadata", () => {
+  it("uses current default-JSON Stripe GETs and retains only safe test-mode metadata", () => {
     const runner = new FixtureProbeRunner({
       "gh --version": "gh version fixture",
       "gh api user --jq .login": "fixture-founder",
       "vercel --version": "vercel fixture",
       "vercel whoami": "fixture-team",
       "stripe --version": "stripe fixture",
-      "stripe get /v1/account --format json": JSON.stringify({
+      "stripe get /v1/account": JSON.stringify({
         id: "acct_fixture_test",
         business_profile: { name: "must-not-be-retained" },
+        private_settings: { dashboard: "must-not-be-retained" },
       }),
-      "stripe get /v1/balance --format json": JSON.stringify({
+      "stripe get /v1/balance": JSON.stringify({
         livemode: false,
         available: [{ currency: "eur", amount: 0 }],
       }),
@@ -56,15 +57,17 @@ describe("Founder Stack official CLI detection", () => {
       },
     ]);
     expect(JSON.stringify(sessions)).not.toContain("business_profile");
+    expect(JSON.stringify(sessions)).not.toContain("private_settings");
     expect(JSON.stringify(sessions)).not.toContain("available");
+    expect(JSON.stringify(sessions)).not.toContain("must-not-be-retained");
     expect(runner.calls).toEqual([
       { command: "gh", args: ["--version"] },
       { command: "gh", args: ["api", "user", "--jq", ".login"] },
       { command: "vercel", args: ["--version"] },
       { command: "vercel", args: ["whoami"] },
       { command: "stripe", args: ["--version"] },
-      { command: "stripe", args: ["get", "/v1/account", "--format", "json"] },
-      { command: "stripe", args: ["get", "/v1/balance", "--format", "json"] },
+      { command: "stripe", args: ["get", "/v1/account"] },
+      { command: "stripe", args: ["get", "/v1/balance"] },
     ]);
 
     const metadata = safeCliSessionMetadata(sessions, "2026-08-12T10:00:00.000Z");
@@ -101,8 +104,8 @@ describe("Founder Stack official CLI detection", () => {
   it("never accepts live mode, arbitrary account output, or a missing Stripe CLI", () => {
     const live = new FixtureProbeRunner({
       "stripe --version": "stripe fixture",
-      "stripe get /v1/account --format json": JSON.stringify({ id: "acct_fixture_live" }),
-      "stripe get /v1/balance --format json": JSON.stringify({ livemode: true }),
+      "stripe get /v1/account": JSON.stringify({ id: "acct_fixture_live" }),
+      "stripe get /v1/balance": JSON.stringify({ livemode: true }),
     });
     expect(detectStripeSession(live)).toMatchObject({
       provider: "stripe",
@@ -112,14 +115,50 @@ describe("Founder Stack official CLI detection", () => {
 
     const unsafe = new FixtureProbeRunner({
       "stripe --version": "stripe fixture",
-      "stripe get /v1/account --format json": JSON.stringify({ id: "acct fixture with spaces" }),
-      "stripe get /v1/balance --format json": JSON.stringify({ livemode: false }),
+      "stripe get /v1/account": JSON.stringify({ id: "acct fixture with spaces" }),
+      "stripe get /v1/balance": JSON.stringify({ livemode: false }),
     });
     expect(detectStripeSession(unsafe).authenticated).toBe(false);
     expect(detectStripeSession(new FixtureProbeRunner({}))).toMatchObject({
       installed: false,
       authenticated: false,
     });
+  });
+
+  it("fails closed on malformed Stripe JSON and non-boolean test-mode evidence", () => {
+    const cases = [
+      {
+        account: "not-json",
+        balance: JSON.stringify({ livemode: false }),
+      },
+      {
+        account: JSON.stringify([{ id: "acct_fixture_test" }]),
+        balance: JSON.stringify({ livemode: false }),
+      },
+      {
+        account: JSON.stringify({ id: "acct_fixture_test" }),
+        balance: JSON.stringify({ livemode: "false" }),
+      },
+    ];
+
+    for (const fixture of cases) {
+      const runner = new FixtureProbeRunner({
+        "stripe --version": "stripe fixture",
+        "stripe get /v1/account": fixture.account,
+        "stripe get /v1/balance": fixture.balance,
+      });
+
+      expect(detectStripeSession(runner)).toMatchObject({
+        provider: "stripe",
+        installed: true,
+        authenticated: false,
+      });
+      expect(runner.calls).toEqual([
+        { command: "stripe", args: ["--version"] },
+        { command: "stripe", args: ["get", "/v1/account"] },
+        { command: "stripe", args: ["get", "/v1/balance"] },
+      ]);
+    }
   });
 
   it("stores hidden values only in the credential writer and returns reference-only state", async () => {

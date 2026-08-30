@@ -46,12 +46,15 @@ import {
   MacOSKeychainCredentialBackend,
   NodeCommandRunner,
   OnePasswordCredentialBackend,
+  PROVIDER_COMMAND_INVOCATION_ENVIRONMENT_NAMES,
   credentialKinds,
   defaultCredentialCatalogPath,
   loadCredentialCatalog,
   removeCredentialReferences,
   runInteractiveCliLogin,
   saveCredentialCatalog,
+  onePasswordCommandEnvironment,
+  providerCommandEnvironment,
   supportsInteractiveCliAuth,
   upsertCredentialReference,
   type CommandRunner,
@@ -89,15 +92,14 @@ import {
   launchContractDigest,
   launchDecisionFromContract,
   resolveFounderWorkflowRefSha,
+  resolveFounderWorkflowRepository,
   sharpenIdea,
   founderStackCliSessionCredentialRegistrations,
   parseFounderStackConnection,
-  ideaSharpenerEnvironment,
   type FounderLaunchPreparation,
   type FounderLaunchGap,
   type FounderStackConnection,
   type FounderStackRole,
-  type IdeaSharpenerHost,
   type LaunchContract,
 } from "../founder-launch";
 import {
@@ -145,7 +147,6 @@ import {
 import {
   assertBuildAgentHostAvailable,
   CodexCliBuildAgentHost,
-  codexBuildAgentEnvironment,
   createRepositoryCheckpointEvidenceVerifier,
   createLaunchProductBindings,
   createLaunchReceipt,
@@ -250,15 +251,13 @@ export interface DefaultCliServicesOptions {
   founderOutputRoot?: string;
   /** Immutable workflow revision used by newly materialized child repositories. */
   founderWorkflowRefSha?: string;
+  /** owner/repository of this Core checkout; defaults to its own git origin. */
+  founderWorkflowRepository?: string;
   /** Explicit fixture-only override for the canonical Golden Path. Never enable in production hosts. */
   allowFixtureFounderStack?: boolean;
   store?: WorkflowStore;
   /** Product/local/model handlers only. Provider and launch.report handlers are reserved. */
   launchBindings?: (context: LaunchBindingContext) => Promise<WorkflowBindings> | WorkflowBindings;
-  /** Agent-neutral host used by the default product handlers when launchBindings is not injected. */
-  buildAgentHost?: BuildAgentHost;
-  /** Bounded no-provider host for `vh idea sharpen`; injectable for deterministic tests. */
-  ideaSharpenerHost?: IdeaSharpenerHost;
   /** Direct runner for deterministic launch quality commands; useful for isolated tests. */
   productCommandRunner?: CommandRunner;
   /** Direct runner for provider CLI sessions and doctor checks; useful for isolated tests. */
@@ -509,6 +508,7 @@ function validateFounderLaunchContinuation(input: {
   preparation: FounderLaunchPreparation;
   stackConnectionHash: string;
   workflowRefSha: string;
+  workflowRepository: string;
 }): {
   transaction: FounderLaunchTransaction;
   grant: LaunchGrant;
@@ -584,6 +584,7 @@ function validateFounderLaunchContinuation(input: {
     at: new Date(grant.createdAt),
     coreVersion: "0.2.0",
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: [],
   });
   if (plan.planDigest !== transaction.planDigest) {
@@ -2029,6 +2030,7 @@ async function assertFounderBuildAgentHostPolicy(
   if (!policy) throw new Error("Canonical founder Launch Grant has no model execution policy");
   if (policy.mode === "fixture_no_model_execution") {
     if (
+      inspection.readIsolation !== "fixture_no_model_execution" ||
       inspection.billingMode !== "fixture_no_model_execution" ||
       inspection.billingEvidence !== "fixture_attestation"
     ) {
@@ -2039,11 +2041,12 @@ async function assertFounderBuildAgentHostPolicy(
     return;
   }
   if (
+    inspection.readIsolation !== "verified_outer_read_isolation" ||
     inspection.billingMode !== "chatgpt_subscription" ||
     inspection.billingEvidence !== "codex_login_status"
   ) {
     throw new Error(
-      "Founder production launch requires `codex login status` to attest ChatGPT subscription use; API-key or unknown billing is blocked before child creation and provider transport.",
+      "Founder production launch requires verified outer model read isolation plus `codex login status` attesting ChatGPT subscription use; unavailable isolation, API-key, or unknown billing is blocked before child creation and provider transport.",
     );
   }
 }
@@ -2311,7 +2314,22 @@ function validateFounderStackCredentialWrites(
   }
 }
 
+function assertNoCallerInjectedModelHosts(options: DefaultCliServicesOptions): void {
+  const candidate = options as unknown as Record<string, unknown>;
+  if ("buildAgentHost" in candidate || "ideaSharpenerHost" in candidate) {
+    throw new Error(
+      "Production CLI services do not accept caller-injected model hosts. The shipped founder-alpha model boundary is inert until Core installs an audited outer read-isolation driver.",
+    );
+  }
+}
+
+/** Production construction path used by the shipped CLI. Caller-injected model hosts are refused. */
 export function createDefaultCliServices(options: DefaultCliServicesOptions = {}): CliServices {
+  assertNoCallerInjectedModelHosts(options);
+  return createDefaultCliServicesInternal(options);
+}
+
+function createDefaultCliServicesInternal(options: DefaultCliServicesOptions): CliServices {
   const root = resolve(options.rootDir ?? process.cwd());
   const store = options.store ?? new FileWorkflowStore({ rootDir: inside(root, ".venture/runs") });
   const now = options.now ?? (() => new Date());
@@ -2330,13 +2348,21 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         : defaultCredentialCatalogPath()),
   );
   let credentialCatalog = loadCredentialCatalog(catalogPath);
-  const commandRunner = options.providerCommandRunner ?? new NodeCommandRunner();
+  const commandRunner =
+    options.providerCommandRunner ??
+    new NodeCommandRunner({
+      env: providerCommandEnvironment(process.env),
+      allowedInvocationEnv: PROVIDER_COMMAND_INVOCATION_ENVIRONMENT_NAMES,
+    });
+  const onePasswordCommandRunner =
+    options.providerCommandRunner ??
+    new NodeCommandRunner({ env: onePasswordCommandEnvironment(process.env) });
   const supportedBackends = new Set(["environment", "ci", "cli_session", "onepassword"]);
   const defaultBroker = new CredentialBroker([
     new EnvironmentCredentialBackend(),
     new EnvironmentCredentialBackend({ id: "ci" }),
     new CliSessionCredentialBackend(commandRunner),
-    new OnePasswordCredentialBackend({ runner: commandRunner }),
+    new OnePasswordCredentialBackend({ runner: onePasswordCommandRunner }),
     ...(process.platform === "darwin"
       ? [new MacOSKeychainCredentialBackend({ runner: commandRunner })]
       : []),
@@ -2431,19 +2457,13 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
   const productCommandRunner =
     options.productCommandRunner ??
     new NodeCommandRunner({ env: productCommandEnvironment(process.env, productRuntimeHome) });
-  const buildAgentHost =
-    options.buildAgentHost ??
-    new CodexCliBuildAgentHost({
-      rootDir: root,
-      runner: new NodeCommandRunner({ env: codexBuildAgentEnvironment(process.env) }),
-      redactor: credentialBroker.redactor,
-    });
-  const ideaSharpenerHost =
-    options.ideaSharpenerHost ??
-    new CodexCliIdeaSharpenerHost({
-      runner: new NodeCommandRunner({ env: ideaSharpenerEnvironment(process.env) }),
-      redactor: credentialBroker.redactor,
-    });
+  const buildAgentHost = new CodexCliBuildAgentHost({
+    rootDir: root,
+    redactor: credentialBroker.redactor,
+  });
+  const ideaSharpenerHost = new CodexCliIdeaSharpenerHost({
+    redactor: credentialBroker.redactor,
+  });
 
   const defaultProviderRuntimeContext = createOfficialProviderContext({
     commandRunner,
@@ -2467,6 +2487,15 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     authorization: launch.authorization,
     ...(launch.launchContract ? { launchContract: launch.launchContract } : {}),
   });
+
+  const receiptLaunchContract = (launch: { launchContract?: LaunchContract }): LaunchContract => {
+    if (!launch.launchContract) {
+      throw new Error(
+        "Launch apply/resume requires a canonical Launch Contract before product or provider execution because every new schemaVersion 2 Launch Receipt records that full contract. Next: run vh idea sharpen, then vh create with the structured idea.md before launching; legacy contract-free runs are not auto-migrated because their missing business decisions cannot be reconstructed safely.",
+      );
+    }
+    return launch.launchContract;
+  };
 
   const reportCredentialReferences = (launch: LaunchState) => {
     const activeProviders = new Set(providerIds(launch.definition));
@@ -2659,6 +2688,13 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       redactor: runtimeContext.redactor,
     });
     const persistedReport = await persistLaunchReport(report, outputDirectory);
+    if (!launch.launchContract) {
+      if (state.status !== "cancelled") receiptLaunchContract(launch);
+      // A pre-v2 contract-free run remains cancellable, but there is no safe
+      // contract to invent for a canonical v2 receipt. Preserve its report and
+      // leave any historical receipt untouched.
+      return { report: persistedReport, receipt: null };
+    }
     const receipt = createLaunchReceipt(
       {
         state,
@@ -2945,6 +2981,10 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
       });
       const ideaSource = loadFounderIdeaFile(request.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
+      const workflowRepository = resolveFounderWorkflowRepository(
+        root,
+        options.founderWorkflowRepository,
+      );
       // A venture is an independent product with its own Git history, so it is
       // never materialized inside the Core checkout by default. An explicit
       // founderOutputRoot (tests and fixtures) wins; otherwise the founder's
@@ -2968,6 +3008,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           baseDir: canonicalVenturesRoot,
           output: request.output,
           workflowRefSha,
+          workflowRepository,
           executionMode: request.mode,
           production: request.production,
           nonInteractive: request.nonInteractive,
@@ -2992,10 +3033,9 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           founderStackRoot: founderStackStore.rootDir,
           founderOutputRoot: options.founderOutputRoot,
           founderWorkflowRefSha: options.founderWorkflowRefSha,
+          founderWorkflowRepository: options.founderWorkflowRepository,
           allowFixtureFounderStack: options.allowFixtureFounderStack,
           launchBindings: options.launchBindings,
-          buildAgentHost: options.buildAgentHost,
-          ideaSharpenerHost: options.ideaSharpenerHost,
           productCommandRunner: options.productCommandRunner,
           providerCommandRunner: options.providerCommandRunner,
           dataCommandRunner: options.dataCommandRunner,
@@ -3047,6 +3087,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
             preparation,
             stackConnectionHash,
             workflowRefSha,
+            workflowRepository,
           });
           founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
           transaction = continuation.transaction;
@@ -3151,7 +3192,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
             updatedAt: now().toISOString(),
           };
           saveFounderLaunchTransaction(stagingRoot, transaction);
-          const stagingServices = createDefaultCliServices(childOptions(stagingRoot));
+          const stagingServices = createDefaultCliServicesInternal(childOptions(stagingRoot));
           if (!stagingServices.create)
             throw new Error("Founder child create service is unavailable");
           await stagingServices.create({ brief: contractArtifact ?? briefArtifact, json: true });
@@ -3212,7 +3253,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         const runId = transaction.runId;
         if (!workflow) {
           founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
-          const childServices = createDefaultCliServices(childOptions(childRoot));
+          const childServices = createDefaultCliServicesInternal(childOptions(childRoot));
           if (!childServices.launch) throw new Error("Founder child launch service is unavailable");
           try {
             workflow = (await childServices.launch({
@@ -3253,7 +3294,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
           }
         } else if (workflow.status === "waiting") {
           founderPathBoundary.assertDirectory(childRoot, childIdentity!, "Founder venture child");
-          const childServices = createDefaultCliServices(childOptions(childRoot));
+          const childServices = createDefaultCliServicesInternal(childOptions(childRoot));
           if (!childServices.resume) throw new Error("Founder child resume service is unavailable");
           try {
             workflow = await childServices.resume({ runId });
@@ -3409,6 +3450,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
         : undefined;
       const dryRun = compileLaunchDryRun(brief, project.decision, compilationOptions);
       if (request.mode === "dry-run") return dryRun as unknown as JsonValue;
+      receiptLaunchContract(project);
       const runId = request.runId ?? generatedRunId(brief, now());
       if (store.exists(runId)) {
         throw new Error(`Run ${runId} already exists. Next: vh resume ${runId}`);
@@ -3533,6 +3575,7 @@ export function createDefaultCliServices(options: DefaultCliServicesOptions = {}
     },
     async resume(request) {
       let launch = loadLaunch(root, request.runId);
+      receiptLaunchContract(launch);
       const persistedState = store.load(request.runId);
       const unfinishedProviderEffects = Object.values(persistedState.nodes).some(
         (record) =>

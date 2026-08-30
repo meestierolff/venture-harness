@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -81,6 +81,119 @@ function runPnpm(
     );
   }
   return output;
+}
+
+function runGit(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+  input?: string,
+): string {
+  const result = spawnSync("git", args, {
+    cwd,
+    env,
+    input,
+    encoding: "utf8",
+    timeout: COMMAND_TIMEOUT_MS,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      [`git ${args.join(" ")} failed`, result.error?.message, output].filter(Boolean).join("\n"),
+    );
+  }
+  return result.stdout.trim();
+}
+
+async function writeFakeGithubCli(
+  path: string,
+  fixture: {
+    repository: string;
+    branch: string;
+    commit: string;
+    tree: string;
+    remote: string;
+    log: string;
+  },
+): Promise<void> {
+  await writeFile(
+    path,
+    String.raw`#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+const args = process.argv.slice(2);
+const fixture = ${JSON.stringify(fixture)};
+const { repository, branch, commit, tree, remote, log } = fixture;
+
+function fail(message) {
+  process.stderr.write("fake gh rejected invocation: " + message + "\n");
+  process.exit(64);
+}
+
+appendFileSync(log, JSON.stringify(args) + "\n", "utf8");
+
+if (args[0] === "api") {
+  if (args.length !== 2) fail("only exact read-only API calls are allowed");
+  const path = args[1];
+  if (path === "repos/" + repository) {
+    process.stdout.write(JSON.stringify({
+      full_name: repository,
+      visibility: "private",
+      archived: false,
+      default_branch: branch,
+    }));
+    process.exit(0);
+  }
+  if (path === "repos/" + repository + "/git/ref/heads/" + encodeURIComponent(branch)) {
+    process.stdout.write(JSON.stringify({ object: { sha: commit } }));
+    process.exit(0);
+  }
+  if (path === "repos/" + repository + "/git/commits/" + commit) {
+    process.stdout.write(JSON.stringify({ sha: commit, tree: { sha: tree } }));
+    process.exit(0);
+  }
+  fail("unexpected API path " + path);
+}
+
+if (
+  args.length === 9 &&
+  args[0] === "repo" &&
+  args[1] === "clone" &&
+  args[2] === repository &&
+  args[3] &&
+  args[4] === "--" &&
+  args[5] === "--no-checkout" &&
+  args[6] === "--single-branch" &&
+  args[7] === "--branch" &&
+  args[8] === branch
+) {
+  const destination = args[3];
+  const clone = spawnSync(
+    "git",
+    ["clone", "--no-checkout", "--single-branch", "--branch", branch, remote, destination],
+    { encoding: "utf8", shell: false },
+  );
+  if (clone.error || clone.status !== 0) {
+    fail("local metadata clone failed: " + (clone.error?.message || clone.stderr || clone.status));
+  }
+  const origin = spawnSync(
+    "git",
+    ["-C", destination, "remote", "set-url", "origin", "https://github.com/" + repository + ".git"],
+    { encoding: "utf8", shell: false },
+  );
+  if (origin.error || origin.status !== 0) {
+    fail("GitHub-shaped origin setup failed: " + (origin.error?.message || origin.stderr || origin.status));
+  }
+  process.exit(0);
+}
+
+fail("only exact API reads and the bounded metadata clone are allowed");
+`,
+    "utf8",
+  );
+  await chmod(path, 0o700);
 }
 
 function sha256(path: string): string {
@@ -173,6 +286,200 @@ async function waitForResponse(url: string, serverOutput: () => string): Promise
 }
 
 describe("materialized standalone web venture", () => {
+  it("executes the generated publisher and installs an exact clean local Git handoff", async () => {
+    const fixtureRoot = mkdtempSync(resolve(tmpdir(), "venture-harness-child-git-"));
+    const childRoot = resolve(fixtureRoot, "child");
+    const sourceGit = resolve(fixtureRoot, "source.git");
+    const remoteGit = resolve(fixtureRoot, "remote.git");
+    const fakeBin = resolve(fixtureRoot, "fake-bin");
+    const fakeGh = resolve(fakeBin, "gh");
+    const fakeGhLog = resolve(fixtureRoot, "fake-gh.jsonl");
+    const repository = "founder-company/payout-rank";
+    const branch = "main";
+
+    try {
+      await mkdir(childRoot, { recursive: true });
+      const plan = compileVentureMaterialization({
+        grant: createLaunchGrant(launchGrantInput()),
+        at: NOW,
+        coreVersion: "0.2.0",
+        workflowRefSha: WORKFLOW_SHA,
+        workflowRepository: "venture-harness/venture-harness",
+      });
+      const materialized = await materializeVenture(
+        plan,
+        new NodeMaterializationFileSystem(childRoot),
+        NOW,
+      );
+      expect(materialized.status).toBe("materialized");
+
+      await mkdir(resolve(childRoot, "reports/launch"), { recursive: true });
+      await writeFile(
+        resolve(childRoot, "reports/launch/private.json"),
+        '{"fixture":"PRIVATE RUNTIME EVIDENCE"}\n',
+        "utf8",
+      );
+      expect(existsSync(resolve(childRoot, ".venture/launch-grant.receipt.json"))).toBe(true);
+
+      const childEnv = {
+        ...process.env,
+        CI: "1",
+        NEXT_TELEMETRY_DISABLED: "1",
+        NEXT_PUBLIC_INDEXING_ENABLED: "false",
+      };
+      runPnpm(
+        [
+          "install",
+          "--frozen-lockfile",
+          "--ignore-workspace",
+          "--offline",
+          "--store-dir",
+          installedRootStore(),
+        ],
+        childRoot,
+        childEnv,
+      );
+
+      runGit(["init", "--bare", "--object-format=sha1", sourceGit], fixtureRoot);
+      const snapshotEnv = {
+        ...childEnv,
+        GIT_DIR: sourceGit,
+        GIT_WORK_TREE: childRoot,
+        GIT_AUTHOR_NAME: "Venture Harness Fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+        GIT_AUTHOR_DATE: "2026-08-09T12:00:00Z",
+        GIT_COMMITTER_NAME: "Venture Harness Fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+        GIT_COMMITTER_DATE: "2026-08-09T12:00:00Z",
+      };
+      runGit(["add", "-A", "--", "."], childRoot, snapshotEnv);
+      const tree = runGit(["write-tree"], childRoot, snapshotEnv);
+      const commit = runGit(
+        ["commit-tree", tree, "-m", "fixture: exact published child source"],
+        childRoot,
+        snapshotEnv,
+      );
+      runGit(["update-ref", `refs/heads/${branch}`, commit], childRoot, snapshotEnv);
+      runGit(["init", "--bare", "--object-format=sha1", remoteGit], fixtureRoot);
+      runGit(
+        ["--git-dir", sourceGit, "push", remoteGit, `refs/heads/${branch}:refs/heads/${branch}`],
+        fixtureRoot,
+      );
+      runGit(["--git-dir", remoteGit, "symbolic-ref", "HEAD", `refs/heads/${branch}`], fixtureRoot);
+
+      await mkdir(fakeBin, { recursive: true });
+      await writeFakeGithubCli(fakeGh, {
+        repository,
+        branch,
+        commit,
+        tree,
+        remote: remoteGit,
+        log: fakeGhLog,
+      });
+      const publisher = spawnSync(
+        "node",
+        [
+          "--import",
+          "tsx",
+          "scripts/github-publish-source.ts",
+          "verify",
+          "--repository",
+          repository,
+          "--visibility",
+          "private",
+          "--branch",
+          branch,
+          "--commit",
+          commit,
+          "--tree",
+          tree,
+        ],
+        {
+          cwd: childRoot,
+          env: {
+            ...childEnv,
+            PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
+          },
+          encoding: "utf8",
+          timeout: COMMAND_TIMEOUT_MS,
+          maxBuffer: 10 * 1024 * 1024,
+        },
+      );
+      const publisherOutput = [publisher.stdout, publisher.stderr].filter(Boolean).join("\n");
+      expect(publisher.error, publisherOutput).toBeUndefined();
+      expect(publisher.status, publisherOutput).toBe(0);
+      expect(publisher.stderr).toBe("");
+      expect(JSON.parse(publisher.stdout)).toMatchObject({
+        repository,
+        visibility: "private",
+        branch,
+        commitOid: commit,
+        treeOid: tree,
+        verified: true,
+        workingRepository: {
+          originUrl: `https://github.com/${repository}.git`,
+          branch,
+          head: commit,
+          clean: true,
+        },
+      });
+
+      expect(lstatSync(resolve(childRoot, ".git")).isDirectory()).toBe(true);
+      expect(runGit(["remote", "get-url", "origin"], childRoot)).toBe(
+        `https://github.com/${repository}.git`,
+      );
+      expect(runGit(["symbolic-ref", "--short", "HEAD"], childRoot)).toBe(branch);
+      expect(runGit(["rev-parse", "HEAD"], childRoot)).toBe(commit);
+      expect(runGit(["rev-parse", `refs/remotes/origin/${branch}`], childRoot)).toBe(commit);
+      expect(
+        runGit(["--git-dir", remoteGit, "rev-parse", `refs/heads/${branch}`], fixtureRoot),
+      ).toBe(commit);
+      expect(runGit(["status", "--porcelain=v1", "--untracked-files=all"], childRoot)).toBe("");
+      expect(runGit(["ls-files", "--", ".venture", "reports"], childRoot)).toBe("");
+      expect(
+        runGit(
+          [
+            "check-ignore",
+            "--",
+            ".venture/launch-grant.receipt.json",
+            "reports/launch/private.json",
+          ],
+          childRoot,
+        ).split("\n"),
+      ).toEqual([".venture/launch-grant.receipt.json", "reports/launch/private.json"]);
+
+      const canonicalChildRoot = realpathSync(childRoot);
+      const lockPath = join(
+        dirname(canonicalChildRoot),
+        `.git-install-${createHash("sha256").update(canonicalChildRoot).digest("hex").slice(0, 16)}.lock`,
+      );
+      expect(existsSync(lockPath)).toBe(false);
+      const fakeGhCalls = readFileSync(fakeGhLog, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as string[]);
+      expect(fakeGhCalls.slice(0, 3)).toEqual([
+        ["api", `repos/${repository}`],
+        ["api", `repos/${repository}/git/ref/heads/${branch}`],
+        ["api", `repos/${repository}/git/commits/${commit}`],
+      ]);
+      expect(fakeGhCalls[3]).toEqual([
+        "repo",
+        "clone",
+        repository,
+        expect.stringMatching(/\/clone$/u),
+        "--",
+        "--no-checkout",
+        "--single-branch",
+        "--branch",
+        branch,
+      ]);
+      expect(fakeGhCalls).toHaveLength(4);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it("installs and builds offline, serves launch surfaces, and preserves venture-owned design on upgrade", async () => {
     const childRoot = mkdtempSync(resolve(tmpdir(), "venture-harness-web-build-"));
     let productionServer: ReturnType<typeof spawn> | null = null;
@@ -184,6 +491,7 @@ describe("materialized standalone web venture", () => {
         at: NOW,
         coreVersion: "0.2.0",
         workflowRefSha: WORKFLOW_SHA,
+        workflowRepository: "venture-harness/venture-harness",
       });
       const materialized = await materializeVenture(
         plan,
@@ -235,7 +543,6 @@ describe("materialized standalone web venture", () => {
           "install",
           "--frozen-lockfile",
           "--ignore-workspace",
-          "--ignore-scripts",
           "--offline",
           "--store-dir",
           storeDirectory,
@@ -295,15 +602,17 @@ describe("materialized standalone web venture", () => {
       expect(await primary.text()).toContain("Payout Rank");
       const status = await fetch(`${origin}/status`);
       expect(status.status).toBe(200);
-      expect(await status.text()).toContain("Payout Rank is not launched yet.");
+      const statusHtml = await status.text();
+      expect(statusHtml).toContain("Payout Rank is not launched yet.");
+      expect(statusHtml).toMatch(/name="robots" content="noindex, nofollow"/u);
       const robots = await fetch(`${origin}/robots.txt`);
       expect(robots.status).toBe(200);
       expect(await robots.text()).toContain("Disallow: /");
       const sitemap = await fetch(`${origin}/sitemap.xml`);
       expect(sitemap.status).toBe(200);
       const sitemapText = await sitemap.text();
-      expect(sitemapText).toContain(`<loc>${origin}/</loc>`);
-      expect(sitemapText).toContain(`<loc>${origin}/status</loc>`);
+      expect(sitemapText).not.toContain("<loc>");
+      expect(sitemapText).not.toContain("/status");
 
       productionServer.kill("SIGTERM");
       await once(productionServer, "exit");

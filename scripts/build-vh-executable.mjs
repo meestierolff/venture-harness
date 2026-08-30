@@ -7,26 +7,17 @@ import { build as bundle } from "esbuild";
 
 const IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const CORE_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
 export const VH_BUILD_PROVENANCE_PATH = "bin/vh-build-provenance.json";
 
 const ALLOWED_POST_SOURCE_EXACT_PATHS = new Set([
   VH_BUILD_PROVENANCE_PATH,
   "bin/vh.mjs",
-  "docs/audits/VH_V02_CODEX_VERIFICATION.md",
-  "docs/plans/active/VH_V02_CODEX_COMPLETION_MATRIX.md",
-  "docs/plans/active/VH_V02_WINNER_LOOP_COMPLETION_MATRIX.md",
   "harness.lock",
-  "reports/audit/commands-run.json",
-  "reports/audit/founder-alpha-evidence.json",
-  "reports/audit/github-readback.json",
-  "reports/audit/quality-live.json",
-  "reports/audit/quality-release.json",
   "reports/audit/seed-closure.json",
-  "reports/audit/vh-v0.2-codex-requirement-matrix.json",
   "reports/audit/winner-loop-creative-trace.json",
 ]);
-const SOURCE_SCOPED_AUDIT_LOG = /^[a-z0-9][a-z0-9._-]*\.attempt-[1-9][0-9]*\.log$/u;
 const LOCAL_CODEX_AGENT_CONFIG = /^\.codex\/agents\/[a-z0-9][a-z0-9_-]*\.toml$/u;
 
 function commandOutput(root, args) {
@@ -66,13 +57,9 @@ function nulSeparatedGitPaths(root, args) {
   return output.split("\0").filter(Boolean);
 }
 
-export function isAllowedPostSourceArtifact(path, sourceCommits = []) {
+export function isAllowedPostSourceArtifact(path) {
   if (ALLOWED_POST_SOURCE_EXACT_PATHS.has(path)) return true;
-  if (/^(?:apps|packages)\/[^/]+\/dist\//u.test(path)) return true;
-  return sourceCommits.some((commit) => {
-    const prefix = `reports/audit/command-logs/${commit}/`;
-    return path.startsWith(prefix) && SOURCE_SCOPED_AUDIT_LOG.test(path.slice(prefix.length));
-  });
+  return /^(?:apps|packages)\/[^/]+\/dist\//u.test(path);
 }
 
 /**
@@ -80,21 +67,16 @@ export function isAllowedPostSourceArtifact(path, sourceCommits = []) {
  * A second artifact-only commit may contain the bundle, lock, and sanitized
  * evidence, but source, config, workflows, dependencies, and public docs must
  * already be present in the reviewed source commit.
+ *
+ * The proof is the path diff below, not commit ancestry. Squash-merging replays
+ * the reviewed tree onto the default branch as a new commit that has no link
+ * back to the reviewed commit, so an ancestry assertion fails on main after
+ * every merge while the tree it was protecting is byte-for-byte intact.
  */
 export function assertReviewedCoreSourceState({ rootDirectory, sourceCommit }) {
   const root = resolve(rootDirectory);
   const reviewedCommit = resolveGitCommit(root, sourceCommit);
   const currentCommit = commandOutput(root, ["rev-parse", "--verify", "HEAD^{commit}"]);
-  try {
-    execFileSync("git", ["merge-base", "--is-ancestor", reviewedCommit, currentCommit], {
-      cwd: root,
-      stdio: "ignore",
-    });
-  } catch {
-    throw new Error(
-      `The reviewed Core source commit ${reviewedCommit} is not an ancestor of current commit ${currentCommit}. Rebuild only from the reviewed source commit followed by its artifact-only commit`,
-    );
-  }
   let changedPaths;
   try {
     changedPaths = new Set(
@@ -117,7 +99,7 @@ export function assertReviewedCoreSourceState({ rootDirectory, sourceCommit }) {
     throw new Error(`Cannot inspect reviewed Venture Harness Core source drift: ${detail}`);
   }
   const unexpectedPaths = [...changedPaths]
-    .filter((path) => !isAllowedPostSourceArtifact(path, [reviewedCommit, currentCommit]))
+    .filter((path) => !isAllowedPostSourceArtifact(path))
     .sort();
   if (unexpectedPaths.length > 0) {
     throw new Error(
@@ -141,25 +123,59 @@ export function resolveFounderCoreBuildProvenance(rootDirectory, { sourceCommit 
     throw new Error("venture-harness package.json must declare a version before bundling vh");
   }
   const workflowRefSha = resolveGitCommit(root, sourceCommit);
-  return Object.freeze({ packageVersion, workflowRefSha });
+  return Object.freeze({
+    packageVersion,
+    workflowRefSha,
+    coreRepository: resolveCoreRepository(root),
+  });
+}
+
+/**
+ * Resolve owner/repository for this Core checkout.
+ *
+ * A packed vh runs outside any Core checkout, so the repository whose reusable
+ * workflow generated ventures call has to travel inside the executable. Reading
+ * it from the building checkout keeps a fork's ventures pointing at the fork.
+ */
+export function resolveCoreRepository(rootDirectory) {
+  const origin = commandOutput(resolve(rootDirectory), ["remote", "get-url", "origin"]);
+  const match =
+    /^https?:\/\/[^/]+\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(origin) ??
+    /^(?:ssh:\/\/)?git@[^:/]+[:/](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(origin);
+  const slug = `${match?.groups?.owner ?? ""}/${match?.groups?.repo ?? ""}`;
+  if (!CORE_REPOSITORY.test(slug)) {
+    throw new Error(
+      `Cannot resolve the Core repository from git origin ${origin}; the vh executable must record owner/repository`,
+    );
+  }
+  return slug;
 }
 
 export function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-export function createVhBuildProvenance({ executable, packageVersion, sourceCommit }) {
+export function createVhBuildProvenance({
+  executable,
+  packageVersion,
+  sourceCommit,
+  coreRepository,
+}) {
   if (!IMMUTABLE_GIT_SHA.test(sourceCommit ?? "")) {
     throw new Error("Cannot record vh build provenance without an immutable Core source commit");
   }
   if (typeof packageVersion !== "string" || packageVersion.length === 0) {
     throw new Error("Cannot record vh build provenance without the Core package version");
   }
+  if (!CORE_REPOSITORY.test(coreRepository ?? "")) {
+    throw new Error("Cannot record vh build provenance without the Core owner/repository");
+  }
   return Object.freeze({
     schemaVersion: 1,
     packageName: "venture-harness",
     packageVersion,
     coreSourceCommit: sourceCommit,
+    coreRepository,
     binSha256: sha256File(executable),
   });
 }
@@ -175,9 +191,10 @@ export function parseVhBuildProvenance(input) {
     typeof value.packageVersion !== "string" ||
     value.packageVersion.length === 0 ||
     !IMMUTABLE_GIT_SHA.test(value.coreSourceCommit ?? "") ||
+    !CORE_REPOSITORY.test(value.coreRepository ?? "") ||
     !SHA256.test(value.binSha256 ?? "") ||
     Object.keys(value).sort().join(",") !==
-      "binSha256,coreSourceCommit,packageName,packageVersion,schemaVersion"
+      "binSha256,coreRepository,coreSourceCommit,packageName,packageVersion,schemaVersion"
   ) {
     throw new Error(
       `Invalid ${VH_BUILD_PROVENANCE_PATH}; regenerate it with pnpm workspace:build -- --source-commit <40-character-reviewed-source-commit>`,
@@ -188,6 +205,7 @@ export function parseVhBuildProvenance(input) {
     packageName: value.packageName,
     packageVersion: value.packageVersion,
     coreSourceCommit: value.coreSourceCommit,
+    coreRepository: value.coreRepository,
     binSha256: value.binSha256,
   });
 }
@@ -236,6 +254,7 @@ export async function buildVhExecutable({ rootDirectory, outfile, sourceCommit }
     external: ["yaml"],
     define: {
       __VH_CORE_BUILD_COMMIT__: JSON.stringify(provenance.workflowRefSha),
+      __VH_CORE_WORKFLOW_REPOSITORY__: JSON.stringify(provenance.coreRepository),
       __VH_CORE_PACKAGE_VERSION__: JSON.stringify(provenance.packageVersion),
     },
     legalComments: "none",

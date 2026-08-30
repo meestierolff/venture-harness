@@ -11,8 +11,13 @@ import { renderLaunchReport } from "@/lib/runtime/launch-report";
 import { compileLaunchDryRun } from "@/lib/launch";
 import type { WorkflowRunState } from "@/lib/workflow";
 import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
-import { founderBriefFromLaunchContract, launchDecisionFromContract } from "@/lib/founder-launch";
+import {
+  founderBriefFromLaunchContract,
+  launchDecisionFromContract,
+  parseLaunchContractSource,
+} from "@/lib/founder-launch";
 import type { LaunchContract } from "@/lib/founder-launch";
+import { Redactor } from "@/lib/credentials";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -119,6 +124,19 @@ function firstValidationAction(contract: LaunchContract) {
 }
 
 describe("Launch Receipt", () => {
+  it("keeps the synthetic human-flow fixture on the canonical v2 schema", () => {
+    const fixture = launchReceiptSchema.parse(
+      JSON.parse(readFileSync("examples/idea-to-launch/launch-receipt.fixture.json", "utf8")),
+    );
+    const sourceContract = parseLaunchContractSource(
+      readFileSync("examples/idea-to-launch/launch-contract.yaml", "utf8"),
+    );
+
+    expect(sourceContract).toBeDefined();
+    expect(fixture.launchContract).toEqual(sourceContract);
+    expect(fixture.build).toMatchObject({ taskCount: 0, modelCalls: 0 });
+  });
+
   it("accounts for model work and distinguishes waiting from verified state", () => {
     const contract = launchReceiptContract();
     const decision = launchDecisionFromContract(contract);
@@ -243,6 +261,8 @@ describe("Launch Receipt", () => {
 
     expect(() => launchReceiptSchema.parse(receipt)).not.toThrow();
     expect(receipt).toMatchObject({
+      schemaVersion: 2,
+      launchContract: contract,
       venture: {
         repository: "https://example.test/founder/launch-receipt",
         productionUrl: "https://launch-receipt.vercel.app",
@@ -254,6 +274,7 @@ describe("Launch Receipt", () => {
       build: {
         buildAgent: "codex_cli (gpt-test-fixed)",
         taskCount: 2,
+        modelCalls: 2,
         inputTokens: 100,
         cachedInputTokens: 20,
         outputTokens: 50,
@@ -314,6 +335,7 @@ describe("Launch Receipt", () => {
 
     expect(receipt.build).toMatchObject({
       taskCount: 2,
+      modelCalls: 2,
       inputTokens: null,
       cachedInputTokens: null,
       outputTokens: null,
@@ -334,15 +356,72 @@ describe("Launch Receipt", () => {
   it("persists sanitized local JSON and Markdown without any upload surface", async () => {
     const root = mkdtempSync(join(tmpdir(), "vh-receipt-"));
     roots.push(root);
+    const contract = launchReceiptContract({ synthetic: true });
+    const secret = ["sk", "test", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
+    const redactor = new Redactor();
+    redactor.addSecret(secret);
+    const report = renderLaunchReport({
+      generatedAt: "2026-08-12T12:00:02.000Z",
+      run: { id: "launch-receipt-run", status: "waiting" },
+      brief: { id: "launch-receipt", name: "Launch Receipt", synthetic: true },
+      launch: {
+        mode: "product_first",
+        rail: "web",
+        firstValidationAction: firstValidationAction(contract),
+      },
+      nodes: [],
+      providers: [],
+      manualActions: [],
+      limitations: ["Synthetic fixture: no live state is claimed."],
+      nextCommands: [],
+    }).document;
+    const receipt = createLaunchReceipt(
+      {
+        state: state(),
+        decision: launchDecisionFromContract(contract),
+        launchContract: contract,
+        report: {
+          ...report,
+          limitations: [`Synthetic fixture: no live state is claimed. ${secret}`],
+        },
+      },
+      { redactor },
+    );
+
+    const persisted = await persistLaunchReceipt(receipt, root);
+    const json = readFileSync(persisted.jsonPath, "utf8");
+    const markdown = readFileSync(persisted.markdownPath, "utf8");
+    expect(json).toContain('"schemaVersion": 2');
+    expect(json).toContain('"launchContract"');
+    expect(json).toContain('"modelCalls": 2');
+    expect(json).not.toContain(secret);
+    expect(markdown).not.toContain(secret);
+    expect(markdown).toContain("does not upload it or phone home");
+    expect(markdown).toContain("planned and human-gated");
+    expect(markdown).toContain("## Canonical Launch Contract");
+    expect(markdown).toContain(`proposition: ${contract.venture.proposition}`);
+    expect(markdown).toContain("privacyAndConsent: REQUIRED");
+    expect(markdown).toContain("Model tasks / model calls: 2 / 2");
+  });
+
+  it("counts distinct model tasks separately from retried model calls", () => {
     const contract = launchReceiptContract();
+    const retriedState = state();
+    retriedState.nodes["prepare-repository"]!.attempts = 2;
+    retriedState.costs?.push({
+      ...retriedState.costs[0]!,
+      entryId: "cost-3",
+      attempt: 2,
+      recordedAt: "2026-08-12T12:00:01.750Z",
+    });
     const receipt = createLaunchReceipt({
-      state: state(),
+      state: retriedState,
       decision: launchDecisionFromContract(contract),
       launchContract: contract,
       report: renderLaunchReport({
         generatedAt: "2026-08-12T12:00:02.000Z",
         run: { id: "launch-receipt-run", status: "waiting" },
-        brief: { id: "launch-receipt", name: "Launch Receipt", synthetic: true },
+        brief: { id: "launch-receipt", name: "Launch Receipt", synthetic: false },
         launch: {
           mode: "product_first",
           rail: "web",
@@ -351,17 +430,12 @@ describe("Launch Receipt", () => {
         nodes: [],
         providers: [],
         manualActions: [],
-        limitations: ["Synthetic fixture: no live state is claimed."],
+        limitations: [],
         nextCommands: [],
       }).document,
     });
 
-    const persisted = await persistLaunchReceipt(receipt, root);
-    expect(readFileSync(persisted.jsonPath, "utf8")).toContain('"schemaVersion": 1');
-    expect(readFileSync(persisted.markdownPath, "utf8")).toContain(
-      "does not upload it or phone home",
-    );
-    expect(readFileSync(persisted.markdownPath, "utf8")).toContain("planned and human-gated");
+    expect(receipt.build).toMatchObject({ taskCount: 2, modelCalls: 3, retries: 1 });
   });
 
   it("rejects generic or unlinked journey and validation-action evidence", () => {
@@ -427,16 +501,105 @@ describe("Launch Receipt", () => {
     ).toThrow(/enumerate the reviewed Launch Contract journey/);
   });
 
-  it("rejects credential material from any durable receipt field", () => {
-    const invalid = {
-      schemaVersion: 1,
-      venture: {
-        name: "Unsafe",
-        repository: ["sk", "test", "abcdefghijklmnopqrstuvwxyz123456"].join("_"),
-        productionUrl: "",
-        customDomain: null,
-      },
-    };
-    expect(() => launchReceiptSchema.parse(invalid)).toThrow();
+  it("requires the v2 contract and model-call fields without fabricating a v1 migration", () => {
+    const contract = launchReceiptContract();
+    const receipt = createLaunchReceipt({
+      state: state(),
+      decision: launchDecisionFromContract(contract),
+      launchContract: contract,
+      report: renderLaunchReport({
+        generatedAt: "2026-08-12T12:00:02.000Z",
+        run: { id: "launch-receipt-run", status: "waiting" },
+        brief: { id: "launch-receipt", name: "Launch Receipt", synthetic: false },
+        launch: {
+          mode: "product_first",
+          rail: "web",
+          firstValidationAction: firstValidationAction(contract),
+        },
+        nodes: [],
+        providers: [],
+        manualActions: [],
+        limitations: [],
+        nextCommands: [],
+      }).document,
+    });
+    const withoutContract: Partial<typeof receipt> = { ...receipt };
+    delete withoutContract.launchContract;
+    const withoutModelCalls: Partial<typeof receipt.build> = { ...receipt.build };
+    delete withoutModelCalls.modelCalls;
+
+    expect(() => launchReceiptSchema.parse({ ...receipt, schemaVersion: 1 })).toThrow();
+    expect(() => launchReceiptSchema.parse(withoutContract)).toThrow();
+    expect(() => launchReceiptSchema.parse({ ...receipt, build: withoutModelCalls })).toThrow();
+    const syntheticSecret = ["sk", "test", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
+    const secretBearingMismatch = structuredClone(receipt);
+    secretBearingMismatch.launchContract.decision.primarySuccessSignal = syntheticSecret;
+    let mismatchError: unknown;
+    try {
+      launchReceiptSchema.parse(secretBearingMismatch);
+    } catch (error) {
+      mismatchError = error;
+    }
+    expect(mismatchError).toBeInstanceOf(Error);
+    expect((mismatchError as Error).message).not.toContain(syntheticSecret);
+    expect(() =>
+      createLaunchReceipt({
+        state: state(),
+        decision: launchDecisionFromContract(contract),
+        launchContract: undefined as never,
+        report: renderLaunchReport({
+          generatedAt: "2026-08-12T12:00:02.000Z",
+          run: { id: "launch-receipt-run", status: "waiting" },
+          brief: { id: "launch-receipt", name: "Launch Receipt", synthetic: false },
+          launch: {
+            mode: "product_first",
+            rail: "web",
+            firstValidationAction: firstValidationAction(contract),
+          },
+          nodes: [],
+          providers: [],
+          manualActions: [],
+          limitations: [],
+          nextCommands: [],
+        }).document,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects credential material inside the canonical Launch Contract before redaction", () => {
+    const contract = launchReceiptContract();
+    const credential = ["sk", "test", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
+    const unsafeContract = {
+      ...contract,
+      venture: { ...contract.venture, proposition: credential },
+    } as LaunchContract;
+    const redactor = new Redactor();
+    redactor.addSecret(credential);
+
+    expect(() =>
+      createLaunchReceipt(
+        {
+          state: state(),
+          decision: launchDecisionFromContract(contract),
+          launchContract: unsafeContract,
+          report: renderLaunchReport({
+            generatedAt: "2026-08-12T12:00:02.000Z",
+            run: { id: "launch-receipt-run", status: "waiting" },
+            brief: { id: "launch-receipt", name: "Launch Receipt", synthetic: false },
+            launch: {
+              mode: "product_first",
+              rail: "web",
+              firstValidationAction: firstValidationAction(contract),
+            },
+            nodes: [],
+            providers: [],
+            manualActions: [],
+            limitations: [],
+            nextCommands: [],
+          }).document,
+        },
+        { redactor },
+      ),
+    ).toThrow(/credential values are forbidden/);
   });
 });

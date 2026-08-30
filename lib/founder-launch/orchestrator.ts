@@ -67,6 +67,7 @@ export interface FounderLaunchPreparationInput {
   readonly baseDir: string;
   readonly output?: string;
   readonly workflowRefSha: string;
+  readonly workflowRepository: string;
   readonly executionMode: FounderLaunchExecutionMode;
   readonly production: boolean;
   readonly nonInteractive: boolean;
@@ -167,10 +168,7 @@ export function founderSeedFor(
   brief: FounderBrief,
   launchContract: CompiledFounderIdea["launchContract"],
 ): SeedId {
-  if (
-    launchContract?.agentNative.customerAgentSurfaceRequired ||
-    launchContract?.agentNative.serviceBlueprintRequired
-  ) {
+  if (launchContract?.capabilities.agentSurface === "REQUIRED") {
     return "hybrid-agentic-service";
   }
   if (brief.app_kind === "web") return "agentic-web-saas";
@@ -300,6 +298,52 @@ export function loadFounderIdeaFile(file: string, baseDir = process.cwd()): stri
   } finally {
     boundary.release();
   }
+}
+
+const WORKFLOW_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+
+/** Read owner/repository out of an HTTPS or SSH GitHub remote URL. */
+function gitHubSlug(remoteUrl: string): string | undefined {
+  const match =
+    /^https?:\/\/[^/]+\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(remoteUrl) ??
+    /^(?:ssh:\/\/)?git@[^:/]+[:/](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(remoteUrl);
+  const owner = match?.groups?.owner;
+  const repo = match?.groups?.repo;
+  if (!owner || !repo) return undefined;
+  const slug = `${owner}/${repo}`;
+  return WORKFLOW_REPOSITORY.test(slug) ? slug : undefined;
+}
+
+/**
+ * Resolve the Core repository whose reusable workflow a venture calls.
+ *
+ * A generated venture must reference the Venture Harness checkout it was
+ * actually launched from. Hardcoding one author's repository would make every
+ * venture produced by every fork depend on that person's account staying
+ * public, and would put their identity into other people's products.
+ */
+export function resolveFounderWorkflowRepository(baseDir: string, explicit?: string): string {
+  const candidate = explicit ?? process.env.VH_WORKFLOW_REPOSITORY;
+  if (candidate) {
+    if (!WORKFLOW_REPOSITORY.test(candidate)) {
+      throw new Error("VH_WORKFLOW_REPOSITORY must be exactly owner/repository");
+    }
+    return candidate;
+  }
+  try {
+    const origin = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: resolve(baseDir),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const slug = gitHubSlug(origin);
+    if (slug) return slug;
+  } catch {
+    // The exact remediation below is safe for packed consumers without Git.
+  }
+  throw new Error(
+    "Founder launch cannot resolve the Core repository for the venture reusable workflow. Set VH_WORKFLOW_REPOSITORY to the owner/repository of this Venture Harness checkout.",
+  );
 }
 
 export function resolveFounderWorkflowRefSha(baseDir: string, explicit?: string): string {
@@ -655,6 +699,7 @@ export function compileFounderLaunchPreparation(
     at: input.at,
     coreVersion: CORE_VERSION,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: [],
   });
   const stackOverrides = renderFounderStackProviderConfigOverrides(connection, {

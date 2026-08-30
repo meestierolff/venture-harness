@@ -1,8 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
-import { NodeCommandRunner, Redactor } from "@/lib/credentials";
+import {
+  NodeCommandRunner,
+  onePasswordCommandEnvironment,
+  providerCommandEnvironment,
+  PROVIDER_COMMAND_AUTH_ENVIRONMENT_NAMES,
+  PROVIDER_COMMAND_INVOCATION_ENVIRONMENT_NAMES,
+  Redactor,
+} from "@/lib/credentials";
 import { NativeHttpFetcher, type RedactedHttpRequestMetadata } from "@/lib/runtime";
 
 describe("official native provider transports", () => {
+  it("uses the least-privilege provider environment by default", async () => {
+    const previous = process.env.VH_UNRELATED_PROVIDER_SECRET;
+    process.env.VH_UNRELATED_PROVIDER_SECRET = "must-not-cross-default-runner";
+    const runner = new NodeCommandRunner();
+    if (previous === undefined) delete process.env.VH_UNRELATED_PROVIDER_SECRET;
+    else process.env.VH_UNRELATED_PROVIDER_SECRET = previous;
+
+    const result = await runner.run({
+      command: process.execPath,
+      args: ["-e", "process.stdout.write(process.env.VH_UNRELATED_PROVIDER_SECRET ?? 'missing')"],
+    });
+
+    expect(result.stdout).toBe("missing");
+  });
+
   it("executes a binary directly and passes shell metacharacters as literal argv", async () => {
     const runner = new NodeCommandRunner();
     const literal = "value; echo not-a-second-command && still-literal";
@@ -25,6 +47,135 @@ describe("official native provider transports", () => {
       env: { VH_REMOVE_IN_CHILD: undefined },
     });
     expect(scrubbed.stdout).toBe("missing");
+  });
+
+  it("replaces the host environment with a provider allowlist and one brokered auth value", async () => {
+    const hostEnvironment = {
+      PATH: process.env.PATH,
+      HOME: "/fixture/provider-session-home",
+      LANG: "en_US.UTF-8",
+      GH_TOKEN: "must-not-cross",
+      NODE_OPTIONS: "--require=/tmp/injected.cjs",
+      GIT_CONFIG_GLOBAL: "/tmp/attacker.gitconfig",
+      npm_config_userconfig: "/tmp/attacker.npmrc",
+      HTTPS_PROXY: "https://proxy-user:proxy-password@example.test",
+      SSH_AUTH_SOCK: "/tmp/agent.sock",
+      OP_SERVICE_ACCOUNT_TOKEN: "must-stay-at-credential-helper",
+    } satisfies Record<string, string | undefined>;
+    const runner = new NodeCommandRunner({
+      env: providerCommandEnvironment(hostEnvironment),
+      allowedInvocationEnv: PROVIDER_COMMAND_AUTH_ENVIRONMENT_NAMES,
+    });
+    const result = await runner.run({
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(process.env).sort())))",
+      ],
+      env: { NEON_API_KEY: "brokered-for-one-call" },
+      sensitiveEnv: ["NEON_API_KEY"],
+    });
+
+    const environment = JSON.parse(result.stdout) as Record<string, string>;
+    expect(environment).toMatchObject({
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      HOME: "/fixture/provider-session-home",
+      LANG: "en_US.UTF-8",
+      NEON_API_KEY: "brokered-for-one-call",
+      NODE_ENV: "production",
+      NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null",
+    });
+    expect(environment).not.toHaveProperty("GH_TOKEN");
+    expect(environment).not.toHaveProperty("NODE_OPTIONS");
+    expect(environment.GIT_CONFIG_GLOBAL).not.toBe("/tmp/attacker.gitconfig");
+    expect(environment.npm_config_userconfig).not.toBe("/tmp/attacker.npmrc");
+    expect(environment).not.toHaveProperty("HTTPS_PROXY");
+    expect(environment).not.toHaveProperty("SSH_AUTH_SOCK");
+    expect(environment).not.toHaveProperty("OP_SERVICE_ACCOUNT_TOKEN");
+
+    await expect(
+      runner.run({
+        command: process.execPath,
+        args: ["-e", "process.exit(0)"],
+        env: { NODE_OPTIONS: "--inspect" },
+      }),
+    ).rejects.toThrow(/not allowlisted: NODE_OPTIONS/);
+  });
+
+  it("keeps 1Password authentication in an explicit credential-helper environment", () => {
+    const source = {
+      HOME: "/fixture/home",
+      OP_SERVICE_ACCOUNT_TOKEN: "service-account-fixture",
+      OP_CONNECT_HOST: "https://connect.example.test",
+      OP_CONNECT_TOKEN: "connect-fixture",
+      OP_SESSION_FOUNDER: "session-fixture",
+      OP_SESSION_founder_secondary: "second-session-fixture",
+      OP_FORMAT: "json",
+      GH_TOKEN: "must-not-cross",
+      SSH_AUTH_SOCK: "/tmp/agent.sock",
+    } satisfies Record<string, string | undefined>;
+
+    expect(providerCommandEnvironment(source)).toEqual({
+      NODE_ENV: "production",
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      NPM_CONFIG_GLOBALCONFIG: process.platform === "win32" ? "NUL" : "/dev/null",
+      NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null",
+      npm_config_globalconfig: process.platform === "win32" ? "NUL" : "/dev/null",
+      npm_config_userconfig: process.platform === "win32" ? "NUL" : "/dev/null",
+      HOME: "/fixture/home",
+    });
+    expect(onePasswordCommandEnvironment(source)).toEqual({
+      NODE_ENV: "production",
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      NPM_CONFIG_GLOBALCONFIG: process.platform === "win32" ? "NUL" : "/dev/null",
+      NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null",
+      npm_config_globalconfig: process.platform === "win32" ? "NUL" : "/dev/null",
+      npm_config_userconfig: process.platform === "win32" ? "NUL" : "/dev/null",
+      HOME: "/fixture/home",
+      OP_SERVICE_ACCOUNT_TOKEN: "service-account-fixture",
+      OP_CONNECT_HOST: "https://connect.example.test",
+      OP_CONNECT_TOKEN: "connect-fixture",
+      OP_SESSION_FOUNDER: "session-fixture",
+      OP_SESSION_founder_secondary: "second-session-fixture",
+    });
+  });
+
+  it("permits only the finite broker-derived psql environment used by aggregate learning", async () => {
+    const runner = new NodeCommandRunner({
+      env: providerCommandEnvironment({ DATABASE_URL: "must-not-cross" }),
+      allowedInvocationEnv: PROVIDER_COMMAND_INVOCATION_ENVIRONMENT_NAMES,
+    });
+    const result = await runner.run({
+      command: process.execPath,
+      args: [
+        "-e",
+        [
+          "const expected = ['PGHOST','PGPORT','PGDATABASE','PGUSER','PGPASSWORD','PGAPPNAME','PGOPTIONS','PGSSLMODE','PGCHANNELBINDING','PGCONNECT_TIMEOUT'];",
+          "process.exit(expected.every((key) => Object.hasOwn(process.env, key)) && process.env.DATABASE_URL === undefined ? 0 : 1);",
+        ].join(""),
+      ],
+      env: {
+        DATABASE_URL: undefined,
+        PGSERVICE: undefined,
+        PGPASSFILE: undefined,
+        PGHOST: "ep-fixture.neon.tech",
+        PGPORT: "5432",
+        PGDATABASE: "fixture",
+        PGUSER: "fixture",
+        PGPASSWORD: "fixture-password",
+        PGAPPNAME: "venture-harness-data-sync",
+        PGOPTIONS: "",
+        PGSSLMODE: "require",
+        PGCHANNELBINDING: "require",
+        PGCONNECT_TIMEOUT: "10",
+      },
+      sensitiveEnv: ["PGHOST", "PGDATABASE", "PGUSER", "PGPASSWORD"],
+    });
+
+    expect(result.exitCode).toBe(0);
   });
 
   it("uses native fetch while exposing only redacted sensitive metadata", async () => {

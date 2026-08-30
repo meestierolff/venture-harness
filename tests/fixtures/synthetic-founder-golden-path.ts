@@ -32,6 +32,7 @@ import {
 import type { MigrationFileSystem } from "@/lib/migrations";
 import { CommandProviderTransport, HttpProviderTransport } from "@/lib/providers";
 import {
+  createLaunchProductBindings,
   createOfficialProviderContext,
   FileProviderIdempotencyLedger,
   FileProviderLifecycleStore,
@@ -454,12 +455,23 @@ export async function runSyntheticFounderGoldenPath(
     founderStackRoot: stackRoot,
     founderOutputRoot: rootDir,
     founderWorkflowRefSha: workflowRefSha,
+    founderWorkflowRepository: "venture-harness/venture-harness",
     allowFixtureFounderStack: true,
     credentialBroker: broker,
     credentialCatalogPath: catalogPath,
     providerCommandRunner: transportFixture,
     productCommandRunner: productCommands,
-    buildAgentHost: buildAgent,
+    launchBindings: (context) =>
+      createLaunchProductBindings({
+        rootDir: context.rootDir,
+        brief: context.brief,
+        launchContract: context.launchContract,
+        authorization: context.authorization,
+        agentHost: buildAgent,
+        commandRunner: productCommands,
+        redactor: broker.redactor,
+        now: () => executionTime,
+      }),
     providerContext: { ...rootProviderRuntime, authorization: "dry_run" },
     providerPlanFactories: (context) =>
       providerFactoriesFor(

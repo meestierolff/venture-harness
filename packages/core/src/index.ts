@@ -33,6 +33,7 @@ const CREDENTIAL_VALUE_PATTERNS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
   /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/iu,
   /[?&](?:access_token|api_key|token|secret)=[^&\s]{6,}/iu,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/iu,
   /\b(?:(?:vh|credential)[_-])canary[_-][a-z0-9_-]{6,}/iu,
 ] as const;
 

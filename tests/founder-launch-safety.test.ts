@@ -34,7 +34,6 @@ import {
   type LaunchGrantInput,
 } from "@/lib/materialization";
 import { MockProviderTransport, type ProviderExecutionContext } from "@/lib/providers";
-import type { BuildAgentHost } from "@/lib/runtime";
 import { FileWorkflowStore } from "@/lib/workflow";
 
 const NOW = new Date("2026-08-09T12:00:00.000Z");
@@ -136,6 +135,7 @@ function commonOptions(harness: SafetyHarness): DefaultCliServicesOptions {
     founderStackRoot: harness.stackRoot,
     founderOutputRoot: harness.root,
     founderWorkflowRefSha: WORKFLOW_REF,
+    founderWorkflowRepository: "venture-harness/venture-harness",
     allowFixtureFounderStack: true,
     credentialBroker: harness.broker,
     credentialCatalogPath: harness.catalogPath,
@@ -339,26 +339,6 @@ describe("canonical founder launch safety preflight", () => {
 
   it("blocks an unavailable build host before creating a child or staging directory", async () => {
     const harness = await createHarness();
-    let inspectionCalls = 0;
-    let runCalls = 0;
-    const unavailableHost = {
-      id: "missing-build-host-fixture",
-      async inspect() {
-        inspectionCalls += 1;
-        return {
-          host: "missing-build-host-fixture",
-          status: "missing" as const,
-          version: null,
-          billingMode: "unknown" as const,
-          billingEvidence: null,
-          nextAction: "Install the fixture build host, then retry.",
-        };
-      },
-      async run() {
-        runCalls += 1;
-        throw new Error("an unavailable build host must never run");
-      },
-    } satisfies BuildAgentHost;
     const planFactories = vi.fn(() => {
       throw new Error("provider planning must not run without a build host");
     });
@@ -366,15 +346,12 @@ describe("canonical founder launch safety preflight", () => {
       ...commonOptions(harness),
       rootDir: harness.root,
       store: new FileWorkflowStore({ rootDir: join(harness.root, ".root-runs") }),
-      buildAgentHost: unavailableHost,
       providerPlanFactories: planFactories,
     });
 
     await expect(services.founderLaunch!(founderRequest())).rejects.toThrow(
-      /Install the fixture build host|BUILD_AGENT_UNAVAILABLE/i,
+      /no audited outer read-isolation driver.*No run or external action was created/i,
     );
-    expect(inspectionCalls).toBe(1);
-    expect(runCalls).toBe(0);
     expect(planFactories).not.toHaveBeenCalled();
     expect(harness.cliTransport.calls).toEqual([]);
     expect(harness.httpTransport.calls).toEqual([]);
@@ -383,42 +360,31 @@ describe("canonical founder launch safety preflight", () => {
     expect(existsSync(ventures) ? readdirSync(ventures) : []).toEqual([]);
   });
 
-  it("blocks API-key model billing before creating a child or provider transport", async () => {
+  it("refuses a caller-injected self-attested model host", async () => {
     const harness = await createHarness();
-    writeFileSync(
-      join(harness.root, "idea.md"),
-      readFileSync(IDEA_FIXTURE, "utf8").replace(/^synthetic: true\n/mu, ""),
-      { mode: 0o600 },
-    );
-    let runCalls = 0;
-    const apiKeyHost: BuildAgentHost = {
-      id: "api-key-build-host-fixture",
-      async inspect() {
-        return {
-          host: "api-key-build-host-fixture",
-          status: "available",
-          version: "fixture-v1",
-          billingMode: "api_key_metered",
-          billingEvidence: "codex_login_status",
-          nextAction: "Use ChatGPT subscription login.",
-        };
-      },
-      async run() {
-        runCalls += 1;
-        throw new Error("API-key billed host must never run");
-      },
-    };
-    const services = createDefaultCliServices({
+    const run = vi.fn();
+    const options = {
       ...commonOptions(harness),
       rootDir: harness.root,
-      store: new FileWorkflowStore({ rootDir: join(harness.root, ".root-runs") }),
-      buildAgentHost: apiKeyHost,
-    });
+      buildAgentHost: {
+        id: "caller-controlled-host",
+        inspect: vi.fn(async () => ({
+          host: "caller-controlled-host",
+          status: "available",
+          readIsolation: "verified_outer_read_isolation",
+          version: "caller-v1",
+          billingMode: "chatgpt_subscription",
+          billingEvidence: "codex_login_status",
+          nextAction: null,
+        })),
+        run,
+      },
+    } as unknown as DefaultCliServicesOptions;
 
-    await expect(services.founderLaunch!(founderRequest())).rejects.toThrow(
-      /ChatGPT subscription.*API-key or unknown billing/i,
+    expect(() => createDefaultCliServices(options)).toThrow(
+      /do not accept caller-injected model hosts/i,
     );
-    expect(runCalls).toBe(0);
+    expect(run).not.toHaveBeenCalled();
     expect(existsSync(harness.childRoot)).toBe(false);
     expect(harness.cliTransport.calls).toEqual([]);
     expect(harness.httpTransport.calls).toEqual([]);

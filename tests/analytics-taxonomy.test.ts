@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { EVENTS, type EventSpec } from "@/lib/analytics/taxonomy";
+import { filterAnalyticsProps } from "@/lib/analytics/track";
+import { safeLandingAttribution } from "@/lib/analytics/attribution";
 
 const config = parse(readFileSync("config/analytics.yaml", "utf8")) as {
   prohibited_properties: string[];
@@ -72,5 +74,30 @@ describe("event taxonomy", () => {
 
   it("matches the event names declared in config/analytics.yaml", () => {
     expect(Object.keys(EVENTS).sort()).toEqual(Object.keys(config.events).sort());
+  });
+
+  it("drops URL-derived private, credential-like, oversized, and unknown values", () => {
+    expect(
+      filterAnalyticsProps("site_visit", {
+        landing_route: "/",
+        referrer_domain: "person@example.test",
+        utm_source: "api_key=private-canary",
+        utm_medium: "x".repeat(301),
+        utm_campaign: "Jane Founder",
+        unregistered: "must-not-leave",
+      }),
+    ).toEqual({ landing_route: "/" });
+    expect(filterAnalyticsProps("site_visit", { utm_source: "+31612345678" })).toEqual({});
+    expect(filterAnalyticsProps("site_visit", { utm_source: "31612345678" })).toEqual({});
+    expect(filterAnalyticsProps("site_visit", { utm_source: "jane" })).toEqual({});
+  });
+
+  it("does not forward unreviewed URL attribution values", () => {
+    expect(
+      safeLandingAttribution(
+        "?utm_source=Jane+Founder&utm_medium=%2B31612345678&utm_campaign=12+Main+Street",
+        "https://person@example.test/private",
+      ),
+    ).toEqual({});
   });
 });

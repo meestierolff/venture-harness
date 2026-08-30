@@ -4103,6 +4103,7 @@ var CREDENTIAL_VALUE_PATTERNS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
   /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/iu,
   /[?&](?:access_token|api_key|token|secret)=[^&\s]{6,}/iu,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/iu,
   /\b(?:(?:vh|credential)[_-])canary[_-][a-z0-9_-]{6,}/iu
 ];
 function credentialFieldWords(field) {
@@ -4211,17 +4212,21 @@ function uniqueArray(item) {
   return external_exports.array(item).refine(unique, "values must be unique");
 }
 var FORBIDDEN_CREDENTIAL_KEY = /^(access_token|refresh_token|id_token|api_key|secret|client_secret|private_key|password|credential_value)$/i;
+var CREDENTIAL_LABELED_TEXT = /(?:^|\n)\s*(?:[-*]\s*)?(?:[A-Za-z0-9][A-Za-z0-9 ._-]{0,40}\s+)?(?:access[ _-]?token|refresh[ _-]?token|id[ _-]?token|api[ _-]?key|client[ _-]?secret|private[ _-]?key|password|secret|credential(?:[ _-]?value)?|authorization(?:\s+header)?)\s*[:=]\s*(?!\[(?:REDACTED|MASKED)\](?:\s|$))\S+/iu;
 function looksLikeCredentialValue(value) {
   return findCredentialMaterial(value) !== null;
+}
+function looksLikeCredentialLabeledText(value) {
+  return CREDENTIAL_LABELED_TEXT.test(value);
 }
 function rejectCredentialMaterial(value, ctx) {
   const visit = (candidate, path) => {
     if (typeof candidate === "string") {
-      if (looksLikeCredentialValue(candidate)) {
+      if (looksLikeCredentialValue(candidate) || looksLikeCredentialLabeledText(candidate)) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path,
-          message: "credential values are forbidden; store only a credential_ref"
+          message: "credential values are forbidden, including credential-labeled text; store only a credential_ref"
         });
       }
       return;
@@ -8237,7 +8242,9 @@ var legacyHarnessLockSchema = external_exports.object({
   config_contract_version: external_exports.number().int().positive(),
   source: external_exports.object({
     kind: external_exports.enum(["template", "release", "local"]),
-    ref: external_exports.string().min(1).nullable()
+    ref: external_exports.string().min(1).nullable(),
+    /** Digest of the managed manifest; see computeManagedTreeDigest. */
+    tree_digest: external_exports.string().regex(/^[a-f0-9]{64}$/).optional()
   }).strict(),
   managed_files: uniqueArray(managedFileSchema),
   applied_migrations: uniqueArray(appliedMigrationSchema),
@@ -9476,7 +9483,7 @@ var Redactor = class {
       /\b(api[-_]?key|password|private[-_]?key|refresh[-_]?token|secret|token)\b\s*[:=]\s*([^\s,;&]+)/gi,
       (_match, key) => `${key}=${REDACTED}`
     );
-    output = output.replace(/(https?:\/\/[^\s/:]+:)([^@\s/]+)(@)/gi, `$1${REDACTED}$3`);
+    output = output.replace(/([a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)([^@\s/]+)(@)/gi, `$1${REDACTED}$3`);
     return output;
   }
   redact(input) {
@@ -9900,6 +9907,89 @@ async function inspectCliPrerequisites(runner, options = {}) {
 
 // lib/credentials/cli-session.ts
 import { spawn } from "node:child_process";
+
+// lib/credentials/provider-environment.ts
+var PROVIDER_RUNTIME_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "WINDIR",
+  "PATHEXT"
+];
+var ONE_PASSWORD_ENVIRONMENT_KEYS = [
+  "OP_SERVICE_ACCOUNT_TOKEN",
+  "OP_CONNECT_HOST",
+  "OP_CONNECT_TOKEN"
+];
+var PROVIDER_AUTH_ENVIRONMENT_BY_BINARY = {
+  neonctl: ["NEON_API_KEY"],
+  psql: ["PGDATABASE"],
+  eas: ["EXPO_TOKEN"]
+};
+var PROVIDER_COMMAND_AUTH_ENVIRONMENT_NAMES = Object.freeze([
+  ...new Set(Object.values(PROVIDER_AUTH_ENVIRONMENT_BY_BINARY).flat())
+]);
+var PROVIDER_COMMAND_INVOCATION_ENVIRONMENT_NAMES = Object.freeze([
+  ...PROVIDER_COMMAND_AUTH_ENVIRONMENT_NAMES,
+  "PGHOST",
+  "PGPORT",
+  "PGUSER",
+  "PGPASSWORD",
+  "PGAPPNAME",
+  "PGOPTIONS",
+  "PGSSLMODE",
+  "PGCHANNELBINDING",
+  "PGCONNECT_TIMEOUT"
+]);
+function copyDefined(source, keys) {
+  return Object.fromEntries(
+    keys.flatMap((key) => source[key] === void 0 ? [] : [[key, source[key]]])
+  );
+}
+function providerCommandEnvironment(source) {
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  return Object.assign(
+    {
+      NODE_ENV: source.NODE_ENV ?? "production",
+      GIT_CONFIG_GLOBAL: nullDevice,
+      GIT_CONFIG_NOSYSTEM: "1",
+      NPM_CONFIG_GLOBALCONFIG: nullDevice,
+      NPM_CONFIG_USERCONFIG: nullDevice,
+      npm_config_globalconfig: nullDevice,
+      npm_config_userconfig: nullDevice
+    },
+    copyDefined(source, PROVIDER_RUNTIME_ENVIRONMENT_KEYS)
+  );
+}
+function onePasswordCommandEnvironment(source) {
+  const sessionKeys = Object.keys(source).filter((key) => /^OP_SESSION_[A-Za-z0-9_]+$/.test(key));
+  return {
+    ...providerCommandEnvironment(source),
+    ...copyDefined(source, [...ONE_PASSWORD_ENVIRONMENT_KEYS, ...sessionKeys])
+  };
+}
+function executableName(binary) {
+  return binary.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase().replace(/\.(?:exe|cmd|bat)$/i, "") ?? "";
+}
+function isAllowedProviderAuthEnvironment(binary, name) {
+  const allowed = PROVIDER_AUTH_ENVIRONMENT_BY_BINARY[executableName(binary)];
+  return allowed?.includes(name) === true;
+}
+
+// lib/credentials/cli-session.ts
 var CLI_AUTH_COMMANDS = {
   github: {
     login: { command: "gh", args: ["auth", "login"] },
@@ -9929,7 +10019,11 @@ function runInteractiveCliLogin(provider) {
   const spec = CLI_AUTH_COMMANDS[provider]?.login;
   if (!spec) throw new Error(`No official interactive CLI login is registered for ${provider}.`);
   return new Promise((resolve30, reject) => {
-    const child = spawn(spec.command, spec.args, { shell: false, stdio: "inherit" });
+    const child = spawn(spec.command, spec.args, {
+      env: providerCommandEnvironment(process.env),
+      shell: false,
+      stdio: "inherit"
+    });
     child.once("error", reject);
     child.once("close", (code) => {
       if (code === 0) resolve30();
@@ -9998,7 +10092,7 @@ var SHELL_BINARIES = /* @__PURE__ */ new Set([
   "pwsh",
   "pwsh.exe"
 ]);
-function executableName(command) {
+function executableName2(command) {
   return command.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase() ?? "";
 }
 function assertDirectCommand(command) {
@@ -10008,19 +10102,25 @@ function assertDirectCommand(command) {
       "Commands must name one executable directly; shell command strings are forbidden"
     );
   }
-  if (SHELL_BINARIES.has(executableName(trimmed))) {
-    throw new Error(`Shell executables are forbidden: ${executableName(trimmed)}`);
+  if (SHELL_BINARIES.has(executableName2(trimmed))) {
+    throw new Error(`Shell executables are forbidden: ${executableName2(trimmed)}`);
   }
 }
 var NodeCommandRunner = class {
   env;
+  allowedInvocationEnv;
   maxOutputBytes;
   constructor(options = {}) {
-    this.env = options.env ?? process.env;
+    this.env = { ...options.env ?? providerCommandEnvironment(process.env) };
+    this.allowedInvocationEnv = new Set(options.allowedInvocationEnv ?? []);
     this.maxOutputBytes = options.maxOutputBytes ?? 2 * 1024 * 1024;
   }
   async run(invocation2) {
     assertDirectCommand(invocation2.command);
+    const forbidden = Object.entries(invocation2.env ?? {}).filter(([, value]) => value !== void 0).map(([key]) => key).find((key) => !this.allowedInvocationEnv.has(key));
+    if (forbidden) {
+      throw new Error(`Command environment variable is not allowlisted: ${forbidden}`);
+    }
     const environment = Object.fromEntries(
       Object.entries({ ...this.env, ...invocation2.env }).filter(
         (entry) => entry[1] !== void 0
@@ -11331,6 +11431,15 @@ var CommandProviderTransport = class {
         status: "failed",
         providerCode: "shell_binary_forbidden",
         message: `Commands must invoke an executable directly: ${spec.binary}`,
+        retryable: false,
+        effectOutcome: "confirmed_no_write"
+      };
+    }
+    if (spec.authEnvironment && !isAllowedProviderAuthEnvironment(spec.binary, spec.authEnvironment.name)) {
+      return {
+        status: "failed",
+        providerCode: "terminal_validation",
+        message: `Provider command auth environment is not allowed for ${spec.binary}`,
         retryable: false,
         effectOutcome: "confirmed_no_write"
       };
@@ -13541,6 +13650,26 @@ var OwnerPathLock = class {
     if (releaseError) throw releaseError;
   }
 };
+
+// scripts/lib/release-security.ts
+var RULES = [
+  { id: "aws-access-key", pattern: new RegExp("AKIA[0-9A-Z]{16}", "g") },
+  {
+    id: "private-key",
+    pattern: new RegExp("-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "g")
+  },
+  { id: "github-token", pattern: new RegExp("gh[pousr]_[A-Za-z0-9_]{20,}", "g") },
+  { id: "api-secret-key", pattern: new RegExp("sk-[A-Za-z0-9]{20,}", "g") },
+  {
+    id: "stripe-access-token",
+    pattern: new RegExp("sk_(?:live|test)_[A-Za-z0-9_]{12,}", "g")
+  },
+  { id: "slack-token", pattern: new RegExp("xox[baprs]-[A-Za-z0-9-]{10,}", "g") },
+  {
+    id: "database-url-with-credentials",
+    pattern: /postgres(?:ql)?:\/\/[^\s"']+:[^\s"']+@/g
+  }
+];
 
 // lib/providers/github-source-publication.ts
 var BOOTSTRAP_CONTENT = Buffer.from("venture-harness-source-bootstrap-v1\n", "utf8");
@@ -16878,6 +17007,7 @@ var CREDENTIAL_VALUE_PATTERNS2 = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
   /\beyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\b/iu,
   /[?&](?:access_token|api_key|token|secret)=[^&\s]{6,}/iu,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/iu,
   /\b(?:(?:vh|credential)[_-])canary[_-][a-z0-9_-]{6,}/iu
 ];
 function credentialFieldWords2(field) {
@@ -17456,7 +17586,7 @@ function compileLaunchGraph(briefInput, decisionInput, options = {}) {
   ] : [];
   const dependencyFinalizationNodes = decision.rail.appKind === "web" ? [
     workflowNode("finalize-dependencies", {
-      purpose: "Install and checkpoint the final exact child lockfile after repository and dependency planning; reject any later package or lock mutation.",
+      purpose: "Re-verify the Core-owned package execution policy and checkpoint the unchanged exact child lockfile after product work; reject any package, script, lifecycle-policy, or lock mutation.",
       capability: "dependencies.install",
       dependencies: ["prepare-repository"],
       handler: "launch.installDependencies",
@@ -17479,7 +17609,7 @@ function compileLaunchGraph(briefInput, decisionInput, options = {}) {
         artifact: "reports/quality/dependency-finalization.json"
       },
       completion: {
-        description: "The final package manifest and lockfile are installed, read back, and frozen before product, provider, source publication, or deployment work proceeds."
+        description: "The reviewed package scripts, dependencies, empty lifecycle-build allowlist, and exact lockfile are unchanged, installed, and read back before provider, source publication, or deployment work proceeds."
       }
     })
   ] : [];
@@ -18212,6 +18342,34 @@ var boundedText = external_exports.string().trim().min(1).max(1e3);
 var conciseText = external_exports.string().trim().min(1).max(500);
 var textList = (minimum = 0, maximum = 20) => external_exports.array(boundedText).min(minimum).max(maximum).refine((values) => new Set(values).size === values.length, "values must be unique");
 var conciseList = (minimum = 0, maximum = 20) => external_exports.array(conciseText).min(minimum).max(maximum).refine((values) => new Set(values).size === values.length, "values must be unique");
+var LAUNCH_CAPABILITY_CLASSIFICATIONS = [
+  "REQUIRED",
+  "DEFERRED",
+  "NOT_APPLICABLE"
+];
+var LaunchCapabilityClassification = Object.freeze({
+  REQUIRED: "REQUIRED",
+  DEFERRED: "DEFERRED",
+  NOT_APPLICABLE: "NOT_APPLICABLE"
+});
+var launchCapabilityClassificationSchema = external_exports.enum(LAUNCH_CAPABILITY_CLASSIFICATIONS);
+var launchContractCapabilitiesSchema = external_exports.object({
+  frontend: launchCapabilityClassificationSchema,
+  backend: launchCapabilityClassificationSchema,
+  database: launchCapabilityClassificationSchema,
+  authentication: launchCapabilityClassificationSchema,
+  authorization: launchCapabilityClassificationSchema,
+  payments: launchCapabilityClassificationSchema,
+  entitlements: launchCapabilityClassificationSchema,
+  transactionalEmail: launchCapabilityClassificationSchema,
+  analytics: launchCapabilityClassificationSchema,
+  privacyAndConsent: launchCapabilityClassificationSchema,
+  seo: launchCapabilityClassificationSchema,
+  aeo: launchCapabilityClassificationSchema,
+  geo: launchCapabilityClassificationSchema,
+  agentSurface: launchCapabilityClassificationSchema,
+  scheduledLearning: launchCapabilityClassificationSchema
+}).strict();
 var MINOR_UNIT_ROUNDING_ULPS = 8;
 function decimalPriceToMinorUnits(amount) {
   const scaled = amount * 100;
@@ -18243,6 +18401,7 @@ function affirmativeSafetyText(contract) {
     { path: ["venture", "targetUser"], value: contract.venture.targetUser },
     { path: ["venture", "painfulJob"], value: contract.venture.painfulJob },
     { path: ["venture", "desiredOutcome"], value: contract.venture.desiredOutcome },
+    { path: ["venture", "proposition"], value: contract.venture.proposition },
     { path: ["venture", "differentiation"], value: contract.venture.differentiation },
     { path: ["venture", "founderAdvantage"], value: contract.venture.founderAdvantage },
     { path: ["product", "oneCoreFeature"], value: contract.product.oneCoreFeature },
@@ -18377,6 +18536,7 @@ var launchContractSchema = external_exports.object({
     targetUser: conciseText,
     painfulJob: conciseText,
     desiredOutcome: conciseText,
+    proposition: conciseText,
     differentiation: conciseText,
     founderAdvantage: conciseText
   }).strict(),
@@ -18423,7 +18583,8 @@ var launchContractSchema = external_exports.object({
     customerAgentSurfaceRequired: external_exports.boolean(),
     serviceBlueprintRequired: external_exports.boolean(),
     outcomeCommands: textList(0, 12)
-  }).strict()
+  }).strict(),
+  capabilities: launchContractCapabilitiesSchema
 }).strict().superRefine((contract, context2) => {
   rejectCredentialMaterial(contract, context2);
   if (Buffer.byteLength(JSON.stringify(contract), "utf8") > MAX_LAUNCH_CONTRACT_BYTES) {
@@ -18523,6 +18684,76 @@ var launchContractSchema = external_exports.object({
       message: "a take-rate percentage cannot exceed 100"
     });
   }
+  if (contract.capabilities.payments === "REQUIRED" && contract.business.paymentProvider === "none") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "payments"],
+      message: "payments cannot be REQUIRED without a supported reviewed paymentProvider; classify payments as DEFERRED when the current rail is not implemented"
+    });
+  }
+  if (contract.capabilities.authorization === "REQUIRED" && contract.capabilities.authentication !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "authentication"],
+      message: "authentication must be REQUIRED when authorization is REQUIRED; otherwise defer or exclude authorization too"
+    });
+  }
+  const requiresBackend = [
+    "database",
+    "authentication",
+    "authorization",
+    "payments",
+    "entitlements",
+    "transactionalEmail",
+    "agentSurface",
+    "scheduledLearning"
+  ].some(
+    (capability) => contract.capabilities[capability] === "REQUIRED"
+  );
+  if (requiresBackend && contract.capabilities.backend !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "backend"],
+      message: "backend must be REQUIRED when a server-side capability is REQUIRED; otherwise defer the dependent capabilities too"
+    });
+  }
+  if (contract.capabilities.entitlements === "REQUIRED" && contract.capabilities.payments !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "entitlements"],
+      message: "entitlements must be DEFERRED when payments are not REQUIRED because the current entitlement source is the selected payment provider"
+    });
+  }
+  if (contract.capabilities.analytics === "REQUIRED" && contract.capabilities.privacyAndConsent !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "privacyAndConsent"],
+      message: "privacyAndConsent must be REQUIRED when analytics is REQUIRED"
+    });
+  }
+  if (["seo", "aeo", "geo"].some(
+    (capability) => contract.capabilities[capability] === "REQUIRED"
+  ) && contract.capabilities.frontend !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "frontend"],
+      message: "frontend must be REQUIRED when web SEO, AEO, or GEO is REQUIRED"
+    });
+  }
+  if (contract.capabilities.frontend !== "REQUIRED" && contract.capabilities.agentSurface !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "frontend"],
+      message: "the current launch rail requires at least one REQUIRED delivery surface: frontend or agentSurface"
+    });
+  }
+  if ((contract.agentNative.customerAgentSurfaceRequired || contract.agentNative.serviceBlueprintRequired || contract.agentNative.outcomeCommands.length > 0) && contract.capabilities.agentSurface !== "REQUIRED") {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["capabilities", "agentSurface"],
+      message: "agentSurface must be REQUIRED when agentNative requests a customer surface, service blueprint, or outcome command"
+    });
+  }
   for (const issue of launchContractSafetyIssues(contract)) {
     context2.addIssue({
       code: external_exports.ZodIssueCode.custom,
@@ -18538,13 +18769,14 @@ var LAUNCH_CONTRACT_SECTION_KEYS = Object.freeze([
   "distribution",
   "decision",
   "truth",
-  "agentNative"
+  "agentNative",
+  "capabilities"
 ]);
 var LAUNCH_CONTRACT_SENTINEL_KEYS = Object.freeze([
   "schemaVersion",
   ...LAUNCH_CONTRACT_SECTION_KEYS
 ]);
-var LAUNCH_CONTRACT_EXPECTED_SHAPE = "schemaVersion: 1 with required venture, product, business, distribution, decision, truth, and agentNative mappings";
+var LAUNCH_CONTRACT_EXPECTED_SHAPE = "schemaVersion: 1 with required venture, product, business, distribution, decision, truth, agentNative, and complete capabilities mappings";
 var LaunchContractSourceError = class extends Error {
   constructor(schemaVersion, invalidPath, validationProblem, expectedShape, remediation) {
     super(
@@ -18581,11 +18813,10 @@ function recordValue(value) {
 }
 function rawRootKeys(source) {
   const keys = /* @__PURE__ */ new Set();
-  const sentinel = LAUNCH_CONTRACT_SENTINEL_KEYS.join("|");
-  const matcher = new RegExp(`^(?:["']?(${sentinel})["']?)[ \\t]*:`, "gmu");
+  const matcher = /^(?:["']?([A-Za-z][A-Za-z0-9 _-]*)["']?)[ \t]*:/gmu;
   let match;
   while ((match = matcher.exec(source)) !== null) {
-    if (match[1]) keys.add(match[1]);
+    if (match[1]) keys.add(match[1].trim());
   }
   return keys;
 }
@@ -18593,9 +18824,43 @@ function parsedRootKeys(value) {
   const record3 = recordValue(value);
   return new Set(record3 ? Object.keys(record3) : []);
 }
+function normalizedRootKey(value) {
+  return value.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]/gu, "");
+}
+function editDistanceAtMost(left, right, limit) {
+  if (Math.abs(left.length - right.length) > limit) return false;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    let rowMinimum = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const cost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      const next = Math.min(
+        (current[rightIndex - 1] ?? Number.POSITIVE_INFINITY) + 1,
+        (previous[rightIndex] ?? Number.POSITIVE_INFINITY) + 1,
+        (previous[rightIndex - 1] ?? Number.POSITIVE_INFINITY) + cost
+      );
+      current.push(next);
+      rowMinimum = Math.min(rowMinimum, next);
+    }
+    if (rowMinimum > limit) return false;
+    previous = current;
+  }
+  return (previous[right.length] ?? Number.POSITIVE_INFINITY) <= limit;
+}
+function launchContractLikeRootKey(value) {
+  const normalized = normalizedRootKey(value);
+  if (normalized === "launchcontract") return true;
+  return LAUNCH_CONTRACT_SENTINEL_KEYS.some((key) => {
+    const expected = normalizedRootKey(key);
+    if (normalized === expected) return true;
+    const limit = expected.length >= 8 ? 2 : 1;
+    return normalized.length >= 4 && editDistanceAtMost(normalized, expected, limit);
+  });
+}
 function hasLaunchContractIntent(source, value) {
   const keys = /* @__PURE__ */ new Set([...rawRootKeys(source), ...parsedRootKeys(value)]);
-  return LAUNCH_CONTRACT_SENTINEL_KEYS.some((key) => keys.has(key));
+  return [...keys].some(launchContractLikeRootKey);
 }
 function sourceSchemaVersion(source, value) {
   const parsed = recordValue(value)?.schemaVersion;
@@ -18621,12 +18886,12 @@ function invalidSource(input) {
     exactRemediation(input.path)
   );
 }
-function parseStructuredCandidate(source) {
+function parseStructuredCandidate(source, options = {}) {
   let value;
   try {
     value = parseYaml(source);
   } catch (error) {
-    if (!hasLaunchContractIntent(source)) return void 0;
+    if (!options.explicitFrontMatter && !hasLaunchContractIntent(source)) return void 0;
     const position = recordValue(error)?.linePos;
     const firstPosition = Array.isArray(position) ? recordValue(position[0]) : void 0;
     const line = typeof firstPosition?.line === "number" ? firstPosition.line : void 0;
@@ -18650,27 +18915,15 @@ function parseLaunchContractSource(source) {
   const frontMatter2 = frontMatterCandidate(source);
   if (frontMatter2) {
     if (!frontMatter2.closed) {
-      if (!hasLaunchContractIntent(frontMatter2.body)) return void 0;
       throw invalidSource({
         source: frontMatter2.body,
         path: "$frontMatter",
         problem: "front matter is not closed with a standalone --- delimiter"
       });
     }
-    return parseStructuredCandidate(frontMatter2.body);
+    return parseStructuredCandidate(frontMatter2.body, { explicitFrontMatter: true });
   }
   return parseStructuredCandidate(source);
-}
-function selectedText(contract) {
-  return [
-    contract.product.oneCoreFeature,
-    ...contract.product.primaryJourney,
-    ...contract.product.trustRequirements,
-    ...contract.agentNative.outcomeCommands
-  ].join(" ").toLowerCase();
-}
-function explicitlyNeeds(text2, patterns) {
-  return patterns.some((pattern) => pattern.test(text2));
 }
 function fundamentalContradiction(value) {
   return /\b(?:fundamental|indispensable|impossible|cannot both|mutually exclusive|unsafe|illegal|unlawful|no safe default)\b/iu.test(
@@ -18695,49 +18948,9 @@ function monetizationModel(contract) {
 }
 function founderBriefFromLaunchContract(contractInput) {
   const contract = assertLaunchContractSafe(contractInput);
-  const selected = selectedText(contract);
-  const mobile = contract.business.paymentProvider === "revenuecat";
-  const needsAuth = explicitlyNeeds(selected, [
-    /\bauth(?:entication|enticated)?\b/u,
-    /\bsign[ -]?in\b/u,
-    /\baccount\b/u,
-    /\bprivate\b/u
-  ]);
-  const needsDatabase = explicitlyNeeds(selected, [
-    /\bpersist(?:ed|ence|ent)?\b/u,
-    /\bsav(?:e|ed|ing)\b/u,
-    /\bdatabase\b/u,
-    /\bstored?\b/u,
-    /\brecords?\b/u,
-    /\bchecklist state\b/u
-  ]);
-  const needsEmail = explicitlyNeeds(selected, [
-    /\be-?mail\b/u,
-    /\bmail(?:ed|ing)?\b/u,
-    /\btransactional message\b/u
-  ]);
-  const needsFiles = explicitlyNeeds(selected, [
-    /\bfile (?:upload|storage)\b/u,
-    /\bupload(?:ed|s|ing)?\b/u,
-    /\battachment\b/u
-  ]);
-  const needsAnalytics = explicitlyNeeds(selected, [
-    /\banalytics\b/u,
-    /\btrack(?:ed|ing)?\b/u,
-    /\bevent instrumentation\b/u,
-    /\bmeasure(?:d|ment)?\b/u
-  ]);
-  const discoveryText = [
-    contract.distribution.firstChannel,
-    contract.distribution.firstUserHabitat,
-    ...contract.product.trustRequirements
-  ].join(" ").toLowerCase();
-  const needsSearch = explicitlyNeeds(discoveryText, [
-    /\bseo\b/u,
-    /\bsearch\b/u,
-    /\bindex(?:ed|ing|ation)?\b/u,
-    /\bcrawl(?:able|ing)?\b/u
-  ]);
+  const required = (capability) => contract.capabilities[capability] === "REQUIRED";
+  const mobile = required("payments") && contract.business.paymentProvider === "revenuecat";
+  const capabilityClassification = Object.entries(contract.capabilities).map(([capability, classification]) => `${capability}=${classification}`).join("; ");
   const knownTruths = contract.truth.facts.map((fact) => `FACT: ${fact}`);
   const assumptions = [
     ...contract.truth.assumptions.map((item) => `FOUNDER_ASSUMPTION: ${item}`),
@@ -18757,6 +18970,8 @@ function founderBriefFromLaunchContract(contractInput) {
     smallest_core_journey: contract.product.primaryJourney.join(" -> "),
     primary_success_signal: contract.decision.primarySuccessSignal,
     material_constraints: [
+      `Canonical Launch Contract capability classifications: ${capabilityClassification}`,
+      `Build and present this reviewable proposition hypothesis without implying demand: ${contract.venture.proposition}`,
       ...contract.product.trustRequirements,
       ...contract.product.explicitNotBuilding.map((item) => `Not building: ${item}`),
       "Do not fabricate provider, user, demand, metric, revenue, or verification state.",
@@ -18770,7 +18985,7 @@ function founderBriefFromLaunchContract(contractInput) {
     app_kind: mobile ? "mobile_ios" : "web",
     requested_mobile_stack: mobile ? "auto" : "none",
     business_model: "b2b",
-    monetization_model: monetizationModel(contract),
+    monetization_model: required("payments") ? monetizationModel(contract) : "none",
     native_digital_goods: mobile,
     target_market: null,
     domain: contract.venture.domain ?? null,
@@ -18797,15 +19012,18 @@ function founderBriefFromLaunchContract(contractInput) {
       on_device_requirements: "low"
     },
     needs: {
-      authenticated_product: needsAuth,
-      database: needsDatabase,
-      file_storage: needsFiles,
-      transactional_email: needsEmail,
+      // The legacy routed capability is the implementation bundle for both
+      // authentication and any REQUIRED authorization rules. The complete
+      // tri-state map remains distinct in build context and acceptance.
+      authenticated_product: required("authentication") || required("authorization"),
+      database: required("database"),
+      file_storage: false,
+      transactional_email: required("transactionalEmail"),
       lifecycle_email: false,
       feedback: false,
-      analytics: needsAnalytics,
-      search_discovery: needsSearch,
-      scheduled_learning: false
+      analytics: required("analytics"),
+      search_discovery: required("seo"),
+      scheduled_learning: required("scheduledLearning")
     },
     preferred_dns_provider: "manual",
     ...contract.synthetic ? { synthetic: true } : {},
@@ -18814,15 +19032,48 @@ function founderBriefFromLaunchContract(contractInput) {
     indispensable_missing_credential: null
   });
 }
+function routedCapabilitiesFromContract(contract, rail, payment) {
+  const required = (capability) => contract.capabilities[capability] === "REQUIRED";
+  const active = /* @__PURE__ */ new Set();
+  if (required("frontend")) active.add("public_website");
+  if (required("database")) active.add("database");
+  if (required("authentication") || required("authorization")) {
+    active.add("authenticated_product");
+  }
+  if (required("transactionalEmail")) active.add("transactional_email");
+  if (required("analytics")) {
+    active.add("ga4");
+    active.add("vercel_analytics");
+  }
+  if (required("seo")) {
+    active.add("gsc");
+    active.add("bing_webmaster");
+  }
+  if (required("seo") || required("aeo") || required("geo")) {
+    active.add("web_seo_aeo_geo");
+  }
+  if (required("scheduledLearning")) active.add("scheduled_learning_loops");
+  if (payment.provider === "stripe") active.add("stripe");
+  if (payment.provider === "revenuecat") active.add("revenuecat");
+  if (rail.appKind !== "web") {
+    active.add("app_store_connect");
+    active.add("ios_aso");
+    if (rail.mobileStack === "expo_react_native") active.add("eas");
+  }
+  return [...active].sort();
+}
 function launchDecisionFromContract(contractInput) {
   const contract = assertLaunchContractSafe(contractInput);
   const brief = founderBriefFromLaunchContract(contract);
   const base = routeLaunch(brief);
   const selectedMode = contract.decision.launchMode;
+  const paymentsRequired = contract.capabilities.payments === "REQUIRED";
+  const entitlementsRequired = contract.capabilities.entitlements === "REQUIRED";
+  const selectedPaymentProvider = paymentsRequired ? contract.business.paymentProvider : "none";
   const payment = {
-    provider: contract.business.paymentProvider,
-    entitlementSource: contract.business.paymentProvider,
-    rationale: `The reviewed Launch Contract selected ${contract.business.paymentProvider} for ${contract.business.model}.`
+    provider: selectedPaymentProvider,
+    entitlementSource: entitlementsRequired && selectedPaymentProvider !== "none" ? selectedPaymentProvider : "none",
+    rationale: paymentsRequired ? `The reviewed Launch Contract classifies payments as REQUIRED and selected ${selectedPaymentProvider} for ${contract.business.model}.` : `The reviewed Launch Contract classifies payments as ${contract.capabilities.payments}; no payment provider is routed for this launch.`
   };
   return {
     ...base,
@@ -18839,7 +19090,7 @@ function launchDecisionFromContract(contractInput) {
       evidenceThatCouldChangeChoice: [contract.decision.changeRule, contract.decision.stopRule]
     },
     payment,
-    capabilities: resolveCapabilities(brief, base.rail, payment)
+    capabilities: routedCapabilitiesFromContract(contract, base.rail, payment)
   };
 }
 function renderLaunchContractYaml(contractInput) {
@@ -18862,6 +19113,7 @@ function renderFounderIdea(contractInput) {
     `- First user: ${contract.venture.targetUser}`,
     `- Painful job: ${contract.venture.painfulJob}`,
     `- Useful outcome: ${contract.venture.desiredOutcome}`,
+    `- Proposition hypothesis: ${contract.venture.proposition}`,
     `- Core feature: ${contract.product.oneCoreFeature}`,
     `- Price hypothesis: ${contract.business.priceHypothesis === null ? "none" : `${contract.business.currency} ${contract.business.priceHypothesis}`}`,
     `- Commitment: ${contract.business.commercialCommitmentEvent}`,
@@ -18897,6 +19149,7 @@ function renderProductConstitution(contractInput) {
     "",
     `- Category: ${contract.venture.oneSentenceThesis}`,
     `- Promise: ${contract.venture.desiredOutcome}`,
+    `- Proposition hypothesis: ${contract.venture.proposition}`,
     `- First user: ${contract.venture.targetUser}`,
     `- Job to be done: ${contract.venture.painfulJob}`,
     `- Native product object: ${contract.product.oneCoreFeature}`,
@@ -18913,6 +19166,12 @@ function renderProductConstitution(contractInput) {
     "Truth classes are FACT, FOUNDER_ASSUMPTION, MODEL_INFERENCE, FIXTURE, EXTERNALLY_VERIFIED, UNKNOWN, and CONTRADICTORY.",
     "",
     "Models may improve framing, prioritization, language, design, and implementation. Models may not invent provider state, users, demand, metrics, results, customers, revenue, reviews, source URLs, or testimonials.",
+    "",
+    "## Capability scope",
+    "",
+    ...Object.entries(contract.capabilities).map(
+      ([capability, classification]) => `- ${capability} \u2014 ${classification}`
+    ),
     "",
     "## Scope exclusions",
     "",
@@ -18999,13 +19258,19 @@ function structuredBrief(source) {
   }
   return void 0;
 }
-function assertSafeIdea(source) {
+function assertSafeIdeaPayload(source) {
   const credential = findCredentialMaterial(source);
   if (credential) {
     throw new Error(
       `Founder idea contains forbidden credential-like material (${credential.kind}); use cred:// references only`
     );
   }
+  if (source.trim().length < 12)
+    throw new Error("Founder idea must contain at least 12 non-whitespace characters");
+  if (source.length > 1e5)
+    throw new Error("Founder idea exceeds the 100000-character launch limit");
+}
+function assertNoCredentialLabeledField(source) {
   if (/^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
     source
   )) {
@@ -19013,10 +19278,6 @@ function assertSafeIdea(source) {
       "Founder idea contains a credential-labeled field; remove the value and use a cred:// reference outside the idea"
     );
   }
-  if (source.trim().length < 12)
-    throw new Error("Founder idea must contain at least 12 non-whitespace characters");
-  if (source.length > 1e5)
-    throw new Error("Founder idea exceeds the 100000-character launch limit");
 }
 function markdownBrief(source) {
   const title = textLine(source, ["Name", "Product", "Venture"]) ?? heading(source) ?? "Founder Venture";
@@ -19115,7 +19376,7 @@ function markdownBrief(source) {
   return { brief, assumptionsAdded };
 }
 function compileFounderIdea(source) {
-  assertSafeIdea(source);
+  assertSafeIdeaPayload(source);
   const hash = createHash6("sha256").update(source).digest("hex");
   const launchContract = parseLaunchContractSource(source);
   if (launchContract) {
@@ -19135,6 +19396,7 @@ function compileFounderIdea(source) {
       })
     });
   }
+  assertNoCredentialLabeledField(source);
   const structured = structuredBrief(source);
   if (structured) {
     return Object.freeze({
@@ -19158,9 +19420,6 @@ function compileFounderIdea(source) {
 }
 
 // lib/founder-launch/idea-sharpener.ts
-import { mkdtempSync, rmSync as rmSync2 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join as join4 } from "node:path";
 var IDEA_SHARPENER_TOTAL_CALL_LIMIT = 2;
 var IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT = 24e3;
 var IdeaSharpenError = class extends Error {
@@ -19171,135 +19430,18 @@ var IdeaSharpenError = class extends Error {
   }
   accounting;
 };
-var CODEX_IDEA_SHARPENER_ARGS = [
-  "exec",
-  "--sandbox",
-  "read-only",
-  "--ephemeral",
-  "--ignore-user-config",
-  "--skip-git-repo-check",
-  "--json"
-];
-var SAFE_ENVIRONMENT_KEYS = [
-  "PATH",
-  "HOME",
-  "USERPROFILE",
-  "CODEX_HOME",
-  "XDG_CONFIG_HOME",
-  "TMPDIR",
-  "TMP",
-  "TEMP",
-  "LANG",
-  "LC_ALL",
-  "TERM",
-  "NO_COLOR",
-  "CI",
-  "SystemRoot",
-  "PATHEXT"
-];
-function ideaSharpenerEnvironment(source) {
-  return {
-    NODE_ENV: source.NODE_ENV ?? "production",
-    ...Object.fromEntries(
-      SAFE_ENVIRONMENT_KEYS.flatMap(
-        (key) => source[key] === void 0 ? [] : [[key, source[key]]]
-      )
-    )
-  };
-}
-function objectRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function assistantText(event) {
-  const record3 = objectRecord(event);
-  if (!record3) return null;
-  if (record3.type === "item.completed") {
-    const item = objectRecord(record3.item);
-    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
-  }
-  if (record3.type === "turn.completed" && typeof record3.final_output === "string") {
-    return record3.final_output;
-  }
-  if (record3.type === "result" && typeof record3.result === "string") return record3.result;
-  return null;
-}
-function eventUsage(event) {
-  const record3 = objectRecord(event);
-  if (record3?.type !== "turn.completed") return void 0;
-  const usage = objectRecord(record3.usage);
-  if (!usage) return void 0;
-  if (typeof usage.input_tokens !== "number" || typeof usage.cached_input_tokens !== "number" || typeof usage.output_tokens !== "number") {
-    return void 0;
-  }
-  return {
-    inputTokens: usage.input_tokens,
-    cachedInputTokens: usage.cached_input_tokens,
-    outputTokens: usage.output_tokens,
-    ...typeof record3.model === "string" && record3.model.trim() ? { model: record3.model.trim() } : {}
-  };
-}
-function parseCodexJsonLines(stdout) {
-  const finalTexts = [];
-  let usage;
-  for (const [index, line] of stdout.split(/\r?\n/u).filter((candidate) => candidate.trim().length > 0).entries()) {
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      throw new Error(`Codex sharpener JSONL line ${index + 1} was invalid`);
-    }
-    const text2 = assistantText(event);
-    if (text2) finalTexts.push(text2);
-    usage = eventUsage(event) ?? usage;
-  }
-  const finalText = finalTexts.at(-1);
-  if (!finalText) throw new Error("Codex sharpener returned no final Launch Contract");
-  return { finalText, usage };
-}
 var CodexCliIdeaSharpenerHost = class {
   id = "codex_cli";
-  runner;
-  binary;
-  redactor;
-  model;
-  constructor(options) {
-    this.runner = options.runner;
-    this.binary = options.binary ?? "codex";
-    this.redactor = options.redactor ?? new Redactor();
-    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
+  constructor(options = {}) {
+    void options.binary;
+    void options.redactor;
+    void options.model;
   }
   async run(input) {
-    const isolatedRoot = mkdtempSync(join4(tmpdir(), "vh-idea-sharpen-"));
-    try {
-      const result2 = await this.runner.run({
-        command: this.binary,
-        args: [
-          ...CODEX_IDEA_SHARPENER_ARGS,
-          ...this.model ? ["--model", this.model] : [],
-          "-C",
-          isolatedRoot,
-          "-"
-        ],
-        cwd: isolatedRoot,
-        stdin: input.prompt,
-        sensitiveStdin: true,
-        env: ideaSharpenerEnvironment(process.env),
-        signal: input.signal
-      });
-      if (result2.exitCode !== 0) {
-        const detail = this.redactor.redactText(result2.stderr || result2.stdout).trim().slice(0, 2e3);
-        throw new Error(
-          `Codex idea ${input.phase} call exited ${result2.exitCode}${detail ? `: ${detail}` : ""}`
-        );
-      }
-      const parsed = parseCodexJsonLines(result2.stdout);
-      return {
-        ...parsed,
-        usage: parsed.usage ? { ...parsed.usage, ...parsed.usage.model || !this.model ? {} : { model: this.model } } : void 0
-      };
-    } finally {
-      rmSync2(isolatedRoot, { force: true, recursive: true });
-    }
+    void input;
+    throw new Error(
+      "Codex idea sharpening is disabled before invocation because no audited outer read-isolation driver is available. Supply a valid Launch Contract for the zero-model path; model execution is not installed in founder alpha."
+    );
   }
 };
 function schemaSkeleton() {
@@ -19313,6 +19455,7 @@ function schemaSkeleton() {
         targetUser: "",
         painfulJob: "",
         desiredOutcome: "",
+        proposition: "",
         differentiation: "",
         founderAdvantage: ""
       },
@@ -19357,6 +19500,23 @@ function schemaSkeleton() {
         customerAgentSurfaceRequired: false,
         serviceBlueprintRequired: false,
         outcomeCommands: []
+      },
+      capabilities: {
+        frontend: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        backend: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        database: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        authentication: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        authorization: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        payments: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        entitlements: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        transactionalEmail: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        analytics: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        privacyAndConsent: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        seo: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        aeo: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        geo: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        agentSurface: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        scheduledLearning: "REQUIRED | DEFERRED | NOT_APPLICABLE"
       }
     },
     null,
@@ -19368,11 +19528,12 @@ function primaryPrompt(source, today) {
     "Turn one rough founder idea into the smallest credible Launch Contract.",
     "This is one bounded judgement call. Do not browse, use tools, read files, plan provider operations, or write code.",
     "Return exactly one JSON object matching the skeleton below, with no Markdown fence or prose.",
-    "Use one user, one painful job, one useful outcome, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list.",
+    "Use one user, one painful job, one useful outcome, one concise reviewable proposition hypothesis, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list. Keep venture.proposition distinct from the one-sentence category thesis and do not present it as validated demand or a completed founder review.",
     "Do not invent demand, users, quotes, revenue, metrics, provider state, external evidence, founder credentials, market size, or pricing certainty. Put reversible uncertainty in truth.assumptions, truth.inferences, or truth.unknowns.",
     "Default to thin_mvp. Use product_first only when real usage is indispensable, validate_first only when risk or cost makes a smaller demand test necessary, and concierge_first only when honest manual delivery is materially better.",
     "Default business.model to free and paymentProvider to none unless the founder proposes present commerce. Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. priceHypothesis is one positive numeric amount or null. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
-    "Do not require auth, persistence, email, analytics, search, agents, or scheduled work unless the primary journey actually needs it. Put material implementation needs in product.trustRequirements using direct terms such as authentication, persisted state, transactional email, analytics, or SEO.",
+    "Classify every capabilities field explicitly. REQUIRED means indispensable to this launch and its acceptance criteria; DEFERRED means a reviewed later possibility excluded from the present build; NOT_APPLICABLE means it does not fit this venture. Do not install generic SaaS infrastructure by default.",
+    "Derive the classification from the primary journey, trust boundary, current commercial proof, and first channel. Authentication and authorization are separate decisions; authorization REQUIRED also requires authentication REQUIRED. Payments REQUIRED needs the supported selected provider. An agentNative customer surface, service blueprint, or outcome command requires agentSurface REQUIRED.",
     `Today is ${today}; choose a concrete reviewDate after today without claiming future evidence.`,
     "Schema skeleton (replace every placeholder and use only the listed keys/enums):",
     schemaSkeleton(),
@@ -19397,6 +19558,13 @@ function jsonCandidate(text2) {
   const trimmed = text2.trim();
   const withoutFence = trimmed.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
   return JSON.parse(withoutFence);
+}
+function assertSharpenerOutputCredentialFree(text2) {
+  if (looksLikeCredentialValue(text2) || looksLikeCredentialLabeledText(text2)) {
+    throw new Error(
+      "Idea sharpener returned credential-like material; the candidate was rejected before reuse"
+    );
+  }
 }
 function validateCandidate(text2) {
   let candidate;
@@ -19469,11 +19637,6 @@ async function sharpenIdea(source, options = {}) {
       `Rough idea contains forbidden credential-like material (${credential.kind}); remove it before sharpening`
     );
   }
-  if (/^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
-    source
-  )) {
-    throw new Error("Rough idea contains a credential-labeled field; remove it before sharpening");
-  }
   const startedAt = (options.now ?? (() => /* @__PURE__ */ new Date()))().getTime();
   const structured = parseLaunchContractSource(source);
   if (structured) {
@@ -19495,6 +19658,11 @@ async function sharpenIdea(source, options = {}) {
       )
     };
   }
+  if (/^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
+    source
+  )) {
+    throw new Error("Rough idea contains a credential-labeled field; remove it before sharpening");
+  }
   if (!options.host) {
     throw new Error("Unstructured ideas require the authenticated Codex CLI sharpener host");
   }
@@ -19513,9 +19681,11 @@ async function sharpenIdea(source, options = {}) {
   };
   try {
     let finalText = await run(primaryPrompt(source, today), "primary");
+    assertSharpenerOutputCredentialFree(finalText);
     let parsed = validateCandidate(finalText);
     if (!parsed.success) {
       finalText = await run(refinementPrompt(finalText, parsed.issues, today), "refinement");
+      assertSharpenerOutputCredentialFree(finalText);
       parsed = validateCandidate(finalText);
     }
     if (!parsed.success) {
@@ -21215,7 +21385,7 @@ var repositoryFiles = [
   file(
     ".github/workflows/venture-core.yml",
     "core_owned",
-    "name: Venture Core\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  verify:\n    uses: meestierolff/venture-harness/.github/workflows/venture-verify.yml@{{workflowRefSha}}\n"
+    "name: Venture Core\non:\n  pull_request:\n  workflow_dispatch:\njobs:\n  verify:\n    uses: {{workflowRepository}}/.github/workflows/venture-verify.yml@{{workflowRefSha}}\n"
   ),
   file(
     "src/app-shell.ts",
@@ -21283,7 +21453,7 @@ var ventureConfig = {
       secondary: []
     },
     capabilities: {
-      active: ["public_website", "web_seo_aeo_geo"],
+      active: ["public_website"],
       open: []
     },
     extensions: {}
@@ -21661,7 +21831,7 @@ Build the smallest trustworthy product described by \`config/launch-contract.yam
 
 Read \`PROJECT.md\`, \`config/launch-contract.yaml\` when present, \`docs/product/PRODUCT_CONSTITUTION.md\`, \`docs/product/PRODUCT_TRUTH.md\`, and the relevant typed config before changing product code.
 
-Use \`skills/design-director/SKILL.md\` for the first product/design pass. Implement only the Launch Contract's core journey and explicit capabilities. Missing non-critical detail becomes a labeled assumption; never invent users, provider state, demand, metrics, revenue, reviews, or evidence.
+Use \`skills/design-director/SKILL.md\` for the first product/design pass. Use \`skills/seo-aeo-engine/SKILL.md\` only when \`web_seo_aeo_geo\` is REQUIRED in the selected build context. Implement only the Launch Contract's core journey and explicit capabilities. Missing non-critical detail becomes a labeled assumption; never invent users, provider state, demand, queries, traffic, citations, metrics, revenue, reviews, or evidence.
 
 Keep credentials and private runtime state out of Git and model context. Product and design files are venture-owned; Core upgrades may not overwrite them. Run \`pnpm verify:fast\` for focused work and \`pnpm verify\` before completion.
 `
@@ -21728,6 +21898,61 @@ Require a coherent design thesis, useful hierarchy, product-specific states, key
 `
   ),
   file(
+    "skills/seo-aeo-engine/SKILL.md",
+    "core_owned",
+    `---
+name: seo-aeo-engine
+description: Implement truthful technical SEO/AEO only when the Launch Contract requires web_seo_aeo_geo.
+---
+
+# SEO/AEO engine
+
+Read \`config/launch-contract.yaml\`, \`config/seo.yaml\`, Product Truth, and \`references/technical-discovery.md\`. If the capability is not REQUIRED, do not add discovery infrastructure. If a required file is missing, stop.
+
+Keep one intentional canonical owner per user task. Put the direct answer and decisive limitation in raw HTML. Give every owner a unique accurate title, description, visible H1, self-canonical, and useful next step. Keep auth, account, edit, draft, API, private, user-generated, and noindex routes out of sitemaps. Structured data must parse and describe visible verified facts only. Never invent queries, traffic, citations, ratings, reviews, people, customers, outcomes, or provider state.
+
+Indexing remains disabled until a verified production origin, product-truth review, successful raw-HTML/crawl checks, and the explicit \`NEXT_PUBLIC_INDEXING_ENABLED=true\` opt-in. A sitemap, indexing request, or crawler receipt proves neither indexation nor demand.
+`
+  ),
+  file(
+    "skills/seo-aeo-engine/references/technical-discovery.md",
+    "core_owned",
+    `# Technical discovery checklist
+
+For each intended public owner, verify a stable 200 response, raw HTML proposition and limitation, unique title and description, one H1, absolute self-canonical, useful internal link, mobile/accessibility baseline, and truthful parseable JSON-LD when present.
+
+The sitemap may contain only preferred public 200 owners. Exclude auth, account, edit, draft, API, search-result, private, user-generated, parameterized, redirected, and noindex routes. Robots, meta robots, canonical, sitemap, internal links, and structured-data identifiers must agree. Search crawling and model-training permission are separate policy choices.
+`
+  ),
+  file(
+    "config/seo.yaml",
+    "venture_owned",
+    `schema_version: 1
+maturity: pre-launch
+indexing:
+  default: disabled
+  activation: verified_production_plus_explicit_environment_opt_in
+  environment_flag: NEXT_PUBLIC_INDEXING_ENABLED=true
+canonical_owners:
+  - route: /
+    user_task: venture-specific primary journey
+    state: candidate_until_product_review
+excluded_route_prefixes:
+  - /api
+  - /auth
+  - /account
+  - /edit
+  - /draft
+  - /private
+  - /user
+excluded_routes:
+  - /status
+structured_data: visible_verified_facts_only
+query_evidence: missing
+live_indexation: unknown
+`
+  ),
+  file(
     "app/layout.tsx",
     "merge_managed",
     `import type { Metadata } from "next";
@@ -21740,7 +21965,6 @@ export const metadata: Metadata = {
   metadataBase: SITE_URL,
   title: { default: SITE.name, template: "%s | " + SITE.name },
   description: SITE.description,
-  alternates: { canonical: "/" },
   robots: { index: INDEXING_ENABLED, follow: INDEXING_ENABLED },
 };
 
@@ -21756,7 +21980,15 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   file(
     "app/page.tsx",
     "venture_owned",
-    `import Link from "next/link";
+    `import type { Metadata } from "next";
+import Link from "next/link";
+import { SITE } from "../src/config/site";
+
+export const metadata: Metadata = {
+  title: SITE.name,
+  description: SITE.description,
+  alternates: { canonical: "/" },
+};
 
 export default function Home() {
   return (
@@ -21784,7 +22016,16 @@ export default function Home() {
   file(
     "app/status/page.tsx",
     "venture_owned",
-    `import Link from "next/link";
+    `import type { Metadata } from "next";
+import Link from "next/link";
+import { SITE } from "../../src/config/site";
+
+export const metadata: Metadata = {
+  title: "Launch status",
+  description: "Current local verification boundary for " + SITE.name + ".",
+  alternates: { canonical: "/status" },
+  robots: { index: false, follow: false },
+};
 
 export default function StatusPage() {
   return (
@@ -21833,12 +22074,12 @@ export default function robots(): MetadataRoute.Robots {
     "app/sitemap.ts",
     "merge_managed",
     `import type { MetadataRoute } from "next";
-import { SITE_URL } from "../src/config/site";
+import { INDEXING_ENABLED, SITE_URL } from "../src/config/site";
 
 export default function sitemap(): MetadataRoute.Sitemap {
+  if (!INDEXING_ENABLED) return [];
   return [
     { url: new URL("/", SITE_URL).toString(), changeFrequency: "weekly", priority: 1 },
-    { url: new URL("/status", SITE_URL).toString(), changeFrequency: "monthly", priority: 0.2 },
   ];
 }
 `
@@ -21905,7 +22146,8 @@ export const SITE_URL = new URL(configuredSiteUrl);
 export const INDEXING_ENABLED =
   verifiedProductionEnvironment &&
   Boolean(explicitSiteOrigin ?? vercelProductionOrigin) &&
-  process.env.NEXT_PUBLIC_INDEXING_ENABLED !== "false";
+  SITE_URL.protocol === "https:" &&
+  process.env.NEXT_PUBLIC_INDEXING_ENABLED === "true";
 export const SITE = Object.freeze({
   name: "{{ventureName}}",
   slug: "{{ventureSlug}}",
@@ -21940,20 +22182,60 @@ export function analyticsEvent(name: AnalyticsEventName, properties: SafeAnalyti
     "core_owned",
     String.raw`import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+  type Stats,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 const MAX_ENTRIES = 10_000;
 const MAX_BLOB_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
+const MAX_PATH_BYTES = 1_024;
+const MAX_PATH_COMPONENT_BYTES = 255;
 const COMMIT_MESSAGE = "chore: publish verified venture source";
 const BOOTSTRAP_PATH = ".venture-harness-bootstrap";
 const BOOTSTRAP_CONTENT = Buffer.from("venture-harness-source-bootstrap-v1\n", "utf8");
+const RUNTIME_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "WINDIR",
+  "PATHEXT",
+] as const;
+const GIT_ENVIRONMENT_OVERRIDES = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]);
 
 type Visibility = "private" | "public" | "internal";
-type TreeMode = "100644" | "100755" | "120000";
+type TreeMode = "100644" | "100755";
 
 interface CommandResult {
   exitCode: number;
@@ -21970,7 +22252,7 @@ interface SourceEntry {
 
 interface SourceSnapshot {
   treeOid: string;
-  entries: SourceEntry[];
+  entries: readonly SourceEntry[];
 }
 
 interface RepositoryState {
@@ -21984,6 +22266,39 @@ interface BranchState {
   treeOid: string;
 }
 
+function commandEnvironment(command: string, overrides: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV ?? "production",
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_CONFIG_NOSYSTEM: "1",
+    NPM_CONFIG_GLOBALCONFIG: nullDevice,
+    NPM_CONFIG_USERCONFIG: nullDevice,
+    npm_config_globalconfig: nullDevice,
+    npm_config_userconfig: nullDevice,
+    GIT_TERMINAL_PROMPT: "0",
+    GH_PROMPT_DISABLED: "1",
+  };
+  for (const name of RUNTIME_ENVIRONMENT_KEYS) {
+    const value = process.env[name];
+    if (value !== undefined) environment[name] = value;
+  }
+  const executable = command.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  for (const [name, value] of Object.entries(overrides)) {
+    if (
+      executable !== "git" ||
+      !GIT_ENVIRONMENT_OVERRIDES.has(name) ||
+      !isAbsolute(value) ||
+      value.length > 4_096 ||
+      /[\u0000-\u001f\u007f]/u.test(value)
+    ) {
+      throw new Error("Refusing unsupported direct-command environment field " + name);
+    }
+    environment[name] = value;
+  }
+  return environment;
+}
+
 function run(
   command: string,
   args: string[],
@@ -21994,7 +22309,7 @@ function run(
   }
   const result = spawnSync(command, args, {
     cwd: options.cwd,
-    env: { ...process.env, ...options.env },
+    env: commandEnvironment(command, options.env ?? {}),
     input: options.input,
     encoding: null,
     shell: false,
@@ -22074,19 +22389,69 @@ function assertOid(oid: string, label: string): void {
   if (!/^[0-9a-f]{40}$/.test(oid)) throw new Error(label + " is not an exact SHA-1 object id");
 }
 
+const CREDENTIAL_STORE_BASENAMES = new Set([
+  ".npmrc",
+  ".netrc",
+  "_netrc",
+  ".pypirc",
+  ".git-credentials",
+  ".terraformrc",
+  "terraform.rc",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+]);
+const CREDENTIAL_STORE_SUFFIXES = [
+  "/.docker/config.json",
+  "/.config/containers/auth.json",
+  "/.config/gcloud/application_default_credentials.json",
+  "/.aws/credentials",
+  "/.kube/config",
+  "/.cargo/credentials",
+  "/.cargo/credentials.toml",
+  "/.gem/credentials",
+] as const;
+
+function isCredentialStorePath(path: string): boolean {
+  const normalized = "/" + path.toLowerCase();
+  const name = normalized.split("/").at(-1) ?? "";
+  return (
+    CREDENTIAL_STORE_BASENAMES.has(name) ||
+    CREDENTIAL_STORE_SUFFIXES.some((suffix) => normalized.endsWith(suffix)) ||
+    /(?:^|[/_.-])service[-_]?account(?:[/_.-]|$).*\.json$/u.test(normalized) ||
+    /\.(?:pem|key|p12|pfx|jks|keystore)$/u.test(name)
+  );
+}
+
 function assertSourcePath(path: string): void {
+  const parts = path.split("/");
   if (
-    !path ||
+    path.length === 0 ||
     path.startsWith("/") ||
-    path.includes("\0") ||
-    path.split("/").some((part) => !part || part === "." || part === "..") ||
+    path.includes("\\") ||
+    /[\u0000-\u001f\u007f]/u.test(path) ||
+    Buffer.byteLength(path, "utf8") > MAX_PATH_BYTES ||
+    Buffer.from(path, "utf8").toString("utf8") !== path ||
+    parts.some(
+      (part) =>
+        part.length === 0 ||
+        part === "." ||
+        part === ".." ||
+        Buffer.byteLength(part, "utf8") > MAX_PATH_COMPONENT_BYTES ||
+        part.toLowerCase() === ".git",
+    )
+  ) {
+    throw new Error("Local source contains an unsafe path");
+  }
+  if (
     path === BOOTSTRAP_PATH ||
     path === ".venture" ||
     path.startsWith(".venture/") ||
     path === "reports" ||
     path.startsWith("reports/")
   ) {
-    throw new Error("Local source contains an unsafe or private runtime path");
+    throw new Error("Local source contains a reserved private runtime path");
   }
   const name = path.split("/").at(-1) ?? path;
   const environmentFile = /^\.env(?:\..+)?$/.test(name);
@@ -22094,6 +22459,188 @@ function assertSourcePath(path: string): void {
   if (environmentFile && !reviewedExample) {
     throw new Error("Local source contains an unreviewed environment file");
   }
+  if (isCredentialStorePath(path)) {
+    throw new Error("Local source contains credential-store path " + JSON.stringify(path));
+  }
+}
+
+const CREDENTIAL_PATTERNS = [
+  new RegExp("\\bsk-" + "proj-[A-Za-z0-9_-]{16,}", "iu"),
+  new RegExp("\\bsk-" + "[A-Za-z0-9_-]{20,}", "iu"),
+  new RegExp("\\b(?:sk|rk|pk|atk)_" + "(?:live|test)?_?[A-Za-z0-9_-]{8,}", "iu"),
+  new RegExp("\\bwh" + "sec_[A-Za-z0-9_-]{8,}", "iu"),
+  new RegExp("\\bxkey" + "sib-[A-Za-z0-9_-]{12,}", "iu"),
+  new RegExp("\\b(?:gh" + "[pousr]_[A-Za-z0-9_]{20,}|github" + "_pat_[A-Za-z0-9_]{20,})\\b", "iu"),
+  new RegExp("\\bxox" + "[baprs]-[A-Za-z0-9-]{10,}", "iu"),
+  new RegExp("\\b(?:AKIA|ASIA)" + "[A-Z0-9]{16}\\b", "u"),
+  new RegExp("\\bbearer\\s+" + "[A-Za-z0-9._~+/=-]{8,}", "iu"),
+  new RegExp("-----BEGIN " + "[A-Z ]*PRIVATE KEY-----", "u"),
+  new RegExp("\\beyJ" + "[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b", "iu"),
+  new RegExp("[?&](?:access_token|api_key|token|secret)=" + "[^&\\s]{6,}", "iu"),
+  new RegExp("\\b[A-Za-z][A-Za-z0-9+.-]*://" + "[^\\s/:@]+:[^\\s/@]+@", "iu"),
+] as const;
+const CREDENTIAL_REFERENCE = /^cred:\/\/[A-Za-z0-9][A-Za-z0-9/_:.-]*$/u;
+const BENIGN_CREDENTIAL_PLACEHOLDER =
+  /^(?:REPLACE(?:_WITH)?_[A-Z0-9_]+|YOUR_[A-Z0-9_]+|<[^<>\r\n]{1,80}>|\[(?:REDACTED|MASKED)\])$/u;
+const CREDENTIAL_LABELED_LINE =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:[A-Za-z0-9][A-Za-z0-9 ._-]{0,40}\s+)?(?:access[ _-]?token|refresh[ _-]?token|id[ _-]?token|api[ _-]?key|client[ _-]?secret|private[ _-]?key|password|secret|credential(?:[ _-]?value)?|authorization(?:\s+header)?)\s*[:=]\s*\S+/iu;
+const CONFIG_LITERAL = /^[A-Za-z0-9._~+/=-]{12,}$/u;
+
+function containsCredentialLabeledLiteral(value: string): boolean {
+  for (const line of value.split(/\r?\n/u)) {
+    if (!CREDENTIAL_LABELED_LINE.test(line)) continue;
+    const separator = line.search(/[:=]/u);
+    if (separator < 0) continue;
+    let literal = line.slice(separator + 1).trim().replace(/,\s*$/u, "");
+    const quote = literal[0];
+    if ((quote === '"' || quote === "'") && literal.at(-1) === quote) {
+      literal = literal.slice(1, -1);
+    }
+    if (CREDENTIAL_REFERENCE.test(literal) || BENIGN_CREDENTIAL_PLACEHOLDER.test(literal)) {
+      continue;
+    }
+    if (CONFIG_LITERAL.test(literal) && /[0-9._~+/=-]/u.test(literal)) return true;
+  }
+  return false;
+}
+
+function assertCredentialFreeBuffer(path: string, content: Buffer): void {
+  const value = content.toString("utf8");
+  const pattern = CREDENTIAL_PATTERNS.some((candidate) => candidate.test(value));
+  const labeled = containsCredentialLabeledLiteral(value);
+  if (pattern || labeled) {
+    const category = labeled ? "credential_labeled_text" : "credential_pattern";
+    throw new Error(
+      "Local source blob " + JSON.stringify(path) + " contains credential-like content (" + category + ")",
+    );
+  }
+}
+
+interface SourceTreeDirectory {
+  readonly directories: Map<string, SourceTreeDirectory>;
+  readonly entries: Map<string, Pick<SourceEntry, "mode" | "oid">>;
+}
+
+function sourceTreeOid(entries: readonly SourceEntry[]): string {
+  const root = (): SourceTreeDirectory => ({ directories: new Map(), entries: new Map() });
+  const tree = root();
+  for (const entry of entries) {
+    const parts = entry.path.split("/");
+    let directory = tree;
+    for (const [index, part] of parts.entries()) {
+      const leaf = index === parts.length - 1;
+      if (leaf) {
+        if (directory.directories.has(part) || directory.entries.has(part)) {
+          throw new Error("Local source tree contains a conflicting path");
+        }
+        directory.entries.set(part, { mode: entry.mode, oid: entry.oid });
+      } else {
+        if (directory.entries.has(part)) throw new Error("Local source tree contains a conflicting path");
+        let child = directory.directories.get(part);
+        if (!child) {
+          child = root();
+          directory.directories.set(part, child);
+        }
+        directory = child;
+      }
+    }
+  }
+  const hash = (directory: SourceTreeDirectory): string => {
+    const children = [
+      ...[...directory.entries.entries()].map(([name, entry]) => ({
+        name,
+        sortName: Buffer.from(name, "utf8"),
+        mode: entry.mode,
+        oid: entry.oid,
+      })),
+      ...[...directory.directories.entries()].map(([name, child]) => ({
+        name,
+        sortName: Buffer.from(name + "/", "utf8"),
+        mode: "40000",
+        oid: hash(child),
+      })),
+    ].sort((left, right) => Buffer.compare(left.sortName, right.sortName));
+    const body = Buffer.concat(
+      children.map((child) =>
+        Buffer.concat([
+          Buffer.from(child.mode + " " + child.name + "\0", "utf8"),
+          Buffer.from(child.oid, "hex"),
+        ]),
+      ),
+    );
+    return createHash("sha1")
+      .update(Buffer.from("tree " + body.byteLength + "\0", "utf8"))
+      .update(body)
+      .digest("hex");
+  };
+  return hash(tree);
+}
+
+function validateSnapshot(snapshot: SourceSnapshot): SourceSnapshot {
+  assertOid(snapshot.treeOid, "Local source tree id");
+  if (snapshot.entries.length === 0) throw new Error("Refusing to publish an empty source tree");
+  if (snapshot.entries.length > MAX_ENTRIES) throw new Error("Local source exceeds the entry safety limit");
+  const exactPaths = new Set<string>();
+  const portablePaths = new Set<string>();
+  const entries: SourceEntry[] = [];
+  let totalBytes = 0;
+  for (const candidate of snapshot.entries) {
+    assertSourcePath(candidate.path);
+    if (exactPaths.has(candidate.path)) throw new Error("Local source tree contains a duplicate path");
+    exactPaths.add(candidate.path);
+    const portablePath = candidate.path.normalize("NFC").toLowerCase();
+    if (portablePaths.has(portablePath)) throw new Error("Local source tree contains an ambiguous path");
+    portablePaths.add(portablePath);
+    if (candidate.mode !== "100644" && candidate.mode !== "100755") {
+      throw new Error("Local source contains an unsupported tree entry");
+    }
+    assertOid(candidate.oid, "Local source blob id");
+    const content = Buffer.from(candidate.content);
+    if (content.byteLength > MAX_BLOB_BYTES) throw new Error("Local source blob exceeds the safety limit");
+    totalBytes += content.byteLength;
+    if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Local source exceeds the aggregate safety limit");
+    if (gitBlobOid(content) !== candidate.oid) {
+      throw new Error("Local source blob does not match its exact object id");
+    }
+    assertCredentialFreeBuffer(candidate.path, content);
+    entries.push(Object.freeze({ path: candidate.path, mode: candidate.mode, oid: candidate.oid, content }));
+  }
+  if (sourceTreeOid(entries) !== snapshot.treeOid) {
+    throw new Error("Local source tree id does not match its exact validated entries");
+  }
+  return Object.freeze({ treeOid: snapshot.treeOid, entries: Object.freeze(entries) });
+}
+
+const PREFLIGHT_IGNORED_ROOTS = new Set([
+  ".git",
+  ".next",
+  ".venture",
+  "coverage",
+  "dist",
+  "node_modules",
+  "reports",
+]);
+
+function assertPrivateRegularSourceTree(root: string): void {
+  const visit = (directory: string, relativeDirectory = ""): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = relativeDirectory ? relativeDirectory + "/" + entry.name : entry.name;
+      if (!relativeDirectory && PREFLIGHT_IGNORED_ROOTS.has(entry.name)) continue;
+      const absolute = join(directory, entry.name);
+      const metadata = lstatSync(absolute);
+      if (metadata.isSymbolicLink()) {
+        throw new Error("Local source contains a symbolic link at " + path);
+      }
+      if (metadata.isDirectory()) {
+        visit(absolute, path);
+        continue;
+      }
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new Error("Local source contains a non-private or non-regular entry at " + path);
+      }
+    }
+  };
+  visit(root);
 }
 
 function loadSnapshot(root: string): SourceSnapshot {
@@ -22102,6 +22649,7 @@ function loadSnapshot(root: string): SourceSnapshot {
   const gitDirectory = join(temporaryRoot, "source.git");
   const gitEnvironment = { GIT_DIR: gitDirectory, GIT_WORK_TREE: sourceRoot };
   try {
+    assertPrivateRegularSourceTree(sourceRoot);
     success(
       run("git", ["init", "--bare", "--object-format=sha1", gitDirectory], { cwd: sourceRoot }),
       "Initialize isolated source index",
@@ -22134,7 +22682,7 @@ function loadSnapshot(root: string): SourceSnapshot {
       if (separator < 0) throw new Error("Local source tree returned a malformed entry");
       const [mode, type, oid] = row.slice(0, separator).split(" ");
       const path = row.slice(separator + 1);
-      if (type !== "blob" || !["100644", "100755", "120000"].includes(mode ?? "")) {
+      if (type !== "blob" || !["100644", "100755"].includes(mode ?? "")) {
         throw new Error("Local source contains an unsupported tree entry");
       }
       assertSourcePath(path);
@@ -22148,7 +22696,7 @@ function loadSnapshot(root: string): SourceSnapshot {
       if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Local source exceeds the aggregate safety limit");
       entries.push({ path, mode: mode as TreeMode, oid: oid!, content });
     }
-    return { treeOid, entries };
+    return validateSnapshot({ treeOid, entries });
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -22260,6 +22808,9 @@ function uploadSnapshot(
   const uploaded = new Set<string>();
   for (const entry of snapshot.entries) {
     if (uploaded.has(entry.oid)) continue;
+    if (gitBlobOid(entry.content) !== entry.oid) {
+      throw new Error("Validated local source blob changed before upload");
+    }
     const blobResult = gh("repos/" + repository + "/git/blobs", {
       method: "POST",
       body: { content: entry.content.toString("base64"), encoding: "base64" },
@@ -22269,6 +22820,9 @@ function uploadSnapshot(
       throw new Error("GitHub blob read-back did not match the local source blob");
     }
     uploaded.add(entry.oid);
+  }
+  if (sourceTreeOid(snapshot.entries) !== snapshot.treeOid) {
+    throw new Error("Validated local source tree changed before upload");
   }
   const treeResult = gh("repos/" + repository + "/git/trees", {
     method: "POST",
@@ -22332,6 +22886,317 @@ async function verify(
   throw new Error("GitHub exact source read-back remained unavailable");
 }
 
+interface ChildDirectoryIdentity {
+  path: string;
+  device: number;
+  inode: number;
+}
+
+interface ChildFileIdentity {
+  device: number;
+  inode: number;
+  size: number;
+  modifiedAtMs: number;
+  changedAtMs: number;
+}
+
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+
+function currentUid(): number | null {
+  return typeof process.getuid === "function" ? process.getuid() : null;
+}
+
+function pathEntryExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function fileIdentity(metadata: Stats): ChildFileIdentity {
+  return {
+    device: metadata.dev,
+    inode: metadata.ino,
+    size: metadata.size,
+    modifiedAtMs: metadata.mtimeMs,
+    changedAtMs: metadata.ctimeMs,
+  };
+}
+
+function sameFileIdentity(metadata: Stats, expected: ChildFileIdentity): boolean {
+  return (
+    metadata.dev === expected.device &&
+    metadata.ino === expected.inode &&
+    metadata.size === expected.size &&
+    metadata.mtimeMs === expected.modifiedAtMs &&
+    metadata.ctimeMs === expected.changedAtMs
+  );
+}
+
+function sameNodeIdentity(metadata: Stats, expected: ChildFileIdentity): boolean {
+  return metadata.dev === expected.device && metadata.ino === expected.inode;
+}
+
+function assertOwnerControlled(metadata: Stats, label: string): void {
+  const uid = currentUid();
+  if (uid !== null && metadata.uid !== uid) {
+    throw new Error(label + " must be owned by the current user");
+  }
+  if ((metadata.mode & 0o022) !== 0) {
+    throw new Error(label + " must not be writable by group or other users");
+  }
+}
+
+function assertDirectoryMetadata(metadata: Stats, label: string): void {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(label + " must be a real non-symlink directory");
+  }
+  assertOwnerControlled(metadata, label);
+}
+
+function assertBoundaryMetadata(metadata: Stats, label: string): void {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(label + " must be a real non-symlink directory");
+  }
+  try {
+    assertOwnerControlled(metadata, label);
+  } catch (error) {
+    const rootOwnedStickyDirectory =
+      currentUid() !== null &&
+      metadata.uid === 0 &&
+      (metadata.mode & 0o1000) !== 0 &&
+      (metadata.mode & 0o002) !== 0;
+    if (!rootOwnedStickyDirectory) throw error;
+  }
+}
+
+function assertRenameProtected(path: string, metadata: Stats, label: string): void {
+  const parent = dirname(path);
+  if (parent === path) return;
+  const parentMetadata = lstatSync(parent);
+  if (parentMetadata.isSymbolicLink() || !parentMetadata.isDirectory()) {
+    throw new Error(label + " parent must be a real non-symlink directory");
+  }
+  const writableByAnotherPrincipal = (parentMetadata.mode & 0o022) !== 0;
+  const stickyDirectory = (parentMetadata.mode & 0o1000) !== 0;
+  const uid = currentUid();
+  const stickyProtectsEntry = stickyDirectory && uid !== null && metadata.uid === uid;
+  if (writableByAnotherPrincipal && !stickyProtectsEntry) {
+    throw new Error(label + " parent permits another OS principal to rename the protected root");
+  }
+}
+
+function directoryIdentity(path: string, metadata: Stats): ChildDirectoryIdentity {
+  return { path, device: metadata.dev, inode: metadata.ino };
+}
+
+function sameDirectoryIdentity(metadata: Stats, expected: ChildDirectoryIdentity): boolean {
+  return metadata.dev === expected.device && metadata.ino === expected.inode;
+}
+
+/**
+ * A standalone cooperative filesystem boundary for installing child Git state.
+ * Node has no descriptor-relative renameat2 API, so this combines an exclusive
+ * owner-only lock with canonical containment and inode checks around every path
+ * mutation. A process running as the same OS user can ignore the cooperative
+ * lock; every mismatch therefore fails closed and leaves changed paths alone.
+ */
+class ChildGitPathLock {
+  readonly root: ChildDirectoryIdentity;
+  readonly lockPath: string;
+
+  private readonly label = "Verified child Git installation";
+  private readonly lockDescriptor: number;
+  private lockIdentity: ChildFileIdentity | null = null;
+  private released = false;
+
+  constructor(rootDir: string, lockName: string) {
+    const requested = resolve(rootDir);
+    const canonical = realpathSync(requested);
+    const rootMetadata = lstatSync(canonical);
+    assertBoundaryMetadata(rootMetadata, this.label + " root");
+    assertRenameProtected(canonical, rootMetadata, this.label + " root");
+    this.root = directoryIdentity(canonical, rootMetadata);
+    if (!/^\.[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.lock$/u.test(lockName)) {
+      throw new Error(this.label + " lock name is invalid");
+    }
+    this.lockPath = join(canonical, lockName);
+
+    try {
+      this.lockDescriptor = openSync(
+        this.lockPath,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW,
+        0o600,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(this.label + " is already locked; inspect " + this.lockPath + " before retrying");
+      }
+      throw error;
+    }
+
+    try {
+      fchmodSync(this.lockDescriptor, 0o600);
+      const metadata = fstatSync(this.lockDescriptor);
+      this.lockIdentity = fileIdentity(metadata);
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new Error(this.label + " lock is not one private regular file");
+      }
+      assertOwnerControlled(metadata, this.label + " lock");
+      writeFileSync(
+        this.lockDescriptor,
+        JSON.stringify({ schemaVersion: 1, pid: process.pid, operation: this.label }) + "\n",
+        "utf8",
+      );
+      fsyncSync(this.lockDescriptor);
+      this.lockIdentity = fileIdentity(fstatSync(this.lockDescriptor));
+      this.assertRoot();
+      if (!sameFileIdentity(lstatSync(this.lockPath), this.lockIdentity)) {
+        throw new Error(this.label + " lock path changed during acquisition");
+      }
+    } catch (error) {
+      closeSync(this.lockDescriptor);
+      try {
+        const current = lstatSync(this.lockPath);
+        if (this.lockIdentity && sameNodeIdentity(current, this.lockIdentity)) {
+          unlinkSync(this.lockPath);
+        }
+      } catch {
+        // Never unlink a changed lock path.
+      }
+      this.released = true;
+      throw error;
+    }
+  }
+
+  assertRoot(): void {
+    if (this.released) throw new Error(this.label + " lock has already been released");
+    const metadata = lstatSync(this.root.path);
+    assertBoundaryMetadata(metadata, this.label + " root");
+    if (!sameDirectoryIdentity(metadata, this.root) || realpathSync(this.root.path) !== this.root.path) {
+      throw new Error(this.label + " root changed while the lock was held");
+    }
+  }
+
+  private contained(path: string, label: string, allowRoot = false): string {
+    const absolute = resolve(path);
+    const child = relative(this.root.path, absolute);
+    if (
+      (!allowRoot && child === "") ||
+      child === ".." ||
+      child.startsWith(".." + sep) ||
+      isAbsolute(child)
+    ) {
+      throw new Error(label + " escapes the locked child Git boundary");
+    }
+    return absolute;
+  }
+
+  captureDirectory(path: string, label: string): ChildDirectoryIdentity {
+    const absolute = this.contained(path, label, true);
+    this.assertRoot();
+    if (absolute === this.root.path) return this.root;
+    const child = relative(this.root.path, absolute);
+    let cursor = this.root.path;
+    let metadata: Stats | null = null;
+    for (const part of child.split(sep)) {
+      cursor = join(cursor, part);
+      metadata = lstatSync(cursor);
+      assertDirectoryMetadata(metadata, label + " path " + cursor);
+      if (realpathSync(cursor) !== cursor) {
+        throw new Error(label + " must not traverse a symbolic-link alias");
+      }
+    }
+    this.assertRoot();
+    if (!metadata) throw new Error(label + " directory metadata is unavailable");
+    return directoryIdentity(absolute, metadata);
+  }
+
+  assertDirectory(path: string, expected: ChildDirectoryIdentity, label: string): void {
+    const absolute = this.contained(path, label, true);
+    if (absolute !== expected.path) throw new Error(label + " path changed unexpectedly");
+    const current = this.captureDirectory(absolute, label);
+    if (current.device !== expected.device || current.inode !== expected.inode) {
+      throw new Error(label + " changed while the child Git lock was held");
+    }
+  }
+
+  assertMissing(path: string, label: string): void {
+    const absolute = this.contained(path, label);
+    const parent = this.captureDirectory(dirname(absolute), label + " parent");
+    if (pathEntryExists(absolute)) throw new Error(label + " already exists");
+    this.assertDirectory(parent.path, parent, label + " parent");
+  }
+
+  renameDirectory(
+    source: string,
+    target: string,
+    expectedSource: ChildDirectoryIdentity,
+    label: string,
+  ): ChildDirectoryIdentity {
+    const absoluteSource = this.contained(source, label + " source");
+    const absoluteTarget = this.contained(target, label + " target");
+    this.assertDirectory(absoluteSource, expectedSource, label + " source");
+    const sourceParent = this.captureDirectory(dirname(absoluteSource), label + " source parent");
+    const targetParent = this.captureDirectory(dirname(absoluteTarget), label + " target parent");
+    this.assertMissing(absoluteTarget, label + " target");
+    this.assertDirectory(sourceParent.path, sourceParent, label + " source parent");
+    this.assertDirectory(targetParent.path, targetParent, label + " target parent");
+    renameSync(absoluteSource, absoluteTarget);
+    this.assertDirectory(sourceParent.path, sourceParent, label + " source parent");
+    this.assertDirectory(targetParent.path, targetParent, label + " target parent");
+    const installed = this.captureDirectory(absoluteTarget, label + " target");
+    if (
+      installed.device !== expectedSource.device ||
+      installed.inode !== expectedSource.inode ||
+      pathEntryExists(absoluteSource)
+    ) {
+      throw new Error(label + " directory identity changed during rename");
+    }
+    return installed;
+  }
+
+  removeDirectory(path: string, expected: ChildDirectoryIdentity, label: string): void {
+    const absolute = this.contained(path, label);
+    this.assertDirectory(absolute, expected, label);
+    const parent = this.captureDirectory(dirname(absolute), label + " parent");
+    this.assertDirectory(parent.path, parent, label + " parent");
+    rmSync(absolute, { recursive: true, force: false });
+    this.assertDirectory(parent.path, parent, label + " parent");
+    if (pathEntryExists(absolute)) throw new Error(label + " still exists after removal");
+  }
+
+  release(): void {
+    if (this.released) return;
+    let releaseError: unknown = null;
+    try {
+      this.assertRoot();
+      const pathMetadata = lstatSync(this.lockPath);
+      if (!this.lockIdentity || !sameFileIdentity(pathMetadata, this.lockIdentity)) {
+        throw new Error(this.label + " lock path changed before release");
+      }
+      closeSync(this.lockDescriptor);
+      if (!sameFileIdentity(lstatSync(this.lockPath), this.lockIdentity)) {
+        throw new Error(this.label + " lock path changed during release");
+      }
+      unlinkSync(this.lockPath);
+    } catch (error) {
+      releaseError = error;
+      try {
+        closeSync(this.lockDescriptor);
+      } catch {
+        // The descriptor may already be closed.
+      }
+    } finally {
+      this.released = true;
+    }
+    if (releaseError) throw releaseError;
+  }
+}
+
 function githubOriginMatches(origin: string, repository: string): boolean {
   const normalized = origin.trim().replace(/\/+$/u, "").replace(/\.git$/iu, "");
   const expected = repository.toLowerCase();
@@ -22353,16 +23218,42 @@ function ensureWorkingRepository(
   assertRepository(repository);
   assertBranch(branch);
   assertOid(commitOid, "Verified GitHub commit id");
-  const root = realpathSync(process.cwd());
-  if (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory()) {
+  const requestedRoot = resolve(process.cwd());
+  const requestedRootMetadata = lstatSync(requestedRoot);
+  if (requestedRootMetadata.isSymbolicLink() || !requestedRootMetadata.isDirectory()) {
     throw new Error("Child working repository root must be a real directory");
   }
+  const root = realpathSync(requestedRoot);
+  const boundary = new ChildGitPathLock(
+    dirname(root),
+    ".git-install-" + createHash("sha256").update(root).digest("hex").slice(0, 16) + ".lock",
+  );
+  const rootIdentity = boundary.captureDirectory(root, "Child working repository root");
   const gitPath = join(root, ".git");
   let installed = false;
+  let installedGitIdentity: ChildDirectoryIdentity | null = null;
+
+  const rootGitText = (args: string[], label: string): string => {
+    boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+    if (installedGitIdentity) {
+      boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+    }
+    const output = gitText(root, args, label);
+    boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+    if (installedGitIdentity) {
+      boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+    }
+    return output;
+  };
+
   try {
-    if (!existsSync(gitPath)) {
-      const parent = realpathSync(dirname(root));
+    if (!pathEntryExists(gitPath)) {
+      const parent = boundary.root.path;
       const temporaryRoot = mkdtempSync(join(parent, "." + basename(root) + "-git-"));
+      const temporaryIdentity = boundary.captureDirectory(
+        temporaryRoot,
+        "Child Git staging directory",
+      );
       const cloneDirectory = join(temporaryRoot, "clone");
       try {
         success(
@@ -22383,51 +23274,116 @@ function ensureWorkingRepository(
           ),
           "Clone verified GitHub repository metadata",
         );
+        boundary.assertDirectory(
+          temporaryRoot,
+          temporaryIdentity,
+          "Child Git staging directory",
+        );
+        const cloneIdentity = boundary.captureDirectory(
+          cloneDirectory,
+          "Verified GitHub metadata clone",
+        );
         const stagedGit = join(cloneDirectory, ".git");
-        if (!existsSync(stagedGit) || !lstatSync(stagedGit).isDirectory()) {
+        if (!pathEntryExists(stagedGit)) {
           throw new Error("Verified GitHub metadata clone did not produce a normal .git directory");
         }
-        if (gitText(cloneDirectory, ["rev-parse", "HEAD"], "Read cloned GitHub HEAD") !== commitOid) {
+        const cloneGitIdentity = boundary.captureDirectory(
+          stagedGit,
+          "Verified GitHub metadata clone .git",
+        );
+        const cloneGitText = (args: string[], label: string): string => {
+          boundary.assertDirectory(
+            cloneDirectory,
+            cloneIdentity,
+            "Verified GitHub metadata clone",
+          );
+          boundary.assertDirectory(
+            stagedGit,
+            cloneGitIdentity,
+            "Verified GitHub metadata clone .git",
+          );
+          const output = gitText(cloneDirectory, args, label);
+          boundary.assertDirectory(
+            cloneDirectory,
+            cloneIdentity,
+            "Verified GitHub metadata clone",
+          );
+          boundary.assertDirectory(
+            stagedGit,
+            cloneGitIdentity,
+            "Verified GitHub metadata clone .git",
+          );
+          return output;
+        };
+        if (cloneGitText(["rev-parse", "HEAD"], "Read cloned GitHub HEAD") !== commitOid) {
           throw new Error("Cloned GitHub HEAD differs from verified remote HEAD");
         }
-        if (gitText(cloneDirectory, ["symbolic-ref", "--short", "HEAD"], "Read cloned GitHub branch") !== branch) {
+        if (cloneGitText(["symbolic-ref", "--short", "HEAD"], "Read cloned GitHub branch") !== branch) {
           throw new Error("Cloned GitHub branch differs from the verified default branch");
         }
-        if (!githubOriginMatches(gitText(cloneDirectory, ["remote", "get-url", "origin"], "Read cloned GitHub origin"), repository)) {
+        if (!githubOriginMatches(cloneGitText(["remote", "get-url", "origin"], "Read cloned GitHub origin"), repository)) {
           throw new Error("Cloned GitHub origin differs from the verified repository");
         }
-        if (existsSync(gitPath)) throw new Error("Child Git state appeared during metadata staging; refusing overwrite");
-        renameSync(stagedGit, gitPath);
+        boundary.assertMissing(
+          gitPath,
+          "Child Git state appeared during metadata staging; refusing overwrite",
+        );
+        boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+        installedGitIdentity = boundary.renameDirectory(
+          stagedGit,
+          gitPath,
+          cloneGitIdentity,
+          "Verified child Git metadata install",
+        );
         installed = true;
-        success(run("git", ["read-tree", commitOid], { cwd: root }), "Bind child Git index to verified remote tree");
+        rootGitText(["read-tree", commitOid], "Bind child Git index to verified remote tree");
       } finally {
-        rmSync(temporaryRoot, { recursive: true, force: true });
+        if (pathEntryExists(temporaryRoot)) {
+          boundary.removeDirectory(
+            temporaryRoot,
+            temporaryIdentity,
+            "Child Git staging directory",
+          );
+        }
       }
-    } else if (lstatSync(gitPath).isSymbolicLink() || !lstatSync(gitPath).isDirectory()) {
-      throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+    } else {
+      const gitMetadata = lstatSync(gitPath);
+      if (gitMetadata.isSymbolicLink() || !gitMetadata.isDirectory()) {
+        throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+      }
+      installedGitIdentity = boundary.captureDirectory(gitPath, "Existing child .git");
     }
 
-    if (realpathSync(gitText(root, ["rev-parse", "--show-toplevel"], "Resolve child Git root")) !== root) {
+    if (realpathSync(rootGitText(["rev-parse", "--show-toplevel"], "Resolve child Git root")) !== root) {
       throw new Error("Child Git root differs from the venture root");
     }
-    const originUrl = gitText(root, ["remote", "get-url", "origin"], "Read child Git origin");
+    const originUrl = rootGitText(["remote", "get-url", "origin"], "Read child Git origin");
     if (!githubOriginMatches(originUrl, repository)) throw new Error("Child Git origin differs from the verified repository");
-    const localBranch = gitText(root, ["symbolic-ref", "--short", "HEAD"], "Read child Git branch");
+    const localBranch = rootGitText(["symbolic-ref", "--short", "HEAD"], "Read child Git branch");
     if (localBranch !== branch) throw new Error("Child Git branch differs from the verified default branch");
-    const head = gitText(root, ["rev-parse", "HEAD"], "Read child Git HEAD");
+    const head = rootGitText(["rev-parse", "HEAD"], "Read child Git HEAD");
     if (head !== commitOid) throw new Error("Child Git HEAD differs from verified remote HEAD");
-    const remoteHead = gitText(root, ["rev-parse", "refs/remotes/origin/" + branch], "Read child remote-tracking HEAD");
+    const remoteHead = rootGitText(["rev-parse", "refs/remotes/origin/" + branch], "Read child remote-tracking HEAD");
     if (remoteHead !== commitOid) throw new Error("Child remote-tracking HEAD differs from verified remote HEAD");
-    if (gitText(root, ["status", "--porcelain=v1", "--untracked-files=all"], "Read child Git status")) {
+    if (rootGitText(["status", "--porcelain=v1", "--untracked-files=all"], "Read child Git status")) {
       throw new Error("Child Git working tree is not clean after verified publication");
     }
-    if (gitText(root, ["ls-files", "--", ".venture", "reports"], "Check private runtime tracking")) {
+    if (rootGitText(["ls-files", "--", ".venture", "reports"], "Check private runtime tracking")) {
       throw new Error("Child Git repository tracks private runtime state or launch reports");
     }
     return { originUrl, branch: localBranch, head, clean: true };
   } catch (error) {
-    if (installed) rmSync(gitPath, { recursive: true, force: true });
+    if (installed && installedGitIdentity) {
+      try {
+        boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+        boundary.removeDirectory(gitPath, installedGitIdentity, "Partially installed child .git");
+      } catch {
+        // Never chase a changed compensation path; leave it for inspection.
+      }
+    }
     throw error;
+  } finally {
+    boundary.release();
   }
 }
 
@@ -22843,7 +23799,8 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
   const rawHtml = await smoke.text();
   expect(rawHtml).toMatch(/<main(?:\s|>)/iu);
   expect(rawHtml).toMatch(/<h1(?:\s|>)/iu);
-  expect(rawHtml).toContain("{{ventureName}}");
+  expect(rawHtml).toMatch(/<title>[^<]+<\/title>/iu);
+  expect(rawHtml).toMatch(/<meta[^>]+name=["']description["'][^>]+content=["'][^"']+["']/iu);
   expect(rawHtml).toMatch(/<link[^>]+rel=["']canonical["'][^>]*>/iu);
 
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -22852,38 +23809,67 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
   await expect(page.locator("main")).toBeVisible();
   await expect(page.locator("main")).toHaveCount(1);
   await expect(page.locator("h1")).toHaveCount(1);
-  await expect(page.getByRole("heading", { level: 1, name: "{{ventureName}}" })).toBeVisible();
+  expect((await page.locator("h1").innerText()).trim().length).toBeGreaterThan(0);
+  expect((await page.title()).trim().length).toBeGreaterThan(0);
+  const description = await page.locator('meta[name="description"]').getAttribute("content");
+  expect(description?.trim().length ?? 0).toBeGreaterThan(0);
 
   const canonical = await page.locator('link[rel="canonical"]').getAttribute("href");
   expect(canonical).not.toBeNull();
-  const canonicalOrigin = new URL(canonical!).origin;
+  const canonicalUrl = new URL(canonical!);
+  const canonicalOrigin = canonicalUrl.origin;
   expect(canonicalOrigin).not.toMatch(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::|$)/u);
-  expect(new URL(canonical!).protocol).toBe("https:");
+  expect(canonicalUrl.protocol).toBe("https:");
+  expect(canonicalUrl.pathname).toBe("/");
+  expect(canonicalUrl.search).toBe("");
+  expect(canonicalUrl.hash).toBe("");
   if (process.env.EXPECTED_PUBLIC_ORIGIN) {
     expect(canonicalOrigin).toBe(new URL(process.env.EXPECTED_PUBLIC_ORIGIN).origin);
   }
-  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
-    "content",
-    expect.stringMatching(/index.*follow/i),
-  );
+  const robotsContent =
+    (await page.locator('meta[name="robots"]').getAttribute("content"))?.toLowerCase() ?? "";
+  const indexingEnabled = /(?:^|,)\s*index(?:\s*,|$)/u.test(robotsContent) &&
+    !/(?:^|,)\s*noindex(?:\s*,|$)/u.test(robotsContent);
 
   const robots = await request.get("/robots.txt", { failOnStatusCode: false });
   expect(robots.status()).toBe(200);
   const robotsText = await robots.text();
-  expect(robotsText).toContain("Allow: /");
-  expect(robotsText).not.toContain("Disallow: /");
   expect(robotsText).toContain("Sitemap: " + canonicalOrigin + "/sitemap.xml");
   const sitemap = await request.get("/sitemap.xml", { failOnStatusCode: false });
   expect(sitemap.status()).toBe(200);
   const sitemapText = await sitemap.text();
-  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
-  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/status</loc>");
+  if (indexingEnabled) {
+    expect(robotsText).toContain("Allow: /");
+    expect(robotsText).not.toContain("Disallow: /");
+    expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
+    expect(sitemapText).not.toMatch(/\/(?:api|auth|account|edit|draft|private|status|user)(?:\/|<)/u);
+    expect(sitemapText).not.toMatch(/<loc>[^<]*\?[^<]*<\/loc>/u);
+    expect(await page.locator('a[href^="/"]').count()).toBeGreaterThan(0);
+  } else {
+    expect(robotsContent).toContain("noindex");
+    expect(robotsText).toContain("Disallow: /");
+    expect(sitemapText).not.toContain("<loc>");
+  }
 
-  const primaryAction = page.getByRole("link", { name: "Review launch status" });
-  await expect(primaryAction).toHaveAttribute("href", "/status");
-  await primaryAction.click();
-  await expect(page).toHaveURL(/\/status$/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("not launched yet");
+  const bodyText = await page.locator("body").innerText();
+  const structuredDataBlocks = await page.locator('script[type="application/ld+json"]').allTextContents();
+  const visibleFactKeys = new Set(["name", "description", "price"]);
+  const inspectStructuredData = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(inspectStructuredData);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "@type" && ["AggregateRating", "Review"].includes(String(child))) {
+        throw new Error("Unverified rating/review structured data is forbidden");
+      }
+      if (visibleFactKeys.has(key) && typeof child === "string") expect(bodyText).toContain(child);
+      inspectStructuredData(child);
+    }
+  };
+  for (const block of structuredDataBlocks) inspectStructuredData(JSON.parse(block));
+
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
   const unnamedInteractiveControls = await page
@@ -22923,6 +23909,8 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
         accessibleNamesAndLandmarks: true,
         keyboardFocus: true,
         responsiveOverflow: true,
+        indexingEnabled,
+        structuredDataBlocks: structuredDataBlocks.length,
       }),
   );
 });
@@ -22991,7 +23979,7 @@ This register describes only the generated seed state.
 | Claim | Status | Evidence | Public boundary |
 | --- | --- | --- | --- |
 | The repository contains an independently buildable Next.js web scaffold. | local implementation | package.json, app/, next.config.mjs | Do not call it launched until production read-back and the primary journey pass. |
-  | Analytics starts disabled, with no universal provider or event assumptions. | local contract | config/analytics.yaml, src/analytics/events.ts | The product journey must justify each consented allowlisted event; no delivery is claimed. |
+| Analytics starts disabled, with no universal provider or event assumptions. | local contract | config/analytics.yaml, src/analytics/events.ts | The product journey must justify each consented allowlisted event; no delivery is claimed. |
 | Provider configuration is credential-reference-only. | local contract | config/providers.yaml, config/connectors.json | Every provider starts unconfigured. |
 
 No customer, revenue, outcome, provider connection, deployment, or market evidence is claimed.
@@ -23015,6 +24003,11 @@ import test from "node:test";
 const manifest = JSON.parse(readFileSync("venture.manifest.json", "utf8"));
 const connectors = readFileSync("config/connectors.json", "utf8");
 const providers = readFileSync("config/providers.yaml", "utf8");
+const seo = readFileSync("config/seo.yaml", "utf8");
+const site = readFileSync("src/config/site.ts", "utf8");
+const layout = readFileSync("app/layout.tsx", "utf8");
+const sitemap = readFileSync("app/sitemap.ts", "utf8");
+const statusPage = readFileSync("app/status/page.tsx", "utf8");
 
 test("ordinary web seed stays an ordinary app", () => {
   assert.equal(manifest.rail, "web");
@@ -23038,6 +24031,16 @@ test("tracked connector metadata is credential-free", () => {
     ),
     false,
   );
+});
+
+test("discovery stays explicit, owner-based, and noindex by default", () => {
+  assert.match(seo, /default: disabled/u);
+  assert.match(seo, /query_evidence: missing/u);
+  assert.match(site, /NEXT_PUBLIC_INDEXING_ENABLED === "true"/u);
+  assert.doesNotMatch(layout, /alternates:\\s*\\{\\s*canonical/u);
+  assert.match(sitemap, /if \\(!INDEXING_ENABLED\\) return \\[\\]/u);
+  assert.doesNotMatch(sitemap, /\\/status/u);
+  assert.match(statusPage, /robots:\\s*\\{ index: false, follow: false \\}/u);
 });
 `
   )
@@ -23227,6 +24230,9 @@ function compileVentureMaterialization(input) {
   if (!/^[a-f0-9]{40}$/.test(input.workflowRefSha)) {
     throw new Error("Reusable workflow reference must be an immutable 40-character SHA");
   }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.workflowRepository)) {
+    throw new Error("Reusable workflow repository must be exactly owner/repository");
+  }
   const seed = ventureSeed(grant.seed.id, grant.seed.version);
   if (!seed.coreCompatibility.startsWith(`^${input.coreVersion.split(".")[0]}.`)) {
     throw new Error(`${seed.id}@${seed.version} is incompatible with Core ${input.coreVersion}`);
@@ -23269,6 +24275,7 @@ function compileVentureMaterialization(input) {
     seedVersion: seed.version,
     rail: seed.rail,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     accentHue,
     secondaryHue,
     motifStep,
@@ -23277,6 +24284,22 @@ function compileVentureMaterialization(input) {
   const files = seed.files.map(
     (file2) => materialized(file2.path, file2.ownership, render(file2.content, values))
   );
+  const renderedLockfile = files.find(({ path }) => path === "pnpm-lock.yaml");
+  if (seed.rail === "web" && !renderedLockfile) {
+    throw new Error("The ordinary web seed requires one exact child pnpm lockfile");
+  }
+  const packageManifest = {
+    name: grant.ventureSlug,
+    version: "0.1.0",
+    private: true,
+    type: "module",
+    packageManager: "pnpm@9.15.9",
+    engines: { node: ">=22.5.0" },
+    scripts: seed.packageScripts,
+    dependencies: seed.runtimePackages,
+    ...Object.keys(seed.developmentPackages).length > 0 ? { devDependencies: seed.developmentPackages } : {},
+    ...seed.rail === "web" ? { pnpm: { onlyBuiltDependencies: [] } } : {}
+  };
   files.push(
     materialized(
       "venture.manifest.json",
@@ -23303,26 +24326,28 @@ function compileVentureMaterialization(input) {
       )}
 `
     ),
-    materialized(
-      "package.json",
-      "merge_managed",
-      `${JSON.stringify(
-        {
-          name: grant.ventureSlug,
-          version: "0.1.0",
-          private: true,
-          type: "module",
-          packageManager: "pnpm@9.15.9",
-          engines: { node: ">=22.5.0" },
-          scripts: seed.packageScripts,
-          dependencies: seed.runtimePackages,
-          ...Object.keys(seed.developmentPackages).length > 0 ? { devDependencies: seed.developmentPackages } : {}
-        },
-        null,
-        2
-      )}
+    materialized("package.json", "merge_managed", `${JSON.stringify(packageManifest, null, 2)}
+`),
+    ...seed.rail === "web" ? [
+      materialized(
+        "config/package-execution-policy.json",
+        "core_owned",
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            packageManager: packageManifest.packageManager,
+            scripts: seed.packageScripts,
+            dependencies: seed.runtimePackages,
+            devDependencies: seed.developmentPackages,
+            pnpm: { onlyBuiltDependencies: [] },
+            lockfileSha256: renderedLockfile.sha256
+          },
+          null,
+          2
+        )}
 `
-    ),
+      )
+    ] : [],
     materialized(
       ".gitignore",
       "core_owned",
@@ -23512,11 +24537,11 @@ import {
   writeFileSync as writeFileSync4
 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname5, isAbsolute as isAbsolute2, join as join5, relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute2, join as join4, relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
 var FOUNDER_CONFIG_KEYS = ["ventures-root"];
 function defaultFounderConfigPath(options = {}) {
-  const configRoot = options.xdgConfigHome ? resolve8(options.xdgConfigHome) : join5(resolve8(options.homeDirectory ?? homedir2()), ".config");
-  return join5(configRoot, "venture-harness", "founder.json");
+  const configRoot = options.xdgConfigHome ? resolve8(options.xdgConfigHome) : join4(resolve8(options.homeDirectory ?? homedir2()), ".config");
+  return join4(configRoot, "venture-harness", "founder.json");
 }
 function loadFounderConfig(path = defaultFounderConfigPath()) {
   const absolute = resolve8(path);
@@ -23547,7 +24572,7 @@ function resolveVenturesRoot(candidate, options) {
   if (!candidate.trim()) {
     throw new Error("ventures-root must be a non-empty absolute path");
   }
-  const expanded = candidate.startsWith("~/") ? join5(homedir2(), candidate.slice(2)) : candidate;
+  const expanded = candidate.startsWith("~/") ? join4(homedir2(), candidate.slice(2)) : candidate;
   if (!isAbsolute2(expanded)) {
     throw new Error(
       `ventures-root must be an absolute path; received ${candidate}. Next: pass an absolute directory such as ~/Projects/ventures.`
@@ -23597,7 +24622,7 @@ function resolveVentureOutputWithinRoot(venturesRoot, output) {
   let cursor = canonicalRoot3;
   const parts = child.split(sep5);
   for (const [index, part] of parts.entries()) {
-    cursor = join5(cursor, part);
+    cursor = join4(cursor, part);
     let metadata;
     try {
       metadata = lstatSync2(cursor);
@@ -23639,7 +24664,7 @@ import {
   unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute3, join as join6, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute3, join as join5, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
 var FOUNDER_STACK_PROFILE_ID = "founder-default";
 var FOUNDER_STACK_SCHEMA_VERSION = 1;
 var founderStackRoleDefinitions = {
@@ -24015,7 +25040,7 @@ function loadFounderStackConnectionFile(file2, options = {}) {
   return parseFounderStackConnection(value);
 }
 function defaultFounderStackStateRoot() {
-  return join6(dirname6(defaultCredentialCatalogPath()), "founder-stacks");
+  return join5(dirname6(defaultCredentialCatalogPath()), "founder-stacks");
 }
 function ensureStateRoot(path) {
   mkdirSync5(path, { recursive: true, mode: 448 });
@@ -24038,7 +25063,7 @@ var FileFounderStackStore = class {
     this.rootDir = resolve9(rootDir);
   }
   pathFor(profileId) {
-    return join6(this.rootDir, `${checkedProfileId(profileId)}.v1.json`);
+    return join5(this.rootDir, `${checkedProfileId(profileId)}.v1.json`);
   }
   load(profileId) {
     ensureStateRoot(this.rootDir);
@@ -24065,7 +25090,7 @@ var FileFounderStackStore = class {
         throw new Error("Founder Stack profile belongs to another organization");
       }
     }
-    const temporary = join6(this.rootDir, `.${parsed.profileId}.${process.pid}.${Date.now()}.next`);
+    const temporary = join5(this.rootDir, `.${parsed.profileId}.${process.pid}.${Date.now()}.next`);
     const noFollow2 = "O_NOFOLLOW" in constants4 ? constants4.O_NOFOLLOW : 0;
     let descriptor2;
     try {
@@ -24505,7 +25530,7 @@ function sha2562(value) {
   return createHash10("sha256").update(value).digest("hex");
 }
 function founderSeedFor(brief, launchContract) {
-  if (launchContract?.agentNative.customerAgentSurfaceRequired || launchContract?.agentNative.serviceBlueprintRequired) {
+  if (launchContract?.capabilities.agentSurface === "REQUIRED") {
     return "hybrid-agentic-service";
   }
   if (brief.app_kind === "web") return "agentic-web-saas";
@@ -24609,6 +25634,37 @@ function loadFounderIdeaFile(file2, baseDir = process.cwd()) {
   } finally {
     boundary.release();
   }
+}
+var WORKFLOW_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+function gitHubSlug(remoteUrl) {
+  const match = /^https?:\/\/[^/]+\/(?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(remoteUrl) ?? /^(?:ssh:\/\/)?git@[^:/]+[:/](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(remoteUrl);
+  const owner = match?.groups?.owner;
+  const repo = match?.groups?.repo;
+  if (!owner || !repo) return void 0;
+  const slug4 = `${owner}/${repo}`;
+  return WORKFLOW_REPOSITORY.test(slug4) ? slug4 : void 0;
+}
+function resolveFounderWorkflowRepository(baseDir, explicit) {
+  const candidate = explicit ?? process.env.VH_WORKFLOW_REPOSITORY;
+  if (candidate) {
+    if (!WORKFLOW_REPOSITORY.test(candidate)) {
+      throw new Error("VH_WORKFLOW_REPOSITORY must be exactly owner/repository");
+    }
+    return candidate;
+  }
+  try {
+    const origin = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: resolve10(baseDir),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    const slug4 = gitHubSlug(origin);
+    if (slug4) return slug4;
+  } catch {
+  }
+  throw new Error(
+    "Founder launch cannot resolve the Core repository for the venture reusable workflow. Set VH_WORKFLOW_REPOSITORY to the owner/repository of this Venture Harness checkout."
+  );
 }
 function resolveFounderWorkflowRefSha(baseDir, explicit) {
   const candidate = explicit ?? process.env.VH_WORKFLOW_REF_SHA;
@@ -24883,6 +25939,7 @@ function compileFounderLaunchPreparation(input) {
     at: input.at,
     coreVersion: CORE_VERSION2,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: []
   });
   const stackOverrides = renderFounderStackProviderConfigOverrides(connection, {
@@ -26283,6 +27340,11 @@ var ALWAYS_SELECTED = {
   "skills/design-director/SKILL.md": "Selected product-design method and accessibility rules.",
   "skills/design-director/references/originality-audit.md": "Selected anti-template and originality review contract."
 };
+var DISCOVERY_SELECTED = {
+  "config/seo.yaml": "Selected crawlability, ownership, indexing, and structured-data contract.",
+  "skills/seo-aeo-engine/SKILL.md": "Selected truthful web-discovery implementation method.",
+  "skills/seo-aeo-engine/references/technical-discovery.md": "Selected raw-HTML, canonical, sitemap, robots, and structured-data checks."
+};
 var DEFAULT_BUILD_CONTEXT_TOKEN_CAP = 32e3;
 var PRODUCT_ROOTS = ["app", "src", "tests/e2e"];
 var EXCLUDED_OPTIONAL_PACKS = [
@@ -26344,20 +27406,24 @@ function selectedProviderContracts(brief, paymentProvider) {
 }
 function createBuildContextManifest(input) {
   const root = realpathSync5(resolve13(input.rootDir));
+  const discoveryRequired = input.brief.needs.search_discovery || input.capabilitiesRequired?.includes("web_seo_aeo_geo") === true;
   const reasons = {
     ...ALWAYS_SELECTED,
-    ...selectedProviderContracts(input.brief, input.paymentProvider)
+    ...selectedProviderContracts(input.brief, input.paymentProvider),
+    ...discoveryRequired ? DISCOVERY_SELECTED : {}
   };
   const requiredPaths = new Set(Object.keys(reasons));
+  const canonicalRequiredPaths = [
+    "config/launch-contract.yaml",
+    "docs/product/PRODUCT_CONSTITUTION.md",
+    "PROJECT.md",
+    "AGENTS.md",
+    "skills/design-director/SKILL.md",
+    "skills/design-director/references/originality-audit.md",
+    ...discoveryRequired ? Object.keys(DISCOVERY_SELECTED) : []
+  ];
   if (input.requireCanonicalContract) {
-    const missing = [
-      "config/launch-contract.yaml",
-      "docs/product/PRODUCT_CONSTITUTION.md",
-      "PROJECT.md",
-      "AGENTS.md",
-      "skills/design-director/SKILL.md",
-      "skills/design-director/references/originality-audit.md"
-    ].filter((path) => !regularFileWithinRoot(root, path));
+    const missing = canonicalRequiredPaths.filter((path) => !regularFileWithinRoot(root, path));
     if (missing.length > 0) {
       throw new Error(`Required Launch Contract build context is missing: ${missing.join(", ")}`);
     }
@@ -26392,15 +27458,8 @@ function createBuildContextManifest(input) {
     estimatedTotalTokens += estimate;
   }
   if (input.requireCanonicalContract) {
-    const unselected = [...requiredPaths].filter(
-      (path) => [
-        "config/launch-contract.yaml",
-        "docs/product/PRODUCT_CONSTITUTION.md",
-        "PROJECT.md",
-        "AGENTS.md",
-        "skills/design-director/SKILL.md",
-        "skills/design-director/references/originality-audit.md"
-      ].includes(path) && !selectedFiles.some((selected) => selected.path === path)
+    const unselected = canonicalRequiredPaths.filter(
+      (path) => !selectedFiles.some((selected) => selected.path === path)
     );
     if (unselected.length > 0) {
       throw new Error(
@@ -26435,108 +27494,7 @@ function createBuildContextManifest(input) {
 
 // lib/runtime/codex-cli-build-agent.ts
 import { resolve as resolve14 } from "node:path";
-var buildAgentCheckSchema = external_exports.object({
-  command: external_exports.string().min(1).max(500),
-  status: external_exports.enum(["passed", "failed", "skipped"]),
-  evidence: external_exports.string().max(2e3).nullable()
-}).strict();
-var buildAgentArtifactRoleSchema = external_exports.enum([
-  "repository_scaffold",
-  "managed_manifest",
-  "design_record",
-  "design_implementation",
-  "core_journey",
-  "affected_test",
-  "event_contract",
-  "event_instrumentation",
-  "validation_record",
-  "concierge_operations",
-  "usage_proof"
-]);
-var buildAgentCompletionSchema = external_exports.object({
-  outcome: external_exports.enum(["changed", "already_compliant"]),
-  artifacts: external_exports.array(
-    external_exports.object({
-      path: artifactReferenceSchema,
-      role: buildAgentArtifactRoleSchema
-    }).strict()
-  ).min(1).max(100).refine(
-    (artifacts) => new Set(artifacts.map(({ path, role }) => `${role}:${path}`)).size === artifacts.length,
-    "completion artifacts must be unique by role and path"
-  ),
-  validator: external_exports.object({
-    check_command: external_exports.string().min(1).max(500)
-  }).strict()
-}).strict();
-var buildAgentFinalResultSchema = external_exports.object({
-  status: external_exports.enum(["completed", "blocked"]),
-  summary: external_exports.string().min(1).max(4e3),
-  changed_files: external_exports.array(artifactReferenceSchema).max(500),
-  checks: external_exports.array(buildAgentCheckSchema).max(100),
-  limitations: external_exports.array(external_exports.string().min(1).max(2e3)).max(100),
-  completion: buildAgentCompletionSchema.nullable()
-}).strict().superRefine((result2, ctx) => {
-  if (result2.status === "blocked") return;
-  if (!result2.completion) {
-    ctx.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      path: ["completion"],
-      message: "completed tasks require typed completion evidence"
-    });
-    return;
-  }
-  if (result2.completion.outcome === "changed" && result2.changed_files.length === 0) {
-    ctx.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      path: ["changed_files"],
-      message: "changed completion requires at least one reported file"
-    });
-  }
-  if (result2.completion.outcome === "already_compliant" && result2.changed_files.length > 0) {
-    ctx.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      path: ["changed_files"],
-      message: "already_compliant completion cannot report changed files"
-    });
-  }
-  const validator = result2.checks.find(
-    ({ command }) => command === result2.completion?.validator.check_command
-  );
-  if (validator?.status !== "passed" || !validator.evidence?.trim()) {
-    ctx.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      path: ["completion", "validator", "check_command"],
-      message: "completion validator must reference a passed check with non-empty evidence"
-    });
-  }
-});
-var FORBIDDEN_CONTEXT_KEY = /^(access_token|refresh_token|id_token|api_key|secret|client_secret|private_key|password|credential_value)$/i;
-var CODEX_EXEC_ARGS = [
-  "exec",
-  "--sandbox",
-  "workspace-write",
-  "--ephemeral",
-  "--ignore-user-config",
-  "--json"
-];
-var CODEX_ENVIRONMENT_KEYS = [
-  "NODE_ENV",
-  "PATH",
-  "HOME",
-  "USERPROFILE",
-  "CODEX_HOME",
-  "XDG_CONFIG_HOME",
-  "TMPDIR",
-  "TMP",
-  "TEMP",
-  "LANG",
-  "LC_ALL",
-  "TERM",
-  "NO_COLOR",
-  "CI",
-  "SystemRoot",
-  "PATHEXT"
-];
+var OUTER_READ_ISOLATION_UNAVAILABLE = "Codex model execution is disabled: no audited outer read-isolation driver is available. A valid Launch Contract can still use the zero-model path; founder alpha cannot run rough-idea or product-build model calls.";
 var PRODUCT_COMMAND_ENVIRONMENT_KEYS = [
   "PATH",
   "TMPDIR",
@@ -26550,16 +27508,6 @@ var PRODUCT_COMMAND_ENVIRONMENT_KEYS = [
   "SystemRoot",
   "PATHEXT"
 ];
-function codexBuildAgentEnvironment(source) {
-  return {
-    NODE_ENV: source.NODE_ENV ?? "production",
-    ...Object.fromEntries(
-      CODEX_ENVIRONMENT_KEYS.flatMap(
-        (key) => source[key] === void 0 ? [] : [[key, source[key]]]
-      )
-    )
-  };
-}
 function productCommandEnvironment(source, isolatedHome) {
   const home = resolve14(isolatedHome);
   return {
@@ -26576,267 +27524,28 @@ function productCommandEnvironment(source, isolatedHome) {
     NPM_CONFIG_USERCONFIG: resolve14(home, ".npmrc")
   };
 }
-function assertCredentialFree2(value, path = "context") {
-  if (typeof value === "string") {
-    if (looksLikeCredentialValue(value)) {
-      throw new BuildAgentHostError(
-        "credential_material",
-        `${path} contains credential material; the build-agent boundary accepts no secret values.`
-      );
-    }
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) => assertCredentialFree2(entry, `${path}[${index}]`));
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  for (const [key, entry] of Object.entries(value)) {
-    if (FORBIDDEN_CONTEXT_KEY.test(key)) {
-      throw new BuildAgentHostError(
-        "credential_material",
-        `${path}.${key} is a forbidden credential field; pass no secret values to a build agent.`
-      );
-    }
-    assertCredentialFree2(entry, `${path}.${key}`);
-  }
-}
-function promptFor(request2, redactor) {
-  assertCredentialFree2(request2.context);
-  const context2 = redactor.redact(request2.context);
-  return [
-    "Execute one bounded Venture Harness product-build task in the current repository.",
-    "Read only the repository files listed in bounded JSON context.contextManifest.selectedFiles. Each entry states why it was selected. Do not crawl the repository, reread historical plans, or load excluded optional packs. If one indispensable file is absent from the manifest, stop and report that exact blocker instead of silently widening context.",
-    "Work only inside the repository. Do not deploy, publish, send, charge, change DNS, create provider resources, commit, push, or expose credentials.",
-    "Never modify or report a modification to Core-owned or launch-authority inputs: .venture state, harness.lock, venture.manifest.json, the canonical Launch Contract, Product Constitution, founder idea, provider/offer/venture/launch/policy/mobile/connector config, or any file marked core_owned in harness.lock. Product source and explicitly requested dependency manifests are the writable product boundary; the harness independently fingerprints protected inputs and rejects the task if they change.",
-    "Use deterministic code and existing scripts when they are sufficient. Preserve venture-owned work and label samples, prototypes, and unverified state honestly.",
-    "Never read or print credential values. Repository config may contain only cred:// references.",
-    `Run ID: ${request2.runId}`,
-    `Node ID: ${request2.nodeId}`,
-    `Purpose: ${request2.purpose}`,
-    "Task instructions:",
-    request2.instructions,
-    "Bounded JSON context:",
-    JSON.stringify(context2, null, 2),
-    "When finished, return exactly one JSON object as the final response, with no Markdown fence or surrounding prose:",
-    '{"status":"completed|blocked","summary":"concise factual result","changed_files":["repo/relative/path"],"checks":[{"command":"literal direct command","status":"passed|failed|skipped","evidence":"concise observed evidence or null"}],"limitations":["genuine limitation"],"completion":{"outcome":"changed|already_compliant","artifacts":[{"path":"repo/relative/path","role":"repository_scaffold|managed_manifest|design_record|design_implementation|core_journey|affected_test|event_contract|event_instrumentation|validation_record|concierge_operations|usage_proof"}],"validator":{"check_command":"exact command from checks"}}}',
-    "Use status=blocked and completion=null when the task is not actually complete. Use outcome=changed only for files whose content changed during this task. Use outcome=already_compliant only when no repository file changed and the named direct validator proves the requested completion condition. List only repository-relative files and artifacts that exist at the end. Do not include raw file contents, secrets, tokens, personal data, or provider response bodies."
-  ].join("\n\n");
-}
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function assistantText2(event) {
-  const record3 = asRecord(event);
-  if (!record3) return null;
-  if (record3.type === "item.completed") {
-    const item = asRecord(record3.item);
-    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
-  }
-  if (record3.type === "turn.completed" && typeof record3.final_output === "string") {
-    return record3.final_output;
-  }
-  if (record3.type === "result" && typeof record3.result === "string") return record3.result;
-  return null;
-}
-function usageFrom(event) {
-  const record3 = asRecord(event);
-  if (record3?.type !== "turn.completed") return void 0;
-  const usage = asRecord(record3.usage);
-  if (!usage) return void 0;
-  const inputTokens = usage.input_tokens;
-  const cachedInputTokens = usage.cached_input_tokens;
-  const outputTokens = usage.output_tokens;
-  if (typeof inputTokens !== "number" || typeof cachedInputTokens !== "number" || typeof outputTokens !== "number") {
-    return void 0;
-  }
-  const model = typeof record3.model === "string" && record3.model.trim() ? record3.model.trim() : void 0;
-  return { inputTokens, cachedInputTokens, outputTokens, ...model ? { model } : {} };
-}
-function parseJsonLines(stdout) {
-  const lines = stdout.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  const finalTexts = [];
-  const eventTypes = /* @__PURE__ */ new Set();
-  let usage;
-  let toolCalls = 0;
-  let failedCommands = 0;
-  const toolItemTypes = /* @__PURE__ */ new Set([
-    "command_execution",
-    "file_change",
-    "mcp_tool_call",
-    "web_search",
-    "dynamic_tool_call"
-  ]);
-  for (const [index, line] of lines.entries()) {
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      throw new BuildAgentHostError(
-        "invalid_jsonl",
-        `Codex JSONL line ${index + 1} was not valid JSON; no result was accepted.`
-      );
-    }
-    const type = asRecord(event)?.type;
-    if (typeof type === "string") eventTypes.add(type);
-    if (type === "item.completed") {
-      const item = asRecord(asRecord(event)?.item);
-      const itemType = typeof item?.type === "string" ? item.type : null;
-      if (itemType && toolItemTypes.has(itemType)) toolCalls += 1;
-      if (itemType === "command_execution" && typeof item?.exit_code === "number" && item.exit_code !== 0) {
-        failedCommands += 1;
-      }
-    }
-    const text2 = assistantText2(event);
-    if (text2) finalTexts.push(text2);
-    usage = usageFrom(event) ?? usage;
-  }
-  const finalText = finalTexts.at(-1);
-  if (!finalText) {
-    throw new BuildAgentHostError(
-      "missing_final_result",
-      "Codex JSONL contained no final structured agent result; no task result was accepted."
-    );
-  }
-  if (usage) usage = { ...usage, toolCalls, failedCommands };
-  return { finalText, eventTypes: [...eventTypes].sort(), usage };
-}
-function compactVersion2(value, redactor) {
-  const line = redactor.redactText(value).split(/\r?\n/).find((entry) => entry.trim().length > 0);
-  return line ? line.trim().slice(0, 200) : null;
-}
 var CodexCliBuildAgentHost = class {
   id = "codex_cli";
-  rootDir;
-  runner;
-  redactor;
-  binary;
-  model;
-  inspection;
   constructor(options) {
-    this.rootDir = resolve14(options.rootDir);
-    this.runner = options.runner;
-    this.redactor = options.redactor ?? new Redactor();
-    this.binary = options.binary ?? "codex";
-    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
+    void resolve14(options.rootDir);
+    void options.redactor;
+    void options.binary;
+    void options.model;
   }
   inspect() {
-    this.inspection ??= this.inspectOnce();
-    return this.inspection;
-  }
-  async inspectOnce() {
-    try {
-      const result2 = await this.runner.run({
-        command: this.binary,
-        args: ["--version"],
-        cwd: this.rootDir
-      });
-      if (result2.exitCode === 0) {
-        const login = await this.runner.run({
-          command: this.binary,
-          args: ["login", "status"],
-          cwd: this.rootDir
-        });
-        const loginStatus = this.redactor.redactText(`${login.stdout}
-${login.stderr}`);
-        const billingMode = login.exitCode !== 0 ? "unknown" : /logged in using chatgpt|chatgpt (?:account|subscription)/iu.test(loginStatus) ? "chatgpt_subscription" : /api[ -]?key|openai_api_key/iu.test(loginStatus) ? "api_key_metered" : "unknown";
-        return {
-          host: this.id,
-          status: "available",
-          version: compactVersion2(result2.stdout || result2.stderr, this.redactor),
-          billingMode,
-          billingEvidence: "codex_login_status",
-          nextAction: billingMode === "chatgpt_subscription" ? null : "Run codex login with a ChatGPT subscription account; API-key or unknown billing cannot satisfy the founder non-metered build policy."
-        };
-      }
-      return {
-        host: this.id,
-        status: "unavailable",
-        version: null,
-        billingMode: "unknown",
-        billingEvidence: null,
-        nextAction: `codex exists but its version check exited ${result2.exitCode}; authenticate or repair the Codex CLI before launch apply.`
-      };
-    } catch (error) {
-      const missing = error.code === "ENOENT";
-      return {
-        host: this.id,
-        status: missing ? "missing" : "unavailable",
-        version: null,
-        billingMode: "unknown",
-        billingEvidence: null,
-        nextAction: missing ? "Install and authenticate the Codex CLI, then rerun the same launch command." : `Codex CLI inspection failed: ${this.redactor.redactText(
-          error instanceof Error ? error.message : String(error)
-        )}`
-      };
-    }
+    return Promise.resolve({
+      host: this.id,
+      status: "unavailable",
+      readIsolation: "unavailable",
+      version: null,
+      billingMode: "unknown",
+      billingEvidence: null,
+      nextAction: OUTER_READ_ISOLATION_UNAVAILABLE
+    });
   }
   async run(request2) {
-    const inspection = await this.inspect();
-    if (inspection.status !== "available") {
-      throw new BuildAgentHostError(
-        "host_unavailable",
-        inspection.nextAction ?? "Codex CLI is unavailable; no product task was run."
-      );
-    }
-    const prompt = promptFor(request2, this.redactor);
-    const result2 = await this.runner.run({
-      command: this.binary,
-      args: [
-        ...CODEX_EXEC_ARGS,
-        ...this.model ? ["--model", this.model] : [],
-        "-C",
-        this.rootDir,
-        "-"
-      ],
-      cwd: this.rootDir,
-      stdin: prompt,
-      sensitiveStdin: true,
-      signal: request2.signal
-    });
-    if (result2.exitCode !== 0) {
-      const detail = this.redactor.redactText(result2.stderr || result2.stdout).trim().slice(0, 2e3);
-      throw new BuildAgentHostError(
-        "process_failed",
-        `Codex build task exited ${result2.exitCode}${detail ? `: ${detail}` : ""}`
-      );
-    }
-    const parsedJsonLines = parseJsonLines(result2.stdout);
-    let finalValue;
-    try {
-      finalValue = JSON.parse(parsedJsonLines.finalText);
-    } catch {
-      throw new BuildAgentHostError(
-        "invalid_final_result",
-        "Codex final agent message was not the required JSON object; no task result was accepted."
-      );
-    }
-    const parsed = buildAgentFinalResultSchema.safeParse(this.redactor.redact(finalValue));
-    if (!parsed.success) {
-      throw new BuildAgentHostError(
-        "invalid_final_result",
-        `Codex final result did not match the build-agent contract: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "result"}: ${issue.message}`).join("; ")}`
-      );
-    }
-    return {
-      status: parsed.data.status,
-      summary: parsed.data.summary,
-      changedFiles: parsed.data.changed_files,
-      checks: parsed.data.checks,
-      limitations: parsed.data.limitations,
-      eventTypes: parsedJsonLines.eventTypes,
-      completion: parsed.data.completion ? {
-        outcome: parsed.data.completion.outcome,
-        artifacts: parsed.data.completion.artifacts,
-        validator: {
-          checkCommand: parsed.data.completion.validator.check_command
-        }
-      } : null,
-      usage: parsedJsonLines.usage ? {
-        ...parsedJsonLines.usage,
-        ...parsedJsonLines.usage.model || !this.model ? {} : { model: this.model }
-      } : void 0
-    };
+    void request2;
+    throw new BuildAgentHostError("host_unavailable", OUTER_READ_ISOLATION_UNAVAILABLE);
   }
 };
 
@@ -26941,7 +27650,7 @@ function createRepositoryCheckpointEvidenceVerifier(options) {
 // lib/runtime/launch-report.ts
 import { randomBytes as randomBytes4 } from "node:crypto";
 import { mkdir as mkdir4, open as open2, readFile as readFile3, rename as rename3 } from "node:fs/promises";
-import { join as join7, resolve as resolve16 } from "node:path";
+import { join as join6, resolve as resolve16 } from "node:path";
 function rejectUnredactedCredentialStrings(value, context2) {
   const visit = (candidate, path) => {
     if (typeof candidate === "string") {
@@ -27493,8 +28202,8 @@ async function atomicWrite(path, contents) {
 async function persistLaunchReport(report, outputDirectory = "reports/launch") {
   const directory = resolve16(outputDirectory);
   await mkdir4(directory, { recursive: true, mode: 448 });
-  const jsonPath = join7(directory, "final.json");
-  const markdownPath = join7(directory, "final.md");
+  const jsonPath = join6(directory, "final.json");
+  const markdownPath = join6(directory, "final.md");
   await atomicWrite(jsonPath, report.json);
   await atomicWrite(markdownPath, report.markdown);
   const [storedJson, storedMarkdown] = await Promise.all([
@@ -27534,7 +28243,7 @@ function createLaunchReportWorkflowBinding(options) {
 // lib/runtime/launch-receipt.ts
 import { randomBytes as randomBytes5 } from "node:crypto";
 import { mkdir as mkdir5, open as open3, readFile as readFile4, rename as rename4 } from "node:fs/promises";
-import { join as join8, resolve as resolve17 } from "node:path";
+import { join as join7, resolve as resolve17 } from "node:path";
 var launchReceiptEvidenceStateSchema = external_exports.enum([
   "planned",
   "requested",
@@ -27554,7 +28263,8 @@ var launchReceiptPrimaryJourneyEvidenceSchema = external_exports.object({
   evidenceRef: external_exports.string().trim().min(1).max(1e3)
 }).strict();
 var launchReceiptSchema = external_exports.object({
-  schemaVersion: external_exports.literal(1),
+  schemaVersion: external_exports.literal(2),
+  launchContract: launchContractSchema,
   venture: external_exports.object({
     name: external_exports.string().max(200),
     repository: external_exports.string().max(1e3),
@@ -27571,7 +28281,10 @@ var launchReceiptSchema = external_exports.object({
     seed: external_exports.string().min(1).max(200),
     coreVersion: external_exports.string().min(1).max(100),
     buildAgent: external_exports.string().min(1).max(200),
+    /** Distinct model-task nodes compiled into the run graph. */
     taskCount: external_exports.number().int().nonnegative(),
+    /** Attempted model executions, including retries. */
+    modelCalls: external_exports.number().int().nonnegative(),
     inputTokens: nullableCount,
     cachedInputTokens: nullableCount,
     outputTokens: nullableCount,
@@ -27621,7 +28334,41 @@ var launchReceiptSchema = external_exports.object({
     }).strict()
   ).max(100),
   limitations: external_exports.array(external_exports.string().min(1).max(4e3)).max(100)
-}).strict().superRefine(rejectCredentialMaterial);
+}).strict().superRefine((receipt, context2) => {
+  rejectCredentialMaterial(receipt, context2);
+  const contract = receipt.launchContract;
+  const linkedDecisionFields = [
+    ["launchMode", receipt.decision.launchMode, contract.decision.launchMode],
+    [
+      "primarySuccessSignal",
+      receipt.decision.primarySuccessSignal,
+      contract.decision.primarySuccessSignal
+    ],
+    ["reviewDate", receipt.decision.reviewDate, contract.decision.reviewDate],
+    [
+      "firstValidationAction",
+      receipt.decision.firstValidationAction,
+      contract.distribution.firstValidationAction
+    ]
+  ];
+  for (const [field, actual, expected] of linkedDecisionFields) {
+    if (actual !== expected) {
+      context2.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["decision", field],
+        message: "must match launchContract"
+      });
+    }
+  }
+  const journey = receipt.verification.primaryJourneyEvidence;
+  if (journey && (journey.journeyId !== contract.decision.primarySuccessSignal || JSON.stringify(journey.steps) !== JSON.stringify(contract.product.primaryJourney))) {
+    context2.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["verification", "primaryJourneyEvidence"],
+      message: "must identify and enumerate the canonical Launch Contract primary journey"
+    });
+  }
+});
 function providerState(report, providers, capability) {
   const matches2 = report.providers.filter(
     (outcome) => providers.includes(outcome.provider) && (!capability || capability(outcome.capability))
@@ -27651,7 +28398,7 @@ function resource(report, provider, keys) {
   return "";
 }
 function modelUsage(state) {
-  const expectedTasks = Object.values(state.nodes).filter(({ definition: definition2 }) => definition2.kind === "model").reduce((total, node) => total + node.attempts, 0);
+  const expectedModelCalls = Object.values(state.nodes).filter(({ definition: definition2 }) => definition2.kind === "model").reduce((total, node) => total + node.attempts, 0);
   const costs = (state.costs ?? []).filter(
     ({ kind, unit, inputTokens: inputTokens2, outputTokens: outputTokens2 }) => kind === "model" && unit === "tokens" && (inputTokens2 !== void 0 || outputTokens2 !== void 0)
   );
@@ -27664,10 +28411,10 @@ function modelUsage(state) {
       buildAgent: "not_recorded",
       toolCalls: null,
       failedCommands: null,
-      complete: expectedTasks === 0
+      complete: expectedModelCalls === 0
     };
   }
-  const complete = costs.length === expectedTasks && costs.every(
+  const complete = costs.length === expectedModelCalls && costs.every(
     ({ inputTokens: inputTokens2, outputTokens: outputTokens2 }) => inputTokens2 !== void 0 && outputTokens2 !== void 0
   );
   const inputTokens = complete ? costs.reduce((sum, item) => sum + (item.inputTokens ?? 0), 0) : null;
@@ -27722,22 +28469,30 @@ function uniqueChangedFiles(state) {
 function createLaunchReceipt(input, options = {}) {
   const redactor = options.redactor ?? new Redactor();
   const fixture = input.report.brief.synthetic;
-  const modelTaskCount = Object.values(input.state.nodes).filter(({ definition: definition2 }) => definition2.kind === "model").reduce((total, node) => total + node.attempts, 0);
+  const modelTasks = Object.values(input.state.nodes).filter(
+    ({ definition: definition2 }) => definition2.kind === "model"
+  );
+  const modelTaskCount = modelTasks.length;
+  const modelCalls = modelTasks.reduce((total, node) => total + node.attempts, 0);
   const usage = modelUsage(input.state);
-  const contract = input.launchContract;
+  const contract = launchContractSchema.parse(input.launchContract);
   const reportedValidationAction = input.report.launch.firstValidationAction;
-  if (contract) {
-    if (!reportedValidationAction) {
-      throw new Error(
-        "Launch Report must link the reviewed human-gated first validation action before a receipt can be created"
-      );
-    }
-    if (reportedValidationAction.action !== contract.distribution.firstValidationAction || reportedValidationAction.channel !== contract.distribution.firstChannel || reportedValidationAction.userHabitat !== contract.distribution.firstUserHabitat) {
-      throw new Error("Launch Report first validation action does not match the Launch Contract");
-    }
+  if (!reportedValidationAction) {
+    throw new Error(
+      "Launch Report must link the reviewed human-gated first validation action before a receipt can be created"
+    );
+  }
+  if (reportedValidationAction.action !== contract.distribution.firstValidationAction || reportedValidationAction.channel !== contract.distribution.firstChannel || reportedValidationAction.userHabitat !== contract.distribution.firstUserHabitat) {
+    throw new Error("Launch Report first validation action does not match the Launch Contract");
+  }
+  if (input.decision.mode.selectedMode !== contract.decision.launchMode) {
+    throw new Error("Launch Decision mode does not match the Launch Contract");
+  }
+  if (fixture !== (contract.synthetic === true)) {
+    throw new Error("Launch Report synthetic state does not match the Launch Contract");
   }
   const primaryJourneyEvidence2 = input.verification?.primaryJourneyEvidence ? launchReceiptPrimaryJourneyEvidenceSchema.parse(input.verification.primaryJourneyEvidence) : null;
-  if (primaryJourneyEvidence2 && contract && (primaryJourneyEvidence2.journeyId !== contract.decision.primarySuccessSignal || JSON.stringify(primaryJourneyEvidence2.steps) !== JSON.stringify(contract.product.primaryJourney))) {
+  if (primaryJourneyEvidence2 && (primaryJourneyEvidence2.journeyId !== contract.decision.primarySuccessSignal || JSON.stringify(primaryJourneyEvidence2.steps) !== JSON.stringify(contract.product.primaryJourney))) {
     throw new Error(
       "Primary-journey evidence must identify and enumerate the reviewed Launch Contract journey"
     );
@@ -27781,13 +28536,13 @@ function createLaunchReceipt(input, options = {}) {
   const productionUrl = input.verification?.deploymentEvidence?.productionUrl ?? "";
   const customDomain = input.verification?.deploymentEvidence?.customDomain ?? null;
   const accountingLimitations = [
-    ...modelTaskCount > 0 && !usage.complete ? [
-      `Model usage is incomplete: ${modelTaskCount} build-agent task attempt(s) were recorded but complete token observations were not available for every attempt.`
+    ...modelCalls > 0 && !usage.complete ? [
+      `Model usage is incomplete: ${modelCalls} model call(s) were recorded but complete token observations were not available for every call.`
     ] : [],
     ...input.filesRead === void 0 || input.filesRead === null ? [
       "Observed file-read accounting is unavailable; selected context-manifest file counts are not reported as files actually read."
     ] : [],
-    ...modelTaskCount > 0 && usage.failedCommands === null ? ["Build-agent failed-command accounting is unavailable for one or more model calls."] : []
+    ...modelCalls > 0 && usage.failedCommands === null ? ["Build-agent failed-command accounting is unavailable for one or more model calls."] : []
   ];
   const providerManualActions = input.report.remainingManualActions.map((action) => ({
     action: action.action,
@@ -27816,7 +28571,8 @@ function createLaunchReceipt(input, options = {}) {
     throw new Error("Launch Receipt manual-action limit is too small for current launch gaps");
   }
   const candidate = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    launchContract: contract,
     venture: {
       name: input.report.brief.name,
       repository: resource(input.report, "github", ["repository_url", "repository"]),
@@ -27824,16 +28580,17 @@ function createLaunchReceipt(input, options = {}) {
       customDomain
     },
     decision: {
-      launchMode: input.decision.mode.selectedMode,
-      primarySuccessSignal: contract?.decision.primarySuccessSignal ?? "not_recorded_in_legacy_brief",
-      reviewDate: contract?.decision.reviewDate ?? "",
-      firstValidationAction: contract?.distribution.firstValidationAction ?? reportedValidationAction?.action ?? ""
+      launchMode: contract.decision.launchMode,
+      primarySuccessSignal: contract.decision.primarySuccessSignal,
+      reviewDate: contract.decision.reviewDate,
+      firstValidationAction: contract.distribution.firstValidationAction
     },
     build: {
       seed: input.launchGrant?.seed.id ?? "not_recorded",
       coreVersion: input.launchGrant?.seed.version ?? "not_recorded",
       buildAgent: usage.buildAgent !== "not_recorded" ? usage.buildAgent : input.launchGrant?.modelExecutionPolicy?.attestation ?? "not_recorded",
       taskCount: modelTaskCount,
+      modelCalls,
       inputTokens: usage.inputTokens,
       cachedInputTokens: usage.cachedInputTokens,
       outputTokens: usage.outputTokens,
@@ -27884,11 +28641,17 @@ function createLaunchReceipt(input, options = {}) {
       ])
     ]
   };
-  return launchReceiptSchema.parse(redactor.redact(candidate));
+  const redactableCandidate = { ...candidate };
+  delete redactableCandidate.launchContract;
+  return launchReceiptSchema.parse({
+    ...redactor.redact(redactableCandidate),
+    launchContract: contract
+  });
 }
 function renderLaunchReceiptMarkdown(receiptInput) {
   const receipt = launchReceiptSchema.parse(receiptInput);
   const line = (label, state) => `- ${label}: ${state}`;
+  const renderedContract = renderLaunchContractYaml(receipt.launchContract).trimEnd().split("\n").map((contractLine) => `    ${contractLine}`);
   return [
     `# Launch Receipt: ${receipt.venture.name}`,
     "",
@@ -27900,10 +28663,15 @@ function renderLaunchReceiptMarkdown(receiptInput) {
     `- Review date: ${receipt.decision.reviewDate || "not recorded"}`,
     `- First validation action: ${receipt.decision.firstValidationAction || "not recorded"}`,
     "",
+    "## Canonical Launch Contract",
+    "",
+    ...renderedContract,
+    "",
     "## Build accounting",
     "",
     `- Seed / Core: ${receipt.build.seed} / ${receipt.build.coreVersion}`,
-    `- Agent / tasks: ${receipt.build.buildAgent} / ${receipt.build.taskCount}`,
+    `- Build agent: ${receipt.build.buildAgent}`,
+    `- Model tasks / model calls: ${receipt.build.taskCount} / ${receipt.build.modelCalls}`,
     `- Tokens (input / cached / output / total): ${receipt.build.inputTokens ?? "unavailable"} / ${receipt.build.cachedInputTokens ?? "unavailable"} / ${receipt.build.outputTokens ?? "unavailable"} / ${receipt.build.totalTokens ?? "unavailable"}`,
     `- Retries / failed commands / elapsed ms: ${receipt.build.retries} / ${receipt.build.failedCommands ?? "unavailable"} / ${receipt.build.elapsedMs}`,
     `- Tool calls: ${receipt.build.toolCalls ?? "unavailable"}`,
@@ -27950,8 +28718,8 @@ async function persistLaunchReceipt(receiptInput, outputDirectory) {
   const receipt = launchReceiptSchema.parse(receiptInput);
   const directory = resolve17(outputDirectory);
   await mkdir5(directory, { recursive: true, mode: 448 });
-  const jsonPath = join8(directory, "receipt.json");
-  const markdownPath = join8(directory, "receipt.md");
+  const jsonPath = join7(directory, "receipt.json");
+  const markdownPath = join7(directory, "receipt.md");
   const json2 = `${JSON.stringify(receipt, null, 2)}
 `;
   const markdown = renderLaunchReceiptMarkdown(receipt);
@@ -27969,6 +28737,7 @@ async function persistLaunchReceipt(receiptInput, outputDirectory) {
 // lib/runtime/launch-product-bindings.ts
 import { createHash as createHash13, randomBytes as randomBytes6 } from "node:crypto";
 import {
+  chmodSync,
   closeSync as closeSync7,
   constants as constants7,
   existsSync as existsSync9,
@@ -27979,6 +28748,7 @@ import {
   readdirSync as readdirSync4,
   readFileSync as readFileSync12,
   renameSync as renameSync6,
+  rmSync as rmSync2,
   writeFileSync as writeFileSync8
 } from "node:fs";
 import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative12, resolve as resolve19, sep as sep12 } from "node:path";
@@ -28000,7 +28770,7 @@ import {
   realpathSync as realpathSync7,
   writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname9, join as join9, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
+import { dirname as dirname9, join as join8, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
 
 // lib/mobile/templates.ts
 import { createHash as createHash11 } from "node:crypto";
@@ -28440,7 +29210,7 @@ function assertNoSymlinkBetween(root, absolute) {
   const rel = relative11(root, absolute);
   let current = root;
   for (const segment of rel.split(sep11).filter(Boolean)) {
-    current = join9(current, segment);
+    current = join8(current, segment);
     if (!existsSync8(current)) continue;
     const status = lstatSync5(current);
     if (status.isSymbolicLink()) {
@@ -28455,7 +29225,7 @@ function ensureDirectory(root, absolute) {
   const rel = relative11(root, absolute);
   let current = root;
   for (const segment of rel.split(sep11).filter(Boolean)) {
-    current = join9(current, segment);
+    current = join8(current, segment);
     if (existsSync8(current)) {
       const status = lstatSync5(current);
       if (status.isSymbolicLink() || !status.isDirectory()) {
@@ -28637,7 +29407,7 @@ var PRIMARY_JOURNEY_SPEC_PATH = "tests/e2e/primary-journey.spec.ts";
 var PRIMARY_JOURNEY_CONTRACT_PATH = "tests/e2e/primary-journey.contract.json";
 var PRIMARY_JOURNEY_CLEANUP_SPEC_PATH = "tests/e2e/primary-journey-cleanup.spec.ts";
 var AGENT_TASKS = {
-  "launch.prepareRepository": "Complete the first and primary bounded product-build call. Inspect the selected rail and compact Launch Contract context, then create or adapt only the smallest venture-owned scaffold needed for the brief. In this same coherent pass, refine the venture proposition, implement one original accessible responsive design direction, build the declared primary journey and affected tests, and wire only the minimum privacy-safe capability-driven event instrumentation. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Include only selected-mode evidence: one validation gate for validate-first, bounded human operations for concierge-first, or real usage/failure/deletion proof for product-first. Preserve managed contracts and existing venture-owned work. Record assumptions instead of inventing non-critical detail. Do not regenerate standard infrastructure that the seed already provides. For a canonical web Launch Contract, create tests/e2e/primary-journey.spec.ts as the product-specific Playwright path, tests/e2e/primary-journey-cleanup.spec.ts as its independently runnable cleanup, and tests/e2e/primary-journey.contract.json as their machine-readable binding. The binding must contain schemaVersion 1, scope product_specific_end_to_end, the exact Launch Contract primarySuccessSignal as journeyId, the exact ordered Launch Contract primaryJourney strings as steps, both exact spec paths, launchContractPath config/launch-contract.yaml, a visibly TEST/SYNTHETIC/FIXTURE-labeled identity, required-and-verified cleanup, allowedEffects containing reversible_external_write plus transactional_email only when needed and separately authorized, and the unique complete forbidden-effect list supplied in context. Both specs must read that binding and require VH_PRIMARY_JOURNEY_RUN_ID, VH_PRIMARY_JOURNEY_NONCE, and VH_PRIMARY_JOURNEY_TEST_IDENTITY. After observed success, each desktop/mobile test prints exactly `VH_PRIMARY_JOURNEY_RESULT ` followed by JSON with schemaVersion=1, phase, the runId and nonce environment values, contract journeyId and steps, testInfo.project.name, contract identity, observedEffects, recipientCount, recipientsAllMatchTestIdentity, and forbiddenEffectsObserved=[]. Cleanup markers additionally include cleanup={state:'verified',removedWrites,remainingWrites:0} only after read-back. The cleanup spec must remove only the labeled test identity's reversible writes. A customer charge or checkout, unrelated deletion, DNS/provider configuration, bulk/cold send, recipient outside the test identity, or irreversible publication is forbidden. The seed's generic post-deploy-readonly surface check is never journey proof.",
+  "launch.prepareRepository": "Complete the first and primary bounded product-build call. Inspect the selected rail and compact Launch Contract context, then create or adapt only the smallest venture-owned scaffold needed for the brief. In this same coherent pass, refine the venture proposition, implement one original accessible responsive design direction, build the declared primary journey and affected tests, and wire only the minimum privacy-safe capability-driven event instrumentation. Use only the exact reviewed dependencies and scripts already present; do not modify package.json, pnpm-lock.yaml, or config/package-execution-policy.json. If an indispensable package is absent, report that precise blocker. Include only selected-mode evidence: one validation gate for validate-first, bounded human operations for concierge-first, or real usage/failure/deletion proof for product-first. Preserve managed contracts and existing venture-owned work. Record assumptions instead of inventing non-critical detail. Do not regenerate standard infrastructure that the seed already provides. For a canonical web Launch Contract, create tests/e2e/primary-journey.spec.ts as the product-specific Playwright path, tests/e2e/primary-journey-cleanup.spec.ts as its independently runnable cleanup, and tests/e2e/primary-journey.contract.json as their machine-readable binding. The binding must contain schemaVersion 1, scope product_specific_end_to_end, the exact Launch Contract primarySuccessSignal as journeyId, the exact ordered Launch Contract primaryJourney strings as steps, both exact spec paths, launchContractPath config/launch-contract.yaml, a visibly TEST/SYNTHETIC/FIXTURE-labeled identity, required-and-verified cleanup, allowedEffects containing reversible_external_write plus transactional_email only when needed and separately authorized, and the unique complete forbidden-effect list supplied in context. Both specs must read that binding and require VH_PRIMARY_JOURNEY_RUN_ID, VH_PRIMARY_JOURNEY_NONCE, and VH_PRIMARY_JOURNEY_TEST_IDENTITY. After observed success, each desktop/mobile test prints exactly `VH_PRIMARY_JOURNEY_RESULT ` followed by JSON with schemaVersion=1, phase, the runId and nonce environment values, contract journeyId and steps, testInfo.project.name, contract identity, observedEffects, recipientCount, recipientsAllMatchTestIdentity, and forbiddenEffectsObserved=[]. Cleanup markers additionally include cleanup={state:'verified',removedWrites,remainingWrites:0} only after read-back. The cleanup spec must remove only the labeled test identity's reversible writes. A customer charge or checkout, unrelated deletion, DNS/provider configuration, bulk/cold send, recipient outside the test identity, or irreversible publication is forbidden. The seed's generic post-deploy-readonly surface check is never journey proof.",
   "launch.reviewProduct": "Perform the second and final normal product-build call as an independent reviewer. Exercise the primary journey and inspect proposition clarity, venture-specific design, responsive/mobile behavior, accessibility, truthfulness, labeled samples, relevant event privacy and exact displayed-price recording. Run direct affected checks, repair only observed defects, and do not broaden product scope or mutate dependency manifests/lockfiles. Return typed evidence for the reviewed core journey, affected tests, design implementation, and event instrumentation. For a canonical web Launch Contract, independently read tests/e2e/primary-journey.contract.json, confirm its journeyId and ordered steps exactly match config/launch-contract.yaml, and run both tests/e2e/primary-journey.spec.ts and tests/e2e/primary-journey-cleanup.spec.ts directly. Confirm production uses only the labeled test identity, the bounded authorized effects, and cleanup read-back; no model-authored step may widen authority. Keep the seed's generic post-deploy-readonly check separate. If a blocker remains, state it exactly instead of claiming completion.",
   "launch.designDirection": "Create and implement an original, accessible visual direction for the smallest core journey. Record the design thesis, tokens, responsive composition, accessibility constraints, and anti-template audit. Do not copy a reference identity or fabricate product proof.",
   "launch.buildCoreJourney": "Implement the smallest useful core journey declared by the brief on the selected rail. Add affected tests, label sample or synthetic data, keep public claims within PRODUCT_TRUTH, and avoid unrelated features.",
@@ -28654,12 +29424,19 @@ var QUALITY_COMMANDS = {
 var CHILD_DEPENDENCY_INSTALL_ARGS = [
   "install",
   "--frozen-lockfile",
-  "--ignore-workspace",
-  "--ignore-scripts",
-  "--prod=false"
+  "--ignore-workspace"
 ];
 var DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION = 1;
 var NO_FOLLOW5 = "O_NOFOLLOW" in constants7 ? constants7.O_NOFOLLOW : 0;
+var packageExecutionPolicySchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  packageManager: external_exports.literal("pnpm@9.15.9"),
+  scripts: external_exports.record(external_exports.string(), external_exports.string()),
+  dependencies: external_exports.record(external_exports.string(), external_exports.string()),
+  devDependencies: external_exports.record(external_exports.string(), external_exports.string()),
+  pnpm: external_exports.object({ onlyBuiltDependencies: external_exports.array(external_exports.string()).length(0) }).strict(),
+  lockfileSha256: external_exports.string().regex(/^[a-f0-9]{64}$/u)
+}).strict();
 var NonRegularFileError = class extends Error {
 };
 var POST_DEPLOY_SURFACE_TEST_ARGS = [
@@ -29027,8 +29804,9 @@ function readRegularFile3(path, encoding) {
   let descriptor2;
   try {
     descriptor2 = openSync7(path, constants7.O_RDONLY | NO_FOLLOW5);
-    if (!fstatSync7(descriptor2).isFile()) {
-      throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
+    const metadata = fstatSync7(descriptor2);
+    if (!metadata.isFile() || metadata.nlink !== 1) {
+      throw new NonRegularFileError(`${path} is not one private regular file`);
     }
     return encoding === "utf8" ? readFileSync12(descriptor2, encoding) : readFileSync12(descriptor2);
   } catch (error) {
@@ -29053,6 +29831,89 @@ function sha256IfRegular(path) {
     if (unavailableRegularFile(error)) return null;
     throw error;
   }
+}
+function stableJson2(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson2).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => `${JSON.stringify(key)}:${stableJson2(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function assertPackageExecutionPolicy(root) {
+  if (!existsSync9(inside5(root, "venture.manifest.json"))) return false;
+  const policyReference = "config/package-execution-policy.json";
+  const policyPath = inside5(root, policyReference);
+  const packagePath = inside5(root, "package.json");
+  const lockfilePath = inside5(root, "pnpm-lock.yaml");
+  let policy;
+  let packageManifest;
+  try {
+    policy = packageExecutionPolicySchema.parse(JSON.parse(readRegularFile3(policyPath, "utf8")));
+    const parsedPackage = JSON.parse(readRegularFile3(packagePath, "utf8"));
+    if (!parsedPackage || typeof parsedPackage !== "object" || Array.isArray(parsedPackage)) {
+      throw new Error("package.json must contain one JSON object");
+    }
+    packageManifest = parsedPackage;
+  } catch {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_INVALID",
+      "The generated child package execution policy or package manifest is missing or invalid."
+    );
+  }
+  const lock = loadHarnessLock(inside5(root, "harness.lock"));
+  const managedPolicy = lock.managed_files.find(({ path }) => path === policyReference);
+  const actualPolicySha256 = sha2564(policyPath);
+  if (managedPolicy?.ownership !== "core_owned" || managedPolicy.sha256 === null || managedPolicy.sha256 !== actualPolicySha256) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_TAMPERED",
+      "The package execution policy must match its Core-owned harness.lock digest."
+    );
+  }
+  const allowedKeys = /* @__PURE__ */ new Set([
+    "name",
+    "version",
+    "private",
+    "type",
+    "packageManager",
+    "engines",
+    "scripts",
+    "dependencies",
+    "devDependencies",
+    "pnpm"
+  ]);
+  if (Object.keys(packageManifest).some((key) => !allowedKeys.has(key))) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_VIOLATION",
+      "package.json contains an unreviewed package-manager control field."
+    );
+  }
+  const expectedSurfaces = {
+    packageManager: policy.packageManager,
+    scripts: policy.scripts,
+    dependencies: policy.dependencies,
+    devDependencies: policy.devDependencies,
+    pnpm: policy.pnpm
+  };
+  const actualSurfaces = {
+    packageManager: packageManifest.packageManager,
+    scripts: packageManifest.scripts,
+    dependencies: packageManifest.dependencies,
+    devDependencies: packageManifest.devDependencies ?? {},
+    pnpm: packageManifest.pnpm
+  };
+  if (stableJson2(actualSurfaces) !== stableJson2(expectedSurfaces)) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_VIOLATION",
+      "Package scripts, dependencies, or lifecycle policy differ from the reviewed Core contract."
+    );
+  }
+  if (sha2564(lockfilePath) !== policy.lockfileSha256) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_VIOLATION",
+      "pnpm-lock.yaml differs from the reviewed Core dependency graph."
+    );
+  }
+  return true;
 }
 function assertCoreOwnedSurfaceSpec(root) {
   let lock;
@@ -29511,19 +30372,143 @@ function repositorySnapshot(root) {
     for (const entry of readdirSync4(directory, { withFileTypes: true }).sort(
       (left, right) => left.name.localeCompare(right.name)
     )) {
-      if (entry.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
       const absolute = resolve19(directory, entry.name);
-      if (entry.isDirectory()) {
+      const metadata = lstatSync6(absolute);
+      if (metadata.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      if (metadata.isSymbolicLink()) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Generated repository contains a symbolic link at ${relative12(root, absolute).split(sep12).join("/")}; model tasks require private regular files.`
+        );
+      }
+      if (metadata.isDirectory()) {
         visit(absolute);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Generated repository contains a non-private or non-regular entry at ${relative12(root, absolute).split(sep12).join("/")}.`
+        );
+      }
       const reference = relative12(root, absolute).split(sep12).join("/");
       snapshot.set(reference, sha2564(absolute));
     }
   };
   visit(root);
   return snapshot;
+}
+var ROLLBACK_IGNORED_DIRECTORIES = /* @__PURE__ */ new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  "coverage",
+  "node_modules"
+]);
+var ROLLBACK_MAX_FILE_BYTES = 16 * 1024 * 1024;
+var ROLLBACK_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
+function repositoryPreimage(root) {
+  const files = /* @__PURE__ */ new Map();
+  const directories = /* @__PURE__ */ new Map();
+  let totalBytes = 0;
+  const visit = (directory) => {
+    for (const entry of readdirSync4(directory, { withFileTypes: true }).sort(
+      (left, right) => left.name.localeCompare(right.name)
+    )) {
+      if (entry.isDirectory() && ROLLBACK_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const absolute = resolve19(directory, entry.name);
+      const metadata = lstatSync6(absolute);
+      const reference = relative12(root, absolute).split(sep12).join("/");
+      if (metadata.isSymbolicLink() || !metadata.isDirectory() && !metadata.isFile()) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Cannot establish a rollback preimage for unsafe repository entry ${reference}.`
+        );
+      }
+      if (metadata.isDirectory()) {
+        directories.set(reference, metadata.mode & 511);
+        visit(absolute);
+        continue;
+      }
+      if (metadata.nlink !== 1 || metadata.size > ROLLBACK_MAX_FILE_BYTES) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Cannot establish a private bounded rollback preimage for ${reference}.`
+        );
+      }
+      totalBytes += metadata.size;
+      if (totalBytes > ROLLBACK_MAX_TOTAL_BYTES) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          "Repository rollback preimage exceeds the 128 MiB founder-alpha limit."
+        );
+      }
+      files.set(reference, {
+        content: readFileSync12(absolute),
+        mode: metadata.mode & 511
+      });
+    }
+  };
+  visit(root);
+  return { files, directories };
+}
+function currentRollbackEntries(root) {
+  const files = /* @__PURE__ */ new Set();
+  const directories = /* @__PURE__ */ new Set();
+  const visit = (directory) => {
+    for (const entry of readdirSync4(directory, { withFileTypes: true })) {
+      if (entry.isDirectory() && ROLLBACK_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const absolute = resolve19(directory, entry.name);
+      const metadata = lstatSync6(absolute);
+      const reference = relative12(root, absolute).split(sep12).join("/");
+      if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+        directories.add(reference);
+        visit(absolute);
+      } else {
+        files.add(reference);
+      }
+    }
+  };
+  visit(root);
+  return { files, directories };
+}
+function restoreRepositoryPreimage(root, preimage) {
+  const current = currentRollbackEntries(root);
+  const removeReferences = [
+    ...[...current.files].filter((reference) => !preimage.files.has(reference)),
+    ...[...current.directories].filter((reference) => !preimage.directories.has(reference))
+  ].sort((left, right) => right.split("/").length - left.split("/").length);
+  for (const reference of removeReferences) {
+    rmSync2(inside5(root, reference), { recursive: true, force: true });
+  }
+  for (const [reference, mode] of [...preimage.directories.entries()].sort(
+    ([left], [right]) => left.split("/").length - right.split("/").length
+  )) {
+    const absolute = inside5(root, reference);
+    if (existsSync9(absolute) && !lstatSync6(absolute).isDirectory()) {
+      rmSync2(absolute, { recursive: true, force: true });
+    }
+    mkdirSync8(absolute, { recursive: true, mode });
+    chmodSync(absolute, mode);
+  }
+  for (const [reference, file2] of preimage.files) {
+    const absolute = inside5(root, reference);
+    mkdirSync8(dirname10(absolute), { recursive: true, mode: 448 });
+    if (existsSync9(absolute)) {
+      const metadata = lstatSync6(absolute);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+        rmSync2(absolute, { recursive: true, force: true });
+      }
+    }
+    const temporary = `${absolute}.rollback-${process.pid}-${randomBytes6(8).toString("hex")}`;
+    try {
+      writeFileSync8(temporary, file2.content, { mode: 384, flag: "wx" });
+      renameSync6(temporary, absolute);
+      chmodSync(absolute, file2.mode);
+    } finally {
+      rmSync2(temporary, { force: true });
+    }
+  }
 }
 function repositoryChanges(before, after) {
   return [.../* @__PURE__ */ new Set([...before.keys(), ...after.keys()])].sort().flatMap((path) => {
@@ -29670,14 +30655,17 @@ function directCheck(command) {
     command.trim()
   ) && !/[;&|`$<>]/.test(command);
 }
-function taskInstructions(handler, instructions) {
+function taskInstructions(handler, instructions, capabilitiesRequired = []) {
   const policy = COMPLETION_POLICIES[handler];
-  if (!policy) return instructions;
+  const discoveryRequired = capabilitiesRequired.includes("web_seo_aeo_geo");
   return [
     instructions,
-    `Completion evidence must include these artifact roles: ${policy.requiredArtifactRoles.join(", ")}.`,
-    "For outcome=changed, report every repository file whose content changed and name at least one changed completion artifact. For outcome=already_compliant, change no repository content and cite unchanged artifacts that already satisfy every required role.",
-    "The completion validator must name one directly executed, relevant check from checks; it must pass and include observed evidence."
+    discoveryRequired ? "SEO/AEO/GEO is REQUIRED. Read config/seo.yaml, skills/seo-aeo-engine/SKILL.md, and its technical-discovery reference. Keep one truthful canonical owner per user task; require unique accurate metadata, raw-HTML answers and limitations, self-canonicals, safe sitemap exclusions, page-appropriate parseable visible-fact JSON-LD (or record why no schema type is truthful), and explicit verified-production indexing opt-in. Do not invent queries, traffic, citations, ratings, reviews, people, or provider state." : "SEO/AEO/GEO is not selected for this task. Do not add discovery infrastructure or enable indexing.",
+    ...policy ? [
+      `Completion evidence must include these artifact roles: ${policy.requiredArtifactRoles.join(", ")}.`,
+      "For outcome=changed, report every repository file whose content changed and name at least one changed completion artifact. For outcome=already_compliant, change no repository content and cite unchanged artifacts that already satisfy every required role.",
+      "The completion validator must name one directly executed, relevant check from checks; it must pass and include observed evidence."
+    ] : []
   ].join("\n\n");
 }
 function safeSegment(value, label) {
@@ -30003,6 +30991,59 @@ async function runMobileScaffoldTask(options, context2) {
   return { output, effectVerified: true, evidenceArtifact };
 }
 async function runAgentTask(options, instructions, context2) {
+  const preimage = repositoryPreimage(options.rootDir);
+  try {
+    return await runAgentTaskUncommitted(options, instructions, context2);
+  } catch (error) {
+    try {
+      restoreRepositoryPreimage(options.rootDir, preimage);
+    } catch (rollbackError) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_ROLLBACK_FAILED",
+        `Build-agent work was rejected, but exact repository rollback failed: ${options.redactor.redactText(
+          rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+        )}. Stop before any source or provider effect and restore the child from its last verified source snapshot.`
+      );
+    }
+    let evidenceArtifact = null;
+    try {
+      evidenceArtifact = persistEvidence(
+        options.rootDir,
+        context2,
+        {
+          schemaVersion: 1,
+          runId: context2.runId,
+          nodeId: context2.node.id,
+          handler: context2.node.handler,
+          host: options.agentHost.id,
+          finishedAt: options.now().toISOString(),
+          status: "rolled_back_after_failure",
+          rollbackRestored: true,
+          originalErrorCode: error instanceof WorkflowExecutionError ? error.code : "BUILD_AGENT_FAILED",
+          error: options.redactor.redactText(
+            error instanceof Error ? error.message : String(error)
+          ),
+          rawPromptPersisted: false,
+          rawJsonlPersisted: false
+        },
+        options.redactor
+      );
+    } catch {
+    }
+    const suffix = evidenceArtifact ? ` Rejected repository changes were restored; inspect ${evidenceArtifact}.` : " Rejected repository changes were restored, but rollback evidence could not be written.";
+    if (error instanceof WorkflowExecutionError) {
+      throw new WorkflowExecutionError(error.code, `${error.message}${suffix}`, {
+        retryable: error.retryable,
+        ...error.details === void 0 ? {} : { details: error.details }
+      });
+    }
+    throw new WorkflowExecutionError(
+      "BUILD_AGENT_FAILED",
+      `${options.redactor.redactText(error instanceof Error ? error.message : String(error))}${suffix}`
+    );
+  }
+}
+async function runAgentTaskUncommitted(options, instructions, context2) {
   const startedAt = options.now().toISOString();
   const handler = context2.node.handler ?? context2.node.id;
   const policy = COMPLETION_POLICIES[handler];
@@ -30033,7 +31074,7 @@ async function runAgentTask(options, instructions, context2) {
         runId: context2.runId,
         nodeId: context2.node.id,
         purpose: context2.node.purpose,
-        instructions: taskInstructions(handler, instructions),
+        instructions: taskInstructions(handler, instructions, contextManifest.capabilitiesRequired),
         context: {
           brief: options.brief,
           node: {
@@ -30266,6 +31307,7 @@ async function runAgentTask(options, instructions, context2) {
 }
 async function runQualityCommand(options, args, context2) {
   const startedAt = options.now().toISOString();
+  const packageExecutionPolicyVerified = assertPackageExecutionPolicy(options.rootDir);
   const isMvp = args.length === 1 && args[0] === "verify:mvp";
   const journeyContract = isMvp ? primaryJourneyTestContract(options.rootDir, options.launchContract) : null;
   const result2 = await options.commandRunner.run({
@@ -30285,6 +31327,7 @@ async function runQualityCommand(options, args, context2) {
       startedAt,
       finishedAt: options.now().toISOString(),
       command: ["pnpm", ...args],
+      packageExecutionPolicyVerified,
       ...journeyContract ? {
         primaryJourneyContract: {
           scope: journeyContract.scope,
@@ -30327,8 +31370,10 @@ async function runDependencyInstall(options, context2) {
   let installedModulesReadBack = false;
   let installedLockfileReadBack = false;
   let requiredToolingReadBack = false;
+  let packageExecutionPolicyVerified = false;
   let checkpoint = null;
   try {
+    packageExecutionPolicyVerified = assertPackageExecutionPolicy(options.rootDir);
     packageManifestSha256 = sha256IfRegular(packagePath);
     if (packageManifestSha256 === null) {
       throw new Error("package.json is missing or is not a regular file");
@@ -30389,7 +31434,8 @@ async function runDependencyInstall(options, context2) {
       lockfileSha256,
       frozenLockfile: true,
       parentWorkspaceIgnored: true,
-      lifecycleScriptsDisabled: true,
+      lifecycleScriptsDisabled: packageExecutionPolicyVerified,
+      packageExecutionPolicyVerified,
       installedModulesReadBack,
       installedLockfileReadBack,
       requiredToolingReadBack,
@@ -30433,7 +31479,8 @@ async function runDependencyInstall(options, context2) {
       installedModulesReadBack: true,
       installedLockfileReadBack: true,
       requiredToolingReadBack: true,
-      lifecycleScriptsDisabled: true
+      lifecycleScriptsDisabled: packageExecutionPolicyVerified,
+      packageExecutionPolicyVerified
     },
     effectVerified: true,
     evidenceArtifact
@@ -30471,6 +31518,7 @@ function reconcileDependencyInstall(options, context2) {
     };
   }
   const readBack = readDependencyInstallState(options.rootDir, checkpoint);
+  const packageExecutionPolicyVerified = assertPackageExecutionPolicy(options.rootDir);
   const evidenceArtifact = persistDependencyReconciliationEvidence(
     options.rootDir,
     context2,
@@ -30503,7 +31551,8 @@ function reconcileDependencyInstall(options, context2) {
       installedModulesReadBack: true,
       installedLockfileReadBack: true,
       requiredToolingReadBack: true,
-      lifecycleScriptsDisabled: true,
+      lifecycleScriptsDisabled: packageExecutionPolicyVerified,
+      packageExecutionPolicyVerified,
       reconciled: true
     },
     evidenceArtifact
@@ -31078,7 +32127,7 @@ async function reconcilePostDeployVerification(options, context2) {
 }
 async function assertBuildAgentHostAvailable(host) {
   const inspection = await host.inspect();
-  if (inspection.status !== "available") {
+  if (inspection.status !== "available" || inspection.readIsolation === "unavailable") {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_UNAVAILABLE",
       `${inspection.nextAction ?? `${inspection.host} is unavailable.`} No run or external action was created.`
@@ -35944,15 +36993,15 @@ function readStructured(path) {
   const text2 = readFileSync16(path, "utf8");
   return path.endsWith(".json") ? JSON.parse(text2) : parse7(text2);
 }
-function stableJson2(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson2).join(",")}]`;
+function stableJson3(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson3).join(",")}]`;
   if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => `${JSON.stringify(key)}:${stableJson2(child)}`).join(",")}}`;
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => `${JSON.stringify(key)}:${stableJson3(child)}`).join(",")}}`;
   }
   return JSON.stringify(value) ?? "undefined";
 }
 function sha256Json(value) {
-  return createHash18("sha256").update(stableJson2(value)).digest("hex");
+  return createHash18("sha256").update(stableJson3(value)).digest("hex");
 }
 function founderLaunchTransactionPath(root) {
   return inside6(root, ".venture/founder-launch.json");
@@ -36040,6 +37089,7 @@ function validateFounderLaunchContinuation(input) {
     at: new Date(grant.createdAt),
     coreVersion: "0.2.0",
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     effects: []
   });
   if (plan.planDigest !== transaction.planDigest) {
@@ -37146,16 +38196,16 @@ async function assertFounderBuildAgentHostPolicy(host, grant) {
   const policy = grant.modelExecutionPolicy;
   if (!policy) throw new Error("Canonical founder Launch Grant has no model execution policy");
   if (policy.mode === "fixture_no_model_execution") {
-    if (inspection.billingMode !== "fixture_no_model_execution" || inspection.billingEvidence !== "fixture_attestation") {
+    if (inspection.readIsolation !== "fixture_no_model_execution" || inspection.billingMode !== "fixture_no_model_execution" || inspection.billingEvidence !== "fixture_attestation") {
       throw new Error(
         "Fixture founder launch requires an explicit no-model build-host attestation; no child or provider effect was created."
       );
     }
     return;
   }
-  if (inspection.billingMode !== "chatgpt_subscription" || inspection.billingEvidence !== "codex_login_status") {
+  if (inspection.readIsolation !== "verified_outer_read_isolation" || inspection.billingMode !== "chatgpt_subscription" || inspection.billingEvidence !== "codex_login_status") {
     throw new Error(
-      "Founder production launch requires `codex login status` to attest ChatGPT subscription use; API-key or unknown billing is blocked before child creation and provider transport."
+      "Founder production launch requires verified outer model read isolation plus `codex login status` attesting ChatGPT subscription use; unavailable isolation, API-key, or unknown billing is blocked before child creation and provider transport."
     );
   }
 }
@@ -37363,7 +38413,19 @@ function validateFounderStackCredentialWrites(request2, connection) {
     }
   }
 }
+function assertNoCallerInjectedModelHosts(options) {
+  const candidate = options;
+  if ("buildAgentHost" in candidate || "ideaSharpenerHost" in candidate) {
+    throw new Error(
+      "Production CLI services do not accept caller-injected model hosts. The shipped founder-alpha model boundary is inert until Core installs an audited outer read-isolation driver."
+    );
+  }
+}
 function createDefaultCliServices(options = {}) {
+  assertNoCallerInjectedModelHosts(options);
+  return createDefaultCliServicesInternal(options);
+}
+function createDefaultCliServicesInternal(options) {
   const root = resolve24(options.rootDir ?? process.cwd());
   const store = options.store ?? new FileWorkflowStore({ rootDir: inside6(root, ".venture/runs") });
   const now = options.now ?? (() => /* @__PURE__ */ new Date());
@@ -37378,13 +38440,17 @@ function createDefaultCliServices(options = {}) {
     options.credentialCatalogPath ?? (options.rootDir ? inside6(root, ".venture/credentials.json") : defaultCredentialCatalogPath())
   );
   let credentialCatalog = loadCredentialCatalog(catalogPath);
-  const commandRunner = options.providerCommandRunner ?? new NodeCommandRunner();
+  const commandRunner = options.providerCommandRunner ?? new NodeCommandRunner({
+    env: providerCommandEnvironment(process.env),
+    allowedInvocationEnv: PROVIDER_COMMAND_INVOCATION_ENVIRONMENT_NAMES
+  });
+  const onePasswordCommandRunner = options.providerCommandRunner ?? new NodeCommandRunner({ env: onePasswordCommandEnvironment(process.env) });
   const supportedBackends = /* @__PURE__ */ new Set(["environment", "ci", "cli_session", "onepassword"]);
   const defaultBroker = new CredentialBroker([
     new EnvironmentCredentialBackend(),
     new EnvironmentCredentialBackend({ id: "ci" }),
     new CliSessionCredentialBackend(commandRunner),
-    new OnePasswordCredentialBackend({ runner: commandRunner }),
+    new OnePasswordCredentialBackend({ runner: onePasswordCommandRunner }),
     ...process.platform === "darwin" ? [new MacOSKeychainCredentialBackend({ runner: commandRunner })] : []
   ]);
   if (process.platform === "darwin") supportedBackends.add("macos_keychain");
@@ -37461,13 +38527,11 @@ function createDefaultCliServices(options = {}) {
   const productRuntimeHome = inside6(root, ".venture/product-command-home");
   mkdirSync10(productRuntimeHome, { recursive: true, mode: 448 });
   const productCommandRunner = options.productCommandRunner ?? new NodeCommandRunner({ env: productCommandEnvironment(process.env, productRuntimeHome) });
-  const buildAgentHost = options.buildAgentHost ?? new CodexCliBuildAgentHost({
+  const buildAgentHost = new CodexCliBuildAgentHost({
     rootDir: root,
-    runner: new NodeCommandRunner({ env: codexBuildAgentEnvironment(process.env) }),
     redactor: credentialBroker.redactor
   });
-  const ideaSharpenerHost = options.ideaSharpenerHost ?? new CodexCliIdeaSharpenerHost({
-    runner: new NodeCommandRunner({ env: ideaSharpenerEnvironment(process.env) }),
+  const ideaSharpenerHost = new CodexCliIdeaSharpenerHost({
     redactor: credentialBroker.redactor
   });
   const defaultProviderRuntimeContext = createOfficialProviderContext({
@@ -37491,6 +38555,14 @@ function createDefaultCliServices(options = {}) {
     authorization: launch.authorization,
     ...launch.launchContract ? { launchContract: launch.launchContract } : {}
   });
+  const receiptLaunchContract = (launch) => {
+    if (!launch.launchContract) {
+      throw new Error(
+        "Launch apply/resume requires a canonical Launch Contract before product or provider execution because every new schemaVersion 2 Launch Receipt records that full contract. Next: run vh idea sharpen, then vh create with the structured idea.md before launching; legacy contract-free runs are not auto-migrated because their missing business decisions cannot be reconstructed safely."
+      );
+    }
+    return launch.launchContract;
+  };
   const reportCredentialReferences = (launch) => {
     const activeProviders = new Set(providerIds2(launch.definition));
     return credentialBroker.list().filter((reference) => activeProviders.has(reference.provider)).map((reference) => ({
@@ -37622,6 +38694,10 @@ function createDefaultCliServices(options = {}) {
       redactor: runtimeContext.redactor
     });
     const persistedReport = await persistLaunchReport(report, outputDirectory);
+    if (!launch.launchContract) {
+      if (state.status !== "cancelled") receiptLaunchContract(launch);
+      return { report: persistedReport, receipt: null };
+    }
     const receipt = createLaunchReceipt(
       {
         state,
@@ -37877,6 +38953,10 @@ function createDefaultCliServices(options = {}) {
       });
       const ideaSource = loadFounderIdeaFile(request2.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
+      const workflowRepository = resolveFounderWorkflowRepository(
+        root,
+        options.founderWorkflowRepository
+      );
       const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
       if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
       const canonicalVenturesRoot = realpathSync9(resolve24(venturesRoot));
@@ -37892,6 +38972,7 @@ function createDefaultCliServices(options = {}) {
           baseDir: canonicalVenturesRoot,
           output: request2.output,
           workflowRefSha,
+          workflowRepository,
           executionMode: request2.mode,
           production: request2.production,
           nonInteractive: request2.nonInteractive,
@@ -37915,10 +38996,9 @@ function createDefaultCliServices(options = {}) {
           founderStackRoot: founderStackStore.rootDir,
           founderOutputRoot: options.founderOutputRoot,
           founderWorkflowRefSha: options.founderWorkflowRefSha,
+          founderWorkflowRepository: options.founderWorkflowRepository,
           allowFixtureFounderStack: options.allowFixtureFounderStack,
           launchBindings: options.launchBindings,
-          buildAgentHost: options.buildAgentHost,
-          ideaSharpenerHost: options.ideaSharpenerHost,
           productCommandRunner: options.productCommandRunner,
           providerCommandRunner: options.providerCommandRunner,
           dataCommandRunner: options.dataCommandRunner,
@@ -37958,7 +39038,8 @@ function createDefaultCliServices(options = {}) {
             childRoot,
             preparation,
             stackConnectionHash,
-            workflowRefSha
+            workflowRefSha,
+            workflowRepository
           });
           founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
           transaction = continuation.transaction;
@@ -38060,7 +39141,7 @@ function createDefaultCliServices(options = {}) {
             updatedAt: now().toISOString()
           };
           saveFounderLaunchTransaction(stagingRoot, transaction);
-          const stagingServices = createDefaultCliServices(childOptions(stagingRoot));
+          const stagingServices = createDefaultCliServicesInternal(childOptions(stagingRoot));
           if (!stagingServices.create)
             throw new Error("Founder child create service is unavailable");
           await stagingServices.create({ brief: contractArtifact ?? briefArtifact, json: true });
@@ -38113,7 +39194,7 @@ function createDefaultCliServices(options = {}) {
         const runId2 = transaction.runId;
         if (!workflow) {
           founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
-          const childServices = createDefaultCliServices(childOptions(childRoot));
+          const childServices = createDefaultCliServicesInternal(childOptions(childRoot));
           if (!childServices.launch) throw new Error("Founder child launch service is unavailable");
           try {
             workflow = await childServices.launch({
@@ -38147,7 +39228,7 @@ function createDefaultCliServices(options = {}) {
           }
         } else if (workflow.status === "waiting") {
           founderPathBoundary.assertDirectory(childRoot, childIdentity, "Founder venture child");
-          const childServices = createDefaultCliServices(childOptions(childRoot));
+          const childServices = createDefaultCliServicesInternal(childOptions(childRoot));
           if (!childServices.resume) throw new Error("Founder child resume service is unavailable");
           try {
             workflow = await childServices.resume({ runId: runId2 });
@@ -38275,6 +39356,7 @@ function createDefaultCliServices(options = {}) {
       const compilationOptions = request2.launchGrant ? { initialOrigin: "provider_url" } : void 0;
       const dryRun = compileLaunchDryRun(brief, project.decision, compilationOptions);
       if (request2.mode === "dry-run") return dryRun;
+      receiptLaunchContract(project);
       const runId2 = request2.runId ?? generatedRunId(brief, now());
       if (store.exists(runId2)) {
         throw new Error(`Run ${runId2} already exists. Next: vh resume ${runId2}`);
@@ -38376,6 +39458,7 @@ function createDefaultCliServices(options = {}) {
     },
     async resume(request2) {
       let launch = loadLaunch(root, request2.runId);
+      receiptLaunchContract(launch);
       const persistedState = store.load(request2.runId);
       const unfinishedProviderEffects = Object.values(persistedState.nodes).some(
         (record3) => record3.definition.kind === "provider" && !["succeeded", "compensated", "skipped"].includes(record3.state)
@@ -38951,6 +40034,8 @@ function detectVercelSession(runner = systemProbeRunner) {
   }
   return { provider: "vercel", installed: true, authenticated: true, account };
 }
+var STRIPE_ACCOUNT_PROBE_ARGS = ["get", "/v1/account"];
+var STRIPE_BALANCE_PROBE_ARGS = ["get", "/v1/balance"];
 function parseJsonRecord(value) {
   if (!value) return null;
   try {
@@ -38971,10 +40056,10 @@ function detectStripeSession(runner = systemProbeRunner) {
     };
   }
   const accountResponse = parseJsonRecord(
-    tryCommand(runner, "stripe", ["get", "/v1/account", "--format", "json"])
+    tryCommand(runner, "stripe", STRIPE_ACCOUNT_PROBE_ARGS)
   );
   const balanceResponse = parseJsonRecord(
-    tryCommand(runner, "stripe", ["get", "/v1/balance", "--format", "json"])
+    tryCommand(runner, "stripe", STRIPE_BALANCE_PROBE_ARGS)
   );
   const account = safeAccount(
     typeof accountResponse?.id === "string" ? accountResponse.id : void 0
@@ -40936,7 +42021,7 @@ var launchExecuteCommand = defineCommandContract({
 // packages/agent-runtime/dist/operational.js
 import { createHash as createHash22, randomUUID as randomUUID2 } from "node:crypto";
 import { closeSync as closeSync10, constants as constants10, existsSync as existsSync14, fstatSync as fstatSync10, fsyncSync as fsyncSync4, lstatSync as lstatSync9, mkdirSync as mkdirSync11, openSync as openSync10, readFileSync as readFileSync17, realpathSync as realpathSync10, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname13, isAbsolute as isAbsolute8, join as join10, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute8, join as join9, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
 import { parse as parseYaml4 } from "yaml";
 
 // packages/agent-runtime/dist/quality.js
@@ -41555,7 +42640,7 @@ var FileOperationalStateStore = class {
   path;
   constructor(rootDir = resolve25(process.cwd(), ".venture-harness")) {
     this.rootDir = resolve25(rootDir);
-    this.path = join10(this.rootDir, "operational-state.json");
+    this.path = join9(this.rootDir, "operational-state.json");
   }
   get description() {
     return this.path;
@@ -41568,7 +42653,7 @@ var FileOperationalStateStore = class {
   write(state) {
     assertNoSecrets(state);
     mkdirSync11(dirname13(this.path), { recursive: true });
-    const temporary = join10(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
+    const temporary = join9(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
     const handle = openSync10(temporary, "wx", 384);
     try {
       writeFileSync11(handle, `${JSON.stringify(state, null, 2)}
@@ -41927,7 +43012,7 @@ function assertGrowthPath(root, inputPath) {
   let current = root.declaredPath;
   try {
     for (const component of pathFromRoot.split(sep15).filter(Boolean)) {
-      current = join10(current, component);
+      current = join9(current, component);
       if (lstatSync9(current).isSymbolicLink()) {
         throw new Error("growth contract path must not contain symbolic links");
       }
@@ -43800,7 +44885,7 @@ async function invokeOperationalCli(bus, args, options) {
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { spawn as spawn3 } from "node:child_process";
 import { existsSync as existsSync15, lstatSync as lstatSync10, mkdirSync as mkdirSync12, readFileSync as readFileSync19, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename2, join as join11, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
+import { basename as basename2, join as join10, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
 var SECRET_PATTERNS3 = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END|$)/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -43835,7 +44920,7 @@ function assertNoSymlinkPath(root, target) {
   const child = relative16(root, target);
   let cursor = root;
   for (const segment of child.split(sep16).filter(Boolean)) {
-    cursor = join11(cursor, segment);
+    cursor = join10(cursor, segment);
     if (!existsSync15(cursor)) break;
     if (lstatSync10(cursor).isSymbolicLink()) {
       throw new Error("quality report path must not contain symbolic links");
@@ -43843,12 +44928,12 @@ function assertNoSymlinkPath(root, target) {
   }
 }
 function reportPath(root, profile2) {
-  const directory = join11(root, ".venture", "reports", "quality");
+  const directory = join10(root, ".venture", "reports", "quality");
   assertNoSymlinkPath(root, directory);
   mkdirSync12(directory, { recursive: true, mode: 448 });
   const canonicalDirectory = realpathSync11(directory);
   if (!inside7(root, canonicalDirectory)) throw new Error("quality report directory escapes root");
-  return join11(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
+  return join10(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
 }
 function assertCommand(command) {
   if (command.length === 0 || command.some((value) => typeof value !== "string" || !value)) {
@@ -43987,7 +45072,7 @@ function createProcessQualityProfileRunner(options) {
 }
 function createRepositoryQualityProfileRunner(root) {
   const canonical = canonicalRoot(root);
-  const runnerPath = join11(canonical, "scripts", "run-quality-profile.ts");
+  const runnerPath = join10(canonical, "scripts", "run-quality-profile.ts");
   const configured = existsSync15(runnerPath) && !lstatSync10(runnerPath).isSymbolicLink() && lstatSync10(runnerPath).isFile() && inside7(canonical, realpathSync11(runnerPath));
   if (!configured) {
     return Object.freeze({
@@ -44022,7 +45107,7 @@ function createRepositoryQualityProfileRunner(root) {
 
 // packages/cli-generator/src/runtime-module.ts
 import { existsSync as existsSync16, lstatSync as lstatSync11, realpathSync as realpathSync12 } from "node:fs";
-import { extname, join as join12, relative as relative17, resolve as resolve27, sep as sep17 } from "node:path";
+import { extname, join as join11, relative as relative17, resolve as resolve27, sep as sep17 } from "node:path";
 import { pathToFileURL } from "node:url";
 function canonicalRoot2(root) {
   const declared = resolve27(root);
@@ -44041,7 +45126,7 @@ function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
   const child = relative17(root, target);
   let cursor = root;
   for (const [index, segment] of child.split(sep17).filter(Boolean).entries()) {
-    cursor = join12(cursor, segment);
+    cursor = join11(cursor, segment);
     if (!existsSync16(cursor)) {
       if (allowMissingLeaf) return;
       throw new Error("runtime module does not exist");
@@ -44319,9 +45404,10 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "4b91c74916f4454efb069727ef0430c3e44c1ab0" : void 0;
+  const workflowRefSha = true ? "7633864e36e83ebfae219becf254756512983677" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
-  if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion) {
+  const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
+  if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
     throw new Error(
       "The vh executable is missing immutable Venture Harness Core build provenance. Rebuild it with pnpm workspace:build before packing or installing it."
     );
@@ -44329,11 +45415,13 @@ function founderCoreBuildProvenance() {
   return Object.freeze({
     packageName: "venture-harness",
     packageVersion,
-    workflowRefSha
+    workflowRefSha,
+    workflowRepository
   });
 }
 var FOUNDER_CORE_DOMAINS = /* @__PURE__ */ new Set([
   "auth",
+  "config",
   "create",
   "data",
   "doctor",
@@ -44355,7 +45443,8 @@ function runDefaultFounderCli(args, options) {
   const store = new FileWorkflowStore();
   const services = (options.servicesFactory ?? defaultFounderServicesFactory)({
     store,
-    founderWorkflowRefSha: founderCoreBuildProvenance().workflowRefSha
+    founderWorkflowRefSha: founderCoreBuildProvenance().workflowRefSha,
+    founderWorkflowRepository: founderCoreBuildProvenance().workflowRepository
   });
   return runCli([...args], { io: options.io, services, store });
 }

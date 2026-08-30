@@ -1,9 +1,8 @@
-import { existsSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import type { CommandInvocation, CommandRunner } from "@/lib/credentials";
 import {
   CodexCliIdeaSharpenerHost,
   IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT,
+  renderLaunchContractYaml,
   sharpenIdea,
   type IdeaSharpenerHost,
 } from "@/lib/founder-launch";
@@ -22,71 +21,12 @@ function fakeHost(outputs: string[]): IdeaSharpenerHost & { run: ReturnType<type
 }
 
 describe("bounded idea sharpening", () => {
-  it("runs Codex in a disposable non-repository with the private idea only on stdin", async () => {
-    const invocations: CommandInvocation[] = [];
-    const runner: CommandRunner = {
-      run: async (invocation) => {
-        invocations.push(invocation);
-        return {
-          exitCode: 0,
-          stdout: [
-            JSON.stringify({
-              type: "item.completed",
-              item: { type: "agent_message", text: JSON.stringify(launchReceiptContract()) },
-            }),
-            JSON.stringify({
-              type: "turn.completed",
-              usage: { input_tokens: 100, cached_input_tokens: 20, output_tokens: 50 },
-            }),
-          ].join("\n"),
-          stderr: "",
-        };
-      },
-    };
-    const previous = process.env.UNRELATED_PRIVATE_VALUE;
-    process.env.UNRELATED_PRIVATE_VALUE = "must-not-enter-the-model-environment";
-    try {
-      const host = new CodexCliIdeaSharpenerHost({
-        runner,
-        model: "gpt-test-fixed",
-      });
-      const prompt = "private founder idea supplied via stdin";
-      const result = await host.run({ prompt, phase: "primary" });
+  it("fails closed before a Codex invocation because founder alpha has no audited driver", async () => {
+    const host = new CodexCliIdeaSharpenerHost();
 
-      expect(result).toMatchObject({
-        usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 50 },
-      });
-      const invocation = invocations[0];
-      expect(invocation).toBeDefined();
-      if (!invocation) throw new Error("expected one Codex invocation");
-      const isolatedRoot = invocation.cwd;
-      expect(isolatedRoot).toBeDefined();
-      if (!isolatedRoot) throw new Error("expected an isolated Codex working directory");
-      expect(invocation.args).toEqual([
-        "exec",
-        "--sandbox",
-        "read-only",
-        "--ephemeral",
-        "--ignore-user-config",
-        "--skip-git-repo-check",
-        "--json",
-        "--model",
-        "gpt-test-fixed",
-        "-C",
-        isolatedRoot,
-        "-",
-      ]);
-      expect(invocation).toMatchObject({
-        stdin: prompt,
-        sensitiveStdin: true,
-      });
-      expect(invocation.args).not.toContain(prompt);
-      expect(invocation.env).not.toHaveProperty("UNRELATED_PRIVATE_VALUE");
-      expect(existsSync(isolatedRoot)).toBe(false);
-    } finally {
-      if (previous === undefined) delete process.env.UNRELATED_PRIVATE_VALUE;
-      else process.env.UNRELATED_PRIVATE_VALUE = previous;
-    }
+    await expect(host.run({ prompt: "safe fixture prompt", phase: "primary" })).rejects.toThrow(
+      /outer read-isolation/iu,
+    );
   });
 
   it("uses zero model calls for an existing Launch Contract", async () => {
@@ -129,6 +69,9 @@ describe("bounded idea sharpening", () => {
     expect(host.run).toHaveBeenCalledTimes(1);
     expect(host.run.mock.calls[0]?.[0]).toMatchObject({ phase: "primary" });
     expect(host.run.mock.calls[0]?.[0].prompt).toContain("Do not browse, use tools, read files");
+    expect(host.run.mock.calls[0]?.[0].prompt).toContain('"proposition"');
+    expect(host.run.mock.calls[0]?.[0].prompt).toContain('"privacyAndConsent"');
+    expect(result.launchContract.capabilities).toEqual(launchReceiptContract().capabilities);
   });
 
   it("allows one schema refinement and never a third call", async () => {
@@ -163,6 +106,22 @@ describe("bounded idea sharpening", () => {
     expect(invalid.run).toHaveBeenCalledTimes(2);
   });
 
+  it("rejects a credential-bearing candidate before the refinement prompt", async () => {
+    const host = fakeHost(["not json\npassword: hunter2"]);
+    const attempt = sharpenIdea("# Launch Receipt\nA small useful SaaS launch proof tool.", {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    await expect(attempt).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(/credential-like material/u),
+      accounting: { modelCalls: 1 },
+    });
+    await expect(attempt).rejects.not.toThrow("hunter2");
+    expect(host.run).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects oversized and credential-bearing input before a model call", async () => {
     const host = fakeHost([]);
     await expect(
@@ -173,6 +132,28 @@ describe("bounded idea sharpening", () => {
         host,
       }),
     ).rejects.toThrow(/credential/);
+    expect(host.run).not.toHaveBeenCalled();
+  });
+
+  it("does not send malformed structured input to the model repair path", async () => {
+    const host = fakeHost([]);
+    await expect(
+      sharpenIdea("schemaVerison: 1\ncapabilites:\n  frontend: REQUIRED\n", { host }),
+    ).rejects.toMatchObject({
+      code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+      invalidPath: "schemaVersion",
+    });
+    expect(host.run).not.toHaveBeenCalled();
+  });
+
+  it("rejects low-entropy credential-labeled text inside a structured contract", async () => {
+    const host = fakeHost([]);
+    const source = renderLaunchContractYaml(launchReceiptContract()).replace(
+      "- Whether founders will pay EUR 9 per month",
+      '- "password: hunter2"',
+    );
+
+    await expect(sharpenIdea(source, { host })).rejects.toThrow(/credential-labeled text/);
     expect(host.run).not.toHaveBeenCalled();
   });
 });

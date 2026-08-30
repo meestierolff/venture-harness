@@ -21,13 +21,14 @@ test("landmarks, names, consent controls, and keyboard focus are usable", async 
   await expect(dialog.getByRole("button", { name: "Decline" })).toBeVisible();
   await dialog.getByRole("button", { name: "Decline" }).click();
 
+  await page.locator("details.prototype-lab > summary").click();
   const form = page.getByRole("form", { name: "Qualification application" });
   for (const label of [
     "Your role",
     "Company size",
     "Budget for solving this",
     "When do you want this solved?",
-    "Work email (used only to reply — never sent to analytics)",
+    "Work email (private prototype submission field; excluded from analytics)",
     "Anything we should know? (optional)",
   ]) {
     await expect(form.getByLabel(label)).toBeVisible();

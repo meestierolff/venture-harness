@@ -14,7 +14,7 @@ import {
   scanCredentialText,
   validateReleaseScanAllowlist,
 } from "./lib/release-security";
-import { ROOT, Reporter, loadYaml, readText, walk } from "./lib/util";
+import { ROOT, Reporter, loadYaml, parseCsv, readText, walk } from "./lib/util";
 
 interface PackedFile {
   path: string;
@@ -57,6 +57,16 @@ export function workflowActionRefs(text: string): string[] {
 
 export function isPinnedActionRef(ref: string): boolean {
   return ref.startsWith("./") || /^[^@\s]+@[a-f0-9]{40}$/.test(ref);
+}
+
+export function sampleHasSurfaceLocalSyntheticLabel(path: string, text: string): boolean {
+  if (path.endsWith(".csv")) {
+    const rows = parseCsv(text);
+    return (
+      rows.length > 0 && rows.every((row) => /^SYNTHETIC(?:_|\b)/iu.test(row.evidence_status ?? ""))
+    );
+  }
+  return /\bSYNTHETIC(?:_|\b)/iu.test(text);
 }
 
 function lineForOffset(text: string, offset: number): number {
@@ -145,17 +155,21 @@ function main(): never {
   }
 
   const exampleFiles = files.filter(
-    (file) => file.startsWith("examples/sample-venture/") && file.endsWith(".md"),
+    (file) => file.startsWith("examples/sample-venture/") && /\.(?:csv|md|mdx|txt)$/u.test(file),
   );
   let examplesLabeled = true;
   for (const file of exampleFiles) {
-    if (!/SYNTHETIC/i.test(readText(file))) {
+    if (!sampleHasSurfaceLocalSyntheticLabel(file, readText(file))) {
       examplesLabeled = false;
-      r.fail(file, "sample lacks a SYNTHETIC label", "label sample material explicitly");
+      r.fail(
+        file,
+        "sample lacks a surface-local SYNTHETIC label",
+        "label text directly; CSV files need evidence_status=SYNTHETIC on every row",
+      );
     }
   }
   if (examplesLabeled && exampleFiles.length > 0) {
-    r.ok(`sample venture Markdown labeled synthetic (${exampleFiles.length} files)`);
+    r.ok(`sample venture public artifacts labeled synthetic (${exampleFiles.length} files)`);
   }
 
   const privateDataFiles = files.filter(

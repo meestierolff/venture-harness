@@ -9,6 +9,7 @@ venture:
   targetUser: Small service-business operators reconciling recurring client work
   painfulJob: Delivered work and recurring invoices drift across spreadsheets
   desiredOutcome: See an accurate exception list and prepare the next invoice run
+  proposition: Reconcile recurring service delivery into one explainable exception list before the next invoice run
   differentiation: One fixture-honest exception workflow replaces a generic finance dashboard
   founderAdvantage: Direct experience reconciling recurring client delivery and invoices
 product:
@@ -63,6 +64,22 @@ agentNative:
   customerAgentSurfaceRequired: false
   serviceBlueprintRequired: false
   outcomeCommands: []
+capabilities:
+  frontend: REQUIRED
+  backend: REQUIRED
+  database: REQUIRED
+  authentication: REQUIRED
+  authorization: REQUIRED
+  payments: REQUIRED
+  entitlements: REQUIRED
+  transactionalEmail: REQUIRED
+  analytics: REQUIRED
+  privacyAndConsent: REQUIRED
+  seo: REQUIRED
+  aeo: DEFERRED
+  geo: DEFERRED
+  agentSurface: NOT_APPLICABLE
+  scheduledLearning: NOT_APPLICABLE
 ---
 
 # Exception Desk

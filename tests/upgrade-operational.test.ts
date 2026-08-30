@@ -202,6 +202,7 @@ async function materializedWebChild(): Promise<{
     at: fixedClock(),
     coreVersion: "0.2.0",
     workflowRefSha: "a".repeat(40),
+    workflowRepository: "venture-harness/venture-harness",
   });
   const fileSystem = new MemoryFileSystem({});
   await materializeVenture(plan, fileSystem, fixedClock());
@@ -285,6 +286,7 @@ describe("operational child upgrade", () => {
       at: fixedClock(),
       coreVersion: "0.2.0",
       workflowRefSha: "a".repeat(40),
+      workflowRepository: "venture-harness/venture-harness",
     });
     await materializeVenture(plan, new NodeMaterializationFileSystem(childRoot), fixedClock());
     const venturePath = "app/page.tsx";

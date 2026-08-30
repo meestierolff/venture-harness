@@ -3,13 +3,19 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
+import { providerCommandEnvironment } from "../credentials";
+import { looksLikeCredentialLabeledText } from "../config/contracts";
 import { OwnerPathLock, type LockedDirectoryIdentity } from "../security/owner-path-lock";
+import { findCredentialMaterial } from "../../packages/core/src/index";
+import { scanCredentialText } from "../../scripts/lib/release-security";
 
 const BOOTSTRAP_PATH = ".venture-harness-bootstrap";
 const BOOTSTRAP_CONTENT = Buffer.from("venture-harness-source-bootstrap-v1\n", "utf8");
 const MAX_SOURCE_ENTRIES = 10_000;
 const MAX_SOURCE_BLOB_BYTES = 50 * 1024 * 1024;
 const MAX_SOURCE_TOTAL_BYTES = 100 * 1024 * 1024;
+const MAX_SOURCE_PATH_BYTES = 1_024;
+const MAX_SOURCE_PATH_COMPONENT_BYTES = 255;
 const MAX_COMMAND_OUTPUT_BYTES = 128 * 1024 * 1024;
 const COMMIT_MESSAGE = "chore: publish verified venture source";
 const COMMIT_IDENTITY = {
@@ -17,6 +23,8 @@ const COMMIT_IDENTITY = {
   email: "venture-harness@users.noreply.github.com",
   date: "2000-01-01T00:00:00Z",
 } as const;
+
+const DIRECT_REQUEST_ENV_ALLOWLIST = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]);
 
 export type GitHubRepositoryVisibility = "private" | "public" | "internal";
 export type GitTreeEntryMode = "100644" | "100755" | "120000";
@@ -50,9 +58,21 @@ export class NativeDirectCommandRunner implements DirectCommandRunner {
     if (!isDirectBinary(command)) {
       throw new Error(`Refusing non-direct command binary ${JSON.stringify(command)}`);
     }
+    const env: NodeJS.ProcessEnv = {
+      ...providerCommandEnvironment(process.env),
+      GIT_TERMINAL_PROMPT: "0",
+      GH_PROMPT_DISABLED: "1",
+    };
+    const executable = command.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+    for (const [name, value] of Object.entries(request.env ?? {})) {
+      if (executable !== "git" || !DIRECT_REQUEST_ENV_ALLOWLIST.has(name)) {
+        throw new Error(`Refusing unsupported direct-command environment field ${name}`);
+      }
+      env[name] = value;
+    }
     const result = spawnSync(command, [...args], {
       cwd: request.cwd,
-      env: { ...process.env, ...request.env },
+      env,
       input: request.stdin,
       encoding: null,
       shell: false,
@@ -530,12 +550,58 @@ function gitBlobOid(content: Buffer): string {
     .digest("hex");
 }
 
+const CREDENTIAL_STORE_BASENAMES = new Set([
+  ".npmrc",
+  ".netrc",
+  "_netrc",
+  ".pypirc",
+  ".git-credentials",
+  ".terraformrc",
+  "terraform.rc",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+]);
+const CREDENTIAL_STORE_SUFFIXES = [
+  "/.docker/config.json",
+  "/.config/containers/auth.json",
+  "/.config/gcloud/application_default_credentials.json",
+  "/.aws/credentials",
+  "/.kube/config",
+  "/.cargo/credentials",
+  "/.cargo/credentials.toml",
+  "/.gem/credentials",
+] as const;
+
+function isCredentialStorePath(path: string): boolean {
+  const normalized = `/${path.toLowerCase()}`;
+  const name = normalized.split("/").at(-1) ?? "";
+  return (
+    CREDENTIAL_STORE_BASENAMES.has(name) ||
+    CREDENTIAL_STORE_SUFFIXES.some((suffix) => normalized.endsWith(suffix)) ||
+    /(?:^|[/_.-])service[-_]?account(?:[/_.-]|$).*\.json$/u.test(normalized) ||
+    /\.(?:pem|key|p12|pfx|jks|keystore)$/u.test(name)
+  );
+}
+
 function assertSafeSourcePath(path: string): void {
+  const parts = path.split("/");
   if (
     path.length === 0 ||
     path.startsWith("/") ||
-    path.includes("\0") ||
-    path.split("/").some((part) => part === "" || part === "." || part === "..")
+    path.includes("\\") ||
+    /[\u0000-\u001f\u007f]/u.test(path) ||
+    Buffer.byteLength(path, "utf8") > MAX_SOURCE_PATH_BYTES ||
+    Buffer.from(path, "utf8").toString("utf8") !== path ||
+    parts.some(
+      (part) =>
+        part === "" ||
+        part === "." ||
+        part === ".." ||
+        Buffer.byteLength(part, "utf8") > MAX_SOURCE_PATH_COMPONENT_BYTES ||
+        part.toLowerCase() === ".git",
+    )
   ) {
     throw new Error(`Local Git tree contains an unsafe path: ${JSON.stringify(path)}`);
   }
@@ -556,17 +622,211 @@ function assertSafeSourcePath(path: string): void {
       `Local Git tree contains credential-prone file ${JSON.stringify(path)}; keep only reviewed example files`,
     );
   }
+  if (isCredentialStorePath(path)) {
+    throw new Error(
+      `Local Git tree contains credential-store path ${JSON.stringify(path)}; move credentials behind cred:// references`,
+    );
+  }
+}
+
+interface SourceTreeDirectory {
+  readonly directories: Map<string, SourceTreeDirectory>;
+  readonly blobs: Map<string, Pick<LocalSourceBlob, "mode" | "oid">>;
+}
+
+function emptySourceTreeDirectory(): SourceTreeDirectory {
+  return { directories: new Map(), blobs: new Map() };
+}
+
+function sourceTreeOid(blobs: readonly LocalSourceBlob[]): string {
+  const root = emptySourceTreeDirectory();
+  for (const blob of blobs) {
+    const parts = blob.path.split("/");
+    let directory = root;
+    for (const [index, part] of parts.entries()) {
+      const leaf = index === parts.length - 1;
+      if (leaf) {
+        if (directory.directories.has(part) || directory.blobs.has(part)) {
+          throw new Error(
+            `Local Git tree contains a conflicting path: ${JSON.stringify(blob.path)}`,
+          );
+        }
+        directory.blobs.set(part, { mode: blob.mode, oid: blob.oid });
+        continue;
+      }
+      if (directory.blobs.has(part)) {
+        throw new Error(`Local Git tree contains a conflicting path: ${JSON.stringify(blob.path)}`);
+      }
+      let child = directory.directories.get(part);
+      if (!child) {
+        child = emptySourceTreeDirectory();
+        directory.directories.set(part, child);
+      }
+      directory = child;
+    }
+  }
+
+  const hashDirectory = (directory: SourceTreeDirectory): string => {
+    const entries = [
+      ...[...directory.blobs.entries()].map(([name, blob]) => ({
+        name,
+        sortName: Buffer.from(name, "utf8"),
+        mode: blob.mode,
+        oid: blob.oid,
+      })),
+      ...[...directory.directories.entries()].map(([name, child]) => ({
+        name,
+        sortName: Buffer.from(`${name}/`, "utf8"),
+        mode: "40000",
+        oid: hashDirectory(child),
+      })),
+    ].sort((left, right) => Buffer.compare(left.sortName, right.sortName));
+    const body = Buffer.concat(
+      entries.map((entry) =>
+        Buffer.concat([
+          Buffer.from(`${entry.mode} ${entry.name}\0`, "utf8"),
+          Buffer.from(entry.oid, "hex"),
+        ]),
+      ),
+    );
+    return createHash("sha1")
+      .update(Buffer.from(`tree ${body.byteLength}\0`, "utf8"))
+      .update(body)
+      .digest("hex");
+  };
+
+  return hashDirectory(root);
+}
+
+const CREDENTIAL_REFERENCE = /^cred:\/\/[A-Za-z0-9][A-Za-z0-9/_:.-]*$/u;
+const BENIGN_CREDENTIAL_PLACEHOLDER =
+  /^(?:REPLACE(?:_WITH)?_[A-Z0-9_]+|YOUR_[A-Z0-9_]+|<[^<>\r\n]{1,80}>|\$\{[A-Z][A-Z0-9_]*(?::-[^}\r\n]*)?\}|\[(?:REDACTED|MASKED)\])$/u;
+const CONFIG_LITERAL = /^[A-Za-z0-9._~+/=-]{12,}$/u;
+
+function containsCredentialLabeledLiteral(text: string): boolean {
+  for (const line of text.split(/\r?\n/u)) {
+    if (!looksLikeCredentialLabeledText(line)) continue;
+    const separator = line.search(/[:=]/u);
+    if (separator < 0) continue;
+    let literal = line
+      .slice(separator + 1)
+      .trim()
+      .replace(/,\s*$/u, "");
+    const quote = literal[0];
+    if ((quote === '"' || quote === "'") && literal.at(-1) === quote) {
+      literal = literal.slice(1, -1);
+    }
+    if (CREDENTIAL_REFERENCE.test(literal) || BENIGN_CREDENTIAL_PLACEHOLDER.test(literal)) {
+      continue;
+    }
+    if (CONFIG_LITERAL.test(literal) && /[0-9._~+/=-]/u.test(literal)) return true;
+  }
+  return false;
+}
+
+/**
+ * Copy and fully preflight the exact bytes that will be sent to GitHub. This
+ * deliberately does not consult the release scanner's synthetic-canary
+ * allowlist: live source publication rejects every detector finding.
+ */
+function validateSourceSnapshot(snapshot: LocalSourceSnapshot): LocalSourceSnapshot {
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new Error("Local source snapshot is malformed");
+  }
+  const treeOid = snapshot.treeOid;
+  const snapshotBlobs = snapshot.blobs;
+  if (!Array.isArray(snapshotBlobs)) {
+    throw new Error("Local source snapshot is malformed");
+  }
+  assertOid(treeOid, "Local source tree id");
+  if (snapshotBlobs.length === 0) {
+    throw new Error("Refusing to publish an empty local source tree");
+  }
+  if (snapshotBlobs.length > MAX_SOURCE_ENTRIES) {
+    throw new Error(`Local source tree exceeds the ${MAX_SOURCE_ENTRIES} entry safety limit`);
+  }
+
+  const exactPaths = new Set<string>();
+  const portablePaths = new Set<string>();
+  const validatedBlobs: LocalSourceBlob[] = [];
+  let totalBytes = 0;
+  for (const [index, candidate] of snapshotBlobs.entries()) {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error(`Local source snapshot entry ${index} is malformed`);
+    }
+    const { path, mode, oid } = candidate;
+    if (typeof path !== "string") {
+      throw new Error(`Local source snapshot entry ${index} has no safe path`);
+    }
+    assertSafeSourcePath(path);
+    if (exactPaths.has(path)) {
+      throw new Error(`Local Git tree contains duplicate path ${JSON.stringify(path)}`);
+    }
+    exactPaths.add(path);
+    const portablePath = path.normalize("NFC").toLowerCase();
+    if (portablePaths.has(portablePath)) {
+      throw new Error(`Local Git tree contains an ambiguous path ${JSON.stringify(path)}`);
+    }
+    portablePaths.add(portablePath);
+    if (mode !== "100644" && mode !== "100755" && mode !== "120000") {
+      throw new Error(`Local Git tree entry ${JSON.stringify(path)} has an unsupported mode`);
+    }
+    assertOid(oid, `Local blob id for ${path}`);
+    const candidateContent = candidate.content;
+    if (!Buffer.isBuffer(candidateContent)) {
+      throw new Error(`Local source blob ${JSON.stringify(path)} is not one exact byte buffer`);
+    }
+
+    const content = Buffer.from(candidateContent);
+    if (content.byteLength > MAX_SOURCE_BLOB_BYTES) {
+      throw new Error(
+        `Local source blob ${JSON.stringify(path)} exceeds the ${MAX_SOURCE_BLOB_BYTES} byte safety limit`,
+      );
+    }
+    totalBytes += content.byteLength;
+    if (totalBytes > MAX_SOURCE_TOTAL_BYTES) {
+      throw new Error(
+        `Local source tree exceeds the ${MAX_SOURCE_TOTAL_BYTES} byte aggregate safety limit`,
+      );
+    }
+    if (gitBlobOid(content) !== oid) {
+      throw new Error(`Local source blob ${JSON.stringify(path)} does not match its object id`);
+    }
+
+    const text = content.toString("utf8");
+    const findings = scanCredentialText(path, text);
+    const broadFinding = findCredentialMaterial(text);
+    const categories = new Set<string>(findings.map((finding) => finding.rule));
+    if (broadFinding) categories.add(broadFinding.kind);
+    if (containsCredentialLabeledLiteral(text)) categories.add("credential_labeled_text");
+    if (categories.size > 0) {
+      throw new Error(
+        `Local source blob ${JSON.stringify(path)} contains credential-like content (${[...categories].sort().join(", ")})`,
+      );
+    }
+    validatedBlobs.push(Object.freeze({ path, mode, oid, content }));
+  }
+
+  const computedTreeOid = sourceTreeOid(validatedBlobs);
+  if (computedTreeOid !== treeOid) {
+    throw new Error("Local source tree id does not match its exact validated entries");
+  }
+  return Object.freeze({
+    treeOid,
+    blobs: Object.freeze(validatedBlobs),
+  });
 }
 
 export class GitLocalSourceSnapshotLoader implements LocalSourceSnapshotLoader {
   constructor(private readonly runner: DirectCommandRunner = new NativeDirectCommandRunner()) {}
 
   async load(rootDir: string): Promise<LocalSourceSnapshot> {
-    const requestedRoot = realpathSync(resolve(rootDir));
-    const metadata = lstatSync(requestedRoot);
+    const unresolvedRoot = resolve(rootDir);
+    const metadata = lstatSync(unresolvedRoot);
     if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
       throw new Error("Local source root must be a real directory");
     }
+    const requestedRoot = realpathSync(unresolvedRoot);
 
     const temporaryRoot = mkdtempSync(join(tmpdir(), "vh-github-source-"));
     if (!realpathSync(temporaryRoot).startsWith(`${realpathSync(tmpdir())}${sep}`)) {
@@ -982,10 +1242,7 @@ export async function publishGitHubSource(
 ): Promise<GitHubSourcePublicationResult> {
   assertRepository(input.repository);
   assertVisibility(input.visibility);
-  const snapshot = await dependencies.snapshots.load(input.rootDir);
-  assertOid(snapshot.treeOid, "Local source tree id");
-  if (snapshot.blobs.length === 0)
-    throw new Error("Refusing to publish an empty local source tree");
+  const snapshot = validateSourceSnapshot(await dependencies.snapshots.load(input.rootDir));
 
   let repository = await dependencies.gateway.inspectRepository(input.repository);
   let created = false;

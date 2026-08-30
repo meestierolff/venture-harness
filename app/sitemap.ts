@@ -1,8 +1,7 @@
 import type { MetadataRoute } from "next";
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+import { INDEXING_ENABLED, SITE_URL } from "@/lib/site-config";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date();
-  return [{ url: `${SITE_URL}/`, lastModified, changeFrequency: "weekly", priority: 1 }];
+  if (!INDEXING_ENABLED) return [];
+  return [{ url: new URL("/", SITE_URL).toString(), changeFrequency: "weekly", priority: 1 }];
 }

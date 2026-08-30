@@ -1,7 +1,0 @@
-
-> venture-harness@0.2.0 validate:links /Users/meestierolff/projects/venture-harness
-> tsx scripts/validate-links.ts
-
-== validate-links ==
-OK   243 relative links resolve across 155 markdown files
-validate-links: all checks passed

@@ -84,6 +84,7 @@ class Host implements BuildAgentHost {
     return {
       host: this.id,
       status: "available" as const,
+      readIsolation: "fixture_no_model_execution" as const,
       version: "test",
       billingMode: "fixture_no_model_execution" as const,
       billingEvidence: "fixture_attestation" as const,
@@ -129,6 +130,41 @@ describe("model-owned product mutation boundary", () => {
     await expect(
       handler(rootDir, host)(context(`actual-${path.replaceAll("/", "-")}`)),
     ).rejects.toMatchObject({ code: "BUILD_AGENT_PROTECTED_INPUT_MUTATION" });
+    expect(readFileSync(absolute, "utf8")).toBe("canonical\n");
+  });
+
+  it("restores deletions and removes new files after a blocked model task", async () => {
+    const rootDir = root();
+    const existing = join(rootDir, "app/existing.tsx");
+    const created = join(rootDir, "app/rejected.tsx");
+    mkdirSync(dirname(existing), { recursive: true });
+    writeFileSync(existing, "export const state = 'verified';\n");
+    const host = new Host(() => {
+      rmSync(existing);
+      writeFileSync(created, "export const state = 'rejected';\n");
+      return {
+        ...compliantResult(),
+        status: "blocked",
+        summary: "Fixture task blocked after mutations.",
+        changedFiles: ["app/rejected.tsx"],
+        checks: [],
+        completion: null,
+      };
+    });
+
+    await expect(handler(rootDir, host)(context("blocked-rollback"))).rejects.toMatchObject({
+      code: "BUILD_AGENT_BLOCKED",
+    });
+    expect(readFileSync(existing, "utf8")).toBe("export const state = 'verified';\n");
+    expect(() => readFileSync(created, "utf8")).toThrow();
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(rootDir, "reports/launch/blocked-rollback/product/build-core-journey.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ status: "rolled_back_after_failure", rollbackRestored: true });
   });
 
   it("rejects a protected path merely reported as model-owned output", async () => {

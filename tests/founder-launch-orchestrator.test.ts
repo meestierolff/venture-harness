@@ -95,6 +95,7 @@ function prepare(overrides: Partial<Parameters<typeof compileFounderLaunchPrepar
     stackDoctor: readyDoctor(connection),
     baseDir,
     workflowRefSha: WORKFLOW_SHA,
+    workflowRepository: "venture-harness/venture-harness",
     executionMode: "dry-run",
     production: true,
     nonInteractive: true,
@@ -324,6 +325,10 @@ describe("one-prompt founder launch preparation", () => {
           serviceBlueprintRequired: true,
           outcomeCommands: ["publish_verified_receipt"],
         },
+        capabilities: {
+          ...contract.capabilities,
+          agentSurface: "REQUIRED",
+        },
       }),
     });
 
@@ -338,6 +343,10 @@ describe("one-prompt founder launch preparation", () => {
           customerAgentSurfaceRequired: true,
           serviceBlueprintRequired: true,
           outcomeCommands: ["publish_verified_receipt"],
+        },
+        capabilities: {
+          ...contract.capabilities,
+          agentSurface: "REQUIRED",
         },
       }),
     );

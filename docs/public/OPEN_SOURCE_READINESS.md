@@ -1,12 +1,12 @@
 # Open-source readiness
 
-Venture Harness v0.2 is being prepared as a founder alpha: an open-source,
-agent-native app launch factory operated from the founder's machine and
-provider accounts. It is not a hosted SaaS, a stable public release, or proof of
-a live founder launch. One isolated current-tree run completed all three founder
-web Golden Path fixture slices through the public root CLI on 2026-08-12 outside
-the loopback-restricted sandbox. Repeated final-tree runs and hosted CI evidence
-remain pending.
+Venture Harness v0.2 is a public founder alpha: an open-source, agent-first SaaS
+Launch Factory operated from the founder's machine and provider accounts. It is
+not a hosted SaaS, a stable public release, or proof of a live founder launch.
+PR #9 was squash-merged on 2026-08-25, its required checks passed, and the
+protected `main` branch at `770f4bd` passed the hosted quality workflow on
+2026-08-26. The post-merge dogfood continuation still requires its own final
+local/CI checks and live provider read-back.
 
 ## Public product contract
 
@@ -54,7 +54,7 @@ Public entry points:
 These files are configuration intent. They do not prove that GitHub settings,
 CI, provider accounts, or a release are live.
 
-## Evidence required before the draft PR is reviewable
+## Evidence required for the post-merge founder alpha
 
 - Frozen install, workspace validation/build/package/export checks and packed
   CLI invocation.
@@ -62,9 +62,8 @@ CI, provider accounts, or a release are live.
   migrations.
 - Unit/integration/provider/graph/upgrade/security/privacy/claim checks.
 - Rerun the definitive founder Golden Path through the public root CLI and
-  child graph after source settles. One isolated current-tree run passed all
-  three slices outside the loopback-restricted sandbox; required repetitions
-  and hosted CI are not yet evidence.
+  child graph after the continuation source settles. Prior local and hosted
+  passes remain evidence for their exact SHAs, not for later edits.
 - Standalone web production build, raw HTML, desktop/mobile journey,
   accessibility and venture-owned-file upgrade survival.
 - `vh doctor`, `vh auth status`, `vh stack doctor founder-default`, and one
@@ -94,8 +93,7 @@ claimed.
 
 ## External settings requiring read-back
 
-Before making the repository public, tagging, or publishing a package, confirm
-through GitHub:
+Before tagging or publishing a package, confirm through GitHub:
 
 - private vulnerability reporting;
 - secret scanning and push protection;
@@ -109,21 +107,17 @@ Record screenshots or API/CLI read-back outside the public repository when they
 contain private account data. A YAML workflow is not evidence that a hosted run
 succeeded.
 
-The final-evidence workflow expects the protected
-`founder-alpha-final-evidence` environment and its environment secret
-`VH_GITHUB_SECURITY_READ_TOKEN`. Restrict that environment to the exact
-`sol/vh-v0.2-launch-dogfood` branch and require an explicit maintainer review
-before the job starts. Use a fine-grained token scoped only to this
-repository with Metadata read, Administration read, Dependabot alerts read,
-Secret scanning alerts read, and Code scanning alerts read. The verifier uses
-GET requests only, persists no response bodies or token value, and fails closed
-on a missing/403 response, disabled control, or any open alert. Do not replace
-it with a write-capable publication token.
+This repository previously shipped a source-bound final-evidence workflow that
+verified one specific release pull request against a hardcoded repository,
+branch, reviewer and pull-request number. It was removed: a fork cannot use a
+verifier that asserts facts about somebody else's repository. Record release
+evidence for your own fork with the capability-aware quality profiles
+(`pnpm verify:mvp && pnpm verify:release`) and your own provider read-back.
 
 ## Dogfood before stable
 
-The branch may become a draft alpha PR after local/CI gates pass. Do not tag a
-public stable release until one narrow founder-owned web venture has:
+Keep `main` labeled founder alpha and do not tag a public stable release until
+one narrow founder-owned web venture has:
 
 - a complete non-fixture Stack doctor;
 - an independent GitHub repository and expected source commit;

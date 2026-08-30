@@ -95,6 +95,8 @@ export interface CompileVentureMaterializationInput {
   at: Date;
   coreVersion: string;
   workflowRefSha: string;
+  /** owner/repository of the Core checkout whose reusable workflow is called. */
+  workflowRepository: string;
   effects?: readonly LaunchEffect[];
 }
 
@@ -127,6 +129,9 @@ export function compileVentureMaterialization(
   if (!/^\d+\.\d+\.\d+$/.test(input.coreVersion)) throw new Error("Core version must be exact");
   if (!/^[a-f0-9]{40}$/.test(input.workflowRefSha)) {
     throw new Error("Reusable workflow reference must be an immutable 40-character SHA");
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.workflowRepository)) {
+    throw new Error("Reusable workflow repository must be exactly owner/repository");
   }
   const seed = ventureSeed(grant.seed.id, grant.seed.version);
   if (!seed.coreCompatibility.startsWith(`^${input.coreVersion.split(".")[0]}.`)) {
@@ -173,6 +178,7 @@ export function compileVentureMaterialization(
     seedVersion: seed.version,
     rail: seed.rail,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
     accentHue,
     secondaryHue,
     motifStep,
@@ -181,6 +187,24 @@ export function compileVentureMaterialization(
   const files: MaterializedFile[] = seed.files.map((file) =>
     materialized(file.path, file.ownership, render(file.content, values)),
   );
+  const renderedLockfile = files.find(({ path }) => path === "pnpm-lock.yaml");
+  if (seed.rail === "web" && !renderedLockfile) {
+    throw new Error("The ordinary web seed requires one exact child pnpm lockfile");
+  }
+  const packageManifest = {
+    name: grant.ventureSlug,
+    version: "0.1.0",
+    private: true,
+    type: "module",
+    packageManager: "pnpm@9.15.9",
+    engines: { node: ">=22.5.0" },
+    scripts: seed.packageScripts,
+    dependencies: seed.runtimePackages,
+    ...(Object.keys(seed.developmentPackages).length > 0
+      ? { devDependencies: seed.developmentPackages }
+      : {}),
+    ...(seed.rail === "web" ? { pnpm: { onlyBuiltDependencies: [] as string[] } } : {}),
+  };
   files.push(
     materialized(
       "venture.manifest.json",
@@ -205,27 +229,28 @@ export function compileVentureMaterialization(
         2,
       )}\n`,
     ),
-    materialized(
-      "package.json",
-      "merge_managed",
-      `${JSON.stringify(
-        {
-          name: grant.ventureSlug,
-          version: "0.1.0",
-          private: true,
-          type: "module",
-          packageManager: "pnpm@9.15.9",
-          engines: { node: ">=22.5.0" },
-          scripts: seed.packageScripts,
-          dependencies: seed.runtimePackages,
-          ...(Object.keys(seed.developmentPackages).length > 0
-            ? { devDependencies: seed.developmentPackages }
-            : {}),
-        },
-        null,
-        2,
-      )}\n`,
-    ),
+    materialized("package.json", "merge_managed", `${JSON.stringify(packageManifest, null, 2)}\n`),
+    ...(seed.rail === "web"
+      ? [
+          materialized(
+            "config/package-execution-policy.json",
+            "core_owned",
+            `${JSON.stringify(
+              {
+                schemaVersion: 1,
+                packageManager: packageManifest.packageManager,
+                scripts: seed.packageScripts,
+                dependencies: seed.runtimePackages,
+                devDependencies: seed.developmentPackages,
+                pnpm: { onlyBuiltDependencies: [] },
+                lockfileSha256: renderedLockfile!.sha256,
+              },
+              null,
+              2,
+            )}\n`,
+          ),
+        ]
+      : []),
     materialized(
       ".gitignore",
       "core_owned",

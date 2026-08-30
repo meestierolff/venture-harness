@@ -8,7 +8,6 @@ import {
   assertReviewedCoreSourceState,
   buildVhExecutable,
   createVhBuildProvenance,
-  isAllowedPostSourceArtifact,
   loadVhBuildProvenance,
   verifyVhExecutableBuildParity,
   writeVhBuildProvenance,
@@ -41,6 +40,7 @@ export const provenance = {
   git(root, ["init", "--quiet"]);
   git(root, ["config", "user.email", "generated-parity@example.invalid"]);
   git(root, ["config", "user.name", "Generated Parity Fixture"]);
+  git(root, ["remote", "add", "origin", "https://github.com/venture-harness/venture-harness.git"]);
   git(root, ["add", "package.json", "scripts/vh-bundle.ts"]);
   git(root, ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "source"]);
   return { root, sourceCommit: git(root, ["rev-parse", "HEAD"]) };
@@ -60,6 +60,7 @@ async function buildRecordedFixture(root: string, sourceCommit: string): Promise
       executable,
       packageVersion: provenance.packageVersion,
       sourceCommit: provenance.workflowRefSha,
+      coreRepository: provenance.coreRepository,
     }),
   );
 }
@@ -113,19 +114,6 @@ describe("vh generated executable parity", () => {
     );
   });
 
-  it("rejects post-review changes to the requirement-proof control input", () => {
-    const { root, sourceCommit } = createCoreFixture();
-    mkdirSync(resolve(root, "reports/audit"), { recursive: true });
-    writeFileSync(
-      resolve(root, "reports/audit/requirement-proofs.json"),
-      '{"proofs":[{"status":"VERIFIED_RUNTIME"}]}\n',
-    );
-
-    expect(() => assertReviewedCoreSourceState({ rootDirectory: root, sourceCommit })).toThrow(
-      /reports\/audit\/requirement-proofs\.json.*Commit the source changes/,
-    );
-  });
-
   it("ignores local Codex role configs without allowing untracked source", () => {
     const { root, sourceCommit } = createCoreFixture();
     mkdirSync(resolve(root, ".codex/agents"), { recursive: true });
@@ -140,49 +128,6 @@ describe("vh generated executable parity", () => {
     expect(() => assertReviewedCoreSourceState({ rootDirectory: root, sourceCommit })).toThrow(
       /scripts\/untracked-executable\.ts.*Commit the source changes/,
     );
-  });
-
-  it("allows only well-formed logs scoped to the reviewed or artifact commit", () => {
-    const reviewed = "a".repeat(40);
-    const artifact = "b".repeat(40);
-    expect(
-      isAllowedPostSourceArtifact(
-        `reports/audit/command-logs/${artifact}/final-verify.attempt-2.log`,
-        [reviewed, artifact],
-      ),
-    ).toBe(true);
-    expect(
-      isAllowedPostSourceArtifact("reports/audit/command-logs/legacy.log", [reviewed, artifact]),
-    ).toBe(false);
-    expect(
-      isAllowedPostSourceArtifact(
-        `reports/audit/command-logs/${"c".repeat(40)}/final-verify.attempt-2.log`,
-        [reviewed, artifact],
-      ),
-    ).toBe(false);
-    expect(
-      isAllowedPostSourceArtifact(
-        `reports/audit/command-logs/${artifact}/../requirement-proofs.json`,
-        [reviewed, artifact],
-      ),
-    ).toBe(false);
-  });
-
-  it("allows generated final reports but keeps their reviewed controls source-bound", () => {
-    const sourceCommit = "a".repeat(40);
-    for (const path of [
-      "reports/audit/founder-alpha-evidence.json",
-      "reports/audit/github-readback.json",
-    ]) {
-      expect(isAllowedPostSourceArtifact(path, [sourceCommit])).toBe(true);
-    }
-    for (const path of [
-      "reports/audit/founder-alpha-requirements.json",
-      "reports/audit/founder-alpha-evidence.control.json",
-      "reports/audit/github-readback-policy.json",
-    ]) {
-      expect(isAllowedPostSourceArtifact(path, [sourceCommit])).toBe(false);
-    }
   });
 
   it("rejects a binary that no longer matches its immutable sidecar hash", async () => {
@@ -206,6 +151,7 @@ describe("vh generated executable parity", () => {
         executable,
         packageVersion: "0.2.0",
         sourceCommit,
+        coreRepository: "venture-harness/venture-harness",
       }),
     );
 

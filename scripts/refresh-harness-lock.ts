@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { stringify } from "yaml";
 import {
+  computeManagedTreeDigest,
   HARNESS_OWNED_CONFIG_PATHS,
   harnessLockSchema,
   loadHarnessLock,
@@ -82,7 +83,11 @@ const managed = [
 
 const lock = harnessLockSchema.parse({
   ...existing,
-  source: { kind: "local", ref: sourceCommit },
+  source: {
+    kind: "local",
+    ref: sourceCommit,
+    tree_digest: computeManagedTreeDigest(managed),
+  },
   managed_files: managed,
 });
 writeFileSync(

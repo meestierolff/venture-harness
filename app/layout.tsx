@@ -5,17 +5,17 @@ import "./globals.css";
 import { ConsentBanner, ConsentSettingsLink } from "@/components/ConsentBanner";
 import { AnalyticsScripts } from "@/components/AnalyticsScripts";
 import { PageViewTracker } from "@/components/PageViewTracker";
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+import { INDEXING_ENABLED, SITE_URL } from "@/lib/site-config";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(SITE_URL),
+  metadataBase: SITE_URL,
   title: {
-    default: "Venture Harness — launch OS prototype",
+    default: "Venture Harness — founder-alpha Launch Factory",
     template: "%s — Venture Harness",
   },
   description:
-    "Locally tested launch-planning and workflow prototype. Child ventures replace this neutral template with their own verified identity and claims.",
+    "Open-source founder-alpha Core for reviewable Launch Contracts, focused app seeds, bounded launch plans, and conservative Launch Receipts.",
+  robots: { index: INDEXING_ENABLED, follow: INDEXING_ENABLED },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -32,8 +32,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <main>{children}</main>
         <footer className="site-footer">
           <p>
-            Venture Harness v0.2 prototype. This neutral, accessible shell is replaced by each
-            venture&apos;s reviewed design and evidence-backed claims.
+            Venture Harness founder alpha. Local and fixture evidence is labeled; external provider
+            proof requires read-back. Independent ventures keep their own repository, design, and
+            accounts.
           </p>
           <ConsentSettingsLink />
         </footer>

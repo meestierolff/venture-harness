@@ -26,11 +26,13 @@ import {
   renderFounderIdea,
   renderLaunchContractYaml,
   renderProductConstitution,
+  type LaunchContract,
 } from "@/lib/founder-launch";
 import { MockProviderTransport, type ProviderOperation } from "@/lib/providers";
 import {
   createOfficialProviderContext,
   FileProviderIdempotencyLedger,
+  launchReceiptSchema,
   ProviderPlanFactoryPrerequisiteError,
 } from "@/lib/runtime";
 import { FileWorkflowStore, type WorkflowBindings } from "@/lib/workflow";
@@ -244,6 +246,34 @@ function harness(
     stdout,
     stderr,
   };
+}
+
+function canonicalWebIdea(
+  root: string,
+  options: { includeNoncriticalProviders?: boolean } = {},
+): string {
+  const base = launchReceiptContract({ synthetic: true });
+  const includeNoncriticalProviders = options.includeNoncriticalProviders ?? true;
+  const contract: LaunchContract = {
+    ...base,
+    decision: { ...base.decision, launchMode: "thin_mvp" },
+    capabilities: {
+      ...base.capabilities,
+      scheduledLearning: "REQUIRED",
+      ...(includeNoncriticalProviders
+        ? {}
+        : {
+            transactionalEmail: "NOT_APPLICABLE",
+            analytics: "NOT_APPLICABLE",
+            seo: "NOT_APPLICABLE",
+            aeo: "NOT_APPLICABLE",
+            geo: "NOT_APPLICABLE",
+          }),
+    },
+  };
+  const path = join(root, "canonical-web-idea.md");
+  writeFileSync(path, renderFounderIdea(contract));
+  return path;
 }
 
 afterEach(() => {
@@ -510,8 +540,8 @@ describe("default vh launch services", () => {
   });
 
   it("runs build-local without creating provider or manual-action nodes", async () => {
-    const { services, store, io, stdout, providerCalls } = harness();
-    await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
+    const { root, services, store, io, stdout, providerCalls } = harness();
+    await runCli(["create", "--brief", canonicalWebIdea(root)], {
       services,
       store,
       io,
@@ -534,10 +564,31 @@ describe("default vh launch services", () => {
     expect(providerCalls.http).toHaveLength(0);
   });
 
+  it("rejects a legacy contract-free apply before bindings, effects, or receipt creation", async () => {
+    const { services, store, calls, providerCalls, io, stderr } = harness();
+    await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
+      services,
+      store,
+      io,
+    });
+
+    const result = await runCli(
+      ["launch", "--apply", "--authorization", "build-local", "--run-id", "legacy-v1"],
+      { services, store, io },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(stderr.at(-1)).toContain("requires a canonical Launch Contract");
+    expect(store.exists("legacy-v1")).toBe(false);
+    expect(calls.size).toBe(0);
+    expect(providerCalls.cli).toHaveLength(0);
+    expect(providerCalls.http).toHaveLength(0);
+  });
+
   it("renews an expired persisted envelope explicitly without changing the run graph", async () => {
     let currentTime = new Date("2026-08-04T12:00:00.000Z");
     const { root, services, store, io, stdout, stderr } = harness(true, false, () => currentTime);
-    await runCli(["create", "--brief", resolve("fixtures/web-saas/brief.yaml")], {
+    await runCli(["create", "--brief", canonicalWebIdea(root)], {
       services,
       store,
       io,
@@ -596,7 +647,7 @@ describe("default vh launch services", () => {
 
   it("creates, plans, applies the provider-URL graph, and replays one completed run", async () => {
     const { root, services, store, calls, providerCalls, io, stdout, stderr } = harness();
-    const brief = resolve("fixtures/web-saas/brief.yaml");
+    const brief = canonicalWebIdea(root);
 
     expect((await runCli(["create", "--brief", brief], { services, store, io })).exitCode).toBe(0);
     expect(JSON.parse(stdout.pop()!).selectedMode).toBe("thin_mvp");
@@ -650,7 +701,12 @@ describe("default vh launch services", () => {
     expect(store.load("launch-synthetic-web").nodes["launch-report"].state).toBe("succeeded");
     expect(store.load("launch-synthetic-web").nodes["dns-records"]).toBeUndefined();
     const reportPath = join(root, "reports/launch/launch-synthetic-web/final.json");
+    const receiptPath = join(root, "reports/launch/launch-synthetic-web/receipt.json");
     expect(existsSync(reportPath)).toBe(true);
+    const receipt = launchReceiptSchema.parse(JSON.parse(readFileSync(receiptPath, "utf8")));
+    const project = JSON.parse(readFileSync(join(root, ".venture/project.json"), "utf8"));
+    expect(receipt.launchContract).toEqual(project.launchContract);
+    expect(receipt.build).toMatchObject({ taskCount: 2, modelCalls: 2 });
     expect(JSON.parse(readFileSync(reportPath, "utf8"))).toMatchObject({
       overallState: "succeeded",
       launch: {
@@ -709,18 +765,7 @@ describe("default vh launch services", () => {
     let currentTime = new Date("2026-08-04T12:00:00.000Z");
     const { root, services, store, calls, io, stdout, stderr, providerCalls, resolveProviderAuth } =
       harness(true, false, () => currentTime);
-    const brief = parse(readFileSync(resolve("fixtures/web-saas/brief.yaml"), "utf8")) as {
-      needs: {
-        transactional_email: boolean;
-        analytics: boolean;
-        search_discovery: boolean;
-      };
-    };
-    brief.needs.transactional_email = false;
-    brief.needs.analytics = false;
-    brief.needs.search_discovery = false;
-    const briefPath = join(root, "provider-auth-blocker-brief.yaml");
-    writeFileSync(briefPath, `${JSON.stringify(brief, null, 2)}\n`);
+    const briefPath = canonicalWebIdea(root, { includeNoncriticalProviders: false });
     await runCli(["create", "--brief", briefPath], {
       services,
       store,

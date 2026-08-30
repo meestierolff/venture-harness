@@ -29,6 +29,7 @@ describe("build context manifest", () => {
       "app",
       "docs/plans/active",
       "skills/design-director/references",
+      "skills/seo-aeo-engine/references",
       "skills",
     ]) {
       mkdirSync(join(root, directory), { recursive: true });
@@ -45,6 +46,8 @@ describe("build context manifest", () => {
       "package.json": "{}\n",
       "skills/design-director/SKILL.md": "# Design director\n",
       "skills/design-director/references/originality-audit.md": "# Originality\n",
+      "skills/seo-aeo-engine/SKILL.md": "# SEO/AEO engine\n",
+      "skills/seo-aeo-engine/references/technical-discovery.md": "# Technical discovery\n",
       "app/page.tsx": "export default function Page() { return null; }\n",
       "docs/plans/active/old-plan.md": "should not load\n",
       "skills/winner-loop.md": "should not load\n",
@@ -72,6 +75,8 @@ describe("build context manifest", () => {
         "docs/product/PRODUCT_TRUTH.md",
         "skills/design-director/SKILL.md",
         "skills/design-director/references/originality-audit.md",
+        "skills/seo-aeo-engine/SKILL.md",
+        "skills/seo-aeo-engine/references/technical-discovery.md",
       ]),
     );
     expect(manifest.selectedFiles.map(({ path }) => path)).not.toEqual(
@@ -148,6 +153,39 @@ describe("build context manifest", () => {
         requireCanonicalContract: true,
       }),
     ).toThrow(/Required Launch Contract build context is missing/);
+  });
+
+  it("fails closed when required discovery context is absent", () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-context-discovery-missing-"));
+    roots.push(root);
+    for (const directory of ["config", "docs/product", "skills/design-director/references"]) {
+      mkdirSync(join(root, directory), { recursive: true });
+    }
+    for (const [path, content] of Object.entries({
+      "config/launch-contract.yaml": "schemaVersion: 1\n",
+      "docs/product/PRODUCT_CONSTITUTION.md": "# Constitution\n",
+      "PROJECT.md": "# Project\n",
+      "AGENTS.md": "# Agents\n",
+      "skills/design-director/SKILL.md": "# Skill\n",
+      "skills/design-director/references/originality-audit.md": "# Audit\n",
+    })) {
+      writeFileSync(join(root, path), content);
+    }
+    const base = launchReceiptContract();
+    const contract = launchReceiptContract({
+      capabilities: { ...base.capabilities, seo: "REQUIRED" },
+    });
+
+    expect(() =>
+      createBuildContextManifest({
+        rootDir: root,
+        brief: founderBriefSchema.parse(webBrief),
+        runId: "launch-discovery-missing",
+        nodeId: "prepare-repository",
+        capabilitiesRequired: launchDecisionFromContract(contract).capabilities,
+        requireCanonicalContract: true,
+      }),
+    ).toThrow(/config\/seo\.yaml|skills\/seo-aeo-engine/u);
   });
 
   it("enforces the cumulative token cap without dropping required contract context", () => {

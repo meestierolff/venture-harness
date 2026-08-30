@@ -12,8 +12,10 @@ updates:
     groups:
       production-dependencies:
         dependency-type: production
+        update-types: ["patch", "minor"]
       development-dependencies:
         dependency-type: development
+        update-types: ["patch", "minor"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -23,3 +25,6 @@ updates:
       time: "05:30"
       timezone: Europe/Amsterdam
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        update-types: ["patch", "minor"]

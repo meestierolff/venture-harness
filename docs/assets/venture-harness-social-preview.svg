@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 1280 640">
+  <title id="title">Venture Harness — reviewed Launch Contract to bounded evidence plan</title>
+  <desc id="desc">Founder-alpha social preview for a locally and fixture-tested open-source Launch Factory. Live provider evidence remains pending.</desc>
+  <rect width="1280" height="640" fill="#171A17"/>
+  <rect x="56" y="56" width="1168" height="528" rx="24" fill="#F4F0E6"/>
+  <text x="112" y="132" fill="#1E644C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="32" font-weight="700" letter-spacing="2">LOCAL + FIXTURE TESTED</text>
+  <text x="112" y="260" fill="#171A17" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="70" font-weight="800" letter-spacing="-4">CONTRACT</text>
+  <text x="470" y="260" fill="#D35F32" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="70" font-weight="500">→</text>
+  <text x="552" y="260" fill="#171A17" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="70" font-weight="800" letter-spacing="-4">EVIDENCE PLAN</text>
+  <text x="112" y="322" fill="#38413A" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="28">A bounded plan toward founder-owned launch evidence.</text>
+  <text x="112" y="362" fill="#38413A" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="28">Live proof requires provider read-back.</text>
+  <path d="M112 448H1110" stroke="#171A17" stroke-width="4"/>
+  <path d="m1090 434 20 14-20 14" fill="none" stroke="#171A17" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+  <g fill="#F4F0E6" stroke="#171A17" stroke-width="4">
+    <circle cx="112" cy="448" r="14"/>
+    <circle cx="370" cy="448" r="14"/>
+    <circle cx="630" cy="448" r="14"/>
+    <circle cx="888" cy="448" r="14"/>
+  </g>
+  <circle cx="1110" cy="448" r="14" fill="#F4F0E6" stroke="#1E644C" stroke-width="4"/>
+  <g fill="#171A17" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700">
+    <text x="112" y="494">CONTRACT</text>
+    <text x="370" y="494">SEED</text>
+    <text x="630" y="494">PLAN</text>
+    <text x="888" y="494">READ-BACK</text>
+    <text x="1110" y="494" text-anchor="end">RECEIPT</text>
+  </g>
+  <text x="112" y="548" fill="#B44B26" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="700">github.com/meestierolff/venture-harness</text>
+</svg>

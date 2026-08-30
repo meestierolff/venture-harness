@@ -9,8 +9,12 @@ export interface ConsentStorage {
   set(key: string, value: string): void;
 }
 
-const KEY = "vh-consent";
+export const CONSENT_STORAGE_KEY = "vh-consent";
 export const CONSENT_CHANGE_EVENT = "vh-consent-change";
+
+export function consentStateFromStoredValue(value: string | null): ConsentState {
+  return value === "accepted" || value === "declined" ? value : "unset";
+}
 
 function browserStorage(): ConsentStorage | null {
   if (typeof window === "undefined") return null;
@@ -26,8 +30,11 @@ function browserStorage(): ConsentStorage | null {
 
 export function getConsent(storage: ConsentStorage | null = browserStorage()): ConsentState {
   if (!storage) return "unset";
-  const value = storage.get(KEY);
-  return value === "accepted" || value === "declined" ? value : "unset";
+  try {
+    return consentStateFromStoredValue(storage.get(CONSENT_STORAGE_KEY));
+  } catch {
+    return "unset";
+  }
 }
 
 /**
@@ -39,7 +46,12 @@ export function setConsent(
   storage: ConsentStorage | null = browserStorage(),
 ): { from: ConsentState; to: ConsentState; withdrawal: boolean } {
   const from = getConsent(storage);
-  storage?.set(KEY, to);
+  try {
+    storage?.set(CONSENT_STORAGE_KEY, to);
+  } catch {
+    // Explicit consent can update this tab, but blocked persistence must not
+    // turn into an implicit stored grant. A reload therefore returns unset.
+  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(CONSENT_CHANGE_EVENT, { detail: { from, to } }));
   }

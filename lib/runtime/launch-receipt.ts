@@ -4,7 +4,11 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { rejectCredentialMaterial } from "../config/contracts";
 import { Redactor } from "../credentials";
-import type { LaunchContract } from "../founder-launch";
+import {
+  launchContractSchema,
+  renderLaunchContractYaml,
+  type LaunchContract,
+} from "../founder-launch";
 import type { LaunchDecision } from "../launch";
 import type { LaunchGrant } from "../materialization";
 import type { WorkflowRunState } from "../workflow";
@@ -39,7 +43,8 @@ export type LaunchReceiptPrimaryJourneyEvidence = z.infer<
 
 export const launchReceiptSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
+    launchContract: launchContractSchema,
     venture: z
       .object({
         name: z.string().max(200),
@@ -61,7 +66,10 @@ export const launchReceiptSchema = z
         seed: z.string().min(1).max(200),
         coreVersion: z.string().min(1).max(100),
         buildAgent: z.string().min(1).max(200),
+        /** Distinct model-task nodes compiled into the run graph. */
         taskCount: z.number().int().nonnegative(),
+        /** Attempted model executions, including retries. */
+        modelCalls: z.number().int().nonnegative(),
         inputTokens: nullableCount,
         cachedInputTokens: nullableCount,
         outputTokens: nullableCount,
@@ -126,7 +134,45 @@ export const launchReceiptSchema = z
     limitations: z.array(z.string().min(1).max(4_000)).max(100),
   })
   .strict()
-  .superRefine(rejectCredentialMaterial);
+  .superRefine((receipt, context) => {
+    rejectCredentialMaterial(receipt, context);
+    const contract = receipt.launchContract;
+    const linkedDecisionFields = [
+      ["launchMode", receipt.decision.launchMode, contract.decision.launchMode],
+      [
+        "primarySuccessSignal",
+        receipt.decision.primarySuccessSignal,
+        contract.decision.primarySuccessSignal,
+      ],
+      ["reviewDate", receipt.decision.reviewDate, contract.decision.reviewDate],
+      [
+        "firstValidationAction",
+        receipt.decision.firstValidationAction,
+        contract.distribution.firstValidationAction,
+      ],
+    ] as const;
+    for (const [field, actual, expected] of linkedDecisionFields) {
+      if (actual !== expected) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["decision", field],
+          message: "must match launchContract",
+        });
+      }
+    }
+    const journey = receipt.verification.primaryJourneyEvidence;
+    if (
+      journey &&
+      (journey.journeyId !== contract.decision.primarySuccessSignal ||
+        JSON.stringify(journey.steps) !== JSON.stringify(contract.product.primaryJourney))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verification", "primaryJourneyEvidence"],
+        message: "must identify and enumerate the canonical Launch Contract primary journey",
+      });
+    }
+  });
 
 export type LaunchReceipt = z.infer<typeof launchReceiptSchema>;
 
@@ -134,7 +180,7 @@ export interface LaunchReceiptInput {
   state: WorkflowRunState;
   report: LaunchReportDocument;
   decision: LaunchDecision;
-  launchContract?: LaunchContract;
+  launchContract: LaunchContract;
   launchGrant?: LaunchGrant;
   filesRead?: number | null;
   launchGaps?: readonly {
@@ -211,7 +257,7 @@ function modelUsage(state: WorkflowRunState): {
   failedCommands: number | null;
   complete: boolean;
 } {
-  const expectedTasks = Object.values(state.nodes)
+  const expectedModelCalls = Object.values(state.nodes)
     .filter(({ definition }) => definition.kind === "model")
     .reduce((total, node) => total + node.attempts, 0);
   const costs = (state.costs ?? []).filter(
@@ -229,11 +275,11 @@ function modelUsage(state: WorkflowRunState): {
       buildAgent: "not_recorded",
       toolCalls: null,
       failedCommands: null,
-      complete: expectedTasks === 0,
+      complete: expectedModelCalls === 0,
     };
   }
   const complete =
-    costs.length === expectedTasks &&
+    costs.length === expectedModelCalls &&
     costs.every(
       ({ inputTokens, outputTokens }) => inputTokens !== undefined && outputTokens !== undefined,
     );
@@ -311,32 +357,39 @@ export function createLaunchReceipt(
 ): LaunchReceipt {
   const redactor = options.redactor ?? new Redactor();
   const fixture = input.report.brief.synthetic;
-  const modelTaskCount = Object.values(input.state.nodes)
-    .filter(({ definition }) => definition.kind === "model")
-    .reduce((total, node) => total + node.attempts, 0);
+  const modelTasks = Object.values(input.state.nodes).filter(
+    ({ definition }) => definition.kind === "model",
+  );
+  const modelTaskCount = modelTasks.length;
+  const modelCalls = modelTasks.reduce((total, node) => total + node.attempts, 0);
   const usage = modelUsage(input.state);
-  const contract = input.launchContract;
+  // Validate before redaction so a credential-bearing or malformed contract is
+  // rejected instead of being persisted as a lossy pseudo-contract.
+  const contract = launchContractSchema.parse(input.launchContract);
   const reportedValidationAction = input.report.launch.firstValidationAction;
-  if (contract) {
-    if (!reportedValidationAction) {
-      throw new Error(
-        "Launch Report must link the reviewed human-gated first validation action before a receipt can be created",
-      );
-    }
-    if (
-      reportedValidationAction.action !== contract.distribution.firstValidationAction ||
-      reportedValidationAction.channel !== contract.distribution.firstChannel ||
-      reportedValidationAction.userHabitat !== contract.distribution.firstUserHabitat
-    ) {
-      throw new Error("Launch Report first validation action does not match the Launch Contract");
-    }
+  if (!reportedValidationAction) {
+    throw new Error(
+      "Launch Report must link the reviewed human-gated first validation action before a receipt can be created",
+    );
+  }
+  if (
+    reportedValidationAction.action !== contract.distribution.firstValidationAction ||
+    reportedValidationAction.channel !== contract.distribution.firstChannel ||
+    reportedValidationAction.userHabitat !== contract.distribution.firstUserHabitat
+  ) {
+    throw new Error("Launch Report first validation action does not match the Launch Contract");
+  }
+  if (input.decision.mode.selectedMode !== contract.decision.launchMode) {
+    throw new Error("Launch Decision mode does not match the Launch Contract");
+  }
+  if (fixture !== (contract.synthetic === true)) {
+    throw new Error("Launch Report synthetic state does not match the Launch Contract");
   }
   const primaryJourneyEvidence = input.verification?.primaryJourneyEvidence
     ? launchReceiptPrimaryJourneyEvidenceSchema.parse(input.verification.primaryJourneyEvidence)
     : null;
   if (
     primaryJourneyEvidence &&
-    contract &&
     (primaryJourneyEvidence.journeyId !== contract.decision.primarySuccessSignal ||
       JSON.stringify(primaryJourneyEvidence.steps) !==
         JSON.stringify(contract.product.primaryJourney))
@@ -386,9 +439,9 @@ export function createLaunchReceipt(
   const productionUrl = input.verification?.deploymentEvidence?.productionUrl ?? "";
   const customDomain = input.verification?.deploymentEvidence?.customDomain ?? null;
   const accountingLimitations = [
-    ...(modelTaskCount > 0 && !usage.complete
+    ...(modelCalls > 0 && !usage.complete
       ? [
-          `Model usage is incomplete: ${modelTaskCount} build-agent task attempt(s) were recorded but complete token observations were not available for every attempt.`,
+          `Model usage is incomplete: ${modelCalls} model call(s) were recorded but complete token observations were not available for every call.`,
         ]
       : []),
     ...(input.filesRead === undefined || input.filesRead === null
@@ -396,7 +449,7 @@ export function createLaunchReceipt(
           "Observed file-read accounting is unavailable; selected context-manifest file counts are not reported as files actually read.",
         ]
       : []),
-    ...(modelTaskCount > 0 && usage.failedCommands === null
+    ...(modelCalls > 0 && usage.failedCommands === null
       ? ["Build-agent failed-command accounting is unavailable for one or more model calls."]
       : []),
   ];
@@ -434,7 +487,8 @@ export function createLaunchReceipt(
     throw new Error("Launch Receipt manual-action limit is too small for current launch gaps");
   }
   const candidate = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
+    launchContract: contract,
     venture: {
       name: input.report.brief.name,
       repository: resource(input.report, "github", ["repository_url", "repository"]),
@@ -442,12 +496,10 @@ export function createLaunchReceipt(
       customDomain,
     },
     decision: {
-      launchMode: input.decision.mode.selectedMode,
-      primarySuccessSignal:
-        contract?.decision.primarySuccessSignal ?? "not_recorded_in_legacy_brief",
-      reviewDate: contract?.decision.reviewDate ?? "",
-      firstValidationAction:
-        contract?.distribution.firstValidationAction ?? reportedValidationAction?.action ?? "",
+      launchMode: contract.decision.launchMode,
+      primarySuccessSignal: contract.decision.primarySuccessSignal,
+      reviewDate: contract.decision.reviewDate,
+      firstValidationAction: contract.distribution.firstValidationAction,
     },
     build: {
       seed: input.launchGrant?.seed.id ?? "not_recorded",
@@ -457,6 +509,7 @@ export function createLaunchReceipt(
           ? usage.buildAgent
           : (input.launchGrant?.modelExecutionPolicy?.attestation ?? "not_recorded"),
       taskCount: modelTaskCount,
+      modelCalls,
       inputTokens: usage.inputTokens,
       cachedInputTokens: usage.cachedInputTokens,
       outputTokens: usage.outputTokens,
@@ -510,12 +563,25 @@ export function createLaunchReceipt(
       ]),
     ],
   };
-  return launchReceiptSchema.parse(redactor.redact(candidate));
+  // The generic redactor deliberately treats fields named "authorization" as
+  // sensitive. That name is also a legitimate capability classification, so
+  // preserve the already credential-rejected canonical contract byte-for-byte
+  // while redacting the runtime/report-derived receipt fields around it.
+  const redactableCandidate: Partial<typeof candidate> = { ...candidate };
+  delete redactableCandidate.launchContract;
+  return launchReceiptSchema.parse({
+    ...redactor.redact(redactableCandidate),
+    launchContract: contract,
+  });
 }
 
 export function renderLaunchReceiptMarkdown(receiptInput: LaunchReceipt): string {
   const receipt = launchReceiptSchema.parse(receiptInput);
   const line = (label: string, state: LaunchReceiptEvidenceState) => `- ${label}: ${state}`;
+  const renderedContract = renderLaunchContractYaml(receipt.launchContract)
+    .trimEnd()
+    .split("\n")
+    .map((contractLine) => `    ${contractLine}`);
   return [
     `# Launch Receipt: ${receipt.venture.name}`,
     "",
@@ -527,10 +593,15 @@ export function renderLaunchReceiptMarkdown(receiptInput: LaunchReceipt): string
     `- Review date: ${receipt.decision.reviewDate || "not recorded"}`,
     `- First validation action: ${receipt.decision.firstValidationAction || "not recorded"}`,
     "",
+    "## Canonical Launch Contract",
+    "",
+    ...renderedContract,
+    "",
     "## Build accounting",
     "",
     `- Seed / Core: ${receipt.build.seed} / ${receipt.build.coreVersion}`,
-    `- Agent / tasks: ${receipt.build.buildAgent} / ${receipt.build.taskCount}`,
+    `- Build agent: ${receipt.build.buildAgent}`,
+    `- Model tasks / model calls: ${receipt.build.taskCount} / ${receipt.build.modelCalls}`,
     `- Tokens (input / cached / output / total): ${receipt.build.inputTokens ?? "unavailable"} / ${receipt.build.cachedInputTokens ?? "unavailable"} / ${receipt.build.outputTokens ?? "unavailable"} / ${receipt.build.totalTokens ?? "unavailable"}`,
     `- Retries / failed commands / elapsed ms: ${receipt.build.retries} / ${receipt.build.failedCommands ?? "unavailable"} / ${receipt.build.elapsedMs}`,
     `- Tool calls: ${receipt.build.toolCalls ?? "unavailable"}`,

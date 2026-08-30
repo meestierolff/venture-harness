@@ -89,6 +89,7 @@ export async function executeOnePromptVentureLaunch(input: {
   at: Date;
   coreVersion: string;
   workflowRefSha: string;
+  workflowRepository: string;
   fileSystem: MaterializationFileSystem;
   providerEffectExecutor: ProviderRegistryLaunchEffectExecutor;
   store: OnePromptLaunchStore;
@@ -111,6 +112,7 @@ export async function executeOnePromptVentureLaunch(input: {
     at: input.at,
     coreVersion: input.coreVersion,
     workflowRefSha: input.workflowRefSha,
+    workflowRepository: input.workflowRepository,
   });
   const scopedKey = `${input.commandContext.tenant.organizationId}:${input.commandContext.tenant.ventureId}:${input.grant.grantId}:${input.commandIdempotencyKey}`;
   const priorDigest = input.store.requestDigest(scopedKey);

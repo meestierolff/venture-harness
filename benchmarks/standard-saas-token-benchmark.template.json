@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "standard-saas-token-benchmark",
+  "sourceBinding": {
+    "coreSourceSha": "REPLACE_WITH_CLEAN_CORE_SOURCE_SHA",
+    "seedLockSha256": "REPLACE_WITH_SEED_LOCK_SHA256",
+    "heldOutEvaluatorId": "held_out_web_founder_alpha_v1",
+    "heldOutEvaluatorSha256": "REPLACE_WITH_HELD_OUT_EVALUATOR_SHA256",
+    "executionOrder": "REPLACE_WITH_PREREGISTERED_EXECUTION_ORDER",
+    "orderSeedSha256": "REPLACE_WITH_ORDER_SEED_SHA256"
+  },
+  "attemptPolicy": {
+    "ledgerPath": "reports/benchmarks/standard-saas-token-attempts.jsonl",
+    "appendOnly": true,
+    "includeFailedAndAborted": true,
+    "silentModelRetries": 0
+  },
+  "isolationPolicy": {
+    "platform": "darwin",
+    "driver": "macos_sandbox_exec",
+    "bothPathsAttested": true,
+    "peerReadDenied": true,
+    "coreAndDogfoodReadDenied": true,
+    "unrelatedHomeReadDenied": true,
+    "acceptanceAuthAndNetworkDenied": true
+  },
+  "model": {
+    "provider": "openai",
+    "family": "REPLACE_WITH_EXACT_MODEL_FAMILY",
+    "version": "REPLACE_WITH_EXACT_MODEL_VERSION",
+    "id": "REPLACE_WITH_EXACT_CODEX_MODEL_ID",
+    "cliVersion": "REPLACE_WITH_EXACT_CODEX_CLI_VERSION"
+  },
+  "maximumCallsPerPath": 2,
+  "applications": [
+    {
+      "appId": "standard-saas-one",
+      "launchContractPath": "REPLACE_WITH_APP_ONE_LAUNCH_CONTRACT_PATH",
+      "launchContractSha256": "REPLACE_WITH_APP_ONE_LAUNCH_CONTRACT_SHA256",
+      "dogfoodEvidenceBundlePath": "REPLACE_WITH_APP_ONE_DOGFOOD_BUNDLE_PATH",
+      "dogfoodEvidenceBundleSha256": "REPLACE_WITH_APP_ONE_DOGFOOD_BUNDLE_SHA256",
+      "dogfoodLaunchReceiptSha256": "REPLACE_WITH_APP_ONE_RECEIPT_SHA256",
+      "dogfoodLocalAcceptanceSha256": "REPLACE_WITH_APP_ONE_LOCAL_ACCEPTANCE_SHA256",
+      "dogfoodSourceRoots": ["REPLACE_WITH_APP_ONE_SOURCE_ROOT"],
+      "designQualityCriteria": [
+        {
+          "id": "design.app_one",
+          "description": "REPLACE_WITH_APP_ONE_DESIGN_CRITERION"
+        }
+      ],
+      "acceptanceCriteria": [
+        {
+          "id": "acceptance.app_one",
+          "description": "REPLACE_WITH_APP_ONE_ACCEPTANCE_CRITERION",
+          "evaluatorId": "held_out_web_founder_alpha_v1",
+          "timeoutMs": 300000
+        }
+      ]
+    },
+    {
+      "appId": "standard-saas-two",
+      "launchContractPath": "REPLACE_WITH_APP_TWO_LAUNCH_CONTRACT_PATH",
+      "launchContractSha256": "REPLACE_WITH_APP_TWO_LAUNCH_CONTRACT_SHA256",
+      "dogfoodEvidenceBundlePath": "REPLACE_WITH_APP_TWO_DOGFOOD_BUNDLE_PATH",
+      "dogfoodEvidenceBundleSha256": "REPLACE_WITH_APP_TWO_DOGFOOD_BUNDLE_SHA256",
+      "dogfoodLaunchReceiptSha256": "REPLACE_WITH_APP_TWO_RECEIPT_SHA256",
+      "dogfoodLocalAcceptanceSha256": "REPLACE_WITH_APP_TWO_LOCAL_ACCEPTANCE_SHA256",
+      "dogfoodSourceRoots": ["REPLACE_WITH_APP_TWO_SOURCE_ROOT"],
+      "designQualityCriteria": [
+        {
+          "id": "design.app_two",
+          "description": "REPLACE_WITH_APP_TWO_DESIGN_CRITERION"
+        }
+      ],
+      "acceptanceCriteria": [
+        {
+          "id": "acceptance.app_two",
+          "description": "REPLACE_WITH_APP_TWO_ACCEPTANCE_CRITERION",
+          "evaluatorId": "held_out_web_founder_alpha_v1",
+          "timeoutMs": 300000
+        }
+      ]
+    },
+    {
+      "appId": "standard-saas-three",
+      "launchContractPath": "REPLACE_WITH_APP_THREE_LAUNCH_CONTRACT_PATH",
+      "launchContractSha256": "REPLACE_WITH_APP_THREE_LAUNCH_CONTRACT_SHA256",
+      "dogfoodEvidenceBundlePath": "REPLACE_WITH_APP_THREE_DOGFOOD_BUNDLE_PATH",
+      "dogfoodEvidenceBundleSha256": "REPLACE_WITH_APP_THREE_DOGFOOD_BUNDLE_SHA256",
+      "dogfoodLaunchReceiptSha256": "REPLACE_WITH_APP_THREE_RECEIPT_SHA256",
+      "dogfoodLocalAcceptanceSha256": "REPLACE_WITH_APP_THREE_LOCAL_ACCEPTANCE_SHA256",
+      "dogfoodSourceRoots": ["REPLACE_WITH_APP_THREE_SOURCE_ROOT"],
+      "designQualityCriteria": [
+        {
+          "id": "design.app_three",
+          "description": "REPLACE_WITH_APP_THREE_DESIGN_CRITERION"
+        }
+      ],
+      "acceptanceCriteria": [
+        {
+          "id": "acceptance.app_three",
+          "description": "REPLACE_WITH_APP_THREE_ACCEPTANCE_CRITERION",
+          "evaluatorId": "held_out_web_founder_alpha_v1",
+          "timeoutMs": 300000
+        }
+      ]
+    }
+  ]
+}

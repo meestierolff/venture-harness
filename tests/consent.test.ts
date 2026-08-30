@@ -34,4 +34,38 @@ describe("consent state machine", () => {
     storage.set("vh-consent", "banana");
     expect(getConsent(storage)).toBe("unset");
   });
+
+  it("fails closed when storage reads or writes throw", () => {
+    const throwing: ConsentStorage = {
+      get: () => {
+        throw new Error("blocked");
+      },
+      set: () => {
+        throw new Error("blocked");
+      },
+    };
+
+    expect(getConsent(throwing)).toBe("unset");
+    expect(setConsent("accepted", throwing)).toEqual({
+      from: "unset",
+      to: "accepted",
+      withdrawal: false,
+    });
+    expect(hasAnalyticsConsent(throwing)).toBe(false);
+  });
+
+  it("reports a withdrawal even when an accepted store refuses the decline write", () => {
+    const acceptedButReadOnly: ConsentStorage = {
+      get: () => "accepted",
+      set: () => {
+        throw new Error("blocked");
+      },
+    };
+
+    expect(setConsent("declined", acceptedButReadOnly)).toEqual({
+      from: "accepted",
+      to: "declined",
+      withdrawal: true,
+    });
+  });
 });
