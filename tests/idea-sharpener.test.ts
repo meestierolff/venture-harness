@@ -21,6 +21,19 @@ function fakeHost(outputs: string[]): IdeaSharpenerHost & { run: ReturnType<type
   return { id: "fixture_codex", run };
 }
 
+const launchReceiptRoughIdea = `# Launch Receipt
+
+A small web SaaS for indie hackers preparing a product launch.
+
+Launch requirements and evidence are scattered across notes and provider
+dashboards.
+
+The app should let a founder create one focused launch checklist, complete its
+items and publish a clean read-only receipt showing what is actually ready.
+
+It must not become a project-management suite, a generic startup dashboard,
+a team collaboration product or another Venture Harness control plane.`;
+
 describe("bounded idea sharpening", () => {
   it("runs Codex in a disposable non-repository with the private idea only on stdin", async () => {
     const invocations: CommandInvocation[] = [];
@@ -129,6 +142,39 @@ describe("bounded idea sharpening", () => {
     expect(host.run).toHaveBeenCalledTimes(1);
     expect(host.run.mock.calls[0]?.[0]).toMatchObject({ phase: "primary" });
     expect(host.run.mock.calls[0]?.[0].prompt).toContain("Do not browse, use tools, read files");
+  });
+
+  it("preserves tentative web SaaS commerce as a reversible Stripe hypothesis", async () => {
+    const host = fakeHost([JSON.stringify(launchReceiptContract())]);
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(host.run).toHaveBeenCalledTimes(1);
+    const request = host.run.mock.calls[0]?.[0];
+    expect(request).toMatchObject({ phase: "primary" });
+    expect(request?.prompt).toContain(launchReceiptRoughIdea);
+    expect(request?.prompt).toContain(
+      "For a web SaaS or other web subscription hypothesis, set business.model to subscription, paymentProvider to stripe, and priceHypothesis to one positive numeric amount",
+    );
+    expect(request?.prompt).toContain(
+      "label the unvalidated model and price in truth.assumptions or truth.unknowns",
+    );
+    expect(request?.prompt).toContain(
+      "only when the founder explicitly says the product is free, needs no payments, or will add payments or monetization later",
+    );
+    expect(result.launchContract.business).toMatchObject({
+      model: "subscription",
+      paymentProvider: "stripe",
+    });
+    expect(result.launchContract.business.priceHypothesis).toEqual(expect.any(Number));
+    expect(result.launchContract.business.priceHypothesis).toBeGreaterThan(0);
+    expect(
+      [...result.launchContract.truth.assumptions, ...result.launchContract.truth.unknowns].join(
+        " ",
+      ),
+    ).toMatch(/subscription|price|pay/iu);
   });
 
   it("allows one schema refinement and never a third call", async () => {
