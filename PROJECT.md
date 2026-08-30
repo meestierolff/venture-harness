@@ -20,7 +20,7 @@ one-time founder-default connection
   -> complete production dry run
   -> immutable Launch Grant
   -> independent ordinary Next.js child
-  -> BLOCKED before product model work until an audited driver is installed
+  -> bounded product work through the internally owned Codex CLI host
   -> provider graph, source push, production deployment and primary journey
   -> sanitized report, exact waiting action, and later Core upgrade
 ```
@@ -31,10 +31,13 @@ The exact apply command is shown by the dry run:
 vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
 ```
 
-Founder alpha does not ship an audited outer read-isolation driver, so this
-command cannot currently pass the product-build model nodes. Valid Launch
-Contracts still use the locally tested zero-model parsing path; rough prose and
-real product-build model execution stop before invocation.
+Founder alpha includes practical Codex CLI hosts for rough-prose sharpening and
+the two bounded product-build tasks. The production CLI constructs those hosts
+internally, sends credential-free context through stdin, projects only a small
+CLI environment, and keeps provider credentials and provider capabilities in a
+separate runtime. This is a local prototype boundary, not perfect or audited
+OS-level read isolation. A valid Launch Contract still uses the locally tested
+zero-model parsing path, and no live dogfood or provider result is claimed yet.
 
 One isolated current-tree run of the complete Exception Desk root-CLI Golden
 Path passed on 2026-08-12 outside the loopback-restricted sandbox: idea
@@ -60,7 +63,8 @@ Use the [Founder quickstart](docs/public/FOUNDER_QUICKSTART.md). In outline:
    read-only `vh stack doctor founder-default`.
 4. Write and review a complete Launch Contract with the initial user, outcome,
    journey, success signal, rail, capabilities, domain and one exact price when
-   using Stripe, then validate it into `idea.md` on the zero-model path.
+   using Stripe, or sharpen rough prose through the bounded Codex CLI prototype,
+   then review the resulting `idea.md` before continuing.
 5. Run:
 
    ```bash

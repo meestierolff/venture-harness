@@ -99,9 +99,14 @@ smaller token count alone means a better or cheaper outcome.
 ## Applying the principles
 
 `vh idea sharpen` deterministically validates an existing complete Launch
-Contract in founder alpha. Rough-prose sharpening and product-build model work
-are unavailable until Core owns an audited outer read-isolation driver. The
-contract records one user, job, outcome, proposition hypothesis, core feature,
+Contract without a model call. Rough prose can use one bounded primary Codex CLI
+call plus at most one schema-repair call, and the canonical web graph binds two
+product-build tasks. Production services construct both hosts internally, pass
+credential-free context through stdin, project a small CLI environment, and keep
+provider credentials and effects in a separate runtime. This is a practical
+founder-alpha prototype rather than perfect OS-level read isolation or a
+model-quality guarantee. The contract records one user, job, outcome,
+proposition hypothesis, core feature,
 journey, commitment surface, initial channel, success signal, review date,
 explicit not-building list, truth boundaries, and `continue`, `change`, or
 `stop` rules. Its strict 15-field capability map classifies every facet as

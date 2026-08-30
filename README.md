@@ -14,15 +14,18 @@
 > tests and synthetic provider fixtures. Read [current evidence](#supported-and-experimental)
 > before relying on a capability. No live provider or customer result is implied.
 
-**Product objective:** test whether a reviewed Launch Contract can eventually
-reach founder-owned provider evidence. Founder alpha currently stops before
-product-build model execution.
+**Product objective:** test whether a reviewed Launch Contract can reach
+founder-owned provider evidence through one bounded, inspectable path. Founder
+alpha includes practical local model hosts, but no live dogfood or provider
+result is claimed.
 
 Venture Harness is an open-source, agent-first SaaS Launch Factory for turning
 one reviewed Launch Contract into an independent app seed and bounded launch
-plan for the founder's own repository and provider accounts. Founder alpha does
-not ship an audited model-execution driver, so rough-prose sharpening and the
-two product-build model tasks fail closed before invocation.
+plan for the founder's own repository and provider accounts. The production CLI
+constructs bounded Codex CLI hosts internally for rough-prose sharpening and the
+two product-build tasks; Venture Harness passes them credential-free context
+through stdin and no provider credential values, transports, or external-effect
+authority.
 
 [Start the five-minute quickstart →](#five-minute-quickstart)
 
@@ -85,13 +88,15 @@ reviewed Launch Contract
   → Launch Receipt
 ```
 
-An audited product-build driver is required before repository or provider work
-can run through this sequence. The locally tested canonical web graph contains two single-attempt product
+The locally tested canonical web graph contains two single-attempt product
 tasks: one build and one review/repair. The Launch Grant binds that compiled
-count. Founder alpha deliberately has no executable production host for those
-tasks; fixture hosts test graph behavior without a model call. Infrastructure
-already supplied by Core, the selected seed, or provider adapters is
-deterministic work, not model work.
+count. Its practical Codex CLI host runs workspace-write inside the staged child
+with a small projected environment and a bounded context manifest. Provider work
+runs later through separate adapters and authorization. This is a prototype
+process boundary, not perfect or audited OS-level read isolation, and fixture
+coverage is not evidence that a real build or provider launch succeeded.
+Infrastructure already supplied by Core, the selected seed, or provider adapters
+is deterministic work, not model work.
 
 ## Five-minute quickstart
 
@@ -123,7 +128,7 @@ pnpm vh -- stack connect founder-default
 ```
 
 Copy the complete synthetic Launch Contract, review every field, then run the
-zero-model public flow:
+zero-model path:
 
 ```bash
 cp examples/idea-to-launch/launch-contract.yaml ./launch-contract.yaml
@@ -142,14 +147,16 @@ pnpm vh -- launch \
 ```
 
 The dry run creates no provider resource. Inspect its destinations, costs,
-effects, and blockers. Retain the exact apply command for a future audited
-driver; do not run it in founder alpha. A
+effects, and blockers before deciding whether to authorize its exact apply
+command. A
 verified Vercel production URL satisfies the standard hosting-address
 requirement; every selected provider read-back and the contract-bound primary
 journey must still pass. Custom DNS may remain an explicit non-blocking action.
-The current public apply path will stop before product-build model work because
-no audited outer read-isolation driver is installed; do not interpret the
-printed apply command as live-launch readiness.
+Apply requires an installed, authenticated Codex CLI whose login status attests
+ChatGPT subscription use. The internally owned build host receives bounded,
+credential-free product context; provider credentials and effects remain behind
+the later provider runtime and Launch Grant. The printed apply command is not by
+itself evidence of live-launch readiness or success.
 
 When using an installed CLI instead of this source checkout, replace `pnpm vh
 --` with `vh`.
@@ -167,11 +174,10 @@ not-building list. Keep facts, founder assumptions, model inferences, and
 unknowns separate. Do not add generic SaaS infrastructure the contract does not
 require.
 
-Then run the zero-model public flow only: validate the Launch Contract with
-idea sharpen, run founder-default Stack doctor,
-production dry-run, and show me the exact apply command with effects and blockers.
-Show the exact apply command, but do not invoke it; founder alpha has no audited
-product-build model driver. Never create a real charge, ad spend,
+Then use the bounded idea sharpener, review the resulting Launch Contract, run
+founder-default Stack doctor and the production dry run, and show me the exact
+apply command with effects and blockers. Do not invoke the apply command unless
+I explicitly authorize its exact Launch Grant. Never create a real charge, ad spend,
 nameserver change, bulk message, destructive migration, or unsupported claim.
 
 Idea: <paste the rough idea here>
@@ -223,8 +229,10 @@ field and is explicitly not customer or provider evidence. An existing valid
 `schemaVersion: 1` Launch Contract uses the locally tested zero-model-call path.
 Malformed Launch Contract-like YAML or front matter fails closed before any
 model call with its schema version, invalid path, problem, expected shape, and
-exact remediation. Unambiguously freeform prose is rejected before invocation
-until an audited model-execution driver exists.
+exact remediation. Unambiguously freeform prose can use one bounded primary
+Codex CLI call and at most one schema-repair call. The sharpener runs read-only
+from a disposable non-repository directory with a small projected environment;
+its output is still a prototype decision aid that requires founder review.
 
 ## Founder-default Stack
 
@@ -240,7 +248,7 @@ The v0.2 Stack is intentionally opinionated:
 | transactional email  | Brevo                                            | exact non-critical action when unavailable     |
 | analytics and search | Google Analytics, Search Console, Bing Webmaster | exact non-critical actions when unavailable    |
 | domain and DNS       | founder-owned domain, supported or manual DNS    | custom DNS does not block the Vercel URL       |
-| build host           | no audited driver installed                      | fails closed before product model work         |
+| build host           | internally owned Codex CLI prototype             | bounded product context; no provider authority |
 
 `vh stack doctor founder-default` is read-only. “Configured,” “accepted,” and
 “verified” are distinct states; success requires provider read-back.
@@ -352,7 +360,7 @@ fixture evidence is `PROTOTYPE`; `LIVE` requires production read-back.
 | Capability                                                                      | Founder Alpha evidence                                      |
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | Launch Contract and fail-closed structured parsing                              | locally tested zero-model prototype                         |
-| rough-prose sharpening and product-build model execution                        | unavailable until an audited driver is installed            |
+| bounded rough-prose sharpening and product-build Codex CLI hosts                | local prototype; no live-build or model-quality claim       |
 | capability-scoped build context and two-task canonical web plan                 | locally tested prototype; excludes the idea sharpener       |
 | ordinary standalone web seed, frozen child install, build, journey, and upgrade | local/fixture-tested prototype                              |
 | durable graph, resume, reconciliation, idempotency, and redaction               | locally tested prototype                                    |

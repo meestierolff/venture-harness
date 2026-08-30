@@ -11,12 +11,14 @@ inferred success.
 `createLaunchReportWorkflowBinding` is a tested runtime API. The default CLI
 reserves and composes it with the active build and provider bindings, then
 refreshes the report after waiting, failure, resume, success, or cancellation.
-Founder alpha's public build host is unconditionally unavailable before model
-invocation because Core has no audited outer read-isolation driver. Valid Launch
-Contracts still use the zero-model parse and dry-run path; fixture hosts test
-bounded product-task and report behavior without proving a supported operator
-injection path. A report records durable state; it never proves a live model or
-provider result without read-back evidence.
+Founder alpha constructs its practical Codex CLI build host internally. It sends
+bounded credential-free product context through stdin, projects a small CLI
+environment, and carries no provider credentials, transports or external-effect
+authority; the provider runtime remains separate. Valid Launch Contracts still
+use the zero-model parse path. Fixture coverage and a locally available host do
+not prove perfect OS-level read isolation, a supported operator injection path,
+model quality, or a live build. A report records durable state; it never proves a
+live model or provider result without the required read-back evidence.
 
 ## Required fields
 

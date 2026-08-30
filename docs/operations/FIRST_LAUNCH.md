@@ -11,11 +11,13 @@ pnpm install
 pnpm verify
 ```
 
-Founder alpha ships no audited model-execution driver. A valid Launch Contract
-can be parsed and dry-run with zero model calls, but rough-prose sharpening and
-apply stop before product model work. Fixture hosts verify graph, artifact and
-rollback policy only; dependency injection is not a supported operator escape
-hatch.
+Founder alpha includes internally owned Codex CLI hosts for bounded rough-prose
+sharpening and product work. A valid Launch Contract still parses with zero model
+calls. The hosts receive credential-free context through stdin and a small
+environment projection; provider credentials, transports and effect authority
+stay in the separate provider runtime. This is a practical local prototype, not
+perfect or audited OS-level read isolation. Caller injection is not a supported
+operator escape hatch.
 
 Complete every uncommented field in `inputs/VENTURE_BRIEF.yaml`. Keep facts in
 `known_truths` and uncertain beliefs in `assumptions`. Do not put credentials,
@@ -24,6 +26,7 @@ private customer data or marketing proof in the brief.
 ## 2. Authenticate and diagnose
 
 ```bash
+codex login status
 vh auth login
 vh auth status
 vh doctor
@@ -111,5 +114,6 @@ vh create --brief inputs/VENTURE_BRIEF.yaml && vh launch --dry-run
 ```
 
 Run authentication and `vh doctor` first. The dry run prints the exact apply
-command and model-host blocker. Do not invoke apply as a live-launch claim until
-an audited driver is installed and read back.
+command and any model-host or provider blocker. Invoke apply only under its exact
+reviewed authorization. Treat model completion, provider request acceptance and
+provider read-back as distinct evidence; no live dogfood success is implied.

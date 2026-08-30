@@ -72,8 +72,8 @@ export default function HomePage() {
           <p className="hero-boundary">
             <strong>Current boundary:</strong>{" "}
             <TruthClaim id="truth-042">
-              valid Launch Contracts use the zero-model path; rough-prose and product-build model
-              execution are unavailable in founder alpha
+              the local prototype uses internally owned Codex CLI hosts with credential-free stdin
+              context and a separate provider runtime; it is not a perfect OS-isolation boundary
             </TruthClaim>
             . Live dogfood and provider read-backs are not presented as complete.
           </p>

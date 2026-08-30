@@ -1,6 +1,6 @@
 # ADR-002: Lightweight durable workflow and provider runtime
 
-- Status: accepted; executable Codex adapter superseded for founder alpha
+- Status: accepted
 - Date: 2026-08-04
 - Deciders: founder `/goal`
 
@@ -20,11 +20,21 @@ and checkpoint/resume. Use deterministic code for graph validation, routing,
 state transitions, deduplication, and aggregation.
 
 Put repository-local product judgement behind an agent-neutral `BuildAgentHost`.
-The original direct Codex adapter decision is superseded for founder alpha:
-the public host accepts no runner or caller-created trust capability and fails
-before invocation until Core owns an audited outer read-isolation driver.
-Fixture hosts remain test infrastructure, not a supported operator path. Keep
-quality profiles as direct code commands.
+The production CLI constructs its Codex adapter internally rather than accepting
+a caller-supplied host or executor. The adapter starts one direct, ephemeral
+Codex CLI process, projects a small environment for CLI authentication, sends a
+bounded credential-free prompt through stdin, accepts structured JSONL output,
+and persists only sanitized evidence. Rough-prose sharpening runs read-only from
+a disposable non-repository directory; product work runs workspace-write inside
+the staged child. Provider credentials, provider transports and external-effect
+authority remain in the separate provider runtime. Keep quality profiles as
+direct code commands.
+
+This is a practical founder-alpha process boundary, not perfect or audited
+OS-level read isolation. The Codex CLI necessarily retains access to its own
+authentication/configuration state, and its sandbox remains part of the trusted
+computing boundary. Fixture hosts remain test infrastructure rather than a
+supported operator injection path.
 
 Put provider behavior behind one capability adapter contract. Transport order
 is appropriate installed MCP, official CLI, official API, then a precise manual
@@ -45,7 +55,8 @@ success until read-back verification or an explicitly modeled manual result.
 
 The runtime and host contract stay inspectable and testable offline, but the
 repository owns a state machine and process boundary that need strong invariant
-tests. No live Codex execution is available or implied by fixture coverage. Provider-
-specific gaps remain visible as manual actions. Reconsider a larger runtime only
-if measured graph scale, distributed execution, or durability requirements
-cannot be met without rebuilding commodity infrastructure.
+tests. Fake-runner coverage and a locally available CLI do not imply model
+quality, live dogfood success, provider success, or strong OS isolation.
+Provider-specific gaps remain visible as manual actions. Reconsider a larger
+runtime only if measured graph scale, distributed execution, or durability
+requirements cannot be met without rebuilding commodity infrastructure.

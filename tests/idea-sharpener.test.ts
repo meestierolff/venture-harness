@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import type { CommandInvocation, CommandRunner } from "@/lib/credentials";
 import {
   CodexCliIdeaSharpenerHost,
   IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT,
+  ideaSharpenerEnvironment,
   renderLaunchContractYaml,
   sharpenIdea,
   type IdeaSharpenerHost,
@@ -21,12 +24,89 @@ function fakeHost(outputs: string[]): IdeaSharpenerHost & { run: ReturnType<type
 }
 
 describe("bounded idea sharpening", () => {
-  it("fails closed before a Codex invocation because founder alpha has no audited driver", async () => {
-    const host = new CodexCliIdeaSharpenerHost();
+  it("runs Codex in a disposable non-repository with the private idea only on stdin", async () => {
+    const invocations: CommandInvocation[] = [];
+    const runner: CommandRunner = {
+      run: async (invocation) => {
+        invocations.push(invocation);
+        return {
+          exitCode: 0,
+          stdout: [
+            JSON.stringify({
+              type: "item.completed",
+              item: { type: "agent_message", text: JSON.stringify(launchReceiptContract()) },
+            }),
+            JSON.stringify({
+              type: "turn.completed",
+              usage: {
+                input_tokens: 100,
+                cached_input_tokens: 20,
+                output_tokens: 50,
+              },
+              model: "gpt-test-observed",
+            }),
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    };
+    const host = new CodexCliIdeaSharpenerHost({ runner, model: "gpt-test-fixed" });
+    const prompt = "private founder idea supplied via stdin";
 
-    await expect(host.run({ prompt: "safe fixture prompt", phase: "primary" })).rejects.toThrow(
-      /outer read-isolation/iu,
-    );
+    const result = await host.run({ prompt, phase: "primary" });
+
+    expect(result).toMatchObject({
+      usage: {
+        inputTokens: 100,
+        cachedInputTokens: 20,
+        outputTokens: 50,
+        model: "gpt-test-observed",
+      },
+    });
+    const invocation = invocations[0];
+    expect(invocation).toBeDefined();
+    if (!invocation) throw new Error("expected one Codex invocation");
+    const isolatedRoot = invocation.cwd;
+    expect(isolatedRoot).toBeDefined();
+    if (!isolatedRoot) throw new Error("expected an isolated Codex working directory");
+    expect(invocation.args).toEqual([
+      "exec",
+      "--sandbox",
+      "read-only",
+      "--ephemeral",
+      "--ignore-user-config",
+      "--skip-git-repo-check",
+      "--json",
+      "--model",
+      "gpt-test-fixed",
+      "-C",
+      isolatedRoot,
+      "-",
+    ]);
+    expect(invocation).toMatchObject({ stdin: prompt, sensitiveStdin: true });
+    expect(invocation.args).not.toContain(prompt);
+    expect(invocation.env).toBeUndefined();
+    expect(existsSync(isolatedRoot)).toBe(false);
+  });
+
+  it("projects only Codex session and process essentials into the sharpener runner", () => {
+    expect(
+      ideaSharpenerEnvironment({
+        NODE_ENV: "test",
+        PATH: "/bin",
+        HOME: "/safe-home",
+        CODEX_HOME: "/safe-codex",
+        VERCEL_TOKEN: "provider-secret",
+        OPENAI_API_KEY: "metered-api-secret",
+        DATABASE_URL: "postgresql://user:secret@example.test/db",
+        UNRELATED_PRIVATE_VALUE: "founder-private-value",
+      }),
+    ).toEqual({
+      NODE_ENV: "test",
+      PATH: "/bin",
+      HOME: "/safe-home",
+      CODEX_HOME: "/safe-codex",
+    });
   });
 
   it("uses zero model calls for an existing Launch Contract", async () => {

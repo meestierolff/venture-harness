@@ -84,7 +84,6 @@ class Host implements BuildAgentHost {
     return {
       host: this.id,
       status: "available" as const,
-      readIsolation: "fixture_no_model_execution" as const,
       version: "test",
       billingMode: "fixture_no_model_execution" as const,
       billingEvidence: "fixture_attestation" as const,

@@ -3628,7 +3628,7 @@ async function reconcilePostDeployVerification(
 
 export async function assertBuildAgentHostAvailable(host: BuildAgentHost): Promise<void> {
   const inspection = await host.inspect();
-  if (inspection.status !== "available" || inspection.readIsolation === "unavailable") {
+  if (inspection.status !== "available") {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_UNAVAILABLE",
       `${inspection.nextAction ?? `${inspection.host} is unavailable.`} No run or external action was created.`,

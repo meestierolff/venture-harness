@@ -78,9 +78,6 @@ class FakeBuildAgentHost implements BuildAgentHost {
     return {
       host: this.id,
       status: this.available ? ("available" as const) : ("missing" as const),
-      readIsolation: this.available
-        ? ("fixture_no_model_execution" as const)
-        : ("unavailable" as const),
       version: this.available ? "fake 1.0" : null,
       billingMode: this.available ? ("fixture_no_model_execution" as const) : ("unknown" as const),
       billingEvidence: this.available ? ("fixture_attestation" as const) : null,
@@ -163,31 +160,212 @@ function dependencyWorkflow(nodes: WorkflowNodeDefinition[]): WorkflowDefinition
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
 describe("Codex CLI build-agent host", () => {
-  it("fails closed before CLI inspection and cannot accept a caller-supplied executor", async () => {
+  it("uses the official shell-free exec argv and sends bounded context only through stdin", async () => {
     const root = temporaryRoot();
-    const host = new CodexCliBuildAgentHost({ rootDir: root });
+    mkdirSync(join(root, "app"));
+    writeFileSync(join(root, "app/page.tsx"), "export default function Page() {}\n");
+    const finalResult = {
+      status: "completed",
+      summary: "Built the bounded journey.",
+      changed_files: ["app/page.tsx"],
+      checks: [{ command: "pnpm test", status: "passed", evidence: "1 test passed" }],
+      limitations: [],
+      completion: {
+        outcome: "changed",
+        artifacts: [{ path: "app/page.tsx", role: "core_journey" }],
+        validator: { check_command: "pnpm test" },
+      },
+    };
+    const runner = new FakeRunner([
+      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
+      {
+        exitCode: 0,
+        stdout: [
+          JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+          JSON.stringify({
+            type: "item.completed",
+            item: { type: "command_execution", command: "pnpm test", exit_code: 0 },
+          }),
+          JSON.stringify({
+            type: "item.completed",
+            item: { type: "agent_message", text: JSON.stringify(finalResult) },
+          }),
+          JSON.stringify({
+            type: "turn.completed",
+            usage: { input_tokens: 12, cached_input_tokens: 3, output_tokens: 7 },
+            model: "gpt-test-observed",
+          }),
+        ].join("\n"),
+        stderr: "",
+      },
+    ]);
+    const host = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner,
+      model: "gpt-test-fixed",
+    });
 
-    await expect(host.inspect()).resolves.toMatchObject({
-      status: "unavailable",
-      readIsolation: "unavailable",
-      billingMode: "unknown",
-      nextAction: expect.stringMatching(/outer read-isolation/iu),
+    const result = await host.run({
+      runId: "launch-one",
+      nodeId: "build-core-journey",
+      purpose: "Build a private founder concept",
+      instructions: "Change the smallest useful journey.",
+      context: { brief: "private founder concept appears only on stdin" },
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      changedFiles: ["app/page.tsx"],
+      completion: { outcome: "changed" },
+      eventTypes: ["item.completed", "thread.started", "turn.completed"],
+      usage: {
+        inputTokens: 12,
+        cachedInputTokens: 3,
+        outputTokens: 7,
+        model: "gpt-test-observed",
+        toolCalls: 1,
+        failedCommands: 0,
+      },
+    });
+    expect(runner.calls[0]).toMatchObject({ command: "codex", args: ["--version"], cwd: root });
+    expect(runner.calls[1]).toMatchObject({
+      command: "codex",
+      args: ["login", "status"],
+      cwd: root,
+    });
+    expect(runner.calls[2]).toMatchObject({
+      command: "codex",
+      args: [
+        "exec",
+        "--sandbox",
+        "workspace-write",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--json",
+        "--model",
+        "gpt-test-fixed",
+        "-C",
+        root,
+        "-",
+      ],
+      cwd: root,
+      sensitiveStdin: true,
+    });
+    expect(runner.calls[2]?.args.join(" ")).not.toContain("private founder concept");
+    expect(runner.calls[2]?.stdin).toContain("private founder concept appears only on stdin");
+  });
+
+  it("rejects credential context before execution and rejects malformed Codex output", async () => {
+    const root = temporaryRoot();
+    const credentialRunner = new FakeRunner([
+      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
+    ]);
+    const credentialHost = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner: credentialRunner,
     });
     await expect(
-      host.run({
-        runId: "blocked-isolation",
+      credentialHost.run({
+        runId: "launch-secret",
         nodeId: "build-core-journey",
-        purpose: "must not run",
-        instructions: "must not run",
+        purpose: "Build",
+        instructions: "Build",
+        context: { api_key: "synthetic-value" },
+      }),
+    ).rejects.toMatchObject({ code: "credential_material" });
+    expect(credentialRunner.calls).toHaveLength(2);
+
+    const malformedRunner = new FakeRunner([
+      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
+      { exitCode: 0, stdout: "not-jsonl\n", stderr: "" },
+    ]);
+    const malformedHost = new CodexCliBuildAgentHost({ rootDir: root, runner: malformedRunner });
+    await expect(
+      malformedHost.run({
+        runId: "launch-invalid",
+        nodeId: "build-core-journey",
+        purpose: "Build",
+        instructions: "Build",
         context: {},
       }),
-    ).rejects.toMatchObject({ code: "host_unavailable" });
+    ).rejects.toMatchObject({ code: "invalid_jsonl" });
+
+    const noCompletionRunner = new FakeRunner([
+      { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+      { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
+      {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "agent_message",
+            text: JSON.stringify({
+              status: "completed",
+              summary: "Claimed completion without proof.",
+              changed_files: [],
+              checks: [],
+              limitations: [],
+              completion: null,
+            }),
+          },
+        }),
+        stderr: "",
+      },
+    ]);
+    const noCompletionHost = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner: noCompletionRunner,
+    });
+    await expect(
+      noCompletionHost.run({
+        runId: "launch-no-completion",
+        nodeId: "build-core-journey",
+        purpose: "Build",
+        instructions: "Build",
+        context: {},
+      }),
+    ).rejects.toMatchObject({ code: "invalid_final_result" });
+  });
+
+  it("attests ChatGPT subscription login and identifies API-key billing", async () => {
+    const root = temporaryRoot();
+    const subscription = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner: new FakeRunner([
+        { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+        { exitCode: 0, stdout: "Logged in using ChatGPT\n", stderr: "" },
+      ]),
+    });
+    await expect(subscription.inspect()).resolves.toMatchObject({
+      status: "available",
+      billingMode: "chatgpt_subscription",
+      billingEvidence: "codex_login_status",
+      nextAction: null,
+    });
+
+    const apiKey = new CodexCliBuildAgentHost({
+      rootDir: root,
+      runner: new FakeRunner([
+        { exitCode: 0, stdout: "codex-cli 1.2.3\n", stderr: "" },
+        { exitCode: 0, stdout: "Logged in using an API key\n", stderr: "" },
+      ]),
+    });
+    await expect(apiKey.inspect()).resolves.toMatchObject({
+      status: "available",
+      billingMode: "api_key_metered",
+      billingEvidence: "codex_login_status",
+      nextAction: expect.stringMatching(/ChatGPT subscription/i),
+    });
   });
 
   it("passes only a credential-free environment allowlist to the default host runner", () => {
@@ -1325,6 +1503,14 @@ describe("default launch product bindings", () => {
 
   it("uses the default host branch before creating a CLI launch run", async () => {
     const root = temporaryRoot();
+    vi.spyOn(CodexCliBuildAgentHost.prototype, "inspect").mockResolvedValue({
+      host: "codex_cli",
+      status: "missing",
+      version: null,
+      billingMode: "unknown",
+      billingEvidence: null,
+      nextAction: "Install and authenticate the Codex CLI, then rerun the same launch command.",
+    });
     mkdirSync(join(root, "config"));
     copyFileSync("config/policies.yaml", join(root, "config/policies.yaml"));
     copyFileSync("config/providers.yaml", join(root, "config/providers.yaml"));
@@ -1347,7 +1533,7 @@ describe("default launch product bindings", () => {
         runId: "launch-no-build-host",
         json: true,
       }),
-    ).rejects.toThrow(/no audited outer read-isolation driver.*No run or external action/i);
+    ).rejects.toThrow(/Install and authenticate the Codex CLI.*No run or external action/i);
     expect(store.exists("launch-no-build-host")).toBe(false);
     expect(existsSync(join(root, "reports/launch/launch-no-build-host"))).toBe(false);
   });
