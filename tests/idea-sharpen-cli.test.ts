@@ -3,13 +3,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliIo } from "@/lib/cli";
 import { createDefaultCliServices } from "@/lib/cli/default-services";
@@ -86,6 +87,250 @@ describe("vh idea sharpen", () => {
       providerEffects: false,
     });
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads and writes explicit absolute founder documents outside Core", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-core-"));
+    const founderDocuments = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-documents-"));
+    roots.push(root, founderDocuments);
+    const coreReadme = join(root, "README.md");
+    const canonicalDocuments = realpathSync(founderDocuments);
+    const input = join(canonicalDocuments, "launch-receipt-rough.md");
+    const output = join(canonicalDocuments, "launch-receipt.md");
+    writeFileSync(coreReadme, "# Core sentinel\n");
+    writeFileSync(input, "# Launch Receipt\nBuild one useful launch receipt.");
+    const run = vi.fn(async () => ({
+      finalText: JSON.stringify(launchReceiptContract()),
+      usage: { inputTokens: 80, cachedInputTokens: 10, outputTokens: 40 },
+    }));
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+    const harness = ioHarness();
+
+    const result = await runCli(
+      ["idea", "sharpen", "--input", input, "--output", output, "--json"],
+      { services, io: harness.io },
+    );
+
+    const canonicalOutput = join(canonicalDocuments, "launch-receipt.md");
+    const baseOutput = canonicalOutput.slice(0, -3);
+    expect(result.exitCode, harness.stderr.join("\n")).toBe(0);
+    expect(JSON.parse(harness.stdout[0])).toMatchObject({
+      output: canonicalOutput,
+      productConstitution: `${baseOutput}.product-constitution.md`,
+      launchContract: `${baseOutput}.launch-contract.yaml`,
+      usage: `${baseOutput}.usage.json`,
+    });
+    expect(readFileSync(coreReadme, "utf8")).toBe("# Core sentinel\n");
+    expect(readFileSync(output, "utf8")).toContain("schemaVersion: 1");
+    expect(existsSync(`${baseOutput}.product-constitution.md`)).toBe(true);
+    expect(existsSync(`${baseOutput}.launch-contract.yaml`)).toBe(true);
+    expect(existsSync(`${baseOutput}.usage.json`)).toBe(true);
+    expect(existsSync(join(root, ".vh-idea-sharpen.lock"))).toBe(false);
+    expect(existsSync(join(canonicalDocuments, ".vh-idea-sharpen-input.lock"))).toBe(false);
+    expect(existsSync(join(canonicalDocuments, ".vh-idea-sharpen-output.lock"))).toBe(false);
+    expect(existsSync(join(dirname(canonicalDocuments), ".vh-idea-sharpen-output.lock"))).toBe(
+      false,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an absolute external input through a symlinked parent before model work", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-core-"));
+    const aliasContainer = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-input-alias-"));
+    const external = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-input-external-"));
+    roots.push(root, aliasContainer, external);
+    writeFileSync(join(external, "rough.md"), "# Outside idea\nDo not read this file.");
+    symlinkSync(external, join(aliasContainer, "documents"), "dir");
+    const run = vi.fn();
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+    const harness = ioHarness();
+
+    const result = await runCli(
+      [
+        "idea",
+        "sharpen",
+        "--input",
+        join(aliasContainer, "documents", "rough.md"),
+        "--output",
+        "idea.md",
+      ],
+      { services, io: harness.io },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(harness.stderr.join("\n")).toMatch(/real non-symlink directory/);
+    expect(run).not.toHaveBeenCalled();
+    expect(existsSync(join(root, "idea.md"))).toBe(false);
+    expect(existsSync(join(root, ".vh-idea-sharpen.lock"))).toBe(false);
+  });
+
+  it("never overwrites Core README when it is selected by an absolute output path", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-core-"));
+    roots.push(root);
+    const readme = join(realpathSync(root), "README.md");
+    writeFileSync(join(root, "rough.md"), "# Tiny receipt\nBuild one useful receipt.");
+    writeFileSync(readme, "# Core sentinel\n");
+    const run = vi.fn();
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+    const harness = ioHarness();
+
+    const result = await runCli(["idea", "sharpen", "--input", "rough.md", "--output", readme], {
+      services,
+      io: harness.io,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(harness.stderr.join("\n")).toMatch(/already exists/);
+    expect(readFileSync(readme, "utf8")).toBe("# Core sentinel\n");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preflights every artifact and never calls the model when any target exists", async () => {
+    const run = vi.fn(async () => ({
+      finalText: JSON.stringify(launchReceiptContract()),
+      usage: { inputTokens: 80, cachedInputTokens: 10, outputTokens: 40 },
+    }));
+    mockIdeaSharpenerRun(run);
+    for (const existingName of [
+      "idea.md",
+      "idea.product-constitution.md",
+      "idea.launch-contract.yaml",
+      "idea.usage.json",
+    ]) {
+      const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-preflight-"));
+      roots.push(root);
+      writeFileSync(join(root, "rough.md"), "# Tiny receipt\nBuild one useful receipt.");
+      writeFileSync(join(root, existingName), `sentinel:${existingName}\n`);
+      const services = createDefaultCliServices({ rootDir: root });
+      const harness = ioHarness();
+
+      const result = await runCli(
+        ["idea", "sharpen", "--input", "rough.md", "--output", "idea.md"],
+        { services, io: harness.io },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(harness.stderr.join("\n")).toMatch(/already exists/);
+      expect(readFileSync(join(root, existingName), "utf8")).toBe(`sentinel:${existingName}\n`);
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects symlinked absolute output parents and dangling output files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-core-"));
+    const aliasContainer = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-alias-"));
+    const external = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-external-"));
+    roots.push(root, aliasContainer, external);
+    writeFileSync(join(root, "rough.md"), "# Tiny receipt\nBuild one useful receipt.");
+    symlinkSync(external, join(aliasContainer, "documents"), "dir");
+    const run = vi.fn();
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+
+    const aliased = ioHarness();
+    expect(
+      (
+        await runCli(
+          [
+            "idea",
+            "sharpen",
+            "--input",
+            "rough.md",
+            "--output",
+            join(aliasContainer, "documents", "idea.md"),
+          ],
+          { services, io: aliased.io },
+        )
+      ).exitCode,
+    ).toBe(1);
+    expect(aliased.stderr.join("\n")).toMatch(/real non-symlink directory/);
+
+    const canonicalExternal = realpathSync(external);
+    const danglingTarget = join(canonicalExternal, "missing-target.md");
+    const danglingOutput = join(canonicalExternal, "idea.md");
+    symlinkSync(danglingTarget, danglingOutput);
+    const dangling = ioHarness();
+    expect(
+      (
+        await runCli(["idea", "sharpen", "--input", "rough.md", "--output", danglingOutput], {
+          services,
+          io: dangling.io,
+        })
+      ).exitCode,
+    ).toBe(1);
+    expect(dangling.stderr.join("\n")).toMatch(/already exists/);
+    expect(existsSync(danglingTarget)).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite an artifact created while the model is running", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-race-"));
+    roots.push(root);
+    const output = join(root, "idea.md");
+    writeFileSync(join(root, "rough.md"), "# Tiny receipt\nBuild one useful receipt.");
+    const run = vi.fn(async () => {
+      writeFileSync(output, "race winner\n");
+      return {
+        finalText: JSON.stringify(launchReceiptContract()),
+        usage: { inputTokens: 80, cachedInputTokens: 10, outputTokens: 40 },
+      };
+    });
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+    const harness = ioHarness();
+
+    const result = await runCli(["idea", "sharpen", "--input", "rough.md", "--output", "idea.md"], {
+      services,
+      io: harness.io,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(harness.stderr.join("\n")).toMatch(/already exists/);
+    expect(readFileSync(output, "utf8")).toBe("race winner\n");
+    expect(existsSync(join(root, "idea.product-constitution.md"))).toBe(false);
+    expect(existsSync(join(root, "idea.launch-contract.yaml"))).toBe(false);
+    expect(existsSync(join(root, "idea.usage.json"))).toBe(false);
+  });
+
+  it("fails closed and releases both locks when an absolute output parent is swapped", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-core-"));
+    const founderDocuments = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-race-documents-"));
+    const outside = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-race-outside-"));
+    const movedDocuments = `${founderDocuments}-original`;
+    roots.push(root, founderDocuments, outside, movedDocuments);
+    writeFileSync(join(root, "rough.md"), "# Tiny receipt\nBuild one useful receipt.");
+    const canonicalDocuments = realpathSync(founderDocuments);
+    const outputLock = join(dirname(canonicalDocuments), ".vh-idea-sharpen-output.lock");
+    const run = vi.fn(async () => {
+      renameSync(founderDocuments, movedDocuments);
+      symlinkSync(outside, founderDocuments, "dir");
+      return {
+        finalText: JSON.stringify(launchReceiptContract()),
+        usage: { inputTokens: 80, cachedInputTokens: 10, outputTokens: 40 },
+      };
+    });
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+    const harness = ioHarness();
+
+    const result = await runCli(
+      ["idea", "sharpen", "--input", "rough.md", "--output", join(canonicalDocuments, "idea.md")],
+      { services, io: harness.io },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(harness.stderr.join("\n")).toMatch(/non-symlink directory|changed/);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(existsSync(join(outside, "idea.md"))).toBe(false);
+    expect(existsSync(join(outside, "idea.product-constitution.md"))).toBe(false);
+    expect(existsSync(join(outside, "idea.launch-contract.yaml"))).toBe(false);
+    expect(existsSync(join(outside, "idea.usage.json"))).toBe(false);
+    expect(existsSync(join(root, ".vh-idea-sharpen.lock"))).toBe(false);
+    expect(existsSync(outputLock)).toBe(false);
+    expect(existsSync(join(movedDocuments, ".vh-idea-sharpen-output.lock"))).toBe(false);
   });
 
   it("uses deterministic zero-call parsing and rejects escaping output", async () => {
@@ -169,6 +414,27 @@ describe("vh idea sharpen", () => {
     expect(harness.stderr.join("\n")).toMatch(/non-symlink directory|symbolic-link alias/);
     expect(run).not.toHaveBeenCalled();
     expect(existsSync(join(root, "idea.md"))).toBe(false);
+  });
+
+  it("keeps relative parent escapes rejected for founder inputs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-core-"));
+    const outside = mkdtempSync(join(tmpdir(), "vh-sharpen-cli-input-"));
+    roots.push(root, outside);
+    const outsideInput = join(outside, "rough.md");
+    writeFileSync(outsideInput, "# Outside idea\nDo not read this file.");
+    const run = vi.fn();
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
+    const harness = ioHarness();
+
+    const result = await runCli(
+      ["idea", "sharpen", "--input", relative(root, outsideInput), "--output", "idea.md"],
+      { services, io: harness.io },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(harness.stderr.join("\n")).toMatch(/escapes/);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("fails closed when the validated output parent is swapped during model work", async () => {

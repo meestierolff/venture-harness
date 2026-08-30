@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   compileFounderLaunchPreparation,
@@ -124,6 +124,39 @@ describe("one-prompt founder launch preparation", () => {
       "Founder launch --idea must be a regular non-symlink file",
     );
     expect(existsSync(join(baseDir, ".founder-launch-idea.lock"))).toBe(false);
+  });
+
+  it("reads an explicitly absolute founder idea outside Core without allowing relative escapes", () => {
+    const coreRoot = temporaryDirectory();
+    const founderDocuments = temporaryDirectory();
+    const ideaPath = join(realpathSync(founderDocuments), "idea.md");
+    writeFileSync(ideaPath, "# External founder idea\n", { mode: 0o600 });
+
+    expect(loadFounderIdeaFile(ideaPath, coreRoot)).toBe("# External founder idea\n");
+    expect(() => loadFounderIdeaFile(relative(coreRoot, ideaPath), coreRoot)).toThrow(
+      "Founder launch --idea escapes the selected workspace",
+    );
+    expect(existsSync(join(founderDocuments, ".founder-launch-idea.lock"))).toBe(false);
+  });
+
+  it("rejects symlinked parents and files for explicitly absolute founder ideas", () => {
+    const coreRoot = temporaryDirectory();
+    const aliasContainer = temporaryDirectory();
+    const founderDocuments = temporaryDirectory();
+    const canonicalFounderDocuments = realpathSync(founderDocuments);
+    const ideaPath = join(canonicalFounderDocuments, "idea.md");
+    writeFileSync(ideaPath, "# External founder idea\n", { mode: 0o600 });
+    symlinkSync(founderDocuments, join(aliasContainer, "documents"), "dir");
+
+    expect(() =>
+      loadFounderIdeaFile(join(aliasContainer, "documents", "idea.md"), coreRoot),
+    ).toThrow(/parent must be a real non-symlink directory/);
+
+    const aliasPath = join(canonicalFounderDocuments, "idea-alias.md");
+    symlinkSync("idea.md", aliasPath);
+    expect(() => loadFounderIdeaFile(aliasPath, coreRoot)).toThrow(
+      "Founder launch --idea must be a regular non-symlink file",
+    );
   });
 
   it("places the default child directly under the configured ventures root", () => {
