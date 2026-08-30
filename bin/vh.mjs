@@ -19420,6 +19420,9 @@ function compileFounderIdea(source) {
 }
 
 // lib/founder-launch/idea-sharpener.ts
+import { mkdtempSync, rmSync as rmSync2 } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as join4 } from "node:path";
 var IDEA_SHARPENER_TOTAL_CALL_LIMIT = 2;
 var IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT = 24e3;
 var IdeaSharpenError = class extends Error {
@@ -19430,18 +19433,134 @@ var IdeaSharpenError = class extends Error {
   }
   accounting;
 };
+var CODEX_IDEA_SHARPENER_ARGS = [
+  "exec",
+  "--sandbox",
+  "read-only",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--skip-git-repo-check",
+  "--json"
+];
+var SAFE_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "CODEX_HOME",
+  "XDG_CONFIG_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "PATHEXT"
+];
+function ideaSharpenerEnvironment(source) {
+  return {
+    NODE_ENV: source.NODE_ENV ?? "production",
+    ...Object.fromEntries(
+      SAFE_ENVIRONMENT_KEYS.flatMap(
+        (key) => source[key] === void 0 ? [] : [[key, source[key]]]
+      )
+    )
+  };
+}
+function objectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function assistantText(event) {
+  const record3 = objectRecord(event);
+  if (!record3) return null;
+  if (record3.type === "item.completed") {
+    const item = objectRecord(record3.item);
+    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
+  }
+  if (record3.type === "turn.completed" && typeof record3.final_output === "string") {
+    return record3.final_output;
+  }
+  if (record3.type === "result" && typeof record3.result === "string") return record3.result;
+  return null;
+}
+function eventUsage(event) {
+  const record3 = objectRecord(event);
+  if (record3?.type !== "turn.completed") return void 0;
+  const usage = objectRecord(record3.usage);
+  if (!usage) return void 0;
+  if (typeof usage.input_tokens !== "number" || typeof usage.cached_input_tokens !== "number" || typeof usage.output_tokens !== "number") {
+    return void 0;
+  }
+  return {
+    inputTokens: usage.input_tokens,
+    cachedInputTokens: usage.cached_input_tokens,
+    outputTokens: usage.output_tokens,
+    ...typeof record3.model === "string" && record3.model.trim() ? { model: record3.model.trim() } : {}
+  };
+}
+function parseCodexJsonLines(stdout) {
+  const finalTexts = [];
+  let usage;
+  for (const [index, line] of stdout.split(/\r?\n/u).filter((candidate) => candidate.trim().length > 0).entries()) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new Error(`Codex sharpener JSONL line ${index + 1} was invalid`);
+    }
+    const text2 = assistantText(event);
+    if (text2) finalTexts.push(text2);
+    usage = eventUsage(event) ?? usage;
+  }
+  const finalText = finalTexts.at(-1);
+  if (!finalText) throw new Error("Codex sharpener returned no final Launch Contract");
+  return { finalText, usage };
+}
 var CodexCliIdeaSharpenerHost = class {
   id = "codex_cli";
-  constructor(options = {}) {
-    void options.binary;
-    void options.redactor;
-    void options.model;
+  runner;
+  binary;
+  redactor;
+  model;
+  constructor(options) {
+    this.runner = options.runner;
+    this.binary = options.binary ?? "codex";
+    this.redactor = options.redactor ?? new Redactor();
+    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
   }
   async run(input) {
-    void input;
-    throw new Error(
-      "Codex idea sharpening is disabled before invocation because no audited outer read-isolation driver is available. Supply a valid Launch Contract for the zero-model path; model execution is not installed in founder alpha."
-    );
+    const isolatedRoot = mkdtempSync(join4(tmpdir(), "vh-idea-sharpen-"));
+    try {
+      const result2 = await this.runner.run({
+        command: this.binary,
+        args: [
+          ...CODEX_IDEA_SHARPENER_ARGS,
+          ...this.model ? ["--model", this.model] : [],
+          "-C",
+          isolatedRoot,
+          "-"
+        ],
+        cwd: isolatedRoot,
+        stdin: input.prompt,
+        sensitiveStdin: true,
+        signal: input.signal
+      });
+      if (result2.exitCode !== 0) {
+        const detail = this.redactor.redactText(result2.stderr || result2.stdout).trim().slice(0, 2e3);
+        throw new Error(
+          `Codex idea ${input.phase} call exited ${result2.exitCode}${detail ? `: ${detail}` : ""}`
+        );
+      }
+      const parsed = parseCodexJsonLines(result2.stdout);
+      return {
+        ...parsed,
+        usage: parsed.usage ? { ...parsed.usage, ...parsed.usage.model || !this.model ? {} : { model: this.model } } : void 0
+      };
+    } finally {
+      rmSync2(isolatedRoot, { force: true, recursive: true });
+    }
   }
 };
 function schemaSkeleton() {
@@ -24537,11 +24656,11 @@ import {
   writeFileSync as writeFileSync4
 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname5, isAbsolute as isAbsolute2, join as join4, relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute2, join as join5, relative as relative5, resolve as resolve8, sep as sep5 } from "node:path";
 var FOUNDER_CONFIG_KEYS = ["ventures-root"];
 function defaultFounderConfigPath(options = {}) {
-  const configRoot = options.xdgConfigHome ? resolve8(options.xdgConfigHome) : join4(resolve8(options.homeDirectory ?? homedir2()), ".config");
-  return join4(configRoot, "venture-harness", "founder.json");
+  const configRoot = options.xdgConfigHome ? resolve8(options.xdgConfigHome) : join5(resolve8(options.homeDirectory ?? homedir2()), ".config");
+  return join5(configRoot, "venture-harness", "founder.json");
 }
 function loadFounderConfig(path = defaultFounderConfigPath()) {
   const absolute = resolve8(path);
@@ -24572,7 +24691,7 @@ function resolveVenturesRoot(candidate, options) {
   if (!candidate.trim()) {
     throw new Error("ventures-root must be a non-empty absolute path");
   }
-  const expanded = candidate.startsWith("~/") ? join4(homedir2(), candidate.slice(2)) : candidate;
+  const expanded = candidate.startsWith("~/") ? join5(homedir2(), candidate.slice(2)) : candidate;
   if (!isAbsolute2(expanded)) {
     throw new Error(
       `ventures-root must be an absolute path; received ${candidate}. Next: pass an absolute directory such as ~/Projects/ventures.`
@@ -24622,7 +24741,7 @@ function resolveVentureOutputWithinRoot(venturesRoot, output) {
   let cursor = canonicalRoot3;
   const parts = child.split(sep5);
   for (const [index, part] of parts.entries()) {
-    cursor = join4(cursor, part);
+    cursor = join5(cursor, part);
     let metadata;
     try {
       metadata = lstatSync2(cursor);
@@ -24664,7 +24783,7 @@ import {
   unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync5
 } from "node:fs";
-import { dirname as dirname6, isAbsolute as isAbsolute3, join as join5, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute3, join as join6, relative as relative6, resolve as resolve9, sep as sep6 } from "node:path";
 var FOUNDER_STACK_PROFILE_ID = "founder-default";
 var FOUNDER_STACK_SCHEMA_VERSION = 1;
 var founderStackRoleDefinitions = {
@@ -25040,7 +25159,7 @@ function loadFounderStackConnectionFile(file2, options = {}) {
   return parseFounderStackConnection(value);
 }
 function defaultFounderStackStateRoot() {
-  return join5(dirname6(defaultCredentialCatalogPath()), "founder-stacks");
+  return join6(dirname6(defaultCredentialCatalogPath()), "founder-stacks");
 }
 function ensureStateRoot(path) {
   mkdirSync5(path, { recursive: true, mode: 448 });
@@ -25063,7 +25182,7 @@ var FileFounderStackStore = class {
     this.rootDir = resolve9(rootDir);
   }
   pathFor(profileId) {
-    return join5(this.rootDir, `${checkedProfileId(profileId)}.v1.json`);
+    return join6(this.rootDir, `${checkedProfileId(profileId)}.v1.json`);
   }
   load(profileId) {
     ensureStateRoot(this.rootDir);
@@ -25090,7 +25209,7 @@ var FileFounderStackStore = class {
         throw new Error("Founder Stack profile belongs to another organization");
       }
     }
-    const temporary = join5(this.rootDir, `.${parsed.profileId}.${process.pid}.${Date.now()}.next`);
+    const temporary = join6(this.rootDir, `.${parsed.profileId}.${process.pid}.${Date.now()}.next`);
     const noFollow2 = "O_NOFOLLOW" in constants4 ? constants4.O_NOFOLLOW : 0;
     let descriptor2;
     try {
@@ -27494,7 +27613,108 @@ function createBuildContextManifest(input) {
 
 // lib/runtime/codex-cli-build-agent.ts
 import { resolve as resolve14 } from "node:path";
-var OUTER_READ_ISOLATION_UNAVAILABLE = "Codex model execution is disabled: no audited outer read-isolation driver is available. A valid Launch Contract can still use the zero-model path; founder alpha cannot run rough-idea or product-build model calls.";
+var buildAgentCheckSchema = external_exports.object({
+  command: external_exports.string().min(1).max(500),
+  status: external_exports.enum(["passed", "failed", "skipped"]),
+  evidence: external_exports.string().max(2e3).nullable()
+}).strict();
+var buildAgentArtifactRoleSchema = external_exports.enum([
+  "repository_scaffold",
+  "managed_manifest",
+  "design_record",
+  "design_implementation",
+  "core_journey",
+  "affected_test",
+  "event_contract",
+  "event_instrumentation",
+  "validation_record",
+  "concierge_operations",
+  "usage_proof"
+]);
+var buildAgentCompletionSchema = external_exports.object({
+  outcome: external_exports.enum(["changed", "already_compliant"]),
+  artifacts: external_exports.array(
+    external_exports.object({
+      path: artifactReferenceSchema,
+      role: buildAgentArtifactRoleSchema
+    }).strict()
+  ).min(1).max(100).refine(
+    (artifacts) => new Set(artifacts.map(({ path, role }) => `${role}:${path}`)).size === artifacts.length,
+    "completion artifacts must be unique by role and path"
+  ),
+  validator: external_exports.object({
+    check_command: external_exports.string().min(1).max(500)
+  }).strict()
+}).strict();
+var buildAgentFinalResultSchema = external_exports.object({
+  status: external_exports.enum(["completed", "blocked"]),
+  summary: external_exports.string().min(1).max(4e3),
+  changed_files: external_exports.array(artifactReferenceSchema).max(500),
+  checks: external_exports.array(buildAgentCheckSchema).max(100),
+  limitations: external_exports.array(external_exports.string().min(1).max(2e3)).max(100),
+  completion: buildAgentCompletionSchema.nullable()
+}).strict().superRefine((result2, ctx) => {
+  if (result2.status === "blocked") return;
+  if (!result2.completion) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["completion"],
+      message: "completed tasks require typed completion evidence"
+    });
+    return;
+  }
+  if (result2.completion.outcome === "changed" && result2.changed_files.length === 0) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["changed_files"],
+      message: "changed completion requires at least one reported file"
+    });
+  }
+  if (result2.completion.outcome === "already_compliant" && result2.changed_files.length > 0) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["changed_files"],
+      message: "already_compliant completion cannot report changed files"
+    });
+  }
+  const validator = result2.checks.find(
+    ({ command }) => command === result2.completion?.validator.check_command
+  );
+  if (validator?.status !== "passed" || !validator.evidence?.trim()) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["completion", "validator", "check_command"],
+      message: "completion validator must reference a passed check with non-empty evidence"
+    });
+  }
+});
+var FORBIDDEN_CONTEXT_KEY = /^(access_token|refresh_token|id_token|api_key|secret|client_secret|private_key|password|credential_value)$/i;
+var CODEX_EXEC_ARGS = [
+  "exec",
+  "--sandbox",
+  "workspace-write",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--json"
+];
+var CODEX_ENVIRONMENT_KEYS = [
+  "NODE_ENV",
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "CODEX_HOME",
+  "XDG_CONFIG_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "PATHEXT"
+];
 var PRODUCT_COMMAND_ENVIRONMENT_KEYS = [
   "PATH",
   "TMPDIR",
@@ -27508,6 +27728,16 @@ var PRODUCT_COMMAND_ENVIRONMENT_KEYS = [
   "SystemRoot",
   "PATHEXT"
 ];
+function codexBuildAgentEnvironment(source) {
+  return {
+    NODE_ENV: source.NODE_ENV ?? "production",
+    ...Object.fromEntries(
+      CODEX_ENVIRONMENT_KEYS.flatMap(
+        (key) => source[key] === void 0 ? [] : [[key, source[key]]]
+      )
+    )
+  };
+}
 function productCommandEnvironment(source, isolatedHome) {
   const home = resolve14(isolatedHome);
   return {
@@ -27524,28 +27754,267 @@ function productCommandEnvironment(source, isolatedHome) {
     NPM_CONFIG_USERCONFIG: resolve14(home, ".npmrc")
   };
 }
+function assertCredentialFree2(value, path = "context") {
+  if (typeof value === "string") {
+    if (looksLikeCredentialValue(value)) {
+      throw new BuildAgentHostError(
+        "credential_material",
+        `${path} contains credential material; the build-agent boundary accepts no secret values.`
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertCredentialFree2(entry, `${path}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, entry] of Object.entries(value)) {
+    if (FORBIDDEN_CONTEXT_KEY.test(key)) {
+      throw new BuildAgentHostError(
+        "credential_material",
+        `${path}.${key} is a forbidden credential field; pass no secret values to a build agent.`
+      );
+    }
+    assertCredentialFree2(entry, `${path}.${key}`);
+  }
+}
+function promptFor(request2, redactor) {
+  assertCredentialFree2(request2.context);
+  const context2 = redactor.redact(request2.context);
+  return [
+    "Execute one bounded Venture Harness product-build task in the current repository.",
+    "Read only the repository files listed in bounded JSON context.contextManifest.selectedFiles. Each entry states why it was selected. Do not crawl the repository, reread historical plans, or load excluded optional packs. If one indispensable file is absent from the manifest, stop and report that exact blocker instead of silently widening context.",
+    "Work only inside the repository. Do not deploy, publish, send, charge, change DNS, create provider resources, commit, push, or expose credentials.",
+    "Never modify or report a modification to Core-owned or launch-authority inputs: .venture state, harness.lock, venture.manifest.json, the canonical Launch Contract, Product Constitution, founder idea, provider/offer/venture/launch/policy/mobile/connector config, or any file marked core_owned in harness.lock. Product source and explicitly requested dependency manifests are the writable product boundary; the harness independently fingerprints protected inputs and rejects the task if they change.",
+    "Use deterministic code and existing scripts when they are sufficient. Preserve venture-owned work and label samples, prototypes, and unverified state honestly.",
+    "Never read or print credential values. Repository config may contain only cred:// references.",
+    `Run ID: ${request2.runId}`,
+    `Node ID: ${request2.nodeId}`,
+    `Purpose: ${request2.purpose}`,
+    "Task instructions:",
+    request2.instructions,
+    "Bounded JSON context:",
+    JSON.stringify(context2, null, 2),
+    "When finished, return exactly one JSON object as the final response, with no Markdown fence or surrounding prose:",
+    '{"status":"completed|blocked","summary":"concise factual result","changed_files":["repo/relative/path"],"checks":[{"command":"literal direct command","status":"passed|failed|skipped","evidence":"concise observed evidence or null"}],"limitations":["genuine limitation"],"completion":{"outcome":"changed|already_compliant","artifacts":[{"path":"repo/relative/path","role":"repository_scaffold|managed_manifest|design_record|design_implementation|core_journey|affected_test|event_contract|event_instrumentation|validation_record|concierge_operations|usage_proof"}],"validator":{"check_command":"exact command from checks"}}}',
+    "Use status=blocked and completion=null when the task is not actually complete. Use outcome=changed only for files whose content changed during this task. Use outcome=already_compliant only when no repository file changed and the named direct validator proves the requested completion condition. List only repository-relative files and artifacts that exist at the end. Do not include raw file contents, secrets, tokens, personal data, or provider response bodies."
+  ].join("\n\n");
+}
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function assistantText2(event) {
+  const record3 = asRecord(event);
+  if (!record3) return null;
+  if (record3.type === "item.completed") {
+    const item = asRecord(record3.item);
+    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
+  }
+  if (record3.type === "turn.completed" && typeof record3.final_output === "string") {
+    return record3.final_output;
+  }
+  if (record3.type === "result" && typeof record3.result === "string") return record3.result;
+  return null;
+}
+function usageFrom(event) {
+  const record3 = asRecord(event);
+  if (record3?.type !== "turn.completed") return void 0;
+  const usage = asRecord(record3.usage);
+  if (!usage) return void 0;
+  const inputTokens = usage.input_tokens;
+  const cachedInputTokens = usage.cached_input_tokens;
+  const outputTokens = usage.output_tokens;
+  if (typeof inputTokens !== "number" || typeof cachedInputTokens !== "number" || typeof outputTokens !== "number") {
+    return void 0;
+  }
+  const model = typeof record3.model === "string" && record3.model.trim() ? record3.model.trim() : void 0;
+  return { inputTokens, cachedInputTokens, outputTokens, ...model ? { model } : {} };
+}
+function parseJsonLines(stdout) {
+  const lines = stdout.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const finalTexts = [];
+  const eventTypes = /* @__PURE__ */ new Set();
+  let usage;
+  let toolCalls = 0;
+  let failedCommands = 0;
+  const toolItemTypes = /* @__PURE__ */ new Set([
+    "command_execution",
+    "file_change",
+    "mcp_tool_call",
+    "web_search",
+    "dynamic_tool_call"
+  ]);
+  for (const [index, line] of lines.entries()) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new BuildAgentHostError(
+        "invalid_jsonl",
+        `Codex JSONL line ${index + 1} was not valid JSON; no result was accepted.`
+      );
+    }
+    const type = asRecord(event)?.type;
+    if (typeof type === "string") eventTypes.add(type);
+    if (type === "item.completed") {
+      const item = asRecord(asRecord(event)?.item);
+      const itemType = typeof item?.type === "string" ? item.type : null;
+      if (itemType && toolItemTypes.has(itemType)) toolCalls += 1;
+      if (itemType === "command_execution" && typeof item?.exit_code === "number" && item.exit_code !== 0) {
+        failedCommands += 1;
+      }
+    }
+    const text2 = assistantText2(event);
+    if (text2) finalTexts.push(text2);
+    usage = usageFrom(event) ?? usage;
+  }
+  const finalText = finalTexts.at(-1);
+  if (!finalText) {
+    throw new BuildAgentHostError(
+      "missing_final_result",
+      "Codex JSONL contained no final structured agent result; no task result was accepted."
+    );
+  }
+  if (usage) usage = { ...usage, toolCalls, failedCommands };
+  return { finalText, eventTypes: [...eventTypes].sort(), usage };
+}
+function compactVersion2(value, redactor) {
+  const line = redactor.redactText(value).split(/\r?\n/).find((entry) => entry.trim().length > 0);
+  return line ? line.trim().slice(0, 200) : null;
+}
 var CodexCliBuildAgentHost = class {
   id = "codex_cli";
+  rootDir;
+  runner;
+  redactor;
+  binary;
+  model;
+  inspection;
   constructor(options) {
-    void resolve14(options.rootDir);
-    void options.redactor;
-    void options.binary;
-    void options.model;
+    this.rootDir = resolve14(options.rootDir);
+    this.runner = options.runner;
+    this.redactor = options.redactor ?? new Redactor();
+    this.binary = options.binary ?? "codex";
+    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
   }
   inspect() {
-    return Promise.resolve({
-      host: this.id,
-      status: "unavailable",
-      readIsolation: "unavailable",
-      version: null,
-      billingMode: "unknown",
-      billingEvidence: null,
-      nextAction: OUTER_READ_ISOLATION_UNAVAILABLE
-    });
+    this.inspection ??= this.inspectOnce();
+    return this.inspection;
+  }
+  async inspectOnce() {
+    try {
+      const result2 = await this.runner.run({
+        command: this.binary,
+        args: ["--version"],
+        cwd: this.rootDir
+      });
+      if (result2.exitCode === 0) {
+        const login = await this.runner.run({
+          command: this.binary,
+          args: ["login", "status"],
+          cwd: this.rootDir
+        });
+        const loginStatus = this.redactor.redactText(`${login.stdout}
+${login.stderr}`);
+        const billingMode = login.exitCode !== 0 ? "unknown" : /logged in using chatgpt|chatgpt (?:account|subscription)/iu.test(loginStatus) ? "chatgpt_subscription" : /api[ -]?key|openai_api_key/iu.test(loginStatus) ? "api_key_metered" : "unknown";
+        return {
+          host: this.id,
+          status: "available",
+          version: compactVersion2(result2.stdout || result2.stderr, this.redactor),
+          billingMode,
+          billingEvidence: "codex_login_status",
+          nextAction: billingMode === "chatgpt_subscription" ? null : "Run codex login with a ChatGPT subscription account; API-key or unknown billing cannot satisfy the founder non-metered build policy."
+        };
+      }
+      return {
+        host: this.id,
+        status: "unavailable",
+        version: null,
+        billingMode: "unknown",
+        billingEvidence: null,
+        nextAction: `codex exists but its version check exited ${result2.exitCode}; authenticate or repair the Codex CLI before launch apply.`
+      };
+    } catch (error) {
+      const missing = error.code === "ENOENT";
+      return {
+        host: this.id,
+        status: missing ? "missing" : "unavailable",
+        version: null,
+        billingMode: "unknown",
+        billingEvidence: null,
+        nextAction: missing ? "Install and authenticate the Codex CLI, then rerun the same launch command." : `Codex CLI inspection failed: ${this.redactor.redactText(
+          error instanceof Error ? error.message : String(error)
+        )}`
+      };
+    }
   }
   async run(request2) {
-    void request2;
-    throw new BuildAgentHostError("host_unavailable", OUTER_READ_ISOLATION_UNAVAILABLE);
+    const inspection = await this.inspect();
+    if (inspection.status !== "available") {
+      throw new BuildAgentHostError(
+        "host_unavailable",
+        inspection.nextAction ?? "Codex CLI is unavailable; no product task was run."
+      );
+    }
+    const prompt = promptFor(request2, this.redactor);
+    const result2 = await this.runner.run({
+      command: this.binary,
+      args: [
+        ...CODEX_EXEC_ARGS,
+        ...this.model ? ["--model", this.model] : [],
+        "-C",
+        this.rootDir,
+        "-"
+      ],
+      cwd: this.rootDir,
+      stdin: prompt,
+      sensitiveStdin: true,
+      signal: request2.signal
+    });
+    if (result2.exitCode !== 0) {
+      const detail = this.redactor.redactText(result2.stderr || result2.stdout).trim().slice(0, 2e3);
+      throw new BuildAgentHostError(
+        "process_failed",
+        `Codex build task exited ${result2.exitCode}${detail ? `: ${detail}` : ""}`
+      );
+    }
+    const parsedJsonLines = parseJsonLines(result2.stdout);
+    let finalValue;
+    try {
+      finalValue = JSON.parse(parsedJsonLines.finalText);
+    } catch {
+      throw new BuildAgentHostError(
+        "invalid_final_result",
+        "Codex final agent message was not the required JSON object; no task result was accepted."
+      );
+    }
+    const parsed = buildAgentFinalResultSchema.safeParse(this.redactor.redact(finalValue));
+    if (!parsed.success) {
+      throw new BuildAgentHostError(
+        "invalid_final_result",
+        `Codex final result did not match the build-agent contract: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "result"}: ${issue.message}`).join("; ")}`
+      );
+    }
+    return {
+      status: parsed.data.status,
+      summary: parsed.data.summary,
+      changedFiles: parsed.data.changed_files,
+      checks: parsed.data.checks,
+      limitations: parsed.data.limitations,
+      eventTypes: parsedJsonLines.eventTypes,
+      completion: parsed.data.completion ? {
+        outcome: parsed.data.completion.outcome,
+        artifacts: parsed.data.completion.artifacts,
+        validator: {
+          checkCommand: parsed.data.completion.validator.check_command
+        }
+      } : null,
+      usage: parsedJsonLines.usage ? {
+        ...parsedJsonLines.usage,
+        ...parsedJsonLines.usage.model || !this.model ? {} : { model: this.model }
+      } : void 0
+    };
   }
 };
 
@@ -27650,7 +28119,7 @@ function createRepositoryCheckpointEvidenceVerifier(options) {
 // lib/runtime/launch-report.ts
 import { randomBytes as randomBytes4 } from "node:crypto";
 import { mkdir as mkdir4, open as open2, readFile as readFile3, rename as rename3 } from "node:fs/promises";
-import { join as join6, resolve as resolve16 } from "node:path";
+import { join as join7, resolve as resolve16 } from "node:path";
 function rejectUnredactedCredentialStrings(value, context2) {
   const visit = (candidate, path) => {
     if (typeof candidate === "string") {
@@ -28202,8 +28671,8 @@ async function atomicWrite(path, contents) {
 async function persistLaunchReport(report, outputDirectory = "reports/launch") {
   const directory = resolve16(outputDirectory);
   await mkdir4(directory, { recursive: true, mode: 448 });
-  const jsonPath = join6(directory, "final.json");
-  const markdownPath = join6(directory, "final.md");
+  const jsonPath = join7(directory, "final.json");
+  const markdownPath = join7(directory, "final.md");
   await atomicWrite(jsonPath, report.json);
   await atomicWrite(markdownPath, report.markdown);
   const [storedJson, storedMarkdown] = await Promise.all([
@@ -28243,7 +28712,7 @@ function createLaunchReportWorkflowBinding(options) {
 // lib/runtime/launch-receipt.ts
 import { randomBytes as randomBytes5 } from "node:crypto";
 import { mkdir as mkdir5, open as open3, readFile as readFile4, rename as rename4 } from "node:fs/promises";
-import { join as join7, resolve as resolve17 } from "node:path";
+import { join as join8, resolve as resolve17 } from "node:path";
 var launchReceiptEvidenceStateSchema = external_exports.enum([
   "planned",
   "requested",
@@ -28718,8 +29187,8 @@ async function persistLaunchReceipt(receiptInput, outputDirectory) {
   const receipt = launchReceiptSchema.parse(receiptInput);
   const directory = resolve17(outputDirectory);
   await mkdir5(directory, { recursive: true, mode: 448 });
-  const jsonPath = join7(directory, "receipt.json");
-  const markdownPath = join7(directory, "receipt.md");
+  const jsonPath = join8(directory, "receipt.json");
+  const markdownPath = join8(directory, "receipt.md");
   const json2 = `${JSON.stringify(receipt, null, 2)}
 `;
   const markdown = renderLaunchReceiptMarkdown(receipt);
@@ -28748,7 +29217,7 @@ import {
   readdirSync as readdirSync4,
   readFileSync as readFileSync12,
   renameSync as renameSync6,
-  rmSync as rmSync2,
+  rmSync as rmSync3,
   writeFileSync as writeFileSync8
 } from "node:fs";
 import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative12, resolve as resolve19, sep as sep12 } from "node:path";
@@ -28770,7 +29239,7 @@ import {
   realpathSync as realpathSync7,
   writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname9, join as join8, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
+import { dirname as dirname9, join as join9, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
 
 // lib/mobile/templates.ts
 import { createHash as createHash11 } from "node:crypto";
@@ -29210,7 +29679,7 @@ function assertNoSymlinkBetween(root, absolute) {
   const rel = relative11(root, absolute);
   let current = root;
   for (const segment of rel.split(sep11).filter(Boolean)) {
-    current = join8(current, segment);
+    current = join9(current, segment);
     if (!existsSync8(current)) continue;
     const status = lstatSync5(current);
     if (status.isSymbolicLink()) {
@@ -29225,7 +29694,7 @@ function ensureDirectory(root, absolute) {
   const rel = relative11(root, absolute);
   let current = root;
   for (const segment of rel.split(sep11).filter(Boolean)) {
-    current = join8(current, segment);
+    current = join9(current, segment);
     if (existsSync8(current)) {
       const status = lstatSync5(current);
       if (status.isSymbolicLink() || !status.isDirectory()) {
@@ -30505,14 +30974,14 @@ function restoreRepositoryPreimage(root, preimage) {
     ...[...current.directories].filter((reference) => !preimage.directories.has(reference))
   ].sort((left, right) => right.split("/").length - left.split("/").length);
   for (const reference of removeReferences) {
-    rmSync2(inside5(root, reference), { recursive: true, force: true });
+    rmSync3(inside5(root, reference), { recursive: true, force: true });
   }
   for (const [reference, mode] of [...preimage.directories.entries()].sort(
     ([left], [right]) => left.split("/").length - right.split("/").length
   )) {
     const absolute = inside5(root, reference);
     if (existsSync9(absolute) && !lstatSync6(absolute).isDirectory()) {
-      rmSync2(absolute, { recursive: true, force: true });
+      rmSync3(absolute, { recursive: true, force: true });
     }
     mkdirSync8(absolute, { recursive: true, mode });
     chmodSync(absolute, mode);
@@ -30523,7 +30992,7 @@ function restoreRepositoryPreimage(root, preimage) {
     if (existsSync9(absolute)) {
       const metadata = lstatSync6(absolute);
       if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
-        rmSync2(absolute, { recursive: true, force: true });
+        rmSync3(absolute, { recursive: true, force: true });
       }
     }
     const temporary = `${absolute}.rollback-${process.pid}-${randomBytes6(8).toString("hex")}`;
@@ -30532,7 +31001,7 @@ function restoreRepositoryPreimage(root, preimage) {
       renameSync6(temporary, absolute);
       chmodSync(absolute, file2.mode);
     } finally {
-      rmSync2(temporary, { force: true });
+      rmSync3(temporary, { force: true });
     }
   }
 }
@@ -32153,7 +32622,7 @@ async function reconcilePostDeployVerification(options, context2) {
 }
 async function assertBuildAgentHostAvailable(host) {
   const inspection = await host.inspect();
-  if (inspection.status !== "available" || inspection.readIsolation === "unavailable") {
+  if (inspection.status !== "available") {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_UNAVAILABLE",
       `${inspection.nextAction ?? `${inspection.host} is unavailable.`} No run or external action was created.`
@@ -33753,7 +34222,7 @@ import {
   realpathSync as realpathSync8,
   readdirSync as readdirSync5,
   renameSync as renameSync7,
-  rmSync as rmSync3,
+  rmSync as rmSync4,
   statSync,
   writeFileSync as writeFileSync9
 } from "node:fs";
@@ -38222,16 +38691,16 @@ async function assertFounderBuildAgentHostPolicy(host, grant) {
   const policy = grant.modelExecutionPolicy;
   if (!policy) throw new Error("Canonical founder Launch Grant has no model execution policy");
   if (policy.mode === "fixture_no_model_execution") {
-    if (inspection.readIsolation !== "fixture_no_model_execution" || inspection.billingMode !== "fixture_no_model_execution" || inspection.billingEvidence !== "fixture_attestation") {
+    if (inspection.billingMode !== "fixture_no_model_execution" || inspection.billingEvidence !== "fixture_attestation") {
       throw new Error(
         "Fixture founder launch requires an explicit no-model build-host attestation; no child or provider effect was created."
       );
     }
     return;
   }
-  if (inspection.readIsolation !== "verified_outer_read_isolation" || inspection.billingMode !== "chatgpt_subscription" || inspection.billingEvidence !== "codex_login_status") {
+  if (inspection.billingMode !== "chatgpt_subscription" || inspection.billingEvidence !== "codex_login_status") {
     throw new Error(
-      "Founder production launch requires verified outer model read isolation plus `codex login status` attesting ChatGPT subscription use; unavailable isolation, API-key, or unknown billing is blocked before child creation and provider transport."
+      "Founder production launch requires `codex login status` to attest ChatGPT subscription use; API-key or unknown billing is blocked before child creation and provider transport."
     );
   }
 }
@@ -38443,7 +38912,7 @@ function assertNoCallerInjectedModelHosts(options) {
   const candidate = options;
   if ("buildAgentHost" in candidate || "ideaSharpenerHost" in candidate) {
     throw new Error(
-      "Production CLI services do not accept caller-injected model hosts. The shipped founder-alpha model boundary is inert until Core installs an audited outer read-isolation driver."
+      "Production CLI services do not accept caller-injected model hosts. The shipped founder-alpha path constructs its bounded Codex CLI hosts internally."
     );
   }
 }
@@ -38555,9 +39024,11 @@ function createDefaultCliServicesInternal(options) {
   const productCommandRunner = options.productCommandRunner ?? new NodeCommandRunner({ env: productCommandEnvironment(process.env, productRuntimeHome) });
   const buildAgentHost = new CodexCliBuildAgentHost({
     rootDir: root,
+    runner: new NodeCommandRunner({ env: codexBuildAgentEnvironment(process.env) }),
     redactor: credentialBroker.redactor
   });
   const ideaSharpenerHost = new CodexCliIdeaSharpenerHost({
+    runner: new NodeCommandRunner({ env: ideaSharpenerEnvironment(process.env) }),
     redactor: credentialBroker.redactor
   });
   const defaultProviderRuntimeContext = createOfficialProviderContext({
@@ -42047,7 +42518,7 @@ var launchExecuteCommand = defineCommandContract({
 // packages/agent-runtime/dist/operational.js
 import { createHash as createHash22, randomUUID as randomUUID2 } from "node:crypto";
 import { closeSync as closeSync10, constants as constants10, existsSync as existsSync14, fstatSync as fstatSync10, fsyncSync as fsyncSync4, lstatSync as lstatSync9, mkdirSync as mkdirSync11, openSync as openSync10, readFileSync as readFileSync17, realpathSync as realpathSync10, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname13, isAbsolute as isAbsolute8, join as join9, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute8, join as join10, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
 import { parse as parseYaml4 } from "yaml";
 
 // packages/agent-runtime/dist/quality.js
@@ -42666,7 +43137,7 @@ var FileOperationalStateStore = class {
   path;
   constructor(rootDir = resolve25(process.cwd(), ".venture-harness")) {
     this.rootDir = resolve25(rootDir);
-    this.path = join9(this.rootDir, "operational-state.json");
+    this.path = join10(this.rootDir, "operational-state.json");
   }
   get description() {
     return this.path;
@@ -42679,7 +43150,7 @@ var FileOperationalStateStore = class {
   write(state) {
     assertNoSecrets(state);
     mkdirSync11(dirname13(this.path), { recursive: true });
-    const temporary = join9(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
+    const temporary = join10(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
     const handle = openSync10(temporary, "wx", 384);
     try {
       writeFileSync11(handle, `${JSON.stringify(state, null, 2)}
@@ -43038,7 +43509,7 @@ function assertGrowthPath(root, inputPath) {
   let current = root.declaredPath;
   try {
     for (const component of pathFromRoot.split(sep15).filter(Boolean)) {
-      current = join9(current, component);
+      current = join10(current, component);
       if (lstatSync9(current).isSymbolicLink()) {
         throw new Error("growth contract path must not contain symbolic links");
       }
@@ -44911,7 +45382,7 @@ async function invokeOperationalCli(bus, args, options) {
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { spawn as spawn3 } from "node:child_process";
 import { existsSync as existsSync15, lstatSync as lstatSync10, mkdirSync as mkdirSync12, readFileSync as readFileSync19, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename2, join as join10, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
+import { basename as basename2, join as join11, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
 var SECRET_PATTERNS3 = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END|$)/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -44946,7 +45417,7 @@ function assertNoSymlinkPath(root, target) {
   const child = relative16(root, target);
   let cursor = root;
   for (const segment of child.split(sep16).filter(Boolean)) {
-    cursor = join10(cursor, segment);
+    cursor = join11(cursor, segment);
     if (!existsSync15(cursor)) break;
     if (lstatSync10(cursor).isSymbolicLink()) {
       throw new Error("quality report path must not contain symbolic links");
@@ -44954,12 +45425,12 @@ function assertNoSymlinkPath(root, target) {
   }
 }
 function reportPath(root, profile2) {
-  const directory = join10(root, ".venture", "reports", "quality");
+  const directory = join11(root, ".venture", "reports", "quality");
   assertNoSymlinkPath(root, directory);
   mkdirSync12(directory, { recursive: true, mode: 448 });
   const canonicalDirectory = realpathSync11(directory);
   if (!inside7(root, canonicalDirectory)) throw new Error("quality report directory escapes root");
-  return join10(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
+  return join11(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
 }
 function assertCommand(command) {
   if (command.length === 0 || command.some((value) => typeof value !== "string" || !value)) {
@@ -45098,7 +45569,7 @@ function createProcessQualityProfileRunner(options) {
 }
 function createRepositoryQualityProfileRunner(root) {
   const canonical = canonicalRoot(root);
-  const runnerPath = join10(canonical, "scripts", "run-quality-profile.ts");
+  const runnerPath = join11(canonical, "scripts", "run-quality-profile.ts");
   const configured = existsSync15(runnerPath) && !lstatSync10(runnerPath).isSymbolicLink() && lstatSync10(runnerPath).isFile() && inside7(canonical, realpathSync11(runnerPath));
   if (!configured) {
     return Object.freeze({
@@ -45133,7 +45604,7 @@ function createRepositoryQualityProfileRunner(root) {
 
 // packages/cli-generator/src/runtime-module.ts
 import { existsSync as existsSync16, lstatSync as lstatSync11, realpathSync as realpathSync12 } from "node:fs";
-import { extname, join as join11, relative as relative17, resolve as resolve27, sep as sep17 } from "node:path";
+import { extname, join as join12, relative as relative17, resolve as resolve27, sep as sep17 } from "node:path";
 import { pathToFileURL } from "node:url";
 function canonicalRoot2(root) {
   const declared = resolve27(root);
@@ -45152,7 +45623,7 @@ function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
   const child = relative17(root, target);
   let cursor = root;
   for (const [index, segment] of child.split(sep17).filter(Boolean).entries()) {
-    cursor = join11(cursor, segment);
+    cursor = join12(cursor, segment);
     if (!existsSync16(cursor)) {
       if (allowMissingLeaf) return;
       throw new Error("runtime module does not exist");
@@ -45430,7 +45901,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "ac5533b8e00662fdb4fa97417846417ad6b401fd" : void 0;
+  const workflowRefSha = true ? "e1a8b8a9641812f7b704e0f733b5be3544c1461b" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
