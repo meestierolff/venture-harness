@@ -5,7 +5,8 @@
  *  - taxonomy: consent events go first-party only; any ga4 event that is
  *    recordable pre-consent must also have a first-party (neon) leg
  *  - code: GA loads only through the consent-gated AnalyticsScripts
- *    component; no third-party analytics hosts referenced elsewhere
+ *    component, starts denied, and disables immediately on withdrawal;
+ *    analytics clients without a proven shutdown API are not loaded
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -106,6 +107,38 @@ if (gaFiles.length === 1 && gaFiles[0] === "components/AnalyticsScripts.tsx") {
       "references Google Analytics outside the gated loader",
       "route all GA loading through components/AnalyticsScripts.tsx",
     );
+}
+
+const analyticsLoader = readText("components/AnalyticsScripts.tsx");
+const requiredBoundaryMarkers = [
+  ["validGaMeasurementId", "validate the GA4 measurement id before use"],
+  ["serializeInlineScriptJson", "escape every inline-script JSON value for the HTML context"],
+  ["JSON.stringify", "serialize inline-script values with JSON.stringify"],
+  ["ga-consent-default", "emit an immediate first-party consent default"],
+  ['analytics_storage: "denied"', "default analytics storage to denied"],
+  ["ga-disable-", "set the GA disable flag on withdrawal"],
+  ['"update",', "send an immediate consent update on every state change"],
+  ["CONSENT_CHANGE_EVENT", "listen synchronously for consent withdrawal"],
+] as const;
+for (const [marker, remediation] of requiredBoundaryMarkers) {
+  if (analyticsLoader.includes(marker)) r.ok(`GA boundary contains ${marker}`);
+  else r.fail("AnalyticsScripts.tsx", `missing ${marker}`, remediation);
+}
+
+const unsupportedLoaderPattern = /_vercel\/insights\/script\.js|va\.vercel-scripts\.com/u;
+const unsupportedLoaderFiles = codeFiles.filter((file) =>
+  unsupportedLoaderPattern.test(readText(file)),
+);
+if (unsupportedLoaderFiles.length === 0) {
+  r.ok("no Vercel Web Analytics loader without an immediate withdrawal API");
+} else {
+  for (const file of unsupportedLoaderFiles) {
+    r.fail(
+      file,
+      "loads Vercel Web Analytics without a proven immediate shutdown API",
+      "remove the loader until withdrawal can stop the client synchronously",
+    );
+  }
 }
 
 // gtag must not be called outside the analytics lib.

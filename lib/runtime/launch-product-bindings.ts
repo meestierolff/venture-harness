@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   constants,
   existsSync,
@@ -10,6 +11,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -57,7 +59,7 @@ export const PRIMARY_JOURNEY_CLEANUP_SPEC_PATH = "tests/e2e/primary-journey-clea
 
 const AGENT_TASKS: Readonly<Record<string, string>> = {
   "launch.prepareRepository":
-    "Complete the first and primary bounded product-build call. Inspect the selected rail and compact Launch Contract context, then create or adapt only the smallest venture-owned scaffold needed for the brief. In this same coherent pass, refine the venture proposition, implement one original accessible responsive design direction, build the declared primary journey and affected tests, and wire only the minimum privacy-safe capability-driven event instrumentation. Resolve every package needed by the planned product into package.json and the exact child lockfile now; dependency inputs are finalized immediately after this task and later tasks may not mutate them. Include only selected-mode evidence: one validation gate for validate-first, bounded human operations for concierge-first, or real usage/failure/deletion proof for product-first. Preserve managed contracts and existing venture-owned work. Record assumptions instead of inventing non-critical detail. Do not regenerate standard infrastructure that the seed already provides. For a canonical web Launch Contract, create tests/e2e/primary-journey.spec.ts as the product-specific Playwright path, tests/e2e/primary-journey-cleanup.spec.ts as its independently runnable cleanup, and tests/e2e/primary-journey.contract.json as their machine-readable binding. The binding must contain schemaVersion 1, scope product_specific_end_to_end, the exact Launch Contract primarySuccessSignal as journeyId, the exact ordered Launch Contract primaryJourney strings as steps, both exact spec paths, launchContractPath config/launch-contract.yaml, a visibly TEST/SYNTHETIC/FIXTURE-labeled identity, required-and-verified cleanup, allowedEffects containing reversible_external_write plus transactional_email only when needed and separately authorized, and the unique complete forbidden-effect list supplied in context. Both specs must read that binding and require VH_PRIMARY_JOURNEY_RUN_ID, VH_PRIMARY_JOURNEY_NONCE, and VH_PRIMARY_JOURNEY_TEST_IDENTITY. After observed success, each desktop/mobile test prints exactly `VH_PRIMARY_JOURNEY_RESULT ` followed by JSON with schemaVersion=1, phase, the runId and nonce environment values, contract journeyId and steps, testInfo.project.name, contract identity, observedEffects, recipientCount, recipientsAllMatchTestIdentity, and forbiddenEffectsObserved=[]. Cleanup markers additionally include cleanup={state:'verified',removedWrites,remainingWrites:0} only after read-back. The cleanup spec must remove only the labeled test identity's reversible writes. A customer charge or checkout, unrelated deletion, DNS/provider configuration, bulk/cold send, recipient outside the test identity, or irreversible publication is forbidden. The seed's generic post-deploy-readonly surface check is never journey proof.",
+    "Complete the first and primary bounded product-build call. Inspect the selected rail and compact Launch Contract context, then create or adapt only the smallest venture-owned scaffold needed for the brief. In this same coherent pass, refine the venture proposition, implement one original accessible responsive design direction, build the declared primary journey and affected tests, and wire only the minimum privacy-safe capability-driven event instrumentation. Use only the exact reviewed dependencies and scripts already present; do not modify package.json, pnpm-lock.yaml, or config/package-execution-policy.json. If an indispensable package is absent, report that precise blocker. Include only selected-mode evidence: one validation gate for validate-first, bounded human operations for concierge-first, or real usage/failure/deletion proof for product-first. Preserve managed contracts and existing venture-owned work. Record assumptions instead of inventing non-critical detail. Do not regenerate standard infrastructure that the seed already provides. For a canonical web Launch Contract, create tests/e2e/primary-journey.spec.ts as the product-specific Playwright path, tests/e2e/primary-journey-cleanup.spec.ts as its independently runnable cleanup, and tests/e2e/primary-journey.contract.json as their machine-readable binding. The binding must contain schemaVersion 1, scope product_specific_end_to_end, the exact Launch Contract primarySuccessSignal as journeyId, the exact ordered Launch Contract primaryJourney strings as steps, both exact spec paths, launchContractPath config/launch-contract.yaml, a visibly TEST/SYNTHETIC/FIXTURE-labeled identity, required-and-verified cleanup, allowedEffects containing reversible_external_write plus transactional_email only when needed and separately authorized, and the unique complete forbidden-effect list supplied in context. Both specs must read that binding and require VH_PRIMARY_JOURNEY_RUN_ID, VH_PRIMARY_JOURNEY_NONCE, and VH_PRIMARY_JOURNEY_TEST_IDENTITY. After observed success, each desktop/mobile test prints exactly `VH_PRIMARY_JOURNEY_RESULT ` followed by JSON with schemaVersion=1, phase, the runId and nonce environment values, contract journeyId and steps, testInfo.project.name, contract identity, observedEffects, recipientCount, recipientsAllMatchTestIdentity, and forbiddenEffectsObserved=[]. Cleanup markers additionally include cleanup={state:'verified',removedWrites,remainingWrites:0} only after read-back. The cleanup spec must remove only the labeled test identity's reversible writes. A customer charge or checkout, unrelated deletion, DNS/provider configuration, bulk/cold send, recipient outside the test identity, or irreversible publication is forbidden. The seed's generic post-deploy-readonly surface check is never journey proof.",
   "launch.reviewProduct":
     "Perform the second and final normal product-build call as an independent reviewer. Exercise the primary journey and inspect proposition clarity, venture-specific design, responsive/mobile behavior, accessibility, truthfulness, labeled samples, relevant event privacy and exact displayed-price recording. Run direct affected checks, repair only observed defects, and do not broaden product scope or mutate dependency manifests/lockfiles. Return typed evidence for the reviewed core journey, affected tests, design implementation, and event instrumentation. For a canonical web Launch Contract, independently read tests/e2e/primary-journey.contract.json, confirm its journeyId and ordered steps exactly match config/launch-contract.yaml, and run both tests/e2e/primary-journey.spec.ts and tests/e2e/primary-journey-cleanup.spec.ts directly. Confirm production uses only the labeled test identity, the bounded authorized effects, and cleanup read-back; no model-authored step may widen authority. Keep the seed's generic post-deploy-readonly check separate. If a blocker remains, state it exactly instead of claiming completion.",
   "launch.designDirection":
@@ -86,12 +88,22 @@ export const CHILD_DEPENDENCY_INSTALL_ARGS = [
   "install",
   "--frozen-lockfile",
   "--ignore-workspace",
-  "--ignore-scripts",
-  "--prod=false",
 ] as const;
 
 const DEPENDENCY_INSTALL_CHECKPOINT_SCHEMA_VERSION = 1;
 const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+
+const packageExecutionPolicySchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    packageManager: z.literal("pnpm@9.15.9"),
+    scripts: z.record(z.string(), z.string()),
+    dependencies: z.record(z.string(), z.string()),
+    devDependencies: z.record(z.string(), z.string()),
+    pnpm: z.object({ onlyBuiltDependencies: z.array(z.string()).length(0) }).strict(),
+    lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
 
 class NonRegularFileError extends Error {}
 
@@ -585,6 +597,16 @@ interface RepositoryFileState {
 
 type RepositorySnapshot = Map<string, string>;
 
+interface RepositoryPreimageFile {
+  content: Buffer;
+  mode: number;
+}
+
+interface RepositoryPreimage {
+  files: Map<string, RepositoryPreimageFile>;
+  directories: Map<string, number>;
+}
+
 interface ProtectedInputSnapshot {
   entries: Map<string, string>;
   protectedPaths: Set<string>;
@@ -643,8 +665,9 @@ function readRegularFile(path: string, encoding?: "utf8"): Buffer | string {
   let descriptor: number | undefined;
   try {
     descriptor = openSync(path, constants.O_RDONLY | NO_FOLLOW);
-    if (!fstatSync(descriptor).isFile()) {
-      throw new NonRegularFileError(`${path} is not a regular non-symlink file`);
+    const metadata = fstatSync(descriptor);
+    if (!metadata.isFile() || metadata.nlink !== 1) {
+      throw new NonRegularFileError(`${path} is not one private regular file`);
     }
     return encoding === "utf8" ? readFileSync(descriptor, encoding) : readFileSync(descriptor);
   } catch (error) {
@@ -675,6 +698,100 @@ function sha256IfRegular(path: string): string | null {
     if (unavailableRegularFile(error)) return null;
     throw error;
   }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function assertPackageExecutionPolicy(root: string): boolean {
+  // Pre-v0.2 fixture repositories have no venture manifest and never cross the
+  // generated-child publication boundary. Materialized ventures always do.
+  if (!existsSync(inside(root, "venture.manifest.json"))) return false;
+  const policyReference = "config/package-execution-policy.json";
+  const policyPath = inside(root, policyReference);
+  const packagePath = inside(root, "package.json");
+  const lockfilePath = inside(root, "pnpm-lock.yaml");
+  let policy: z.infer<typeof packageExecutionPolicySchema>;
+  let packageManifest: Record<string, unknown>;
+  try {
+    policy = packageExecutionPolicySchema.parse(JSON.parse(readRegularFile(policyPath, "utf8")));
+    const parsedPackage = JSON.parse(readRegularFile(packagePath, "utf8")) as unknown;
+    if (!parsedPackage || typeof parsedPackage !== "object" || Array.isArray(parsedPackage)) {
+      throw new Error("package.json must contain one JSON object");
+    }
+    packageManifest = parsedPackage as Record<string, unknown>;
+  } catch {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_INVALID",
+      "The generated child package execution policy or package manifest is missing or invalid.",
+    );
+  }
+  const lock = loadHarnessLock(inside(root, "harness.lock"));
+  const managedPolicy = lock.managed_files.find(({ path }) => path === policyReference);
+  const actualPolicySha256 = sha256(policyPath);
+  if (
+    managedPolicy?.ownership !== "core_owned" ||
+    managedPolicy.sha256 === null ||
+    managedPolicy.sha256 !== actualPolicySha256
+  ) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_TAMPERED",
+      "The package execution policy must match its Core-owned harness.lock digest.",
+    );
+  }
+  const allowedKeys = new Set([
+    "name",
+    "version",
+    "private",
+    "type",
+    "packageManager",
+    "engines",
+    "scripts",
+    "dependencies",
+    "devDependencies",
+    "pnpm",
+  ]);
+  if (Object.keys(packageManifest).some((key) => !allowedKeys.has(key))) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_VIOLATION",
+      "package.json contains an unreviewed package-manager control field.",
+    );
+  }
+  const expectedSurfaces = {
+    packageManager: policy.packageManager,
+    scripts: policy.scripts,
+    dependencies: policy.dependencies,
+    devDependencies: policy.devDependencies,
+    pnpm: policy.pnpm,
+  };
+  const actualSurfaces = {
+    packageManager: packageManifest.packageManager,
+    scripts: packageManifest.scripts,
+    dependencies: packageManifest.dependencies,
+    devDependencies: packageManifest.devDependencies ?? {},
+    pnpm: packageManifest.pnpm,
+  };
+  if (stableJson(actualSurfaces) !== stableJson(expectedSurfaces)) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_VIOLATION",
+      "Package scripts, dependencies, or lifecycle policy differ from the reviewed Core contract.",
+    );
+  }
+  if (sha256(lockfilePath) !== policy.lockfileSha256) {
+    throw new WorkflowExecutionError(
+      "PACKAGE_EXECUTION_POLICY_VIOLATION",
+      "pnpm-lock.yaml differs from the reviewed Core dependency graph.",
+    );
+  }
+  return true;
 }
 
 function assertCoreOwnedSurfaceSpec(root: string): void {
@@ -1360,19 +1477,190 @@ function repositorySnapshot(root: string): RepositorySnapshot {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
       left.name.localeCompare(right.name),
     )) {
-      if (entry.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
       const absolute = resolve(directory, entry.name);
-      if (entry.isDirectory()) {
+      const metadata = lstatSync(absolute);
+      if (metadata.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      if (metadata.isSymbolicLink()) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Generated repository contains a symbolic link at ${relative(root, absolute).split(sep).join("/")}; model tasks require private regular files.`,
+        );
+      }
+      if (metadata.isDirectory()) {
         visit(absolute);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Generated repository contains a non-private or non-regular entry at ${relative(root, absolute).split(sep).join("/")}.`,
+        );
+      }
       const reference = relative(root, absolute).split(sep).join("/");
       snapshot.set(reference, sha256(absolute));
     }
   };
   visit(root);
   return snapshot;
+}
+
+const ROLLBACK_IGNORED_DIRECTORIES = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  "coverage",
+  "node_modules",
+]);
+const ROLLBACK_MAX_FILE_BYTES = 16 * 1024 * 1024;
+const ROLLBACK_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
+
+function readRollbackPreimageFile(
+  path: string,
+  reference: string,
+  expectedDevice: number,
+  expectedInode: number,
+): { content: Buffer; mode: number } {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | NO_FOLLOW);
+    const metadata = fstatSync(descriptor);
+    if (
+      !metadata.isFile() ||
+      metadata.nlink !== 1 ||
+      metadata.size > ROLLBACK_MAX_FILE_BYTES ||
+      metadata.dev !== expectedDevice ||
+      metadata.ino !== expectedInode
+    ) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a private bounded rollback preimage for ${reference}.`,
+      );
+    }
+    const content = readFileSync(descriptor);
+    if (content.byteLength > ROLLBACK_MAX_FILE_BYTES) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a private bounded rollback preimage for ${reference}.`,
+      );
+    }
+    return { content, mode: metadata.mode & 0o777 };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a rollback preimage for unsafe repository entry ${reference}.`,
+      );
+    }
+    throw error;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function repositoryPreimage(root: string): RepositoryPreimage {
+  const files = new Map<string, RepositoryPreimageFile>();
+  const directories = new Map<string, number>();
+  let totalBytes = 0;
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      if (entry.isDirectory() && ROLLBACK_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const absolute = resolve(directory, entry.name);
+      const metadata = lstatSync(absolute);
+      const reference = relative(root, absolute).split(sep).join("/");
+      if (metadata.isSymbolicLink() || (!metadata.isDirectory() && !metadata.isFile())) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          `Cannot establish a rollback preimage for unsafe repository entry ${reference}.`,
+        );
+      }
+      if (metadata.isDirectory()) {
+        directories.set(reference, metadata.mode & 0o777);
+        visit(absolute);
+        continue;
+      }
+      const file = readRollbackPreimageFile(absolute, reference, metadata.dev, metadata.ino);
+      totalBytes += file.content.byteLength;
+      if (totalBytes > ROLLBACK_MAX_TOTAL_BYTES) {
+        throw new WorkflowExecutionError(
+          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+          "Repository rollback preimage exceeds the 128 MiB founder-alpha limit.",
+        );
+      }
+      files.set(reference, {
+        content: file.content,
+        mode: file.mode,
+      });
+    }
+  };
+  visit(root);
+  return { files, directories };
+}
+
+function currentRollbackEntries(root: string): {
+  files: Set<string>;
+  directories: Set<string>;
+} {
+  const files = new Set<string>();
+  const directories = new Set<string>();
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isDirectory() && ROLLBACK_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const absolute = resolve(directory, entry.name);
+      const metadata = lstatSync(absolute);
+      const reference = relative(root, absolute).split(sep).join("/");
+      if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+        directories.add(reference);
+        visit(absolute);
+      } else {
+        files.add(reference);
+      }
+    }
+  };
+  visit(root);
+  return { files, directories };
+}
+
+function restoreRepositoryPreimage(root: string, preimage: RepositoryPreimage): void {
+  const current = currentRollbackEntries(root);
+  const removeReferences = [
+    ...[...current.files].filter((reference) => !preimage.files.has(reference)),
+    ...[...current.directories].filter((reference) => !preimage.directories.has(reference)),
+  ].sort((left, right) => right.split("/").length - left.split("/").length);
+  for (const reference of removeReferences) {
+    rmSync(inside(root, reference), { recursive: true, force: true });
+  }
+
+  for (const [reference, mode] of [...preimage.directories.entries()].sort(
+    ([left], [right]) => left.split("/").length - right.split("/").length,
+  )) {
+    const absolute = inside(root, reference);
+    if (existsSync(absolute) && !lstatSync(absolute).isDirectory()) {
+      rmSync(absolute, { recursive: true, force: true });
+    }
+    mkdirSync(absolute, { recursive: true, mode });
+    chmodSync(absolute, mode);
+  }
+
+  for (const [reference, file] of preimage.files) {
+    const absolute = inside(root, reference);
+    mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
+    if (existsSync(absolute)) {
+      const metadata = lstatSync(absolute);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+        rmSync(absolute, { recursive: true, force: true });
+      }
+    }
+    const temporary = `${absolute}.rollback-${process.pid}-${randomBytes(8).toString("hex")}`;
+    try {
+      writeFileSync(temporary, file.content, { mode: 0o600, flag: "wx" });
+      renameSync(temporary, absolute);
+      chmodSync(absolute, file.mode);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
 }
 
 function repositoryChanges(
@@ -1576,14 +1864,25 @@ function directCheck(command: string): boolean {
   );
 }
 
-function taskInstructions(handler: string, instructions: string): string {
+function taskInstructions(
+  handler: string,
+  instructions: string,
+  capabilitiesRequired: readonly string[] = [],
+): string {
   const policy = COMPLETION_POLICIES[handler];
-  if (!policy) return instructions;
+  const discoveryRequired = capabilitiesRequired.includes("web_seo_aeo_geo");
   return [
     instructions,
-    `Completion evidence must include these artifact roles: ${policy.requiredArtifactRoles.join(", ")}.`,
-    "For outcome=changed, report every repository file whose content changed and name at least one changed completion artifact. For outcome=already_compliant, change no repository content and cite unchanged artifacts that already satisfy every required role.",
-    "The completion validator must name one directly executed, relevant check from checks; it must pass and include observed evidence.",
+    discoveryRequired
+      ? "SEO/AEO/GEO is REQUIRED. Read config/seo.yaml, skills/seo-aeo-engine/SKILL.md, and its technical-discovery reference. Keep one truthful canonical owner per user task; require unique accurate metadata, raw-HTML answers and limitations, self-canonicals, safe sitemap exclusions, page-appropriate parseable visible-fact JSON-LD (or record why no schema type is truthful), and explicit verified-production indexing opt-in. Do not invent queries, traffic, citations, ratings, reviews, people, or provider state."
+      : "SEO/AEO/GEO is not selected for this task. Do not add discovery infrastructure or enable indexing.",
+    ...(policy
+      ? [
+          `Completion evidence must include these artifact roles: ${policy.requiredArtifactRoles.join(", ")}.`,
+          "For outcome=changed, report every repository file whose content changed and name at least one changed completion artifact. For outcome=already_compliant, change no repository content and cite unchanged artifacts that already satisfy every required role.",
+          "The completion validator must name one directly executed, relevant check from checks; it must pass and include observed evidence.",
+        ]
+      : []),
   ].join("\n\n");
 }
 
@@ -1996,12 +2295,79 @@ async function runMobileScaffoldTask(
   return { output, effectVerified: true, evidenceArtifact };
 }
 
+type AgentTaskOptions = Required<
+  Pick<LaunchProductBindingsOptions, "rootDir" | "brief" | "agentHost">
+> &
+  Pick<LaunchProductBindingsOptions, "decision" | "launchContract"> & {
+    redactor: Redactor;
+    now: () => Date;
+  };
+
 async function runAgentTask(
-  options: Required<Pick<LaunchProductBindingsOptions, "rootDir" | "brief" | "agentHost">> &
-    Pick<LaunchProductBindingsOptions, "decision" | "launchContract"> & {
-      redactor: Redactor;
-      now: () => Date;
-    },
+  options: AgentTaskOptions,
+  instructions: string,
+  context: WorkflowHandlerContext,
+): Promise<WorkflowHandlerResult> {
+  const preimage = repositoryPreimage(options.rootDir);
+  try {
+    return await runAgentTaskUncommitted(options, instructions, context);
+  } catch (error) {
+    try {
+      restoreRepositoryPreimage(options.rootDir, preimage);
+    } catch (rollbackError) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_ROLLBACK_FAILED",
+        `Build-agent work was rejected, but exact repository rollback failed: ${options.redactor.redactText(
+          rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+        )}. Stop before any source or provider effect and restore the child from its last verified source snapshot.`,
+      );
+    }
+    let evidenceArtifact: string | null = null;
+    try {
+      evidenceArtifact = persistEvidence(
+        options.rootDir,
+        context,
+        {
+          schemaVersion: 1,
+          runId: context.runId,
+          nodeId: context.node.id,
+          handler: context.node.handler,
+          host: options.agentHost.id,
+          finishedAt: options.now().toISOString(),
+          status: "rolled_back_after_failure",
+          rollbackRestored: true,
+          originalErrorCode:
+            error instanceof WorkflowExecutionError ? error.code : "BUILD_AGENT_FAILED",
+          error: options.redactor.redactText(
+            error instanceof Error ? error.message : String(error),
+          ),
+          rawPromptPersisted: false,
+          rawJsonlPersisted: false,
+        },
+        options.redactor,
+      );
+    } catch {
+      // Rollback is the safety invariant. A failed evidence write stays loud in
+      // the final error without re-applying rejected repository mutations.
+    }
+    const suffix = evidenceArtifact
+      ? ` Rejected repository changes were restored; inspect ${evidenceArtifact}.`
+      : " Rejected repository changes were restored, but rollback evidence could not be written.";
+    if (error instanceof WorkflowExecutionError) {
+      throw new WorkflowExecutionError(error.code, `${error.message}${suffix}`, {
+        retryable: error.retryable,
+        ...(error.details === undefined ? {} : { details: error.details }),
+      });
+    }
+    throw new WorkflowExecutionError(
+      "BUILD_AGENT_FAILED",
+      `${options.redactor.redactText(error instanceof Error ? error.message : String(error))}${suffix}`,
+    );
+  }
+}
+
+async function runAgentTaskUncommitted(
+  options: AgentTaskOptions,
   instructions: string,
   context: WorkflowHandlerContext,
 ): Promise<WorkflowHandlerResult> {
@@ -2035,7 +2401,7 @@ async function runAgentTask(
         runId: context.runId,
         nodeId: context.node.id,
         purpose: context.node.purpose,
-        instructions: taskInstructions(handler, instructions),
+        instructions: taskInstructions(handler, instructions, contextManifest.capabilitiesRequired),
         context: {
           brief: options.brief,
           node: {
@@ -2291,6 +2657,7 @@ async function runQualityCommand(
   context: WorkflowHandlerContext,
 ): Promise<WorkflowHandlerResult> {
   const startedAt = options.now().toISOString();
+  const packageExecutionPolicyVerified = assertPackageExecutionPolicy(options.rootDir);
   const isMvp = args.length === 1 && args[0] === "verify:mvp";
   const journeyContract = isMvp
     ? primaryJourneyTestContract(options.rootDir, options.launchContract)
@@ -2312,6 +2679,7 @@ async function runQualityCommand(
       startedAt,
       finishedAt: options.now().toISOString(),
       command: ["pnpm", ...args],
+      packageExecutionPolicyVerified,
       ...(journeyContract
         ? {
             primaryJourneyContract: {
@@ -2365,9 +2733,11 @@ async function runDependencyInstall(
   let installedModulesReadBack = false;
   let installedLockfileReadBack = false;
   let requiredToolingReadBack = false;
+  let packageExecutionPolicyVerified = false;
   let checkpoint: DependencyInstallCheckpoint | null = null;
 
   try {
+    packageExecutionPolicyVerified = assertPackageExecutionPolicy(options.rootDir);
     packageManifestSha256 = sha256IfRegular(packagePath);
     if (packageManifestSha256 === null) {
       throw new Error("package.json is missing or is not a regular file");
@@ -2429,7 +2799,8 @@ async function runDependencyInstall(
       lockfileSha256,
       frozenLockfile: true,
       parentWorkspaceIgnored: true,
-      lifecycleScriptsDisabled: true,
+      lifecycleScriptsDisabled: packageExecutionPolicyVerified,
+      packageExecutionPolicyVerified,
       installedModulesReadBack,
       installedLockfileReadBack,
       requiredToolingReadBack,
@@ -2473,7 +2844,8 @@ async function runDependencyInstall(
       installedModulesReadBack: true,
       installedLockfileReadBack: true,
       requiredToolingReadBack: true,
-      lifecycleScriptsDisabled: true,
+      lifecycleScriptsDisabled: packageExecutionPolicyVerified,
+      packageExecutionPolicyVerified,
     },
     effectVerified: true,
     evidenceArtifact,
@@ -2534,6 +2906,7 @@ function reconcileDependencyInstall(
     };
   }
   const readBack = readDependencyInstallState(options.rootDir, checkpoint);
+  const packageExecutionPolicyVerified = assertPackageExecutionPolicy(options.rootDir);
   const evidenceArtifact = persistDependencyReconciliationEvidence(
     options.rootDir,
     context,
@@ -2568,7 +2941,8 @@ function reconcileDependencyInstall(
       installedModulesReadBack: true,
       installedLockfileReadBack: true,
       requiredToolingReadBack: true,
-      lifecycleScriptsDisabled: true,
+      lifecycleScriptsDisabled: packageExecutionPolicyVerified,
+      packageExecutionPolicyVerified,
       reconciled: true,
     },
     evidenceArtifact,
@@ -3254,7 +3628,7 @@ async function reconcilePostDeployVerification(
 
 export async function assertBuildAgentHostAvailable(host: BuildAgentHost): Promise<void> {
   const inspection = await host.inspect();
-  if (inspection.status !== "available") {
+  if (inspection.status !== "available" || inspection.readIsolation === "unavailable") {
     throw new WorkflowExecutionError(
       "BUILD_AGENT_UNAVAILABLE",
       `${inspection.nextAction ?? `${inspection.host} is unavailable.`} No run or external action was created.`,

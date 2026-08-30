@@ -16,9 +16,9 @@ exports are an explicit fallback, not the default source.
 <!-- One row per indexable route. "Answer block" = the plain-HTML direct
      answer in the first viewport. -->
 
-| Page | Primary query | Secondary queries | Intent     | Title | H1  | Answer block | Internal links | Structured data | Conversion goal         | Current performance | Status   | Evidence source |
-| ---- | ------------- | ----------------- | ---------- | ----- | --- | ------------ | -------------- | --------------- | ----------------------- | ------------------- | -------- | --------------- |
-| /    | —             | —                 | commercial | —     | —   | —            | —              | Organization    | qualification_completed | —                   | template | —               |
+| Page | Primary query | Secondary queries | Intent        | Title                             | H1                                                                             | Answer block                                        | Internal links                      | Structured data    | Conversion goal             | Current performance | Status    | Evidence source               |
+| ---- | ------------- | ----------------- | ------------- | --------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------- | ----------------------------------- | ------------------ | --------------------------- | ------------------- | --------- | ----------------------------- |
+| /    | —             | —                 | informational | Launch operating-system prototype | One brief becomes a launch plan you can inspect, authorize, pause, and resume. | Local prototype scope and provider-state limitation | Status and repository documentation | SoftwareSourceCode | inspect the local prototype | —                   | prototype | docs/product/PRODUCT_TRUTH.md |
 
 ## Query opportunities
 
@@ -28,14 +28,15 @@ exports are an explicit fallback, not the default source.
 
 ## Answer-engine readiness
 
-Plain-HTML product and price facts on every commercial page · entity
-anchoring (consistent organisation name, sameAs links) · organisation and
-author transparency · `llms.txt` optional, treated as supporting
-documentation only.
+Plain-HTML product facts and decisive limitations on each intended public owner
+· page-appropriate structured data that matches visible facts · author and
+repository transparency · `llms.txt` optional, treated as supporting
+documentation only. This prototype has no price-bearing public owner.
 
 ## Evidence
 
-None — template state.
+The route and schema are locally inspectable prototype surfaces. Query demand,
+traffic, indexation and conversion evidence are unavailable.
 
 ## Assumptions
 

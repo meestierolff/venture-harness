@@ -1,8 +1,8 @@
 # NOTICE
 
-Venture Harness — an open-source, agent-native app launch factory that turns one
-founder idea into an independent, production-ready application in accounts the
-founder owns.
+Venture Harness — an open-source founder-alpha Launch Factory that turns one
+idea into a reviewable Launch Contract and independent application scaffold;
+production state requires authorized provider read-back.
 
 Copyright (c) 2026 Venture Harness contributors. Licensed under MIT (see
 [LICENSE](LICENSE)).

@@ -38,6 +38,8 @@ describe("executable SQL migrations", () => {
     expect(up).toContain(
       "missing source has\n-- no row and must never be converted into a zero-valued dataset",
     );
+    expect(up).toContain("server-generated submission-private");
+    expect(up).toContain("must never contain the analytics visitor ID");
   });
 
   it("fails closed before any rollback drop when evidence exists", () => {

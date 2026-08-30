@@ -98,12 +98,20 @@ smaller token count alone means a better or cheaper outcome.
 
 ## Applying the principles
 
-`vh idea sharpen` turns rough input into a reviewable Launch Contract. The
-contract records one user, job, outcome, core feature, journey, commitment
-surface, initial channel, success signal, review date, explicit not-building
-list, truth boundaries, and `continue`, `change`, or `stop` rules. The contract
-then drives deterministic launch decisions; it does not prove that those
-decisions are commercially correct.
+`vh idea sharpen` deterministically validates an existing complete Launch
+Contract in founder alpha. Rough-prose sharpening and product-build model work
+are unavailable until Core owns an audited outer read-isolation driver. The
+contract records one user, job, outcome, proposition hypothesis, core feature,
+journey, commitment surface, initial channel, success signal, review date,
+explicit not-building list, truth boundaries, and `continue`, `change`, or
+`stop` rules. Its strict 15-field capability map classifies every facet as
+`REQUIRED`, `DEFERRED`, or `NOT_APPLICABLE`; local invariants reject incoherent
+dependencies. Supported projections feed routing, rendering, the canonical
+digest, and journey binding. Authentication and authorization stay distinct in
+that map; when either is REQUIRED, the existing `authenticated_product` routed
+bundle must implement both the session boundary and the declared access rules.
+None of this substitutes for founder review or
+proves commercial fit or live provider state.
 
 The founder-default Stack and versioned seeds implement the repeated setup. The
 sanitized idea-usage artifact and local Launch Receipt make available model
@@ -116,9 +124,10 @@ measurements remain missing rather than being estimated as success.
   encode the bounded review surface.
 - The [Launch Contract tests](../../tests/launch-contract.test.ts) verify schema,
   rendering, and deterministic projection behavior locally.
-- The [bounded idea sharpener](../../lib/founder-launch/idea-sharpener.ts) and
-  [its tests](../../tests/idea-sharpener.test.ts) distinguish deterministic and
-  model-assisted paths and account for model calls.
+- The [idea pipeline](../../lib/founder-launch/idea-sharpener.ts) and
+  [its tests](../../tests/idea-sharpener.test.ts) prove the zero-model contract
+  path and exercise call accounting only through fixture hosts; public model
+  execution remains unavailable.
 - The [Launch Receipt](../../lib/runtime/launch-receipt.ts) and
   [its tests](../../tests/launch-receipt.test.ts) preserve honest waiting,
   fixture, and verified states in local sanitized artifacts.

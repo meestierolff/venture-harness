@@ -6,8 +6,21 @@
  * store configured, persist() throws and the API returns 503 so evidence
  * loss is loud, not silent. Schema: docs/engineering/BACKEND.md.
  */
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  appendFileSync,
+  chmodSync,
+  closeSync,
+  constants,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 
 export interface EvidenceRecord {
   event: string;
@@ -18,7 +31,6 @@ export interface EvidenceRecord {
 
 export interface SubmissionRecord {
   form_id: string;
-  visitor_id: string;
   payload: Record<string, string>;
   qualified: boolean;
   qualification_tier: string;
@@ -51,13 +63,80 @@ function localFallbackAllowed(): boolean {
   return process.env.EVIDENCE_LOCAL_FALLBACK === "true" && process.env.NODE_ENV !== "production";
 }
 
+const PRIVATE_DIRECTORY_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+
+function ownedByCurrentUser(uid: number): boolean {
+  return typeof process.getuid !== "function" || uid === process.getuid();
+}
+
+function ensurePrivateLocalDirectory(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  let metadata = lstatSync(dir);
+  if (
+    metadata.isSymbolicLink() ||
+    !metadata.isDirectory() ||
+    !ownedByCurrentUser(metadata.uid) ||
+    realpathSync(dir) !== dir
+  ) {
+    throw new Error("local evidence directory is not a private owned directory");
+  }
+
+  chmodSync(dir, PRIVATE_DIRECTORY_MODE);
+  metadata = lstatSync(dir);
+  if (
+    metadata.isSymbolicLink() ||
+    !metadata.isDirectory() ||
+    !ownedByCurrentUser(metadata.uid) ||
+    (metadata.mode & 0o777) !== PRIVATE_DIRECTORY_MODE ||
+    realpathSync(dir) !== dir
+  ) {
+    throw new Error("local evidence directory permissions could not be secured");
+  }
+}
+
 function appendLocal(file: string, record: unknown): void {
-  const dir = join(process.cwd(), ".data");
-  mkdirSync(dir, { recursive: true });
-  appendFileSync(
-    join(dir, file),
-    JSON.stringify({ occurred_at: new Date().toISOString(), ...(record as object) }) + "\n",
-  );
+  const dir = resolve(realpathSync(resolve(process.cwd())), ".data");
+  ensurePrivateLocalDirectory(dir);
+  const target = resolve(dir, file);
+  if (dirname(target) !== dir) {
+    throw new Error("local evidence filename escaped its private directory");
+  }
+
+  let descriptor: number | null = null;
+  try {
+    descriptor = openSync(
+      target,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW,
+      PRIVATE_FILE_MODE,
+    );
+    let metadata = fstatSync(descriptor);
+    if (!metadata.isFile() || metadata.nlink !== 1 || !ownedByCurrentUser(metadata.uid)) {
+      throw new Error("local evidence target must be one owned regular file with one link");
+    }
+    fchmodSync(descriptor, PRIVATE_FILE_MODE);
+    metadata = fstatSync(descriptor);
+    if (
+      !metadata.isFile() ||
+      metadata.nlink !== 1 ||
+      !ownedByCurrentUser(metadata.uid) ||
+      (metadata.mode & 0o777) !== PRIVATE_FILE_MODE
+    ) {
+      throw new Error("local evidence file permissions could not be secured");
+    }
+    appendFileSync(
+      descriptor,
+      JSON.stringify({ occurred_at: new Date().toISOString(), ...(record as object) }) + "\n",
+      "utf8",
+    );
+    fsyncSync(descriptor);
+    metadata = fstatSync(descriptor);
+    if (!metadata.isFile() || metadata.nlink !== 1) {
+      throw new Error("local evidence target changed during append");
+    }
+  } finally {
+    if (descriptor !== null) closeSync(descriptor);
+  }
 }
 
 export async function persistEvidence(record: EvidenceRecord): Promise<void> {
@@ -89,8 +168,11 @@ export async function persistEvidence(record: EvidenceRecord): Promise<void> {
 export async function persistSubmission(record: SubmissionRecord): Promise<void> {
   const sql = await neonSql();
   if (sql) {
+    // Compatibility field for already-applied founder-alpha schemas. This
+    // server-generated nonce is deliberately unrelated to the analytics ID.
+    const submissionPrivateNonce = randomUUID();
     await sql`insert into submissions (form_id, visitor_id, payload, qualified, qualification_tier)
-      values (${record.form_id}, ${record.visitor_id}, ${JSON.stringify(record.payload)}, ${record.qualified}, ${record.qualification_tier})`;
+      values (${record.form_id}, ${submissionPrivateNonce}, ${JSON.stringify(record.payload)}, ${record.qualified}, ${record.qualification_tier})`;
     return;
   }
   if (localFallbackAllowed()) {

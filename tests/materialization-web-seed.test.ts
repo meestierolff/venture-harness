@@ -1,4 +1,18 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { analyticsSchema, offerSchema } from "@/lib/config/schemas";
@@ -11,12 +25,15 @@ import { ventureSchema } from "@/lib/config/venture-schema";
 import {
   compileVentureMaterialization,
   createLaunchGrant,
+  materializeVenture,
+  NodeMaterializationFileSystem,
   type LaunchGrantInput,
   type SeedId,
 } from "@/lib/materialization";
 
 const NOW = new Date("2026-08-09T12:00:00.000Z");
 const WORKFLOW_SHA = "a".repeat(40);
+const TSX_IMPORT = createRequire(import.meta.url).resolve("tsx");
 
 function input(seedId: SeedId, overrides: Partial<LaunchGrantInput> = {}): LaunchGrantInput {
   return {
@@ -113,7 +130,7 @@ describe("ordinary web venture seed", () => {
     // to install at all, which is what broke every CI job on this repository.
     expect(steps.find(({ uses }) => uses?.startsWith("pnpm/action-setup@"))?.with).toBeUndefined();
     expect(steps.find(({ name }) => name === "Install exact child dependencies")?.run).toBe(
-      "pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false",
+      "pnpm install --frozen-lockfile --ignore-workspace",
     );
     expect(steps.find(({ name }) => name === "Install Chromium for the primary journey")?.run).toBe(
       "pnpm exec playwright install --with-deps chromium",
@@ -134,6 +151,7 @@ describe("ordinary web venture seed", () => {
       scripts: Record<string, string>;
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
+      pnpm: { onlyBuiltDependencies: string[] };
     };
 
     expect(packageJson.scripts).toMatchObject({
@@ -165,6 +183,28 @@ describe("ordinary web venture seed", () => {
       typescript: "5.9.3",
     });
     expect(JSON.stringify(packageJson)).not.toContain("workspace:");
+    expect(packageJson.pnpm).toEqual({ onlyBuiltDependencies: [] });
+    const executionPolicy = JSON.parse(
+      content(compiled, "config/package-execution-policy.json"),
+    ) as {
+      scripts: Record<string, string>;
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+      pnpm: { onlyBuiltDependencies: string[] };
+      lockfileSha256: string;
+    };
+    expect(executionPolicy).toMatchObject({
+      scripts: packageJson.scripts,
+      dependencies: packageJson.dependencies,
+      devDependencies: packageJson.devDependencies,
+      pnpm: { onlyBuiltDependencies: [] },
+      lockfileSha256: createHash("sha256")
+        .update(content(compiled, "pnpm-lock.yaml"))
+        .digest("hex"),
+    });
+    expect(
+      compiled.files.find(({ path }) => path === "config/package-execution-policy.json")?.ownership,
+    ).toBe("core_owned");
     expect(Object.keys(packageJson.dependencies)).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^@venture-harness\//)]),
     );
@@ -190,6 +230,9 @@ describe("ordinary web venture seed", () => {
         "docs/product/idea.md",
         "skills/design-director/SKILL.md",
         "skills/design-director/references/originality-audit.md",
+        "skills/seo-aeo-engine/SKILL.md",
+        "skills/seo-aeo-engine/references/technical-discovery.md",
+        "config/seo.yaml",
         "tests/seed-contract.test.mjs",
         "tests/e2e/post-deploy-readonly.spec.ts",
       ]),
@@ -310,11 +353,26 @@ describe("ordinary web venture seed", () => {
     expect(publisher?.content).toContain("parents: [parentCommitOid]");
     expect(publisher?.content).toContain('method: "PATCH"');
     expect(publisher?.content).toContain("ensureWorkingRepository");
+    expect(publisher?.content).toContain("class ChildGitPathLock");
+    expect(publisher?.content).toContain("constants.O_EXCL | NO_FOLLOW");
+    expect(publisher?.content).toContain("assertPrivateRegularSourceTree(sourceRoot)");
+    expect(publisher?.content).toContain("metadata.nlink !== 1");
+    expect(publisher?.content).not.toContain('"120000"');
+    expect(publisher?.content).toContain("renameDirectory");
+    expect(publisher?.content).toContain("directory identity changed during rename");
     expect(publisher?.content).toContain(
       'gh",\n            [\n              "repo",\n              "clone"',
     );
     expect(publisher?.content).toContain("Child Git working tree is not clean");
     expect(publisher?.content).toContain("force: false");
+    expect(publisher?.content).toContain("RUNTIME_ENVIRONMENT_KEYS");
+    expect(publisher?.content).toContain("GIT_ENVIRONMENT_OVERRIDES");
+    expect(publisher?.content).toContain("commandEnvironment(command, options.env ?? {})");
+    expect(publisher?.content).not.toContain("env: { ...process.env");
+    expect(publisher?.content).toContain("assertCredentialFreeBuffer");
+    expect(publisher?.content).toContain("credential-store path");
+    expect(publisher?.content).toContain("sourceTreeOid(entries)");
+    expect(publisher?.content).toContain("ambiguous path");
     expect(publisher?.content).not.toContain("../lib/");
     expect(journey?.ownership).toBe("core_owned");
     expect(playwright?.content).toContain("retries: 0");
@@ -337,17 +395,184 @@ describe("ordinary web venture seed", () => {
     expect(journey?.content).toContain('method === "GET" || method === "HEAD"');
     expect(journey?.content).toContain("VH_PRIMARY_JOURNEY_OBSERVER_RESULT");
     expect(journey?.content).toContain("venture_harness_primary_journey_v1");
-    expect(journey?.content).toContain('name: "Review launch status"');
+    expect(journey?.content).not.toContain('name: "Review launch status"');
     expect(journey?.content).toContain('link[rel="canonical"]');
     expect(journey?.content).toContain('request.get("/robots.txt"');
     expect(journey?.content).toContain('request.get("/sitemap.xml"');
+    expect(journey?.content).toContain("sitemapText).not.toMatch");
+    expect(journey?.content).toContain("<loc>[^<]*\\?");
+    expect(journey?.content).not.toContain('sitemapText).not.toContain("?")');
+    expect(journey?.content).toContain('script[type="application/ld+json"]');
+    expect(journey?.content).toContain("Unverified rating/review structured data is forbidden");
     expect(journey?.content).toContain("EXPECTED_PUBLIC_ORIGIN");
     expect(journey?.content).not.toMatch(/\.(?:post|put|patch|delete)\s*\(/i);
     const site = compiled.files.find(({ path }) => path === "src/config/site.ts");
     expect(site?.content).toContain("VERCEL_PROJECT_PRODUCTION_URL");
     expect(site?.content).toContain('process.env.VERCEL_ENV === "production"');
     expect(site?.content).toContain('process.env.VERCEL === "1"');
+    expect(site?.content).toContain('process.env.NEXT_PUBLIC_INDEXING_ENABLED === "true"');
   });
+
+  it("preflights every exact materialized source buffer before allowing a GitHub call", async () => {
+    const fixtureRoot = mkdtempSync(resolve(tmpdir(), "vh-materialized-publisher-"));
+    const childRoot = resolve(fixtureRoot, "child");
+    const fixtureHome = resolve(fixtureRoot, "home");
+    const fakeBin = resolve(fixtureRoot, "bin");
+    const fakeGh = resolve(fakeBin, "gh");
+    const fakeGhLog = resolve(fixtureRoot, "gh-calls.jsonl");
+    const canaryPath = resolve(childRoot, "credential-canary.txt");
+    const repository = "founder-company/payout-rank";
+    try {
+      mkdirSync(childRoot, { recursive: true });
+      mkdirSync(fixtureHome, { recursive: true });
+      mkdirSync(dirname(fakeGh), { recursive: true });
+      const compiled = plan("agentic-web-saas");
+      const materialized = await materializeVenture(
+        compiled,
+        new NodeMaterializationFileSystem(childRoot),
+        NOW,
+      );
+      expect(materialized.status).toBe("materialized");
+
+      writeFileSync(
+        fakeGh,
+        [
+          "#!/usr/bin/env node",
+          'const { appendFileSync } = require("node:fs");',
+          `appendFileSync(${JSON.stringify(fakeGhLog)}, JSON.stringify({`,
+          "  args: process.argv.slice(2),",
+          "  leakedHostField: process.env.VH_UNREVIEWED_ENV ?? null,",
+          "  leakedProviderToken: process.env.GH_TOKEN ?? null,",
+          "  gitConfigGlobal: process.env.GIT_CONFIG_GLOBAL ?? null,",
+          '}) + "\\n", "utf8");',
+          'process.stderr.write("fixture gh stops after recording one call\\n");',
+          "process.exit(73);",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      chmodSync(fakeGh, 0o755);
+
+      const unreviewedEnvironmentName = ["VH", "UNREVIEWED", "ENV"].join("_");
+      const providerTokenEnvironmentName = ["GH", "TOKEN"].join("_");
+      const executePublisher = () =>
+        spawnSync(
+          process.execPath,
+          [
+            "--import",
+            TSX_IMPORT,
+            "scripts/github-publish-source.ts",
+            "apply",
+            "--repository",
+            repository,
+            "--visibility",
+            "private",
+          ],
+          {
+            cwd: childRoot,
+            env: {
+              NODE_ENV: "test",
+              PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
+              HOME: fixtureHome,
+              TMPDIR: process.env.TMPDIR ?? tmpdir(),
+              LANG: process.env.LANG ?? "C",
+              CI: "1",
+              [providerTokenEnvironmentName]: [
+                "host",
+                "only",
+                "token",
+                "must",
+                "not",
+                "reach",
+                "gh",
+              ].join("-"),
+              [unreviewedEnvironmentName]: [
+                "host",
+                "only",
+                "field",
+                "must",
+                "not",
+                "reach",
+                "gh",
+              ].join("-"),
+            },
+            encoding: "utf8",
+            timeout: 30_000,
+            maxBuffer: 10 * 1024 * 1024,
+          },
+        );
+
+      const canaries = [
+        ["OpenAI project key", ["sk", "-proj-", "A".repeat(24)].join("")],
+        ["fine-grained GitHub token", ["github", "_pat_", "B".repeat(24)].join("")],
+        ["Brevo key", ["xkey", "sib-", "C".repeat(24)].join("")],
+        ["Stripe webhook secret", ["wh", "sec_", "D".repeat(24)].join("")],
+        ["JWT", ["eyJ", "E".repeat(12), ".", "F".repeat(12), ".", "G".repeat(12)].join("")],
+        ["bearer token", "Authorization: Bearer " + "H".repeat(24)],
+        ["query token", "https://example.invalid/callback?access_token=" + "I".repeat(24)],
+        ["labeled generic secret", ["API", "KEY=generic", "secret", "value", "123456"].join("-")],
+      ] as const;
+
+      for (const [label, raw] of canaries) {
+        writeFileSync(canaryPath, raw, "utf8");
+        const result = executePublisher();
+        const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+        expect(result.error, label + "\n" + output).toBeUndefined();
+        expect(result.status, label + "\n" + output).toBe(1);
+        expect(result.stdout, label).toBe("");
+        expect(result.stderr, label).toContain("credential-like content");
+        expect(result.stderr, label).not.toContain(raw);
+        expect(existsSync(fakeGhLog), label).toBe(false);
+      }
+      unlinkSync(canaryPath);
+
+      const opaqueNpmToken = ["//registry.npmjs.org/:_authToken=npm", "_", "J".repeat(36)].join("");
+      writeFileSync(resolve(childRoot, ".npmrc"), opaqueNpmToken, "utf8");
+      const credentialStoreResult = executePublisher();
+      expect(credentialStoreResult.status).toBe(1);
+      expect(credentialStoreResult.stderr).toContain("credential-store path");
+      expect(credentialStoreResult.stderr).not.toContain(opaqueNpmToken);
+      expect(existsSync(fakeGhLog)).toBe(false);
+      unlinkSync(resolve(childRoot, ".npmrc"));
+
+      writeFileSync(
+        resolve(childRoot, ".env.example"),
+        [
+          "DATABASE_URL=REPLACE_WITH_DATABASE_URL",
+          "GITHUB_TOKEN_REF=cred://github/source-publication",
+          "API_KEY=YOUR_API_KEY",
+          "password: [REDACTED]",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const reviewedPlaceholderResult = executePublisher();
+      expect(reviewedPlaceholderResult.status).toBe(1);
+      expect(reviewedPlaceholderResult.stderr).toContain("Read GitHub repository failed");
+      const calls = readFileSync(fakeGhLog, "utf8")
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              args: string[];
+              leakedHostField: string | null;
+              leakedProviderToken: string | null;
+              gitConfigGlobal: string | null;
+            },
+        );
+      expect(calls).toEqual([
+        {
+          args: ["api", `repos/${repository}`],
+          leakedHostField: null,
+          leakedProviderToken: null,
+          gitConfigGlobal: process.platform === "win32" ? "NUL" : "/dev/null",
+        },
+      ]);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("ships schema-valid launch configs with strict analytics and no credential material", () => {
     const compiled = plan("agentic-web-saas");
@@ -404,7 +629,7 @@ describe("ordinary web venture seed", () => {
       build_threshold: null,
       stop_threshold: null,
     });
-    expect(venture.venture.capabilities.active).toEqual(["public_website", "web_seo_aeo_geo"]);
+    expect(venture.venture.capabilities.active).toEqual(["public_website"]);
     expect(content(compiled, "config/loops.yaml")).not.toMatch(/enabled:\s+true/u);
     expect(offerSchema.parse(parse(content(compiled, "config/offer.yaml")))).toMatchObject({
       pricing: {

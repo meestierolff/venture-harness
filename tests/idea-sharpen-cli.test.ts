@@ -13,14 +13,19 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliIo } from "@/lib/cli";
 import { createDefaultCliServices } from "@/lib/cli/default-services";
-import type { IdeaSharpenerHost } from "@/lib/founder-launch";
+import { CodexCliIdeaSharpenerHost, type IdeaSharpenerHost } from "@/lib/founder-launch";
 import { launchReceiptContract } from "./fixtures/launch-receipt-contract";
 
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true });
 });
+
+function mockIdeaSharpenerRun(run: IdeaSharpenerHost["run"]): void {
+  vi.spyOn(CodexCliIdeaSharpenerHost.prototype, "run").mockImplementation(run);
+}
 
 function ioHarness(): { io: CliIo; stdout: string[]; stderr: string[] } {
   const stdout: string[] = [];
@@ -47,10 +52,9 @@ describe("vh idea sharpen", () => {
       finalText: JSON.stringify(launchReceiptContract()),
       usage: { inputTokens: 80, cachedInputTokens: 10, outputTokens: 40 },
     }));
-    const host: IdeaSharpenerHost = { id: "fixture_codex", run };
+    mockIdeaSharpenerRun(run);
     const services = createDefaultCliServices({
       rootDir: root,
-      ideaSharpenerHost: host,
       now: () => new Date("2026-08-12T12:00:00.000Z"),
     });
     const harness = ioHarness();
@@ -89,9 +93,9 @@ describe("vh idea sharpen", () => {
     roots.push(root);
     writeFileSync(join(root, "contract.json"), JSON.stringify(launchReceiptContract()));
     const run = vi.fn();
+    mockIdeaSharpenerRun(run);
     const services = createDefaultCliServices({
       rootDir: root,
-      ideaSharpenerHost: { id: "fixture_codex", run },
       now: () => new Date("2026-08-12T12:00:00.000Z"),
     });
     const harness = ioHarness();
@@ -130,10 +134,8 @@ describe("vh idea sharpen", () => {
     writeFileSync(join(root, "contract.json"), JSON.stringify(launchReceiptContract()));
     symlinkSync(outside, join(root, "linked"), "dir");
     const run = vi.fn();
-    const services = createDefaultCliServices({
-      rootDir: root,
-      ideaSharpenerHost: { id: "fixture_codex", run },
-    });
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
     const harness = ioHarness();
 
     const result = await runCli(
@@ -154,10 +156,8 @@ describe("vh idea sharpen", () => {
     writeFileSync(join(outside, "rough.md"), "# Outside idea\nDo not read this file.");
     symlinkSync(outside, join(root, "linked-input"), "dir");
     const run = vi.fn();
-    const services = createDefaultCliServices({
-      rootDir: root,
-      ideaSharpenerHost: { id: "fixture_codex", run },
-    });
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
     const harness = ioHarness();
 
     const result = await runCli(
@@ -185,10 +185,8 @@ describe("vh idea sharpen", () => {
         usage: { inputTokens: 80, cachedInputTokens: 10, outputTokens: 40 },
       };
     });
-    const services = createDefaultCliServices({
-      rootDir: root,
-      ideaSharpenerHost: { id: "fixture_codex", run },
-    });
+    mockIdeaSharpenerRun(run);
+    const services = createDefaultCliServices({ rootDir: root });
     const harness = ioHarness();
 
     const result = await runCli(
@@ -213,9 +211,9 @@ describe("vh idea sharpen", () => {
       finalText: "{}",
       usage: { inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, model: "fixture" },
     }));
+    mockIdeaSharpenerRun(run);
     const services = createDefaultCliServices({
       rootDir: root,
-      ideaSharpenerHost: { id: "fixture_codex", run },
       now: () => new Date("2026-08-12T12:00:00.000Z"),
     });
     const harness = ioHarness();
@@ -237,7 +235,7 @@ describe("vh idea sharpen", () => {
       outputTokens: 20,
       totalTokens: 60,
       modelCalls: 2,
-      host: "fixture_codex",
+      host: "codex_cli",
       model: "fixture",
       transcriptStored: false,
       providerEffects: false,

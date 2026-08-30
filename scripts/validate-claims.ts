@@ -123,18 +123,28 @@ export function occurrenceIsNegated(text: string, offset: number): boolean {
 }
 
 function publicCopyFiles(): string[] {
-  const directories = ["app", "components", "docs/public"]
+  const directories = [
+    "app",
+    "components",
+    "docs/public",
+    "docs/assets",
+    "examples/sample-venture",
+    "reports/dogfood/launch-receipt",
+  ]
     .filter((directory) => existsSync(join(ROOT, directory)))
     .flatMap((directory) => walk(join(ROOT, directory)))
-    .filter((file) => /\.(?:[cm]?[jt]sx?|mdx?|json)$/.test(file));
+    .filter((file) => /\.(?:[cm]?[jt]sx?|csv|json|mdx?|svg|txt|ya?ml)$/.test(file));
   return [
     ...new Set(
       [
         ...directories,
         "README.md",
+        "NOTICE.md",
         "PROJECT.md",
         "package.json",
         "docs/brand/COPY.md",
+        "docs/engineering/STANDARD_SAAS_TOKEN_BENCHMARK_PROTOCOL.md",
+        "docs/product/FEATURE_STATUS.md",
         "docs/product/PRODUCT.md",
       ].filter((file) => existsSync(join(ROOT, file))),
     ),

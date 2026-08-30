@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { CommandInvocation } from "../credentials";
+import { isAllowedProviderAuthEnvironment, type CommandInvocation } from "../credentials";
 import { classifyProviderFailure } from "./retry";
 import type {
   CommandExecutorOptions,
@@ -341,6 +341,18 @@ export class CommandProviderTransport implements ProviderTransport {
         status: "failed",
         providerCode: "shell_binary_forbidden",
         message: `Commands must invoke an executable directly: ${spec.binary}`,
+        retryable: false,
+        effectOutcome: "confirmed_no_write",
+      };
+    }
+    if (
+      spec.authEnvironment &&
+      !isAllowedProviderAuthEnvironment(spec.binary, spec.authEnvironment.name)
+    ) {
+      return {
+        status: "failed",
+        providerCode: "terminal_validation",
+        message: `Provider command auth environment is not allowed for ${spec.binary}`,
         retryable: false,
         effectOutcome: "confirmed_no_write",
       };

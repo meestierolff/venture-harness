@@ -9,15 +9,13 @@ arguments with `pnpm vh --`.
 ```bash
 pnpm install
 pnpm verify
-codex --version
 ```
 
-Install and authenticate the Codex CLI before apply when no alternate
-`BuildAgentHost` is injected. Product context is sent on stdin, not command-line
-arguments; provider credentials remain outside the build-host boundary. A
-product node completes only with hash-verified changed files, its required
-artifact roles and a relevant passed direct check. A genuine no-change result
-must use typed `already_compliant` evidence and validate the unchanged artifacts.
+Founder alpha ships no audited model-execution driver. A valid Launch Contract
+can be parsed and dry-run with zero model calls, but rough-prose sharpening and
+apply stop before product model work. Fixture hosts verify graph, artifact and
+rollback policy only; dependency injection is not a supported operator escape
+hatch.
 
 Complete every uncommented field in `inputs/VENTURE_BRIEF.yaml`. Keep facts in
 `known_truths` and uncertain beliefs in `assumptions`. Do not put credentials,
@@ -106,11 +104,12 @@ The run is not complete until critical journeys and active providers have
 read-back evidence, or the report lists a truthful limitation/manual action.
 Use [LAUNCH_REPORT.md](LAUNCH_REPORT.md) as the required handoff shape.
 
-## Exact first real sequence
+## Exact current sequence
 
 ```bash
-vh create --brief inputs/VENTURE_BRIEF.yaml && vh launch --dry-run && vh launch --apply --authorization standard_launch
+vh create --brief inputs/VENTURE_BRIEF.yaml && vh launch --dry-run
 ```
 
-Run authentication and `vh doctor` first. The apply portion performs only what
-the reviewed envelope and available transports permit.
+Run authentication and `vh doctor` first. The dry run prints the exact apply
+command and model-host blocker. Do not invoke apply as a live-launch claim until
+an audited driver is installed and read back.

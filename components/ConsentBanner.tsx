@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { getConsent, setConsent, type ConsentState } from "@/lib/consent";
 import { track } from "@/lib/analytics/track";
+import { TruthClaim } from "@/components/TruthClaim";
 
 export const OPEN_CONSENT_SETTINGS_EVENT = "vh-open-consent-settings";
 
@@ -46,10 +47,12 @@ export function ConsentBanner() {
   return (
     <div role="dialog" aria-label="Analytics consent" className="consent-banner">
       <p>
-        This site can use analytics (Google Analytics, Vercel Web Analytics) to understand which
-        pages and offers matter. Nothing loads before you decide, declining changes nothing about
-        how the site works, and you can change your choice anytime via &ldquo;Analytics
-        settings&rdquo; in the footer.
+        <TruthClaim id="truth-041">
+          In this locally tested prototype, optional Google Analytics stays off until you allow it;
+          declining leaves the core site available, and Analytics settings lets this browser change
+          or withdraw its choice. The prototype may record that consent choice first-party without
+          form content.
+        </TruthClaim>
       </p>
       <div className="consent-actions">
         <button type="button" onClick={() => decide("accepted")}>

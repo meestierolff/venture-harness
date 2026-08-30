@@ -4,21 +4,21 @@
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 199,
+      "line": 201,
       "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/quality-profiles.test.ts",
       "rule": "stripe-access-token",
-      "line": 203,
+      "line": 205,
       "sha256": "33691a4aa528848be00c786ec6d89a3e7e0730fb20c3ee7c33ae63b1067b756e",
       "reason": "Synthetic redaction canary; never accepted by a provider."
     },
     {
       "path": "tests/mobile-scaffold.test.ts",
       "rule": "stripe-access-token",
-      "line": 294,
+      "line": 295,
       "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
       "reason": "Synthetic scaffold leak canary."
     },
@@ -31,24 +31,38 @@
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
-      "rule": "stripe-access-token",
-      "line": 272,
-      "sha256": "e5be9b927667636cee43b20f2a21b5791137b1f80b34bcae9a776abca801c287",
-      "reason": "Synthetic model-context leak canary."
-    },
-    {
-      "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 368,
+      "line": 201,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic model-context database URL canary."
     },
     {
       "path": "tests/runtime-build-agent-host.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 388,
+      "line": 221,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic generated-product command environment isolation canary."
+    },
+    {
+      "path": "tests/core-credential-scanner.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 12,
+      "sha256": "fe36cc4bd42b74ea6b17fb5996fd6d5ff50cfd324c815d6c1d2943164ef841b3",
+      "reason": "Synthetic generic database-URI credential classifier canary."
+    },
+    {
+      "path": "tests/credentials-broker.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 359,
+      "sha256": "fe36cc4bd42b74ea6b17fb5996fd6d5ff50cfd324c815d6c1d2943164ef841b3",
+      "reason": "Synthetic generic database-URI redaction input canary."
+    },
+    {
+      "path": "tests/credentials-broker.test.ts",
+      "rule": "database-url-with-credentials",
+      "line": 368,
+      "sha256": "dbb88af5775f1d8cafe58b863dc67a3232d6212b0dc0962cfff2d4f68b0579b7",
+      "reason": "Synthetic redacted database-URI output assertion."
     },
     {
       "path": "tests/cli-learning-integration.test.ts",
@@ -116,7 +130,7 @@
     {
       "path": "tests/providers-execution.test.ts",
       "rule": "stripe-access-token",
-      "line": 748,
+      "line": 808,
       "sha256": "186c65f3bc9edbf6c15cfece405e33dcd74c1fa86a13d908d181245f696aeca7",
       "reason": "Synthetic HTTP-boundary redaction canary."
     },
@@ -137,7 +151,7 @@
     {
       "path": "tests/fixtures/synthetic-founder-golden-path.ts",
       "rule": "database-url-with-credentials",
-      "line": 931,
+      "line": 942,
       "sha256": "c20b6ee9bd0a02d1b4418c17be2ad84b4ea73f25cfbf80b05b00e61cc980d46b",
       "reason": "Synthetic Golden Path durable-secret absence canary."
     },

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { providerCommandEnvironment } from "./provider-environment";
 import type {
   CommandRunner,
   CredentialBackend,
@@ -47,7 +48,11 @@ export function runInteractiveCliLogin(provider: string): Promise<void> {
   const spec = CLI_AUTH_COMMANDS[provider]?.login;
   if (!spec) throw new Error(`No official interactive CLI login is registered for ${provider}.`);
   return new Promise((resolve, reject) => {
-    const child = spawn(spec.command, spec.args, { shell: false, stdio: "inherit" });
+    const child = spawn(spec.command, spec.args, {
+      env: providerCommandEnvironment(process.env),
+      shell: false,
+      stdio: "inherit",
+    });
     child.once("error", reject);
     child.once("close", (code) => {
       if (code === 0) resolve();

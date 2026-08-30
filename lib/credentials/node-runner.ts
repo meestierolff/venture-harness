@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { providerCommandEnvironment } from "./provider-environment";
 import type { CommandInvocation, CommandResult, CommandRunner } from "./types";
 
 const SHELL_BINARIES = new Set([
@@ -31,7 +32,10 @@ export function assertDirectCommand(command: string): void {
 }
 
 export interface NodeCommandRunnerOptions {
+  /** Complete base environment for the child; this never merges with process.env. */
   env?: NodeJS.ProcessEnv;
+  /** Optional allowlist for per-invocation additions such as brokered provider auth. */
+  allowedInvocationEnv?: readonly string[];
   maxOutputBytes?: number;
 }
 
@@ -41,15 +45,24 @@ export interface NodeCommandRunnerOptions {
  */
 export class NodeCommandRunner implements CommandRunner {
   private readonly env: NodeJS.ProcessEnv;
+  private readonly allowedInvocationEnv: ReadonlySet<string>;
   private readonly maxOutputBytes: number;
 
   constructor(options: NodeCommandRunnerOptions = {}) {
-    this.env = options.env ?? process.env;
+    this.env = { ...(options.env ?? providerCommandEnvironment(process.env)) };
+    this.allowedInvocationEnv = new Set(options.allowedInvocationEnv ?? []);
     this.maxOutputBytes = options.maxOutputBytes ?? 2 * 1024 * 1024;
   }
 
   async run(invocation: CommandInvocation): Promise<CommandResult> {
     assertDirectCommand(invocation.command);
+    const forbidden = Object.entries(invocation.env ?? {})
+      .filter(([, value]) => value !== undefined)
+      .map(([key]) => key)
+      .find((key) => !this.allowedInvocationEnv.has(key));
+    if (forbidden) {
+      throw new Error(`Command environment variable is not allowlisted: ${forbidden}`);
+    }
     const environment = Object.fromEntries(
       Object.entries({ ...this.env, ...invocation.env }).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,

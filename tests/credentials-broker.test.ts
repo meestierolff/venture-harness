@@ -356,6 +356,7 @@ describe("credential redaction", () => {
         token: "another-secret",
         message: "Bearer known-secret and password=hunter2",
         url: "https://user:known-secret@example.test/path",
+        databaseUrl: "postgresql://fixture-user:fixture-pass@example.test/db",
       },
     });
     expect(result).toEqual({
@@ -364,6 +365,7 @@ describe("credential redaction", () => {
         token: "[REDACTED]",
         message: "Bearer [REDACTED] and password=[REDACTED]",
         url: "https://user:[REDACTED]@example.test/path",
+        databaseUrl: "postgresql://fixture-user:[REDACTED]@example.test/db",
       },
     });
   });

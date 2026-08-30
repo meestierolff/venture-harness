@@ -47,12 +47,16 @@ brew install stripe/stripe-cli/stripe
 stripe login
 ```
 
-`vh stack connect founder-default` checks the official CLI with bounded GETs,
-retains only install/auth status, safe account ID and `mode: test`, and never
-reads or copies the CLI's underlying key or config. The CLI session is useful
-for inspection and local webhook work. The REST provider adapter separately
-needs a restricted **test-mode** API-key reference in the credential broker;
-the value is collected through hidden input, never argv or Stack state. See
+`vh stack connect founder-default` checks the official CLI with exactly
+`stripe get /v1/account` and `stripe get /v1/balance`. Stripe API commands emit
+JSON by default; the connector does not pass the obsolete `--format json` flag.
+It parses only a safe account ID and the balance response's `livemode: false`,
+retains only install/auth status, account ID and `mode: test`, and never reads or
+copies the CLI's underlying key or config. Other response fields are never
+returned or persisted. The CLI session is useful for inspection and local
+webhook work. The REST provider adapter separately needs a restricted
+**test-mode** API-key reference in the credential broker; the value is collected
+through hidden input, never argv or Stack state. See
 [Stripe agents](https://docs.stripe.com/agents),
 [Stripe skills](https://docs.stripe.com/skills.md), and
 [Stripe CLI install](https://docs.stripe.com/cli/install).

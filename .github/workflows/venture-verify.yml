@@ -18,7 +18,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install exact child dependencies
-        run: pnpm install --frozen-lockfile --ignore-workspace --ignore-scripts --prod=false
+        run: pnpm install --frozen-lockfile --ignore-workspace
       - name: Install Chromium for the primary journey
         run: pnpm exec playwright install --with-deps chromium
       - name: Verify child production-shaped MVP

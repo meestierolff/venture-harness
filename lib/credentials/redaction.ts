@@ -72,7 +72,7 @@ export class Redactor {
       /\b(api[-_]?key|password|private[-_]?key|refresh[-_]?token|secret|token)\b\s*[:=]\s*([^\s,;&]+)/gi,
       (_match, key: string) => `${key}=${REDACTED}`,
     );
-    output = output.replace(/(https?:\/\/[^\s/:]+:)([^@\s/]+)(@)/gi, `$1${REDACTED}$3`);
+    output = output.replace(/([a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)([^@\s/]+)(@)/gi, `$1${REDACTED}$3`);
 
     return output;
   }

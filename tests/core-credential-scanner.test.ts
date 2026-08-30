@@ -9,6 +9,7 @@ const credentialFixtures = [
   ["Google API key", `AIza${"FixtureBoundary".repeat(3)}`],
   ["AWS access key", `AKIA${"A1B2C3D4E5F6G7H8"}`],
   ["AWS temporary access key", `ASIA${"A1B2C3D4E5F6G7H8"}`],
+  ["database URI userinfo", "postgresql://fixture-user:fixture-pass@example.test/db"],
 ] as const;
 
 describe("shared credential scanner", () => {

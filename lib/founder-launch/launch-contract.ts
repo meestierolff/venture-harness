@@ -4,8 +4,8 @@ import { z } from "zod";
 import { rejectCredentialMaterial } from "../config/contracts";
 import {
   founderBriefSchema,
-  resolveCapabilities,
   routeLaunch,
+  type CapabilityId,
   type FounderBrief,
   type LaunchDecision,
 } from "../launch";
@@ -24,6 +24,51 @@ const conciseList = (minimum = 0, maximum = 20) =>
     .min(minimum)
     .max(maximum)
     .refine((values) => new Set(values).size === values.length, "values must be unique");
+
+export const LAUNCH_CAPABILITY_CLASSIFICATIONS = [
+  "REQUIRED",
+  "DEFERRED",
+  "NOT_APPLICABLE",
+] as const;
+
+export const LaunchCapabilityClassification = Object.freeze({
+  REQUIRED: "REQUIRED",
+  DEFERRED: "DEFERRED",
+  NOT_APPLICABLE: "NOT_APPLICABLE",
+} as const);
+
+/**
+ * REQUIRED is in the present launch, DEFERRED is a reviewed later decision,
+ * and NOT_APPLICABLE is deliberately outside this venture's current shape.
+ */
+export const launchCapabilityClassificationSchema = z.enum(LAUNCH_CAPABILITY_CLASSIFICATIONS);
+
+export const launchContractCapabilityClassificationSchema = launchCapabilityClassificationSchema;
+
+export type LaunchCapabilityClassification =
+  (typeof LaunchCapabilityClassification)[keyof typeof LaunchCapabilityClassification];
+
+export const launchContractCapabilitiesSchema = z
+  .object({
+    frontend: launchCapabilityClassificationSchema,
+    backend: launchCapabilityClassificationSchema,
+    database: launchCapabilityClassificationSchema,
+    authentication: launchCapabilityClassificationSchema,
+    authorization: launchCapabilityClassificationSchema,
+    payments: launchCapabilityClassificationSchema,
+    entitlements: launchCapabilityClassificationSchema,
+    transactionalEmail: launchCapabilityClassificationSchema,
+    analytics: launchCapabilityClassificationSchema,
+    privacyAndConsent: launchCapabilityClassificationSchema,
+    seo: launchCapabilityClassificationSchema,
+    aeo: launchCapabilityClassificationSchema,
+    geo: launchCapabilityClassificationSchema,
+    agentSurface: launchCapabilityClassificationSchema,
+    scheduledLearning: launchCapabilityClassificationSchema,
+  })
+  .strict();
+
+export type LaunchContractCapabilities = z.infer<typeof launchContractCapabilitiesSchema>;
 
 const MINOR_UNIT_ROUNDING_ULPS = 8;
 
@@ -76,6 +121,7 @@ interface LaunchContractSafetyCandidate {
     targetUser: string;
     painfulJob: string;
     desiredOutcome: string;
+    proposition: string;
     differentiation: string;
     founderAdvantage: string;
   };
@@ -120,6 +166,7 @@ function affirmativeSafetyText(contract: LaunchContractSafetyCandidate): SafetyT
     { path: ["venture", "targetUser"], value: contract.venture.targetUser },
     { path: ["venture", "painfulJob"], value: contract.venture.painfulJob },
     { path: ["venture", "desiredOutcome"], value: contract.venture.desiredOutcome },
+    { path: ["venture", "proposition"], value: contract.venture.proposition },
     { path: ["venture", "differentiation"], value: contract.venture.differentiation },
     { path: ["venture", "founderAdvantage"], value: contract.venture.founderAdvantage },
     { path: ["product", "oneCoreFeature"], value: contract.product.oneCoreFeature },
@@ -287,6 +334,7 @@ export const launchContractSchema = z
         targetUser: conciseText,
         painfulJob: conciseText,
         desiredOutcome: conciseText,
+        proposition: conciseText,
         differentiation: conciseText,
         founderAdvantage: conciseText,
       })
@@ -350,6 +398,7 @@ export const launchContractSchema = z
         outcomeCommands: textList(0, 12),
       })
       .strict(),
+    capabilities: launchContractCapabilitiesSchema,
   })
   .strict()
   .superRefine((contract, context) => {
@@ -486,6 +535,107 @@ export const launchContractSchema = z
         message: "a take-rate percentage cannot exceed 100",
       });
     }
+    if (
+      contract.capabilities.payments === "REQUIRED" &&
+      contract.business.paymentProvider === "none"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "payments"],
+        message:
+          "payments cannot be REQUIRED without a supported reviewed paymentProvider; classify payments as DEFERRED when the current rail is not implemented",
+      });
+    }
+    if (
+      contract.capabilities.authorization === "REQUIRED" &&
+      contract.capabilities.authentication !== "REQUIRED"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "authentication"],
+        message:
+          "authentication must be REQUIRED when authorization is REQUIRED; otherwise defer or exclude authorization too",
+      });
+    }
+    const requiresBackend = [
+      "database",
+      "authentication",
+      "authorization",
+      "payments",
+      "entitlements",
+      "transactionalEmail",
+      "agentSurface",
+      "scheduledLearning",
+    ].some(
+      (capability) =>
+        contract.capabilities[capability as keyof LaunchContractCapabilities] === "REQUIRED",
+    );
+    if (requiresBackend && contract.capabilities.backend !== "REQUIRED") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "backend"],
+        message:
+          "backend must be REQUIRED when a server-side capability is REQUIRED; otherwise defer the dependent capabilities too",
+      });
+    }
+    if (
+      contract.capabilities.entitlements === "REQUIRED" &&
+      contract.capabilities.payments !== "REQUIRED"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "entitlements"],
+        message:
+          "entitlements must be DEFERRED when payments are not REQUIRED because the current entitlement source is the selected payment provider",
+      });
+    }
+    if (
+      contract.capabilities.analytics === "REQUIRED" &&
+      contract.capabilities.privacyAndConsent !== "REQUIRED"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "privacyAndConsent"],
+        message: "privacyAndConsent must be REQUIRED when analytics is REQUIRED",
+      });
+    }
+    if (
+      ["seo", "aeo", "geo"].some(
+        (capability) =>
+          contract.capabilities[capability as keyof LaunchContractCapabilities] === "REQUIRED",
+      ) &&
+      contract.capabilities.frontend !== "REQUIRED"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "frontend"],
+        message: "frontend must be REQUIRED when web SEO, AEO, or GEO is REQUIRED",
+      });
+    }
+    if (
+      contract.capabilities.frontend !== "REQUIRED" &&
+      contract.capabilities.agentSurface !== "REQUIRED"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "frontend"],
+        message:
+          "the current launch rail requires at least one REQUIRED delivery surface: frontend or agentSurface",
+      });
+    }
+    if (
+      (contract.agentNative.customerAgentSurfaceRequired ||
+        contract.agentNative.serviceBlueprintRequired ||
+        contract.agentNative.outcomeCommands.length > 0) &&
+      contract.capabilities.agentSurface !== "REQUIRED"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities", "agentSurface"],
+        message:
+          "agentSurface must be REQUIRED when agentNative requests a customer surface, service blueprint, or outcome command",
+      });
+    }
     for (const issue of launchContractSafetyIssues(contract)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -505,13 +655,14 @@ const LAUNCH_CONTRACT_SECTION_KEYS = Object.freeze([
   "decision",
   "truth",
   "agentNative",
+  "capabilities",
 ] as const);
 const LAUNCH_CONTRACT_SENTINEL_KEYS = Object.freeze([
   "schemaVersion",
   ...LAUNCH_CONTRACT_SECTION_KEYS,
 ] as const);
 const LAUNCH_CONTRACT_EXPECTED_SHAPE =
-  "schemaVersion: 1 with required venture, product, business, distribution, decision, truth, and agentNative mappings";
+  "schemaVersion: 1 with required venture, product, business, distribution, decision, truth, agentNative, and complete capabilities mappings";
 
 export class LaunchContractSourceError extends Error {
   readonly code = "LAUNCH_CONTRACT_SOURCE_INVALID";
@@ -558,11 +709,10 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function rawRootKeys(source: string): Set<string> {
   const keys = new Set<string>();
-  const sentinel = LAUNCH_CONTRACT_SENTINEL_KEYS.join("|");
-  const matcher = new RegExp(`^(?:["']?(${sentinel})["']?)[ \\t]*:`, "gmu");
+  const matcher = /^(?:["']?([A-Za-z][A-Za-z0-9 _-]*)["']?)[ \t]*:/gmu;
   let match: RegExpExecArray | null;
   while ((match = matcher.exec(source)) !== null) {
-    if (match[1]) keys.add(match[1]);
+    if (match[1]) keys.add(match[1].trim());
   }
   return keys;
 }
@@ -572,9 +722,49 @@ function parsedRootKeys(value: unknown): Set<string> {
   return new Set(record ? Object.keys(record) : []);
 }
 
+function normalizedRootKey(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/gu, "");
+}
+
+function editDistanceAtMost(left: string, right: string, limit: number): boolean {
+  if (Math.abs(left.length - right.length) > limit) return false;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    let rowMinimum = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const cost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      const next = Math.min(
+        (current[rightIndex - 1] ?? Number.POSITIVE_INFINITY) + 1,
+        (previous[rightIndex] ?? Number.POSITIVE_INFINITY) + 1,
+        (previous[rightIndex - 1] ?? Number.POSITIVE_INFINITY) + cost,
+      );
+      current.push(next);
+      rowMinimum = Math.min(rowMinimum, next);
+    }
+    if (rowMinimum > limit) return false;
+    previous = current;
+  }
+  return (previous[right.length] ?? Number.POSITIVE_INFINITY) <= limit;
+}
+
+function launchContractLikeRootKey(value: string): boolean {
+  const normalized = normalizedRootKey(value);
+  if (normalized === "launchcontract") return true;
+  return LAUNCH_CONTRACT_SENTINEL_KEYS.some((key) => {
+    const expected = normalizedRootKey(key);
+    if (normalized === expected) return true;
+    const limit = expected.length >= 8 ? 2 : 1;
+    return normalized.length >= 4 && editDistanceAtMost(normalized, expected, limit);
+  });
+}
+
 function hasLaunchContractIntent(source: string, value?: unknown): boolean {
   const keys = new Set([...rawRootKeys(source), ...parsedRootKeys(value)]);
-  return LAUNCH_CONTRACT_SENTINEL_KEYS.some((key) => keys.has(key));
+  return [...keys].some(launchContractLikeRootKey);
 }
 
 function sourceSchemaVersion(source: string, value?: unknown): string {
@@ -612,12 +802,15 @@ function invalidSource(input: {
   );
 }
 
-function parseStructuredCandidate(source: string): LaunchContract | undefined {
+function parseStructuredCandidate(
+  source: string,
+  options: { explicitFrontMatter?: boolean } = {},
+): LaunchContract | undefined {
   let value: unknown;
   try {
     value = parseYaml(source);
   } catch (error) {
-    if (!hasLaunchContractIntent(source)) return undefined;
+    if (!options.explicitFrontMatter && !hasLaunchContractIntent(source)) return undefined;
     const position = recordValue(error)?.linePos;
     const firstPosition = Array.isArray(position) ? recordValue(position[0]) : undefined;
     const line = typeof firstPosition?.line === "number" ? firstPosition.line : undefined;
@@ -643,31 +836,15 @@ export function parseLaunchContractSource(source: string): LaunchContract | unde
   const frontMatter = frontMatterCandidate(source);
   if (frontMatter) {
     if (!frontMatter.closed) {
-      if (!hasLaunchContractIntent(frontMatter.body)) return undefined;
       throw invalidSource({
         source: frontMatter.body,
         path: "$frontMatter",
         problem: "front matter is not closed with a standalone --- delimiter",
       });
     }
-    return parseStructuredCandidate(frontMatter.body);
+    return parseStructuredCandidate(frontMatter.body, { explicitFrontMatter: true });
   }
   return parseStructuredCandidate(source);
-}
-
-function selectedText(contract: LaunchContract): string {
-  return [
-    contract.product.oneCoreFeature,
-    ...contract.product.primaryJourney,
-    ...contract.product.trustRequirements,
-    ...contract.agentNative.outcomeCommands,
-  ]
-    .join(" ")
-    .toLowerCase();
-}
-
-function explicitlyNeeds(text: string, patterns: readonly RegExp[]): boolean {
-  return patterns.some((pattern) => pattern.test(text));
 }
 
 function fundamentalContradiction(value: string): boolean {
@@ -696,51 +873,12 @@ function monetizationModel(contract: LaunchContract): FounderBrief["monetization
 /** Deterministically projects the Launch Contract into the existing router contract. */
 export function founderBriefFromLaunchContract(contractInput: LaunchContract): FounderBrief {
   const contract = assertLaunchContractSafe(contractInput);
-  const selected = selectedText(contract);
-  const mobile = contract.business.paymentProvider === "revenuecat";
-  const needsAuth = explicitlyNeeds(selected, [
-    /\bauth(?:entication|enticated)?\b/u,
-    /\bsign[ -]?in\b/u,
-    /\baccount\b/u,
-    /\bprivate\b/u,
-  ]);
-  const needsDatabase = explicitlyNeeds(selected, [
-    /\bpersist(?:ed|ence|ent)?\b/u,
-    /\bsav(?:e|ed|ing)\b/u,
-    /\bdatabase\b/u,
-    /\bstored?\b/u,
-    /\brecords?\b/u,
-    /\bchecklist state\b/u,
-  ]);
-  const needsEmail = explicitlyNeeds(selected, [
-    /\be-?mail\b/u,
-    /\bmail(?:ed|ing)?\b/u,
-    /\btransactional message\b/u,
-  ]);
-  const needsFiles = explicitlyNeeds(selected, [
-    /\bfile (?:upload|storage)\b/u,
-    /\bupload(?:ed|s|ing)?\b/u,
-    /\battachment\b/u,
-  ]);
-  const needsAnalytics = explicitlyNeeds(selected, [
-    /\banalytics\b/u,
-    /\btrack(?:ed|ing)?\b/u,
-    /\bevent instrumentation\b/u,
-    /\bmeasure(?:d|ment)?\b/u,
-  ]);
-  const discoveryText = [
-    contract.distribution.firstChannel,
-    contract.distribution.firstUserHabitat,
-    ...contract.product.trustRequirements,
-  ]
-    .join(" ")
-    .toLowerCase();
-  const needsSearch = explicitlyNeeds(discoveryText, [
-    /\bseo\b/u,
-    /\bsearch\b/u,
-    /\bindex(?:ed|ing|ation)?\b/u,
-    /\bcrawl(?:able|ing)?\b/u,
-  ]);
+  const required = (capability: keyof LaunchContractCapabilities) =>
+    contract.capabilities[capability] === "REQUIRED";
+  const mobile = required("payments") && contract.business.paymentProvider === "revenuecat";
+  const capabilityClassification = Object.entries(contract.capabilities)
+    .map(([capability, classification]) => `${capability}=${classification}`)
+    .join("; ");
   const knownTruths = contract.truth.facts.map((fact) => `FACT: ${fact}`);
   const assumptions = [
     ...contract.truth.assumptions.map((item) => `FOUNDER_ASSUMPTION: ${item}`),
@@ -761,6 +899,8 @@ export function founderBriefFromLaunchContract(contractInput: LaunchContract): F
     smallest_core_journey: contract.product.primaryJourney.join(" -> "),
     primary_success_signal: contract.decision.primarySuccessSignal,
     material_constraints: [
+      `Canonical Launch Contract capability classifications: ${capabilityClassification}`,
+      `Build and present this reviewable proposition hypothesis without implying demand: ${contract.venture.proposition}`,
       ...contract.product.trustRequirements,
       ...contract.product.explicitNotBuilding.map((item) => `Not building: ${item}`),
       "Do not fabricate provider, user, demand, metric, revenue, or verification state.",
@@ -774,7 +914,7 @@ export function founderBriefFromLaunchContract(contractInput: LaunchContract): F
     app_kind: mobile ? "mobile_ios" : "web",
     requested_mobile_stack: mobile ? "auto" : "none",
     business_model: "b2b",
-    monetization_model: monetizationModel(contract),
+    monetization_model: required("payments") ? monetizationModel(contract) : "none",
     native_digital_goods: mobile,
     target_market: null,
     domain: contract.venture.domain ?? null,
@@ -803,15 +943,18 @@ export function founderBriefFromLaunchContract(contractInput: LaunchContract): F
       on_device_requirements: "low",
     },
     needs: {
-      authenticated_product: needsAuth,
-      database: needsDatabase,
-      file_storage: needsFiles,
-      transactional_email: needsEmail,
+      // The legacy routed capability is the implementation bundle for both
+      // authentication and any REQUIRED authorization rules. The complete
+      // tri-state map remains distinct in build context and acceptance.
+      authenticated_product: required("authentication") || required("authorization"),
+      database: required("database"),
+      file_storage: false,
+      transactional_email: required("transactionalEmail"),
       lifecycle_email: false,
       feedback: false,
-      analytics: needsAnalytics,
-      search_discovery: needsSearch,
-      scheduled_learning: false,
+      analytics: required("analytics"),
+      search_discovery: required("seo"),
+      scheduled_learning: required("scheduledLearning"),
     },
     preferred_dns_provider: "manual",
     ...(contract.synthetic ? { synthetic: true as const } : {}),
@@ -821,16 +964,67 @@ export function founderBriefFromLaunchContract(contractInput: LaunchContract): F
   });
 }
 
+/**
+ * Expands only present-tense REQUIRED classifications that have executable
+ * launch capability IDs. The complete tri-state map is projected separately
+ * into the build context instead of inventing provider/runtime capabilities.
+ */
+function routedCapabilitiesFromContract(
+  contract: LaunchContract,
+  rail: LaunchDecision["rail"],
+  payment: LaunchDecision["payment"],
+): CapabilityId[] {
+  const required = (capability: keyof LaunchContractCapabilities) =>
+    contract.capabilities[capability] === "REQUIRED";
+  const active = new Set<CapabilityId>();
+  if (required("frontend")) active.add("public_website");
+  if (required("database")) active.add("database");
+  if (required("authentication") || required("authorization")) {
+    active.add("authenticated_product");
+  }
+  if (required("transactionalEmail")) active.add("transactional_email");
+  if (required("analytics")) {
+    active.add("ga4");
+    active.add("vercel_analytics");
+  }
+  if (required("seo")) {
+    active.add("gsc");
+    active.add("bing_webmaster");
+  }
+  if (required("seo") || required("aeo") || required("geo")) {
+    active.add("web_seo_aeo_geo");
+  }
+  if (required("scheduledLearning")) active.add("scheduled_learning_loops");
+  if (payment.provider === "stripe") active.add("stripe");
+  if (payment.provider === "revenuecat") active.add("revenuecat");
+  if (rail.appKind !== "web") {
+    active.add("app_store_connect");
+    active.add("ios_aso");
+    if (rail.mobileStack === "expo_react_native") active.add("eas");
+  }
+  return [...active].sort();
+}
+
 /** Honors the reviewed mode/payment fields without creating a second router. */
 export function launchDecisionFromContract(contractInput: LaunchContract): LaunchDecision {
   const contract = assertLaunchContractSafe(contractInput);
   const brief = founderBriefFromLaunchContract(contract);
   const base = routeLaunch(brief);
   const selectedMode = contract.decision.launchMode;
+  const paymentsRequired = contract.capabilities.payments === "REQUIRED";
+  const entitlementsRequired = contract.capabilities.entitlements === "REQUIRED";
+  const selectedPaymentProvider = paymentsRequired
+    ? contract.business.paymentProvider
+    : ("none" as const);
   const payment = {
-    provider: contract.business.paymentProvider,
-    entitlementSource: contract.business.paymentProvider,
-    rationale: `The reviewed Launch Contract selected ${contract.business.paymentProvider} for ${contract.business.model}.`,
+    provider: selectedPaymentProvider,
+    entitlementSource:
+      entitlementsRequired && selectedPaymentProvider !== "none"
+        ? selectedPaymentProvider
+        : ("none" as const),
+    rationale: paymentsRequired
+      ? `The reviewed Launch Contract classifies payments as REQUIRED and selected ${selectedPaymentProvider} for ${contract.business.model}.`
+      : `The reviewed Launch Contract classifies payments as ${contract.capabilities.payments}; no payment provider is routed for this launch.`,
   } satisfies LaunchDecision["payment"];
   return {
     ...base,
@@ -851,7 +1045,7 @@ export function launchDecisionFromContract(contractInput: LaunchContract): Launc
       evidenceThatCouldChangeChoice: [contract.decision.changeRule, contract.decision.stopRule],
     },
     payment,
-    capabilities: resolveCapabilities(brief, base.rail, payment),
+    capabilities: routedCapabilitiesFromContract(contract, base.rail, payment),
   };
 }
 
@@ -876,6 +1070,7 @@ export function renderFounderIdea(contractInput: LaunchContract): string {
     `- First user: ${contract.venture.targetUser}`,
     `- Painful job: ${contract.venture.painfulJob}`,
     `- Useful outcome: ${contract.venture.desiredOutcome}`,
+    `- Proposition hypothesis: ${contract.venture.proposition}`,
     `- Core feature: ${contract.product.oneCoreFeature}`,
     `- Price hypothesis: ${contract.business.priceHypothesis === null ? "none" : `${contract.business.currency} ${contract.business.priceHypothesis}`}`,
     `- Commitment: ${contract.business.commercialCommitmentEvent}`,
@@ -913,6 +1108,7 @@ export function renderProductConstitution(contractInput: LaunchContract): string
     "",
     `- Category: ${contract.venture.oneSentenceThesis}`,
     `- Promise: ${contract.venture.desiredOutcome}`,
+    `- Proposition hypothesis: ${contract.venture.proposition}`,
     `- First user: ${contract.venture.targetUser}`,
     `- Job to be done: ${contract.venture.painfulJob}`,
     `- Native product object: ${contract.product.oneCoreFeature}`,
@@ -929,6 +1125,12 @@ export function renderProductConstitution(contractInput: LaunchContract): string
     "Truth classes are FACT, FOUNDER_ASSUMPTION, MODEL_INFERENCE, FIXTURE, EXTERNALLY_VERIFIED, UNKNOWN, and CONTRADICTORY.",
     "",
     "Models may improve framing, prioritization, language, design, and implementation. Models may not invent provider state, users, demand, metrics, results, customers, revenue, reviews, source URLs, or testimonials.",
+    "",
+    "## Capability scope",
+    "",
+    ...Object.entries(contract.capabilities).map(
+      ([capability, classification]) => `- ${capability} — ${classification}`,
+    ),
     "",
     "## Scope exclusions",
     "",

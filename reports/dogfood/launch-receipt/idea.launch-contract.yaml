@@ -2,72 +2,96 @@ schemaVersion: 1
 venture:
   name: Launch Receipt
   slug: launch-receipt
-  oneSentenceThesis: A focused web app that helps an indie SaaS founder verify essential launch readiness and publish a clear receipt of what is ready and what remains.
-  targetUser: An indie hacker preparing to launch a SaaS product
-  painfulJob: Consolidate scattered launch requirements, proof, and remaining actions into one trustworthy readiness view
-  desiredOutcome: Publish a clean launch receipt that accurately communicates readiness and outstanding work
-  differentiation: A narrow, evidence-linked launch receipt instead of ongoing project management or a generic startup dashboard
-  founderAdvantage: A focused understanding of the launch-readiness workflow and the ability to test a narrow product directly with indie SaaS founders.
+  oneSentenceThesis: A focused web app that helps an indie SaaS founder complete one launch checklist and publish an honest read-only readiness receipt.
+  targetUser: An indie hacker or small SaaS founder preparing a first product launch
+  painfulJob: Launch requirements, evidence, and remaining actions are scattered across notes and provider dashboards
+  desiredOutcome: Complete one focused launch checklist and publish a clean receipt that separates ready, remaining, and evidenced work
+  proposition: Turn scattered launch checks into one evidence-aware checklist and a shareable read-only launch receipt
+  differentiation: A narrow launch-completion record instead of ongoing project management, a generic startup dashboard, or provider automation
+  founderAdvantage: First-hand experience operating evidence-bound launches and reviewing provider readiness without treating requests as verified results
 product:
-  oneCoreFeature: A launch-readiness checklist whose items include status and optional proof, rendered as a publishable receipt
+  oneCoreFeature: A persisted launch checklist that becomes one public read-only receipt with explicit draft, ready, remaining, and evidence states
   primaryJourney:
-    - The founder creates a launch receipt, reviews the essential launch items, marks each item ready or remaining, attaches proof where useful, previews the result, and publishes one shareable receipt.
-  primaryCta: Create your launch receipt
+    - The founder signs in with an owner email and creates one launch.
+    - The founder completes the essential checklist and adds optional evidence references.
+    - The founder previews and publishes the receipt, then opens its public read-only URL.
+  primaryCta: Create a launch receipt
   explicitNotBuilding:
     - Project-management features
-    - Generic startup dashboards
-    - A Venture Harness control plane
-    - Team collaboration
-    - Provider integrations
-    - Automated readiness verification
+    - Teams or customer organizations
+    - A generic startup dashboard
+    - Provider automation inside the product
     - Custom checklist templates
-    - Billing
-  designThesis: Make readiness legible at a glance, distinguish claims from attached proof, and keep remaining actions impossible to hide accidentally.
+    - File uploads
+    - Customer agent API, CLI, MCP, or SDK surfaces
+    - Native mobile apps
+    - Another Venture Harness control plane
+    - Winner Loop, Fleet, advertising, or automated outreach
+  designThesis: Treat readiness like a calm evidence ledger with strong hierarchy, unmistakable draft and published states, and a memorable publish-to-receipt transition.
   trustRequirements:
-    - persisted state
-    - secure unguessable editing link
-    - clear published-versus-draft state
-    - explicit proof attribution
+    - authenticated owner access
+    - owner-only launch editing authorization
+    - persisted checklist and publication state
+    - unguessable read-only receipt URLs
+    - explicit evidence attribution
+    - accessible loading, empty, error, and reduced-motion states
 business:
-  model: free
-  priceHypothesis: null
+  model: subscription
+  priceHypothesis: 9
   currency: EUR
-  paymentProvider: none
-  commercialCommitmentEvent: The founder publishes a launch receipt.
+  paymentProvider: stripe
+  commercialCommitmentEvent: The founder starts a EUR 9 monthly subscription through a Stripe test-mode checkout used only for launch verification.
 distribution:
   firstChannel: Direct outreach
-  firstUserHabitat: Indie hackers publicly preparing or announcing a SaaS launch
-  initialMessage: Turn your scattered launch checks and proof into one honest, shareable readiness receipt.
-  firstValidationAction: Invite upcoming SaaS launchers to create and publish a receipt for their current launch.
+  firstUserHabitat: Indie-hacker and small-SaaS communities where founders share upcoming launches and readiness questions
+  initialMessage: Replace scattered launch notes with one checklist and an honest receipt that shows what is ready and what still needs work.
+  firstValidationAction: Invite five founders with an upcoming SaaS launch to complete the full checklist-to-published-receipt journey and critique it.
 decision:
   launchMode: thin_mvp
-  primarySuccessSignal: published_launch_receipt
+  primarySuccessSignal: launch_receipt_published
   reviewDate: 2026-09-08
-  continueRule: Continue if target users independently complete the journey and publish launch receipts they consider useful.
-  changeRule: Change the checklist scope or receipt format if target users begin but cannot publish an accurate, useful receipt.
-  stopRule: Stop if target users consistently prefer their existing notes and dashboards and do not publish a receipt after trying the complete journey.
+  continueRule: Continue if invited founders independently publish a receipt and say it improves their launch handoff or readiness review.
+  changeRule: Change the required checklist or receipt structure if founders begin but cannot publish an accurate useful receipt without returning to another document.
+  stopRule: Stop if founders complete the journey but consistently prefer their existing notes or dashboards and would not use the receipt again.
 truth:
   facts:
-    - The proposed product is a web app.
-    - The intended user is an indie hacker about to launch a SaaS.
-    - The founder explicitly excludes project-management suites, generic startup dashboards, and another Venture Harness control plane.
-    - A monthly subscription was suggested only as a possibility.
+    - This file is planned dogfood input and is not live customer or provider evidence.
+    - The requested rail is a web product for indie hackers and small SaaS founders preparing a launch.
+    - The founder requested exactly EUR 9 per month as a Stripe test-mode price hypothesis and prohibited any real charge.
+    - Publishing a receipt, not checkout, is the primary success signal.
   assumptions:
-    - A focused checklist plus publishable receipt is sufficient for an initially useful outcome.
-    - Founders will manually enter statuses and proof without provider integrations.
-    - An unguessable editing link can replace user authentication for the first version.
-    - A free launch is appropriate until willingness to pay is observed.
+    - One focused checklist plus a read-only receipt is sufficient for the first useful outcome.
+    - Founders will enter readiness states and optional evidence references manually.
+    - Email sign-in and an unguessable public receipt URL are acceptable for the first dogfood journey.
+    - A recurring EUR 9 subscription may fit the launch-readiness job.
   inferences:
-    - Publishing a receipt requires persisted state and a stable shareable URL.
-    - Real product usage is useful but not indispensable before testing the concept, so a thin MVP is appropriate.
+    - Publishing a stable public receipt requires persisted state and owner authorization.
+    - Stripe test-mode verification requires payments and entitlements on the initial rail even though a real charge is forbidden.
+    - A founder-authorized transactional receipt email can remain deferred without blocking the Vercel production URL journey.
   contradictions: []
   unknowns:
-    - Which launch items users consider essential
-    - What forms of proof users need to attach or link
-    - Whether published receipts are primarily private working documents or public trust artifacts
-    - Whether users will pay, how much they might pay, and whether a subscription fits the usage pattern
+    - Which checklist items founders consider indispensable
+    - What evidence references founders are willing to publish
+    - Whether receipts are primarily private coordination records or public trust artifacts
+    - Whether a recurring subscription matches an episodic launch job
   externalEvidence: []
 agentNative:
   customerAgentSurfaceRequired: false
   serviceBlueprintRequired: false
   outcomeCommands: []
+capabilities:
+  frontend: REQUIRED
+  backend: REQUIRED
+  database: REQUIRED
+  authentication: REQUIRED
+  authorization: REQUIRED
+  payments: REQUIRED
+  entitlements: REQUIRED
+  transactionalEmail: DEFERRED
+  analytics: REQUIRED
+  privacyAndConsent: REQUIRED
+  seo: REQUIRED
+  aeo: REQUIRED
+  geo: REQUIRED
+  agentSurface: NOT_APPLICABLE
+  scheduledLearning: DEFERRED

@@ -325,6 +325,10 @@ describe("one-prompt founder launch preparation", () => {
           serviceBlueprintRequired: true,
           outcomeCommands: ["publish_verified_receipt"],
         },
+        capabilities: {
+          ...contract.capabilities,
+          agentSurface: "REQUIRED",
+        },
       }),
     });
 
@@ -339,6 +343,10 @@ describe("one-prompt founder launch preparation", () => {
           customerAgentSurfaceRequired: true,
           serviceBlueprintRequired: true,
           outcomeCommands: ["publish_verified_receipt"],
+        },
+        capabilities: {
+          ...contract.capabilities,
+          agentSurface: "REQUIRED",
         },
       }),
     );

@@ -168,10 +168,7 @@ export function founderSeedFor(
   brief: FounderBrief,
   launchContract: CompiledFounderIdea["launchContract"],
 ): SeedId {
-  if (
-    launchContract?.agentNative.customerAgentSurfaceRequired ||
-    launchContract?.agentNative.serviceBlueprintRequired
-  ) {
+  if (launchContract?.capabilities.agentSurface === "REQUIRED") {
     return "hybrid-agentic-service";
   }
   if (brief.app_kind === "web") return "agentic-web-saas";

@@ -11,6 +11,8 @@ export function launchReceiptContract(overrides: Partial<LaunchContract> = {}): 
       targetUser: "Indie hackers preparing a small SaaS launch",
       painfulJob: "Launch requirements and proof are scattered across tools and notes",
       desiredOutcome: "Publish one honest read-only launch receipt",
+      proposition:
+        "Turn scattered launch requirements into one evidence-aware checklist and shareable receipt",
       differentiation: "Evidence status is explicit instead of implied by a checked box",
       founderAdvantage: "The founder has direct experience launching independent SaaS products",
     },
@@ -74,6 +76,23 @@ export function launchReceiptContract(overrides: Partial<LaunchContract> = {}): 
       customerAgentSurfaceRequired: false,
       serviceBlueprintRequired: false,
       outcomeCommands: [],
+    },
+    capabilities: {
+      frontend: "REQUIRED",
+      backend: "REQUIRED",
+      database: "REQUIRED",
+      authentication: "REQUIRED",
+      authorization: "REQUIRED",
+      payments: "REQUIRED",
+      entitlements: "REQUIRED",
+      transactionalEmail: "REQUIRED",
+      analytics: "REQUIRED",
+      privacyAndConsent: "REQUIRED",
+      seo: "NOT_APPLICABLE",
+      aeo: "NOT_APPLICABLE",
+      geo: "NOT_APPLICABLE",
+      agentSurface: "NOT_APPLICABLE",
+      scheduledLearning: "NOT_APPLICABLE",
     },
   };
   return launchContractSchema.parse({ ...base, ...overrides });

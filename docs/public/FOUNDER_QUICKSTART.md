@@ -25,7 +25,7 @@ pnpm verify
 Commands below use an installed `vh` binary. In this checkout, replace `vh`
 with `pnpm vh --` and keep the remaining arguments unchanged.
 
-## 2. Choose the ventures root and sharpen one rough idea
+## 2. Choose the ventures root and validate one Launch Contract
 
 Generated ventures are independent products and may not live inside the Core
 checkout. Configure their parent directory once:
@@ -34,32 +34,27 @@ checkout. Configure their parent directory once:
 vh config set ventures-root ~/Projects/ventures
 ```
 
-Write a short, truthful rough idea; unresolved non-critical detail can remain an
-assumption:
-
-```markdown
-# Rough idea
-
-I want a small web product for independent consultants who lose track of which
-client deliverables are ready to invoice. It should show one useful exception
-list and let them confirm a draft invoice run. It must not become a general
-project-management suite. A paid product may make sense, but that is still an
-assumption.
-```
-
-Then produce and review the credential-free Launch Contract, Product
-Constitution, final idea, and sanitized usage summary:
+Copy the complete synthetic contract, replace its decisions with reviewed
+founder inputs, then produce the credential-free Product Constitution, final
+idea, and zero-call usage summary:
 
 ```bash
-vh idea sharpen --input ./rough-idea.md --output ./idea.md --json
+cp examples/idea-to-launch/launch-contract.yaml ./launch-contract.yaml
+vh idea sharpen --input ./launch-contract.yaml --output ./idea.md --json
 ```
 
-The command performs no provider effect. Structured Launch Contract input uses
-zero model calls; rough prose uses one bounded Codex call and at most one repair
-call. Do not put secrets, private customer data, testimonials, or unverified
-results in the input. Before continuing, confirm the one user, painful job,
-outcome, core feature, primary journey, commitment event, first channel,
-success signal, review date, assumptions, and explicit not-building list.
+The command performs no provider effect. An existing valid `schemaVersion: 1`
+Launch Contract uses the locally tested zero-model-call path. Malformed Launch
+Contract-like YAML or front matter fails closed before any model call.
+Unambiguously freeform prose also fails before invocation because founder alpha
+ships no audited outer read-isolation driver. Do not put secrets, private
+customer data, testimonials, or unverified results in the input. Before
+continuing, confirm the one user, painful job,
+outcome, reviewable proposition hypothesis, core feature, primary journey,
+commitment event, first channel, success signal, review date, assumptions,
+explicit not-building list, and all 15 capability classifications. Every
+capability is exactly `REQUIRED`, `DEFERRED`, or `NOT_APPLICABLE`; missing or
+invalid classifications make structured input fail closed.
 
 ## 3. Connect the founder Stack once
 
@@ -71,11 +66,12 @@ vh stack connect founder-default
 
 It inspects supported official CLI sessions, saves only credential-free account
 metadata and `cred://` references, runs bounded read-only credential tests, then
-runs Stack doctor. It selects roles from the reviewed Launch Contract: GitHub
-and Vercel for an ordinary web launch, Neon only when persistence is required,
-Stripe only for selected web commerce, and RevenueCat only for selected native
-digital commerce. Brevo, Google, Bing, and DNS may remain exact non-blocking
-actions when the first launch does not require them.
+runs Stack doctor. The connector prepares the fixed founder-default Stack; it
+does not read `idea.md`. Launch preparation later filters providers from the
+compiled Launch Contract, including Neon only for required persistence, Stripe
+only for required supported web commerce, and RevenueCat only for required
+supported native digital commerce. Brevo, Google, Bing, and DNS may remain exact
+non-blocking actions when the first launch does not require them.
 
 The wizard prints one safe next command for each unresolved role. These
 lower-level commands remain available when an account cannot be discovered:
@@ -140,19 +136,20 @@ The founder-default preparation reports `setup.analytics = google_analytics`.
 Vercel Web Analytics is not enabled by the apply-once plan; add it only as a
 separately reviewed/manual option.
 
-## 5. Issue one explicit launch
+## 5. Inspect the fail-closed apply boundary
 
-After reviewing the dry run and the exact destination accounts:
+Founder alpha has no audited production model executor. Retain the command below
+only as the exact continuation printed by the dry run; do not invoke it until an
+audited driver exists. It currently stops before product-build model work:
 
 ```bash
 vh launch --idea ./idea.md --stack founder-default --production --apply --non-interactive
 ```
 
-The CLI derives graph authorization from an immutable Launch Grant; do not add
-`--authorization`. The local child is staged before it becomes the venture
-directory. The same child CLI and durable graph then perform the authorized
-repository, product, migration, provider, source-push, production-deploy,
-verification, and report nodes.
+When an audited model executor exists, the CLI will derive graph authorization
+from an immutable Launch Grant; do not add `--authorization`. The intended graph
+stages a local child before any venture directory or provider effect. None of
+those future nodes is live evidence until its provider read-back succeeds.
 
 For a web child, the first code-owned node installs the exact child
 `pnpm-lock.yaml` with `--frozen-lockfile`, ignores the parent workspace, disables
@@ -164,10 +161,10 @@ interrupted install is retried only through the same bounded durable run.
 The Grant's provider budget is an operation count plus direct-charge estimates
 for an exact reviewed provider/capability/action allowlist. `0` means no known
 direct charge for those operations; it does not include an account's recurring
-plan usage. Production model work requires `codex login status` to identify a
-ChatGPT-subscription session and is bounded by compiled build-agent task count.
-Venture Harness does not describe that as a token or monetary hard cap; API-key
-or unknown model billing blocks before child creation and provider transport.
+plan usage. The compiled graph and Launch Grant bound two product-build tasks,
+but founder alpha installs no production model executor: rough-prose sharpening
+and product-build nodes fail closed before invocation. A future driver must
+prove outer read isolation and non-metered policy before that status changes.
 
 A terminal success points to
 `reports/launch/<run-id>/final.{json,md}` inside the child venture. A legitimate
@@ -187,12 +184,13 @@ scope; it cannot widen the persisted Grant.
 An agent with access to this checkout should translate the instruction, not
 invent a second launch path:
 
-> Build and launch `./idea.md` live using my `founder-default` Stack. First run
-> the complete production dry run, show me any blockers, and then invoke the
-> exact one-prompt apply command. Do not expose credentials or widen the Launch
-> Grant.
+> Validate `./idea.md`, run `vh doctor`, and run the complete production dry run
+> using my `founder-default` Stack. Show every blocker and the reserved apply
+> command, but do not invoke it. Do not expose credentials, widen the Launch
+> Grant, or claim a live result.
 
-The executable semantics remain the two `vh launch --idea ...` commands above.
+The currently supported public semantics stop at validation and dry run. The
+apply command remains fail-closed until an audited model executor is installed.
 
 ## What you own
 
@@ -203,8 +201,10 @@ founder's Stack. Venture Harness stores references and sanitized evidence, not
 credential values or ownership of the accounts.
 
 Core upgrades classify files as `core_owned`, `merge_managed`, or
-`venture_owned`; product, design, copy, and other venture-owned work is
-preserved. See [child upgrades](../operations/CHILD_VENTURE_UPGRADES.md) and
+`venture_owned`. Preservation of product, design, copy, and other
+venture-owned work is fixture-tested for the registered upgrade path; an
+unrecognized or overlapping conflict stops for review. See
+[child upgrades](../operations/CHILD_VENTURE_UPGRADES.md) and
 [offboarding](../operations/OFFBOARDING.md).
 
 ## Troubleshooting
@@ -220,6 +220,7 @@ preserved. See [child upgrades](../operations/CHILD_VENTURE_UPGRADES.md) and
 | Interrupted staging directory                   | Atomic materialization did not finish                                               | Inspect it and choose a new `--output`; do not overwrite it                   |
 | Run is waiting                                  | An exact external action or evidence boundary was reached                           | Read the launch report and resume the same run ID                             |
 | Frozen child install is missing or interrupted  | The lockfile/tooling read-back did not establish a complete independent install     | Repair local package access and resume the same run; descendants stay blocked |
+| Package execution policy mismatch               | Scripts, dependencies, lifecycle allowlist, or lockfile differ from the Core review | Restore the generated contract or begin a deliberate Core upgrade             |
 | Provider says accepted but report is unverified | Read-back has not matched the intended state                                        | Do not retry blindly; inspect or reconcile the prepared operation             |
 | Custom domain is blocked                        | DNS cannot be automated or has not propagated                                       | Complete the consolidated record action; keep the stable Vercel URL           |
 
