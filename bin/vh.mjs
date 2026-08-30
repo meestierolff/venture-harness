@@ -23843,7 +23843,7 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
     expect(robotsText).not.toContain("Disallow: /");
     expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
     expect(sitemapText).not.toMatch(/\/(?:api|auth|account|edit|draft|private|status|user)(?:\/|<)/u);
-    expect(sitemapText).not.toContain("?");
+    expect(sitemapText).not.toMatch(/<loc>[^<]*\?[^<]*<\/loc>/u);
     expect(await page.locator('a[href^="/"]').count()).toBeGreaterThan(0);
   } else {
     expect(robotsContent).toContain("noindex");
@@ -45404,7 +45404,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "666ea1b406ace70c4058494a633dc758f9db2d11" : void 0;
+  const workflowRefSha = true ? "7633864e36e83ebfae219becf254756512983677" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
