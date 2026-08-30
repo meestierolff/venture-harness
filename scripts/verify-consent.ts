@@ -112,6 +112,7 @@ if (gaFiles.length === 1 && gaFiles[0] === "components/AnalyticsScripts.tsx") {
 const analyticsLoader = readText("components/AnalyticsScripts.tsx");
 const requiredBoundaryMarkers = [
   ["validGaMeasurementId", "validate the GA4 measurement id before use"],
+  ["serializeInlineScriptJson", "escape every inline-script JSON value for the HTML context"],
   ["JSON.stringify", "serialize inline-script values with JSON.stringify"],
   ["ga-consent-default", "emit an immediate first-party consent default"],
   ['analytics_storage: "denied"', "default analytics storage to denied"],

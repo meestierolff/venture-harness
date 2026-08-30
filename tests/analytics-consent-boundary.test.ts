@@ -5,6 +5,7 @@ import {
   consentStateFromStorageEvent,
   googleAnalyticsDefaultDeniedScript,
   googleAnalyticsInitScript,
+  serializeInlineScriptJson,
   validGaMeasurementId,
 } from "@/components/AnalyticsScripts";
 
@@ -25,6 +26,15 @@ describe("Google Analytics consent boundary", () => {
     ]) {
       expect(validGaMeasurementId(invalid)).toBeNull();
     }
+  });
+
+  it("escapes HTML-significant and JavaScript line-separator characters without changing data", () => {
+    const value = { canary: "</script>&>\u2028\u2029" };
+    const serialized = serializeInlineScriptJson(value);
+
+    expect(serialized).not.toMatch(/[<>&\u2028\u2029]/u);
+    expect(serialized).toContain("\\u003c/script\\u003e\\u0026\\u003e\\u2028\\u2029");
+    expect(JSON.parse(serialized)).toEqual(value);
   });
 
   it("serializes a valid id into a default-denied script and refuses invalid input", () => {

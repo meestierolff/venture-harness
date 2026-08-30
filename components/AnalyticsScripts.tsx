@@ -38,19 +38,35 @@ export function validGaMeasurementId(value: string | undefined): string | null {
   return candidate && /^G-[A-Z0-9]{10}$/u.test(candidate) ? candidate : null;
 }
 
+export function serializeInlineScriptJson(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new TypeError("Inline script values must be JSON-serializable");
+  }
+  return serialized
+    .replace(/&/gu, "\\u0026")
+    .replace(/</gu, "\\u003c")
+    .replace(/>/gu, "\\u003e")
+    .replace(/\u2028/gu, "\\u2028")
+    .replace(/\u2029/gu, "\\u2029");
+}
+
 export function googleAnalyticsDefaultDeniedScript(measurementId: string): string {
   const validId = validGaMeasurementId(measurementId);
   if (!validId) return "";
-  const serializedId = JSON.stringify(validId);
-  const serializedConsent = JSON.stringify({ ...DENIED_CONSENT, wait_for_update: 500 });
+  const serializedId = serializeInlineScriptJson(validId);
+  const serializedConsent = serializeInlineScriptJson({
+    ...DENIED_CONSENT,
+    wait_for_update: 500,
+  });
   return `(function(){var id=${serializedId};window.dataLayer=window.dataLayer||[];window.gtag=window.gtag||function(){window.dataLayer.push(arguments);};window["ga-disable-"+id]=true;window.gtag("consent","default",${serializedConsent});})();`;
 }
 
 export function googleAnalyticsInitScript(measurementId: string): string {
   const validId = validGaMeasurementId(measurementId);
   if (!validId) return "";
-  const serializedId = JSON.stringify(validId);
-  const serializedConfig = JSON.stringify({
+  const serializedId = serializeInlineScriptJson(validId);
+  const serializedConfig = serializeInlineScriptJson({
     allow_ad_personalization_signals: false,
     allow_google_signals: false,
     send_page_view: false,

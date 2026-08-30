@@ -9,6 +9,7 @@ import { parse } from "yaml";
 import { EVENTS, type EventSpec } from "@/lib/analytics/taxonomy";
 import { filterAnalyticsProps } from "@/lib/analytics/track";
 import { safeLandingAttribution } from "@/lib/analytics/attribution";
+import { isSafeAnalyticsProperty } from "@/lib/analytics/safe-value";
 
 const config = parse(readFileSync("config/analytics.yaml", "utf8")) as {
   prohibited_properties: string[];
@@ -90,6 +91,12 @@ describe("event taxonomy", () => {
     expect(filterAnalyticsProps("site_visit", { utm_source: "+31612345678" })).toEqual({});
     expect(filterAnalyticsProps("site_visit", { utm_source: "31612345678" })).toEqual({});
     expect(filterAnalyticsProps("site_visit", { utm_source: "jane" })).toEqual({});
+  });
+
+  it("rejects a malformed route without ambiguous backtracking", () => {
+    const started = performance.now();
+    expect(isSafeAnalyticsProperty("landing_route", `/${"a".repeat(28)}?`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(250);
   });
 
   it("does not forward unreviewed URL attribution values", () => {

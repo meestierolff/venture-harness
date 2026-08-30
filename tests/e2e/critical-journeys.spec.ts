@@ -48,8 +48,11 @@ test("accept then withdraw stops every later third-party analytics call", async 
   await page.route("https://www.googletagmanager.com/**", (route) =>
     route.fulfill({ status: 200, contentType: "application/javascript", body: "/* fixture */" }),
   );
-  await page.route(/https:\/\/[^/]*google-analytics\.com\/.*/u, (route) =>
-    route.fulfill({ status: 204, body: "" }),
+  await page.route(
+    (url) =>
+      url.protocol === "https:" &&
+      (url.hostname === "google-analytics.com" || url.hostname.endsWith(".google-analytics.com")),
+    (route) => route.fulfill({ status: 204, body: "" }),
   );
   await page.addInitScript(() => {
     const target = window as typeof window & { __vhGtagCalls: unknown[][] };
@@ -92,7 +95,9 @@ test("accept then withdraw stops every later third-party analytics call", async 
     }),
   ).toBe(callsAfterWithdrawal);
   expect(thirdPartyRequests).toHaveLength(requestsAfterWithdrawal);
-  expect(thirdPartyRequests.some((url) => url.includes("va.vercel-scripts.com"))).toBe(false);
+  expect(thirdPartyRequests.some((url) => new URL(url).hostname === "va.vercel-scripts.com")).toBe(
+    false,
+  );
 });
 
 test("the private lead path fails visibly when persistence is unavailable", async ({ page }) => {

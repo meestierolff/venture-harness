@@ -14,7 +14,7 @@ export function isSafeAnalyticsString(value: string): boolean {
   );
 }
 
-const ROUTE = /^\/(?:[A-Za-z0-9._~!$&'()*+,;=:@%-]+\/?)*$/u;
+const ROUTE = /^\/(?:[A-Za-z0-9._~!$&'()*+,;=:@%-]+(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)*\/?)?$/u;
 const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u;
 const DISPLAYED_PRICE =
   /^(?:Free|Custom|Contact(?: us)?|(?:[A-Z]{3}|[€$£¥])\s?\d[\d.,]*(?:\s?(?:\/|per\s)(?:month|year|week|unit))?(?:\s(?:incl\.?|excl\.?)\sVAT)?)$/u;

@@ -1514,6 +1514,49 @@ const ROLLBACK_IGNORED_DIRECTORIES = new Set([
 const ROLLBACK_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const ROLLBACK_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 
+function readRollbackPreimageFile(
+  path: string,
+  reference: string,
+  expectedDevice: number,
+  expectedInode: number,
+): { content: Buffer; mode: number } {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | NO_FOLLOW);
+    const metadata = fstatSync(descriptor);
+    if (
+      !metadata.isFile() ||
+      metadata.nlink !== 1 ||
+      metadata.size > ROLLBACK_MAX_FILE_BYTES ||
+      metadata.dev !== expectedDevice ||
+      metadata.ino !== expectedInode
+    ) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a private bounded rollback preimage for ${reference}.`,
+      );
+    }
+    const content = readFileSync(descriptor);
+    if (content.byteLength > ROLLBACK_MAX_FILE_BYTES) {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a private bounded rollback preimage for ${reference}.`,
+      );
+    }
+    return { content, mode: metadata.mode & 0o777 };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") {
+      throw new WorkflowExecutionError(
+        "BUILD_AGENT_UNSAFE_FILE_ENTRY",
+        `Cannot establish a rollback preimage for unsafe repository entry ${reference}.`,
+      );
+    }
+    throw error;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
 function repositoryPreimage(root: string): RepositoryPreimage {
   const files = new Map<string, RepositoryPreimageFile>();
   const directories = new Map<string, number>();
@@ -1537,13 +1580,8 @@ function repositoryPreimage(root: string): RepositoryPreimage {
         visit(absolute);
         continue;
       }
-      if (metadata.nlink !== 1 || metadata.size > ROLLBACK_MAX_FILE_BYTES) {
-        throw new WorkflowExecutionError(
-          "BUILD_AGENT_UNSAFE_FILE_ENTRY",
-          `Cannot establish a private bounded rollback preimage for ${reference}.`,
-        );
-      }
-      totalBytes += metadata.size;
+      const file = readRollbackPreimageFile(absolute, reference, metadata.dev, metadata.ino);
+      totalBytes += file.content.byteLength;
       if (totalBytes > ROLLBACK_MAX_TOTAL_BYTES) {
         throw new WorkflowExecutionError(
           "BUILD_AGENT_UNSAFE_FILE_ENTRY",
@@ -1551,8 +1589,8 @@ function repositoryPreimage(root: string): RepositoryPreimage {
         );
       }
       files.set(reference, {
-        content: readFileSync(absolute),
-        mode: metadata.mode & 0o777,
+        content: file.content,
+        mode: file.mode,
       });
     }
   };
