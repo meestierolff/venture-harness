@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 0fd2aafd1a57e19207390124155a0ef3819cccd9
-  tree_digest: 427e8f6675282d5b3a8ffff05376d3be1799e6138dd1431b93b4ebd45510afef
+  ref: 9110e7723ce5733b8cf9fa2e964e75695f4f2da2
+  tree_digest: b31822ad8f010370d6c2e83522df90d666e528e38d99cb09ec9aca8f50c684f0
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -305,10 +305,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: 0e563a51269a5001063babb2aeb6a6dcc7fa4864050041a7da78bdddfe18d2e1
+    sha256: d5dc60ac5ef5762514001ba79996c884e2f8a6914de959d7723616eae790dd27
   - path: bin/vh.mjs
     ownership: harness
-    sha256: e2d09fa483548904d10f09a81c600667f4ba94f69a050131cd068426e732aae7
+    sha256: 8dcf14d08a167fd52d1b5bec3c2d4dbdc983ccbb21895025f2219786b17ec238
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -497,7 +497,7 @@ managed_files:
     sha256: 3a4b1df09180db957a1dede873783daceee0609e596840ab3fbd6c1f04242a50
   - path: lib/founder-launch/idea-sharpener.ts
     ownership: harness
-    sha256: e3cddd09f036b913b00993fc14cbf94bc0603180b40ec389902f6e998982540e
+    sha256: 8255419cf69c331be65503f2271435c7eeb871e297cff687f3f8bec5fbede0d0
   - path: lib/founder-launch/idea.ts
     ownership: harness
     sha256: b20c927a41e72010adf51e90ea7a8a98eeba3009b06f34c97b7609c3440d7695
@@ -1370,7 +1370,7 @@ managed_files:
     sha256: 80025803960692541cfeba04fd71f39e6d73c32f51f400dc5d864514772ba754
   - path: tests/idea-sharpener.test.ts
     ownership: harness
-    sha256: aa0112ddf6309e312921bf38b926f0c3d87373187fa350dcb928d519f38e29ad
+    sha256: 1d2e31d5774a87791ac65342ccee254ba152a2ddb626fbdcd7b15373b4325547
   - path: tests/launch-authorization-scope.test.ts
     ownership: harness
     sha256: 27175b71d325dda38a3cec86d8b6879d8b2887a9d29d55fdf356c024777096fd

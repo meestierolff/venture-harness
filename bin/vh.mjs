@@ -19373,7 +19373,7 @@ function primaryPrompt(source, today) {
     "Use one user, one painful job, one useful outcome, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list.",
     "Do not invent demand, users, quotes, revenue, metrics, provider state, external evidence, founder credentials, market size, or pricing certainty. Put reversible uncertainty in truth.assumptions, truth.inferences, or truth.unknowns.",
     "Default to thin_mvp. Use product_first only when real usage is indispensable, validate_first only when risk or cost makes a smaller demand test necessary, and concierge_first only when honest manual delivery is materially better.",
-    "Default business.model to free and paymentProvider to none unless the founder proposes present commerce. Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. priceHypothesis is one positive numeric amount or null. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
+    "Treat tentative commercial wording such as SaaS, paid, subscription, pricing, or selling as a reversible business hypothesis rather than an absence of commerce. For a web SaaS or other web subscription hypothesis, set business.model to subscription, paymentProvider to stripe, and priceHypothesis to one positive numeric amount; label the unvalidated model and price in truth.assumptions or truth.unknowns. Choose business.model free, paymentProvider none, and priceHypothesis null only when the founder explicitly says the product is free, needs no payments, or will add payments or monetization later. Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
     "Do not require auth, persistence, email, analytics, search, agents, or scheduled work unless the primary journey actually needs it. Put material implementation needs in product.trustRequirements using direct terms such as authentication, persisted state, transactional email, analytics, or SEO.",
     `Today is ${today}; choose a concrete reviewDate after today without claiming future evidence.`,
     "Schema skeleton (replace every placeholder and use only the listed keys/enums):",
@@ -44365,7 +44365,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "0fd2aafd1a57e19207390124155a0ef3819cccd9" : void 0;
+  const workflowRefSha = true ? "9110e7723ce5733b8cf9fa2e964e75695f4f2da2" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
