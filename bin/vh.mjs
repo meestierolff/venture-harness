@@ -6,7 +6,7 @@ var __export = (target, all) => {
 };
 
 // scripts/vh-bundle.ts
-import { realpathSync as realpathSync14 } from "node:fs";
+import { realpathSync as realpathSync15 } from "node:fs";
 import { resolve as resolve29 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
@@ -7155,15 +7155,15 @@ import {
   constants as constants9,
   existsSync as existsSync13,
   fstatSync as fstatSync9,
-  lstatSync as lstatSync8,
+  lstatSync as lstatSync9,
   mkdirSync as mkdirSync10,
   openSync as openSync9,
   readFileSync as readFileSync16,
-  realpathSync as realpathSync9,
+  realpathSync as realpathSync10,
   renameSync as renameSync8,
   writeFileSync as writeFileSync10
 } from "node:fs";
-import { dirname as dirname12, isAbsolute as isAbsolute7, relative as relative14, resolve as resolve24, sep as sep14 } from "node:path";
+import { basename as basename3, dirname as dirname13, isAbsolute as isAbsolute7, relative as relative14, resolve as resolve24, sep as sep14 } from "node:path";
 import { isIP as isIP3 } from "node:net";
 import { isDeepStrictEqual as isDeepStrictEqual2 } from "node:util";
 import { parse as parse7, stringify as stringify6 } from "yaml";
@@ -19850,7 +19850,8 @@ async function sharpenIdea(source, options = {}) {
 // lib/founder-launch/orchestrator.ts
 import { createHash as createHash10 } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { isAbsolute as isAbsolute4, resolve as resolve10 } from "node:path";
+import { lstatSync as lstatSync4, realpathSync as realpathSync5 } from "node:fs";
+import { basename as basename2, dirname as dirname7, isAbsolute as isAbsolute4, resolve as resolve10 } from "node:path";
 
 // lib/materialization/grant.ts
 import { createHash as createHash7 } from "node:crypto";
@@ -25736,15 +25737,45 @@ function containedOutput(baseDir, requested, slug4) {
 }
 function loadFounderIdeaFile(file2, baseDir = process.cwd()) {
   if (!file2) throw new Error("Founder launch --idea requires a file path");
-  const boundary = new OwnerPathLock(resolve10(baseDir), {
+  const explicitAbsolute = isAbsolute4(file2);
+  const absolute = resolve10(explicitAbsolute ? file2 : resolve10(baseDir, file2));
+  const requestedRoot = explicitAbsolute ? dirname7(absolute) : resolve10(baseDir);
+  let boundaryRoot = requestedRoot;
+  if (explicitAbsolute) {
+    try {
+      const parentMetadata = lstatSync4(requestedRoot);
+      if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink()) {
+        throw new Error(
+          "Founder launch --idea parent must be a real non-symlink directory for an absolute path"
+        );
+      }
+      boundaryRoot = realpathSync5(requestedRoot);
+      if (boundaryRoot !== requestedRoot) {
+        throw new Error(
+          "Founder launch --idea parent must be a real non-symlink directory for an absolute path"
+        );
+      }
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new Error(
+          "Founder launch --idea parent must already exist as a real non-symlink directory"
+        );
+      }
+      throw error;
+    }
+  }
+  const boundary = new OwnerPathLock(boundaryRoot, {
     label: "Founder launch idea read",
     lockName: ".founder-launch-idea.lock"
   });
   try {
-    return boundary.readRegularFile(resolve10(boundary.root.path, file2), {
-      label: "Founder launch --idea",
-      maxBytes: MAX_IDEA_BYTES
-    });
+    return boundary.readRegularFile(
+      explicitAbsolute ? resolve10(boundary.root.path, basename2(absolute)) : resolve10(boundary.root.path, file2),
+      {
+        label: "Founder launch --idea",
+        maxBytes: MAX_IDEA_BYTES
+      }
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes("escapes the locked")) {
       throw new Error("Founder launch --idea escapes the selected workspace", { cause: error });
@@ -26539,7 +26570,7 @@ function createDefaultDataLearningRuntime(options) {
 
 // lib/learning/report.ts
 import { mkdirSync as mkdirSync6, renameSync as renameSync5, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname7, relative as relative7, resolve as resolve11, sep as sep7 } from "node:path";
+import { dirname as dirname8, relative as relative7, resolve as resolve11, sep as sep7 } from "node:path";
 function inside3(root, candidate) {
   const absolute = resolve11(root, candidate);
   const rel = relative7(root, absolute);
@@ -26552,7 +26583,7 @@ function repositoryPath(root, absolute) {
   return relative7(root, absolute).split(sep7).join("/");
 }
 function writeAtomic(path, content) {
-  mkdirSync6(dirname7(path), { recursive: true, mode: 448 });
+  mkdirSync6(dirname8(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
   writeFileSync6(temporary, content, { encoding: "utf8", mode: 384 });
   renameSync5(temporary, path);
@@ -26714,7 +26745,7 @@ function nextCronOccurrence(expression, after) {
 
 // lib/migrations/file-system.ts
 import { mkdir as mkdir3, readFile as readFile2, rename as rename2, rm, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname8, relative as relative8, resolve as resolve12, sep as sep8 } from "node:path";
+import { dirname as dirname9, relative as relative8, resolve as resolve12, sep as sep8 } from "node:path";
 function insideRoot(root, path) {
   const absolute = resolve12(root, path);
   const rel = relative8(root, absolute);
@@ -26736,7 +26767,7 @@ function createNodeMigrationFileSystem(root = process.cwd()) {
     },
     async writeAtomic(path, content) {
       const destination = insideRoot(root, path);
-      await mkdir3(dirname8(destination), { recursive: true });
+      await mkdir3(dirname9(destination), { recursive: true });
       const temporary = `${destination}.vh-next-${process.pid}-${sequence++}`;
       try {
         await writeFile2(temporary, content, { encoding: "utf8", flag: "wx" });
@@ -27429,7 +27460,7 @@ var BuildAgentHostError = class extends Error {
 };
 
 // lib/runtime/build-context-manifest.ts
-import { existsSync as existsSync7, lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
+import { existsSync as existsSync7, lstatSync as lstatSync5, readdirSync as readdirSync2, readFileSync as readFileSync9, realpathSync as realpathSync6 } from "node:fs";
 import { relative as relative9, resolve as resolve13, sep as sep9 } from "node:path";
 var selectedContextFileSchema = external_exports.object({
   path: artifactReferenceSchema,
@@ -27487,7 +27518,7 @@ function regularFileWithinRoot(root, reference) {
   for (const component of relation.split(sep9).filter(Boolean)) {
     cursor = resolve13(cursor, component);
     if (!existsSync7(cursor)) return false;
-    const metadata = lstatSync4(cursor);
+    const metadata = lstatSync5(cursor);
     if (metadata.isSymbolicLink()) return false;
     if (cursor === absolute) return metadata.isFile();
     if (!metadata.isDirectory()) return false;
@@ -27497,7 +27528,7 @@ function regularFileWithinRoot(root, reference) {
 function regularFiles(root, reference) {
   const absolute = resolve13(root, reference);
   if (!contained(root, absolute) || !existsSync7(absolute)) return [];
-  const metadata = lstatSync4(absolute);
+  const metadata = lstatSync5(absolute);
   if (metadata.isSymbolicLink()) return [];
   if (metadata.isFile()) return [reference];
   if (!metadata.isDirectory()) return [];
@@ -27524,7 +27555,7 @@ function selectedProviderContracts(brief, paymentProvider) {
   return files;
 }
 function createBuildContextManifest(input) {
-  const root = realpathSync5(resolve13(input.rootDir));
+  const root = realpathSync6(resolve13(input.rootDir));
   const discoveryRequired = input.brief.needs.search_discovery || input.capabilitiesRequired?.includes("web_seo_aeo_geo") === true;
   const reasons = {
     ...ALWAYS_SELECTED,
@@ -28019,17 +28050,17 @@ ${login.stderr}`);
 };
 
 // lib/runtime/checkpoint-evidence.ts
-import { closeSync as closeSync5, constants as constants5, fstatSync as fstatSync5, openSync as openSync5, readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
+import { closeSync as closeSync5, constants as constants5, fstatSync as fstatSync5, openSync as openSync5, readFileSync as readFileSync10, realpathSync as realpathSync7 } from "node:fs";
 import { relative as relative10, resolve as resolve15, sep as sep10 } from "node:path";
 var NO_FOLLOW3 = "O_NOFOLLOW" in constants5 ? constants5.O_NOFOLLOW : 0;
 function inside4(rootDir, artifact) {
-  const root = realpathSync6(rootDir);
+  const root = realpathSync7(rootDir);
   const target = resolve15(root, artifact);
   const lexicalRelative = relative10(root, target);
   if (lexicalRelative === "" || lexicalRelative === ".." || lexicalRelative.startsWith(`..${sep10}`) || lexicalRelative.startsWith(sep10)) {
     throw new Error(`Checkpoint evidence escapes the venture root: ${artifact}`);
   }
-  const realTarget = realpathSync6(target);
+  const realTarget = realpathSync7(target);
   const realRelative = relative10(root, realTarget);
   if (realRelative === "" || realRelative === ".." || realRelative.startsWith(`..${sep10}`) || realRelative.startsWith(sep10)) {
     throw new Error(`Checkpoint evidence resolves outside the venture root: ${artifact}`);
@@ -29211,7 +29242,7 @@ import {
   constants as constants7,
   existsSync as existsSync9,
   fstatSync as fstatSync7,
-  lstatSync as lstatSync6,
+  lstatSync as lstatSync7,
   mkdirSync as mkdirSync8,
   openSync as openSync7,
   readdirSync as readdirSync4,
@@ -29220,7 +29251,7 @@ import {
   rmSync as rmSync3,
   writeFileSync as writeFileSync8
 } from "node:fs";
-import { dirname as dirname10, isAbsolute as isAbsolute5, relative as relative12, resolve as resolve19, sep as sep12 } from "node:path";
+import { dirname as dirname11, isAbsolute as isAbsolute5, relative as relative12, resolve as resolve19, sep as sep12 } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { parse as parse3 } from "yaml";
 
@@ -29231,15 +29262,15 @@ import {
   constants as constants6,
   existsSync as existsSync8,
   fstatSync as fstatSync6,
-  lstatSync as lstatSync5,
+  lstatSync as lstatSync6,
   mkdirSync as mkdirSync7,
   openSync as openSync6,
   readFileSync as readFileSync11,
   readdirSync as readdirSync3,
-  realpathSync as realpathSync7,
+  realpathSync as realpathSync8,
   writeFileSync as writeFileSync7
 } from "node:fs";
-import { dirname as dirname9, join as join9, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
+import { dirname as dirname10, join as join9, relative as relative11, resolve as resolve18, sep as sep11 } from "node:path";
 
 // lib/mobile/templates.ts
 import { createHash as createHash11 } from "node:crypto";
@@ -29681,7 +29712,7 @@ function assertNoSymlinkBetween(root, absolute) {
   for (const segment of rel.split(sep11).filter(Boolean)) {
     current = join9(current, segment);
     if (!existsSync8(current)) continue;
-    const status = lstatSync5(current);
+    const status = lstatSync6(current);
     if (status.isSymbolicLink()) {
       throw new MobileScaffoldError(
         "unsafe_path",
@@ -29696,7 +29727,7 @@ function ensureDirectory(root, absolute) {
   for (const segment of rel.split(sep11).filter(Boolean)) {
     current = join9(current, segment);
     if (existsSync8(current)) {
-      const status = lstatSync5(current);
+      const status = lstatSync6(current);
       if (status.isSymbolicLink() || !status.isDirectory()) {
         throw new MobileScaffoldError(
           "unsafe_path",
@@ -29745,7 +29776,7 @@ function readExactFile(root, path, expected) {
 }
 function writeCreateOnly(root, path, content) {
   assertNoSymlinkBetween(root, path);
-  ensureDirectory(root, dirname9(path));
+  ensureDirectory(root, dirname10(path));
   if (readExactFile(root, path, content) !== null) return "unchanged";
   let descriptor2;
   try {
@@ -29771,8 +29802,8 @@ function writeCreateOnly(root, path, content) {
 }
 function generateMobileScaffold(rootDirectory, requestInput) {
   const request2 = mobileScaffoldRequestSchema.parse(requestInput);
-  const root = realpathSync7(resolve18(rootDirectory));
-  if (!lstatSync5(root).isDirectory()) {
+  const root = realpathSync8(resolve18(rootDirectory));
+  if (!lstatSync6(root).isDirectory()) {
     throw new MobileScaffoldError("unsafe_path", `Repository root is not a directory: ${root}`);
   }
   const outputDirectory = request2.outputDirectory ?? defaultMobileScaffoldDirectory(request2.stack);
@@ -29821,7 +29852,7 @@ function generateMobileScaffold(rootDirectory, requestInput) {
   const manifestPath = `${outputDirectory}/${MANIFEST_NAME}`;
   const absoluteManifestPath = pathInside(root, manifestPath);
   if (existsSync8(output)) {
-    const outputStatus = lstatSync5(output);
+    const outputStatus = lstatSync6(output);
     if (outputStatus.isSymbolicLink() || !outputStatus.isDirectory()) {
       throw new MobileScaffoldError(
         "output_conflict",
@@ -30490,7 +30521,7 @@ function playwrightTraceEvidence(root, outputReference, deploymentUrl, contract)
       const absolute = resolve19(directory, entry.name);
       if (entry.isDirectory()) visit(absolute);
       else if (entry.isFile() && entry.name === "trace.zip") {
-        const stat2 = lstatSync6(absolute);
+        const stat2 = lstatSync7(absolute);
         if (stat2.size < 1e3) continue;
         const entries = zipEntries(readRegularFile3(absolute));
         const traces = [...entries.entries()].filter(([name]) => name.endsWith(".trace") || name.endsWith(".network")).map(([, content]) => content);
@@ -30508,7 +30539,7 @@ function playwrightTraceEvidence(root, outputReference, deploymentUrl, contract)
     }
   };
   try {
-    if (!lstatSync6(outputRoot).isDirectory()) throw new Error("not a directory");
+    if (!lstatSync7(outputRoot).isDirectory()) throw new Error("not a directory");
     visit(outputRoot);
   } catch {
   }
@@ -30818,7 +30849,7 @@ function readDependencyInstallState(root, expected) {
     };
   }
   const modulesPath = inside5(root, "node_modules");
-  const installedModulesReadBack = existsSync9(modulesPath) && lstatSync6(modulesPath).isDirectory();
+  const installedModulesReadBack = existsSync9(modulesPath) && lstatSync7(modulesPath).isDirectory();
   const installedLockPath = inside5(root, "node_modules/.pnpm/lock.yaml");
   const installedLockfileReadBack = installedModulesReadBack && sha256IfRegular(installedLockPath) === expected.lockfileSha256;
   const binaryDirectory = inside5(root, "node_modules/.bin");
@@ -30842,7 +30873,7 @@ function repositorySnapshot(root) {
       (left, right) => left.name.localeCompare(right.name)
     )) {
       const absolute = resolve19(directory, entry.name);
-      const metadata = lstatSync6(absolute);
+      const metadata = lstatSync7(absolute);
       if (metadata.isDirectory() && SNAPSHOT_IGNORED_DIRECTORIES.has(entry.name)) continue;
       if (metadata.isSymbolicLink()) {
         throw new WorkflowExecutionError(
@@ -30917,7 +30948,7 @@ function repositoryPreimage(root) {
     )) {
       if (entry.isDirectory() && ROLLBACK_IGNORED_DIRECTORIES.has(entry.name)) continue;
       const absolute = resolve19(directory, entry.name);
-      const metadata = lstatSync6(absolute);
+      const metadata = lstatSync7(absolute);
       const reference = relative12(root, absolute).split(sep12).join("/");
       if (metadata.isSymbolicLink() || !metadata.isDirectory() && !metadata.isFile()) {
         throw new WorkflowExecutionError(
@@ -30954,7 +30985,7 @@ function currentRollbackEntries(root) {
     for (const entry of readdirSync4(directory, { withFileTypes: true })) {
       if (entry.isDirectory() && ROLLBACK_IGNORED_DIRECTORIES.has(entry.name)) continue;
       const absolute = resolve19(directory, entry.name);
-      const metadata = lstatSync6(absolute);
+      const metadata = lstatSync7(absolute);
       const reference = relative12(root, absolute).split(sep12).join("/");
       if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
         directories.add(reference);
@@ -30980,7 +31011,7 @@ function restoreRepositoryPreimage(root, preimage) {
     ([left], [right]) => left.split("/").length - right.split("/").length
   )) {
     const absolute = inside5(root, reference);
-    if (existsSync9(absolute) && !lstatSync6(absolute).isDirectory()) {
+    if (existsSync9(absolute) && !lstatSync7(absolute).isDirectory()) {
       rmSync3(absolute, { recursive: true, force: true });
     }
     mkdirSync8(absolute, { recursive: true, mode });
@@ -30988,9 +31019,9 @@ function restoreRepositoryPreimage(root, preimage) {
   }
   for (const [reference, file2] of preimage.files) {
     const absolute = inside5(root, reference);
-    mkdirSync8(dirname10(absolute), { recursive: true, mode: 448 });
+    mkdirSync8(dirname11(absolute), { recursive: true, mode: 448 });
     if (existsSync9(absolute)) {
-      const metadata = lstatSync6(absolute);
+      const metadata = lstatSync7(absolute);
       if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
         rmSync3(absolute, { recursive: true, force: true });
       }
@@ -31019,7 +31050,7 @@ function protectedPathState(root, reference) {
     cursor = resolve19(cursor, segment);
     let metadata;
     try {
-      metadata = lstatSync6(cursor);
+      metadata = lstatSync7(cursor);
     } catch (error) {
       if (["ENOENT", "ENOTDIR"].includes(error.code ?? "")) {
         return "missing";
@@ -31173,7 +31204,7 @@ function safeSegment(value, label) {
   return value;
 }
 function writeJsonAtomic(path, value) {
-  mkdirSync8(dirname10(path), { recursive: true, mode: 448 });
+  mkdirSync8(dirname11(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
   writeFileSync8(temporary, `${JSON.stringify(value, null, 2)}
 `, {
@@ -31230,7 +31261,7 @@ function verifiedChangedFiles(root, changedFiles) {
       );
     }
     seen.add(reference);
-    if (!existsSync9(absolute) || !lstatSync6(absolute).isFile()) {
+    if (!existsSync9(absolute) || !lstatSync7(absolute).isFile()) {
       throw new WorkflowExecutionError(
         "BUILD_AGENT_EVIDENCE_INVALID",
         `Build agent reported changed file ${path}, but it does not exist after the task.`
@@ -31284,7 +31315,7 @@ function validateAgentCompletion(root, handler, result2, before, after, launchCo
   }
   const artifacts = result2.completion.artifacts.map(({ path, role }) => {
     const { absolute, reference } = repositoryReference(root, path);
-    if (!existsSync9(absolute) || !lstatSync6(absolute).isFile()) {
+    if (!existsSync9(absolute) || !lstatSync7(absolute).isFile()) {
       throw new WorkflowExecutionError(
         "BUILD_AGENT_EVIDENCE_INVALID",
         `Build agent completion artifact ${path} does not exist as a regular file.`
@@ -34019,7 +34050,7 @@ function createProviderWorkflowBindings(options) {
 // lib/runtime/provider-lifecycle-store.ts
 import { randomBytes as randomBytes7 } from "node:crypto";
 import { mkdir as mkdir6, open as open4, readFile as readFile5, rename as rename5 } from "node:fs/promises";
-import { dirname as dirname11, resolve as resolve20 } from "node:path";
+import { dirname as dirname12, resolve as resolve20 } from "node:path";
 var providerResourceTypes = [
   "account_id",
   "amount_minor",
@@ -34194,7 +34225,7 @@ var FileProviderLifecycleStore = class {
     return parseProviderLifecycleDocument(value);
   }
   async write(records) {
-    const directory = dirname11(this.path);
+    const directory = dirname12(this.path);
     await mkdir6(directory, { recursive: true, mode: 448 });
     const temporary = `${this.path}.${process.pid}.${randomBytes7(6).toString("hex")}.tmp`;
     const handle = await open4(temporary, "wx", 384);
@@ -34215,11 +34246,11 @@ import {
   constants as constants8,
   existsSync as existsSync10,
   fstatSync as fstatSync8,
-  lstatSync as lstatSync7,
+  lstatSync as lstatSync8,
   mkdirSync as mkdirSync9,
   openSync as openSync8,
   readFileSync as readFileSync13,
-  realpathSync as realpathSync8,
+  realpathSync as realpathSync9,
   readdirSync as readdirSync5,
   renameSync as renameSync7,
   rmSync as rmSync4,
@@ -37426,7 +37457,7 @@ function inside6(root, path) {
   throw new Error(`Path escapes the venture root: ${path}`);
 }
 function writeJsonAtomic2(path, value) {
-  mkdirSync10(dirname12(path), { recursive: true, mode: 448 });
+  mkdirSync10(dirname13(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
   writeFileSync10(temporary, `${JSON.stringify(value, null, 2)}
 `, {
@@ -37436,7 +37467,7 @@ function writeJsonAtomic2(path, value) {
   renameSync8(temporary, path);
 }
 function writeTextAtomic(path, content) {
-  mkdirSync10(dirname12(path), { recursive: true, mode: 448 });
+  mkdirSync10(dirname13(path), { recursive: true, mode: 448 });
   const temporary = `${path}.next-${process.pid}-${Date.now()}`;
   writeFileSync10(temporary, content, {
     encoding: "utf8",
@@ -37447,17 +37478,55 @@ function writeTextAtomic(path, content) {
 function writeYamlAtomic(path, value) {
   writeTextAtomic(path, stringify6(value, { lineWidth: 100 }));
 }
-function safeIdeaOutputPath(root, requested, boundary) {
+function explicitAbsoluteParent(requested, label) {
+  const parent = dirname13(resolve24(requested));
+  try {
+    const metadata = lstatSync9(parent);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new Error(`${label} parent must be a real non-symlink directory`);
+    }
+    const canonicalParent = realpathSync10(parent);
+    if (canonicalParent !== parent) {
+      throw new Error(`${label} parent must be a real non-symlink directory`);
+    }
+    return canonicalParent;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      throw new Error(`${label} parent must already exist as a real non-symlink directory`);
+    }
+    throw error;
+  }
+}
+function externalIdeaOutputBoundaryRoot(parentPath) {
+  const containingDirectory = dirname13(parentPath);
+  if (containingDirectory === parentPath) {
+    return { root: parentPath, allowRootOwnedStickyDirectory: false };
+  }
+  const metadata = lstatSync9(containingDirectory);
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  const ownerControlled = uid !== null && metadata.uid === uid && (metadata.mode & 18) === 0;
+  const rootOwnedStickyDirectory = uid !== null && metadata.uid === 0 && (metadata.mode & 512) !== 0 && (metadata.mode & 2) !== 0;
+  if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+    if (ownerControlled) {
+      return { root: containingDirectory, allowRootOwnedStickyDirectory: false };
+    }
+    if (rootOwnedStickyDirectory) {
+      return { root: containingDirectory, allowRootOwnedStickyDirectory: true };
+    }
+  }
+  return { root: parentPath, allowRootOwnedStickyDirectory: false };
+}
+function safeRelativeIdeaOutputPath(root, requested, boundary) {
   if (!requested || isAbsolute7(requested) || !requested.toLowerCase().endsWith(".md")) {
     throw new Error("vh idea sharpen --output must be a project-relative Markdown path");
   }
-  const canonicalRoot3 = realpathSync9(root);
+  const canonicalRoot3 = realpathSync10(root);
   const lexicalTarget = resolve24(canonicalRoot3, requested);
   const child = relative14(canonicalRoot3, lexicalTarget);
   if (child === "" || child === ".." || child.startsWith(`..${sep14}`) || isAbsolute7(child)) {
     throw new Error("vh idea sharpen --output escapes the working directory");
   }
-  const lexicalParent = dirname12(lexicalTarget);
+  const lexicalParent = dirname13(lexicalTarget);
   const parentRelative = relative14(canonicalRoot3, lexicalParent);
   if (parentRelative) {
     resolveVentureOutputWithinRoot(canonicalRoot3, parentRelative);
@@ -37466,23 +37535,142 @@ function safeIdeaOutputPath(root, requested, boundary) {
     lexicalParent,
     "vh idea sharpen output directory"
   );
-  const canonicalParent = realpathSync9(lexicalParent);
+  const canonicalParent = realpathSync10(lexicalParent);
   const parentChild = relative14(canonicalRoot3, canonicalParent);
   if (parentChild === ".." || parentChild.startsWith(`..${sep14}`) || isAbsolute7(parentChild)) {
     throw new Error("vh idea sharpen --output resolves through a directory outside the workspace");
   }
-  const target = resolve24(canonicalParent, lexicalTarget.slice(dirname12(lexicalTarget).length + 1));
-  if (existsSync13(target)) {
-    const metadata = lstatSync8(target);
-    if (metadata.isSymbolicLink() || !metadata.isFile()) {
-      throw new Error("vh idea sharpen --output must be a regular non-symlink Markdown file");
-    }
-  }
+  const target = resolve24(canonicalParent, lexicalTarget.slice(dirname13(lexicalTarget).length + 1));
   if (lexicalTarget !== target) {
     throw new Error("vh idea sharpen --output resolves through an unexpected path");
   }
   boundary.assertDirectory(canonicalParent, parentIdentity, "vh idea sharpen output directory");
-  return target;
+  return { path: target, parentPath: canonicalParent, parentIdentity };
+}
+function prepareIdeaOutputPlan(root, requested, coreBoundary) {
+  if (!requested || !requested.toLowerCase().endsWith(".md")) {
+    throw new Error("vh idea sharpen --output must be a Markdown path");
+  }
+  const explicitAbsolute = isAbsolute7(requested);
+  let boundary = coreBoundary;
+  let ownsBoundary = false;
+  let location;
+  if (explicitAbsolute) {
+    const absolute = resolve24(requested);
+    const parentPath = explicitAbsoluteParent(absolute, "vh idea sharpen --output");
+    const boundaryRoot = externalIdeaOutputBoundaryRoot(parentPath);
+    boundary = new OwnerPathLock(boundaryRoot.root, {
+      label: "vh idea sharpen external output",
+      lockName: ".vh-idea-sharpen-output.lock",
+      allowRootOwnedStickyDirectory: boundaryRoot.allowRootOwnedStickyDirectory
+    });
+    ownsBoundary = true;
+    try {
+      const parentIdentity = boundary.captureDirectory(
+        parentPath,
+        "vh idea sharpen output directory"
+      );
+      const path = resolve24(parentPath, basename3(absolute));
+      location = { path, parentPath, parentIdentity };
+    } catch (error) {
+      boundary.release();
+      throw error;
+    }
+  } else {
+    location = safeRelativeIdeaOutputPath(root, requested, boundary);
+  }
+  const basePath = location.path.slice(0, -3);
+  const paths = {
+    output: location.path,
+    productConstitution: `${basePath}.product-constitution.md`,
+    launchContract: `${basePath}.launch-contract.yaml`,
+    usage: `${basePath}.usage.json`
+  };
+  const canonicalRoot3 = realpathSync10(root);
+  const reference = (path) => explicitAbsolute ? path : relative14(canonicalRoot3, path);
+  return {
+    ...location,
+    boundary,
+    ownsBoundary,
+    paths,
+    references: {
+      output: reference(paths.output),
+      productConstitution: reference(paths.productConstitution),
+      launchContract: reference(paths.launchContract),
+      usage: reference(paths.usage)
+    }
+  };
+}
+function assertPathEntryMissing(path, label) {
+  try {
+    lstatSync9(path);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`${label} already exists; choose a new --output path`);
+}
+function ideaOutputEntries(plan) {
+  return [
+    [plan.paths.output, "vh idea sharpen output"],
+    [plan.paths.productConstitution, "vh idea sharpen Product Constitution"],
+    [plan.paths.launchContract, "vh idea sharpen Launch Contract"],
+    [plan.paths.usage, "vh idea sharpen usage"]
+  ];
+}
+function assertIdeaOutputsMissing(plan) {
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory"
+  );
+  for (const [path, label] of ideaOutputEntries(plan)) {
+    assertPathEntryMissing(path, label);
+    plan.boundary.assertMissing(path, label);
+  }
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory"
+  );
+}
+function writeNewIdeaArtifact(plan, path, content, label) {
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory"
+  );
+  assertPathEntryMissing(path, label);
+  plan.boundary.assertMissing(path, label);
+  plan.boundary.writeFileAtomic(path, content, label);
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory"
+  );
+}
+function readIdeaSharpenInput(root, requested, coreBoundary) {
+  if (requested === "-") return readFileSync16(0, "utf8");
+  if (!isAbsolute7(requested)) {
+    return coreBoundary.readRegularFile(inside6(root, requested), {
+      label: "vh idea sharpen --input",
+      maxBytes: 1e5
+    });
+  }
+  const absolute = resolve24(requested);
+  const parent = explicitAbsoluteParent(absolute, "vh idea sharpen --input");
+  const boundary = new OwnerPathLock(parent, {
+    label: "vh idea sharpen external input",
+    lockName: ".vh-idea-sharpen-input.lock"
+  });
+  try {
+    return boundary.readRegularFile(resolve24(parent, basename3(absolute)), {
+      label: "vh idea sharpen --input",
+      maxBytes: 1e5
+    });
+  } finally {
+    boundary.release();
+  }
 }
 function readStructured(path) {
   const text2 = readFileSync16(path, "utf8");
@@ -37862,7 +38050,7 @@ function sameBoundFile(metadata, expected) {
   return metadata.dev === expected.device && metadata.ino === expected.inode && metadata.size === expected.size && metadata.mtimeMs === expected.modifiedAtMs && metadata.ctimeMs === expected.changedAtMs;
 }
 function readRegularBoundFile(root, reference, label) {
-  const canonicalRoot3 = realpathSync9(root);
+  const canonicalRoot3 = realpathSync10(root);
   const target = inside6(canonicalRoot3, reference);
   const relation = relative14(canonicalRoot3, target);
   let cursor = canonicalRoot3;
@@ -37884,8 +38072,8 @@ function readRegularBoundFile(root, reference, label) {
         const opened = fstatSync9(descriptor2);
         if (!opened.isFile()) throw new Error(`${label} must be a regular file: ${reference}`);
         const initial = boundFileIdentity(opened);
-        const canonical = realpathSync9(cursor);
-        const pathMetadata = lstatSync8(cursor);
+        const canonical = realpathSync10(cursor);
+        const pathMetadata = lstatSync9(cursor);
         if (canonical !== cursor || pathMetadata.isSymbolicLink()) {
           throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
         }
@@ -37896,8 +38084,8 @@ function readRegularBoundFile(root, reference, label) {
         if (!sameBoundFile(fstatSync9(descriptor2), initial)) {
           throw new Error(`${label} changed while it was being read: ${reference}`);
         }
-        const after = lstatSync8(cursor);
-        if (realpathSync9(cursor) !== cursor || after.isSymbolicLink() || !sameBoundFile(after, initial)) {
+        const after = lstatSync9(cursor);
+        if (realpathSync10(cursor) !== cursor || after.isSymbolicLink() || !sameBoundFile(after, initial)) {
           throw new Error(`${label} changed while it was being read: ${reference}`);
         }
         return content;
@@ -37906,7 +38094,7 @@ function readRegularBoundFile(root, reference, label) {
       }
     }
     if (!existsSync13(cursor)) throw new Error(`${label} is missing at ${reference}`);
-    const metadata = lstatSync8(cursor);
+    const metadata = lstatSync9(cursor);
     if (metadata.isSymbolicLink()) {
       throw new Error(`${label} must not resolve through a symbolic link: ${reference}`);
     }
@@ -39327,32 +39515,23 @@ function createDefaultCliServicesInternal(options) {
   };
   return {
     async ideaSharpen(request2) {
-      const boundary = new OwnerPathLock(root, {
+      const coreBoundary = new OwnerPathLock(root, {
         label: "vh idea sharpen",
         lockName: ".vh-idea-sharpen.lock"
       });
+      let outputPlan;
       try {
-        const source = request2.input === "-" ? readFileSync16(0, "utf8") : boundary.readRegularFile(inside6(root, request2.input), {
-          label: "vh idea sharpen --input",
-          maxBytes: 1e5
-        });
-        const outputPath = safeIdeaOutputPath(root, request2.output, boundary);
-        const outputReference = relative14(realpathSync9(root), outputPath);
-        const baseOutput = outputReference.slice(0, -3);
-        const constitutionPath = safeIdeaOutputPath(
-          root,
-          `${baseOutput}.product-constitution.md`,
-          boundary
-        );
-        const usagePath = inside6(root, `${baseOutput}.usage.json`);
-        const contractPath = inside6(root, `${baseOutput}.launch-contract.yaml`);
+        const source = readIdeaSharpenInput(root, request2.input, coreBoundary);
+        outputPlan = prepareIdeaOutputPlan(root, request2.output, coreBoundary);
+        assertIdeaOutputsMissing(outputPlan);
         let result2;
         try {
           result2 = await sharpenIdea(source, { host: ideaSharpenerHost, now });
         } catch (error) {
           if (error instanceof IdeaSharpenError) {
-            boundary.writeFileAtomic(
-              usagePath,
+            writeNewIdeaArtifact(
+              outputPlan,
+              outputPlan.paths.usage,
               `${JSON.stringify(
                 {
                   schemaVersion: 1,
@@ -39372,28 +39551,37 @@ function createDefaultCliServicesInternal(options) {
           }
           throw error;
         }
-        boundary.writeFileAtomic(outputPath, result2.ideaMarkdown, "vh idea sharpen output");
-        boundary.writeFileAtomic(
-          constitutionPath,
+        assertIdeaOutputsMissing(outputPlan);
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.output,
+          result2.ideaMarkdown,
+          "vh idea sharpen output"
+        );
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.productConstitution,
           result2.productConstitutionMarkdown,
           "vh idea sharpen Product Constitution"
         );
-        boundary.writeFileAtomic(
-          contractPath,
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.launchContract,
           renderLaunchContractYaml(result2.launchContract),
           "vh idea sharpen Launch Contract"
         );
-        boundary.writeFileAtomic(
-          usagePath,
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.usage,
           `${JSON.stringify(
             {
               schemaVersion: 1,
               command: "idea.sharpen",
               status: result2.status,
               sourceDigest: createHash18("sha256").update(source).digest("hex"),
-              output: outputReference,
-              productConstitution: `${baseOutput}.product-constitution.md`,
-              launchContract: `${baseOutput}.launch-contract.yaml`,
+              output: outputPlan.references.output,
+              productConstitution: outputPlan.references.productConstitution,
+              launchContract: outputPlan.references.launchContract,
               ...result2.accounting,
               transcriptStored: false,
               providerEffects: false
@@ -39407,22 +39595,27 @@ function createDefaultCliServicesInternal(options) {
         return {
           schemaVersion: 1,
           status: result2.status,
-          output: outputReference,
-          productConstitution: `${baseOutput}.product-constitution.md`,
-          launchContract: `${baseOutput}.launch-contract.yaml`,
-          usage: `${baseOutput}.usage.json`,
+          output: outputPlan.references.output,
+          productConstitution: outputPlan.references.productConstitution,
+          launchContract: outputPlan.references.launchContract,
+          usage: outputPlan.references.usage,
           ...result2.accounting,
           transcriptStored: false,
           providerEffects: false,
           repositoryCreated: false,
           deploymentCreated: false,
-          nextAction: `Review ${baseOutput}.launch-contract.yaml, then run vh launch --idea ${outputReference} --stack founder-default --production --dry-run --non-interactive --json.`
+          nextAction: `Review ${outputPlan.references.launchContract}, then run vh launch --idea ${outputPlan.references.output} --stack founder-default --production --dry-run --non-interactive --json.`
         };
       } finally {
-        boundary.release();
+        try {
+          if (outputPlan?.ownsBoundary) outputPlan.boundary.release();
+        } finally {
+          coreBoundary.release();
+        }
       }
     },
     async founderLaunch(request2) {
+      const ideaSource = loadFounderIdeaFile(request2.idea, root);
       let founderPathBoundary = null;
       const connection = founderStackStore.load(request2.stackProfile);
       if (!connection) {
@@ -39448,7 +39641,6 @@ function createDefaultCliServicesInternal(options) {
         registry: effectiveProviderRegistry,
         now
       });
-      const ideaSource = loadFounderIdeaFile(request2.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
       const workflowRepository = resolveFounderWorkflowRepository(
         root,
@@ -39456,7 +39648,7 @@ function createDefaultCliServicesInternal(options) {
       );
       const venturesRoot = options.founderOutputRoot ?? configuredVenturesRoot({ coreRoot: root });
       if (!venturesRoot) throw new Error(VENTURES_ROOT_UNSET_MESSAGE);
-      const canonicalVenturesRoot = realpathSync9(resolve24(venturesRoot));
+      const canonicalVenturesRoot = realpathSync10(resolve24(venturesRoot));
       founderPathBoundary = request2.mode === "apply" ? new OwnerPathLock(canonicalVenturesRoot, {
         label: "Founder venture operation"
       }) : null;
@@ -39644,7 +39836,7 @@ function createDefaultCliServicesInternal(options) {
           await stagingServices.create({ brief: contractArtifact ?? briefArtifact, json: true });
           configureFounderProviderTargets(stagingRoot, connection, preparation);
           configureFounderOffer(stagingRoot, preparation);
-          mkdirSync10(dirname12(childRoot), { recursive: true, mode: 448 });
+          mkdirSync10(dirname13(childRoot), { recursive: true, mode: 448 });
           resolveVentureOutputWithinRoot(
             canonicalVenturesRoot,
             relative14(canonicalVenturesRoot, childRoot)
@@ -41645,7 +41837,7 @@ async function runCli(args, options = {}) {
 }
 
 // packages/cli-generator/src/bin.ts
-import { realpathSync as realpathSync13 } from "node:fs";
+import { realpathSync as realpathSync14 } from "node:fs";
 import { resolve as resolve28 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42517,8 +42709,8 @@ var launchExecuteCommand = defineCommandContract({
 
 // packages/agent-runtime/dist/operational.js
 import { createHash as createHash22, randomUUID as randomUUID2 } from "node:crypto";
-import { closeSync as closeSync10, constants as constants10, existsSync as existsSync14, fstatSync as fstatSync10, fsyncSync as fsyncSync4, lstatSync as lstatSync9, mkdirSync as mkdirSync11, openSync as openSync10, readFileSync as readFileSync17, realpathSync as realpathSync10, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname13, isAbsolute as isAbsolute8, join as join10, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
+import { closeSync as closeSync10, constants as constants10, existsSync as existsSync14, fstatSync as fstatSync10, fsyncSync as fsyncSync4, lstatSync as lstatSync10, mkdirSync as mkdirSync11, openSync as openSync10, readFileSync as readFileSync17, realpathSync as realpathSync11, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname14, isAbsolute as isAbsolute8, join as join10, relative as relative15, resolve as resolve25, sep as sep15 } from "node:path";
 import { parse as parseYaml4 } from "yaml";
 
 // packages/agent-runtime/dist/quality.js
@@ -43149,7 +43341,7 @@ var FileOperationalStateStore = class {
   }
   write(state) {
     assertNoSecrets(state);
-    mkdirSync11(dirname13(this.path), { recursive: true });
+    mkdirSync11(dirname14(this.path), { recursive: true });
     const temporary = join10(this.rootDir, `.operational-state-${randomUUID2()}.tmp`);
     const handle = openSync10(temporary, "wx", 384);
     try {
@@ -43510,14 +43702,14 @@ function assertGrowthPath(root, inputPath) {
   try {
     for (const component of pathFromRoot.split(sep15).filter(Boolean)) {
       current = join10(current, component);
-      if (lstatSync9(current).isSymbolicLink()) {
+      if (lstatSync10(current).isSymbolicLink()) {
         throw new Error("growth contract path must not contain symbolic links");
       }
     }
-    const details = lstatSync9(candidate);
+    const details = lstatSync10(candidate);
     if (!details.isFile())
       throw new Error("growth contract path must reference a regular file");
-    const canonical = realpathSync10(candidate);
+    const canonical = realpathSync11(candidate);
     if (pathEscapesRoot(root.canonicalPath, canonical)) {
       throw new Error("growth contract path must stay within the configured root");
     }
@@ -43652,13 +43844,13 @@ function registerOperationalCommands(bus, options = {}) {
   const store = options.store ?? new InMemoryOperationalStateStore();
   const timestamp2 = () => (options.now ?? (() => /* @__PURE__ */ new Date()))().toISOString();
   const declaredGrowthContractRoot = resolve25(options.growthContractRoot ?? process.cwd());
-  const rootDetails = lstatSync9(declaredGrowthContractRoot);
+  const rootDetails = lstatSync10(declaredGrowthContractRoot);
   if (rootDetails.isSymbolicLink() || !rootDetails.isDirectory()) {
     throw new Error("growth contract root must be a regular directory, not a symbolic link");
   }
   const growthContractRoot = {
     declaredPath: declaredGrowthContractRoot,
-    canonicalPath: realpathSync10(declaredGrowthContractRoot)
+    canonicalPath: realpathSync11(declaredGrowthContractRoot)
   };
   bus.register(systemDoctorCommand, (_input, handler) => {
     const state = store.read();
@@ -45381,8 +45573,8 @@ async function invokeOperationalCli(bus, args, options) {
 // packages/cli-generator/src/quality-runner.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync15, lstatSync as lstatSync10, mkdirSync as mkdirSync12, readFileSync as readFileSync19, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename2, join as join11, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
+import { existsSync as existsSync15, lstatSync as lstatSync11, mkdirSync as mkdirSync12, readFileSync as readFileSync19, realpathSync as realpathSync12 } from "node:fs";
+import { basename as basename4, join as join11, relative as relative16, resolve as resolve26, sep as sep16 } from "node:path";
 var SECRET_PATTERNS3 = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END|$)/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
@@ -45402,11 +45594,11 @@ function redact2(value) {
 }
 function canonicalRoot(root) {
   const declared = resolve26(root);
-  const details = lstatSync10(declared);
+  const details = lstatSync11(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("quality runner root must be a regular directory, not a symbolic link");
   }
-  return realpathSync11(declared);
+  return realpathSync12(declared);
 }
 function inside7(root, target) {
   const child = relative16(root, target);
@@ -45419,7 +45611,7 @@ function assertNoSymlinkPath(root, target) {
   for (const segment of child.split(sep16).filter(Boolean)) {
     cursor = join11(cursor, segment);
     if (!existsSync15(cursor)) break;
-    if (lstatSync10(cursor).isSymbolicLink()) {
+    if (lstatSync11(cursor).isSymbolicLink()) {
       throw new Error("quality report path must not contain symbolic links");
     }
   }
@@ -45428,7 +45620,7 @@ function reportPath(root, profile2) {
   const directory = join11(root, ".venture", "reports", "quality");
   assertNoSymlinkPath(root, directory);
   mkdirSync12(directory, { recursive: true, mode: 448 });
-  const canonicalDirectory = realpathSync11(directory);
+  const canonicalDirectory = realpathSync12(directory);
   if (!inside7(root, canonicalDirectory)) throw new Error("quality report directory escapes root");
   return join11(canonicalDirectory, `vh-${profile2}-${process.pid}-${randomUUID3()}.json`);
 }
@@ -45437,7 +45629,7 @@ function assertCommand(command) {
     throw new Error("quality profile command must be a non-empty argv array");
   }
   const tokens = command.map((value) => value.toLowerCase());
-  const executable = basename2(tokens[0]);
+  const executable = basename4(tokens[0]);
   if (executable === "vh" && tokens[1] === "verify" || tokens.some((token, index) => token === "vh" && tokens[index + 1] === "verify")) {
     throw new Error("quality profile command must not recurse into vh verify");
   }
@@ -45570,7 +45762,7 @@ function createProcessQualityProfileRunner(options) {
 function createRepositoryQualityProfileRunner(root) {
   const canonical = canonicalRoot(root);
   const runnerPath = join11(canonical, "scripts", "run-quality-profile.ts");
-  const configured = existsSync15(runnerPath) && !lstatSync10(runnerPath).isSymbolicLink() && lstatSync10(runnerPath).isFile() && inside7(canonical, realpathSync11(runnerPath));
+  const configured = existsSync15(runnerPath) && !lstatSync11(runnerPath).isSymbolicLink() && lstatSync11(runnerPath).isFile() && inside7(canonical, realpathSync12(runnerPath));
   if (!configured) {
     return Object.freeze({
       async run(profile2) {
@@ -45603,16 +45795,16 @@ function createRepositoryQualityProfileRunner(root) {
 }
 
 // packages/cli-generator/src/runtime-module.ts
-import { existsSync as existsSync16, lstatSync as lstatSync11, realpathSync as realpathSync12 } from "node:fs";
+import { existsSync as existsSync16, lstatSync as lstatSync12, realpathSync as realpathSync13 } from "node:fs";
 import { extname, join as join12, relative as relative17, resolve as resolve27, sep as sep17 } from "node:path";
 import { pathToFileURL } from "node:url";
 function canonicalRoot2(root) {
   const declared = resolve27(root);
-  const details = lstatSync11(declared);
+  const details = lstatSync12(declared);
   if (details.isSymbolicLink() || !details.isDirectory()) {
     throw new Error("runtime project root must be a regular directory, not a symbolic link");
   }
-  return realpathSync12(declared);
+  return realpathSync13(declared);
 }
 function inside8(root, target) {
   const child = relative17(root, target);
@@ -45628,10 +45820,10 @@ function assertNoSymlinkComponents(root, target, allowMissingLeaf) {
       if (allowMissingLeaf) return;
       throw new Error("runtime module does not exist");
     }
-    if (lstatSync11(cursor).isSymbolicLink()) {
+    if (lstatSync12(cursor).isSymbolicLink()) {
       throw new Error("runtime path must not contain symbolic links");
     }
-    if (index < child.split(sep17).filter(Boolean).length - 1 && !lstatSync11(cursor).isDirectory()) {
+    if (index < child.split(sep17).filter(Boolean).length - 1 && !lstatSync12(cursor).isDirectory()) {
       throw new Error("runtime path parent must be a directory");
     }
   }
@@ -45647,9 +45839,9 @@ function projectOwnedFile(root, path) {
   if (![".js", ".mjs", ".cjs"].includes(extname(target))) {
     throw new Error("runtime module must be compiled JavaScript (.js, .mjs, or .cjs)");
   }
-  const details = lstatSync11(target);
+  const details = lstatSync12(target);
   if (!details.isFile()) throw new Error("runtime module must be a regular file");
-  const canonical = realpathSync12(target);
+  const canonical = realpathSync13(target);
   if (!inside8(root, canonical)) throw new Error("runtime module resolves outside the project root");
   return canonical;
 }
@@ -45884,10 +46076,10 @@ ${createCliSurface(localRuntime.bus).help}`
 }
 function isDirectGeneratedCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync13(fileURLToPath(import.meta.url));
+  const modulePath = realpathSync14(fileURLToPath(import.meta.url));
   if (!modulePath.replaceAll("\\", "/").includes("/cli-generator/")) return false;
   try {
-    return realpathSync13(resolve28(process.argv[1])) === modulePath;
+    return realpathSync14(resolve28(process.argv[1])) === modulePath;
   } catch {
     return resolve28(process.argv[1]) === modulePath;
   }
@@ -45901,7 +46093,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "e1a8b8a9641812f7b704e0f733b5be3544c1461b" : void 0;
+  const workflowRefSha = true ? "7c1d580415a384aa5ec18384a0395f13ab2ff3a2" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
@@ -45964,9 +46156,9 @@ async function runVhShell(inputArgs, options = {}) {
 }
 function isDirectRootCliEntry() {
   if (!process.argv[1]) return false;
-  const modulePath = realpathSync14(fileURLToPath2(import.meta.url));
+  const modulePath = realpathSync15(fileURLToPath2(import.meta.url));
   try {
-    return realpathSync14(resolve29(process.argv[1])) === modulePath;
+    return realpathSync15(resolve29(process.argv[1])) === modulePath;
   } catch {
     return resolve29(process.argv[1]) === modulePath;
   }
