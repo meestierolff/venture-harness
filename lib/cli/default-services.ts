@@ -13,7 +13,7 @@ import {
   writeFileSync,
   type Stats,
 } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { isIP } from "node:net";
 import { isDeepStrictEqual } from "node:util";
 import { parse, stringify } from "yaml";
@@ -175,7 +175,7 @@ import {
   locateLocalHarnessRelease,
   type HarnessRelease,
 } from "../upgrade";
-import { OwnerPathLock } from "../security/owner-path-lock";
+import { OwnerPathLock, type LockedDirectoryIdentity } from "../security/owner-path-lock";
 import {
   FileWorkflowStore,
   WorkflowExecutor,
@@ -378,7 +378,81 @@ function writeYamlAtomic(path: string, value: unknown): void {
   writeTextAtomic(path, stringify(value, { lineWidth: 100 }));
 }
 
-function safeIdeaOutputPath(root: string, requested: string, boundary: OwnerPathLock): string {
+interface IdeaOutputLocation {
+  readonly path: string;
+  readonly parentPath: string;
+  readonly parentIdentity: LockedDirectoryIdentity;
+}
+
+interface IdeaOutputPlan extends IdeaOutputLocation {
+  readonly boundary: OwnerPathLock;
+  readonly ownsBoundary: boolean;
+  readonly paths: {
+    readonly output: string;
+    readonly productConstitution: string;
+    readonly launchContract: string;
+    readonly usage: string;
+  };
+  readonly references: {
+    readonly output: string;
+    readonly productConstitution: string;
+    readonly launchContract: string;
+    readonly usage: string;
+  };
+}
+
+function explicitAbsoluteParent(requested: string, label: string): string {
+  const parent = dirname(resolve(requested));
+  try {
+    const metadata = lstatSync(parent);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new Error(`${label} parent must be a real non-symlink directory`);
+    }
+    const canonicalParent = realpathSync(parent);
+    if (canonicalParent !== parent) {
+      throw new Error(`${label} parent must be a real non-symlink directory`);
+    }
+    return canonicalParent;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`${label} parent must already exist as a real non-symlink directory`);
+    }
+    throw error;
+  }
+}
+
+function externalIdeaOutputBoundaryRoot(parentPath: string): {
+  readonly root: string;
+  readonly allowRootOwnedStickyDirectory: boolean;
+} {
+  const containingDirectory = dirname(parentPath);
+  if (containingDirectory === parentPath) {
+    return { root: parentPath, allowRootOwnedStickyDirectory: false };
+  }
+  const metadata = lstatSync(containingDirectory);
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  const ownerControlled = uid !== null && metadata.uid === uid && (metadata.mode & 0o022) === 0;
+  const rootOwnedStickyDirectory =
+    uid !== null &&
+    metadata.uid === 0 &&
+    (metadata.mode & 0o1000) !== 0 &&
+    (metadata.mode & 0o002) !== 0;
+  if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+    if (ownerControlled) {
+      return { root: containingDirectory, allowRootOwnedStickyDirectory: false };
+    }
+    if (rootOwnedStickyDirectory) {
+      return { root: containingDirectory, allowRootOwnedStickyDirectory: true };
+    }
+  }
+  return { root: parentPath, allowRootOwnedStickyDirectory: false };
+}
+
+function safeRelativeIdeaOutputPath(
+  root: string,
+  requested: string,
+  boundary: OwnerPathLock,
+): IdeaOutputLocation {
   if (!requested || isAbsolute(requested) || !requested.toLowerCase().endsWith(".md")) {
     throw new Error("vh idea sharpen --output must be a project-relative Markdown path");
   }
@@ -403,17 +477,160 @@ function safeIdeaOutputPath(root: string, requested: string, boundary: OwnerPath
     throw new Error("vh idea sharpen --output resolves through a directory outside the workspace");
   }
   const target = resolve(canonicalParent, lexicalTarget.slice(dirname(lexicalTarget).length + 1));
-  if (existsSync(target)) {
-    const metadata = lstatSync(target);
-    if (metadata.isSymbolicLink() || !metadata.isFile()) {
-      throw new Error("vh idea sharpen --output must be a regular non-symlink Markdown file");
-    }
-  }
   if (lexicalTarget !== target) {
     throw new Error("vh idea sharpen --output resolves through an unexpected path");
   }
   boundary.assertDirectory(canonicalParent, parentIdentity, "vh idea sharpen output directory");
-  return target;
+  return { path: target, parentPath: canonicalParent, parentIdentity };
+}
+
+function prepareIdeaOutputPlan(
+  root: string,
+  requested: string,
+  coreBoundary: OwnerPathLock,
+): IdeaOutputPlan {
+  if (!requested || !requested.toLowerCase().endsWith(".md")) {
+    throw new Error("vh idea sharpen --output must be a Markdown path");
+  }
+
+  const explicitAbsolute = isAbsolute(requested);
+  let boundary = coreBoundary;
+  let ownsBoundary = false;
+  let location: IdeaOutputLocation;
+  if (explicitAbsolute) {
+    const absolute = resolve(requested);
+    const parentPath = explicitAbsoluteParent(absolute, "vh idea sharpen --output");
+    const boundaryRoot = externalIdeaOutputBoundaryRoot(parentPath);
+    boundary = new OwnerPathLock(boundaryRoot.root, {
+      label: "vh idea sharpen external output",
+      lockName: ".vh-idea-sharpen-output.lock",
+      allowRootOwnedStickyDirectory: boundaryRoot.allowRootOwnedStickyDirectory,
+    });
+    ownsBoundary = true;
+    try {
+      const parentIdentity = boundary.captureDirectory(
+        parentPath,
+        "vh idea sharpen output directory",
+      );
+      const path = resolve(parentPath, basename(absolute));
+      location = { path, parentPath, parentIdentity };
+    } catch (error) {
+      boundary.release();
+      throw error;
+    }
+  } else {
+    location = safeRelativeIdeaOutputPath(root, requested, boundary);
+  }
+
+  const basePath = location.path.slice(0, -3);
+  const paths = {
+    output: location.path,
+    productConstitution: `${basePath}.product-constitution.md`,
+    launchContract: `${basePath}.launch-contract.yaml`,
+    usage: `${basePath}.usage.json`,
+  };
+  const canonicalRoot = realpathSync(root);
+  const reference = (path: string): string =>
+    explicitAbsolute ? path : relative(canonicalRoot, path);
+
+  return {
+    ...location,
+    boundary,
+    ownsBoundary,
+    paths,
+    references: {
+      output: reference(paths.output),
+      productConstitution: reference(paths.productConstitution),
+      launchContract: reference(paths.launchContract),
+      usage: reference(paths.usage),
+    },
+  };
+}
+
+function assertPathEntryMissing(path: string, label: string): void {
+  try {
+    lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`${label} already exists; choose a new --output path`);
+}
+
+function ideaOutputEntries(plan: IdeaOutputPlan): readonly [string, string][] {
+  return [
+    [plan.paths.output, "vh idea sharpen output"],
+    [plan.paths.productConstitution, "vh idea sharpen Product Constitution"],
+    [plan.paths.launchContract, "vh idea sharpen Launch Contract"],
+    [plan.paths.usage, "vh idea sharpen usage"],
+  ];
+}
+
+function assertIdeaOutputsMissing(plan: IdeaOutputPlan): void {
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory",
+  );
+  for (const [path, label] of ideaOutputEntries(plan)) {
+    assertPathEntryMissing(path, label);
+    plan.boundary.assertMissing(path, label);
+  }
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory",
+  );
+}
+
+function writeNewIdeaArtifact(
+  plan: IdeaOutputPlan,
+  path: string,
+  content: string,
+  label: string,
+): void {
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory",
+  );
+  assertPathEntryMissing(path, label);
+  plan.boundary.assertMissing(path, label);
+  plan.boundary.writeFileAtomic(path, content, label);
+  plan.boundary.assertDirectory(
+    plan.parentPath,
+    plan.parentIdentity,
+    "vh idea sharpen output directory",
+  );
+}
+
+function readIdeaSharpenInput(
+  root: string,
+  requested: string,
+  coreBoundary: OwnerPathLock,
+): string {
+  if (requested === "-") return readFileSync(0, "utf8");
+  if (!isAbsolute(requested)) {
+    return coreBoundary.readRegularFile(inside(root, requested), {
+      label: "vh idea sharpen --input",
+      maxBytes: 100_000,
+    });
+  }
+
+  const absolute = resolve(requested);
+  const parent = explicitAbsoluteParent(absolute, "vh idea sharpen --input");
+  const boundary = new OwnerPathLock(parent, {
+    label: "vh idea sharpen external input",
+    lockName: ".vh-idea-sharpen-input.lock",
+  });
+  try {
+    return boundary.readRegularFile(resolve(parent, basename(absolute)), {
+      label: "vh idea sharpen --input",
+      maxBytes: 100_000,
+    });
+  } finally {
+    boundary.release();
+  }
 }
 
 function readStructured(path: string): unknown {
@@ -2857,35 +3074,23 @@ function createDefaultCliServicesInternal(options: DefaultCliServicesOptions): C
 
   return {
     async ideaSharpen(request) {
-      const boundary = new OwnerPathLock(root, {
+      const coreBoundary = new OwnerPathLock(root, {
         label: "vh idea sharpen",
         lockName: ".vh-idea-sharpen.lock",
       });
+      let outputPlan: IdeaOutputPlan | undefined;
       try {
-        const source =
-          request.input === "-"
-            ? readFileSync(0, "utf8")
-            : boundary.readRegularFile(inside(root, request.input), {
-                label: "vh idea sharpen --input",
-                maxBytes: 100_000,
-              });
-        const outputPath = safeIdeaOutputPath(root, request.output, boundary);
-        const outputReference = relative(realpathSync(root), outputPath);
-        const baseOutput = outputReference.slice(0, -3);
-        const constitutionPath = safeIdeaOutputPath(
-          root,
-          `${baseOutput}.product-constitution.md`,
-          boundary,
-        );
-        const usagePath = inside(root, `${baseOutput}.usage.json`);
-        const contractPath = inside(root, `${baseOutput}.launch-contract.yaml`);
+        const source = readIdeaSharpenInput(root, request.input, coreBoundary);
+        outputPlan = prepareIdeaOutputPlan(root, request.output, coreBoundary);
+        assertIdeaOutputsMissing(outputPlan);
         let result;
         try {
           result = await sharpenIdea(source, { host: ideaSharpenerHost, now });
         } catch (error) {
           if (error instanceof IdeaSharpenError) {
-            boundary.writeFileAtomic(
-              usagePath,
+            writeNewIdeaArtifact(
+              outputPlan,
+              outputPlan.paths.usage,
               `${JSON.stringify(
                 {
                   schemaVersion: 1,
@@ -2904,28 +3109,37 @@ function createDefaultCliServicesInternal(options: DefaultCliServicesOptions): C
           }
           throw error;
         }
-        boundary.writeFileAtomic(outputPath, result.ideaMarkdown, "vh idea sharpen output");
-        boundary.writeFileAtomic(
-          constitutionPath,
+        assertIdeaOutputsMissing(outputPlan);
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.output,
+          result.ideaMarkdown,
+          "vh idea sharpen output",
+        );
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.productConstitution,
           result.productConstitutionMarkdown,
           "vh idea sharpen Product Constitution",
         );
-        boundary.writeFileAtomic(
-          contractPath,
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.launchContract,
           renderLaunchContractYaml(result.launchContract),
           "vh idea sharpen Launch Contract",
         );
-        boundary.writeFileAtomic(
-          usagePath,
+        writeNewIdeaArtifact(
+          outputPlan,
+          outputPlan.paths.usage,
           `${JSON.stringify(
             {
               schemaVersion: 1,
               command: "idea.sharpen",
               status: result.status,
               sourceDigest: createHash("sha256").update(source).digest("hex"),
-              output: outputReference,
-              productConstitution: `${baseOutput}.product-constitution.md`,
-              launchContract: `${baseOutput}.launch-contract.yaml`,
+              output: outputPlan.references.output,
+              productConstitution: outputPlan.references.productConstitution,
+              launchContract: outputPlan.references.launchContract,
               ...result.accounting,
               transcriptStored: false,
               providerEffects: false,
@@ -2938,22 +3152,27 @@ function createDefaultCliServicesInternal(options: DefaultCliServicesOptions): C
         return {
           schemaVersion: 1,
           status: result.status,
-          output: outputReference,
-          productConstitution: `${baseOutput}.product-constitution.md`,
-          launchContract: `${baseOutput}.launch-contract.yaml`,
-          usage: `${baseOutput}.usage.json`,
+          output: outputPlan.references.output,
+          productConstitution: outputPlan.references.productConstitution,
+          launchContract: outputPlan.references.launchContract,
+          usage: outputPlan.references.usage,
           ...result.accounting,
           transcriptStored: false,
           providerEffects: false,
           repositoryCreated: false,
           deploymentCreated: false,
-          nextAction: `Review ${baseOutput}.launch-contract.yaml, then run vh launch --idea ${outputReference} --stack founder-default --production --dry-run --non-interactive --json.`,
+          nextAction: `Review ${outputPlan.references.launchContract}, then run vh launch --idea ${outputPlan.references.output} --stack founder-default --production --dry-run --non-interactive --json.`,
         } as unknown as JsonValue;
       } finally {
-        boundary.release();
+        try {
+          if (outputPlan?.ownsBoundary) outputPlan.boundary.release();
+        } finally {
+          coreBoundary.release();
+        }
       }
     },
     async founderLaunch(request) {
+      const ideaSource = loadFounderIdeaFile(request.idea, root);
       let founderPathBoundary: OwnerPathLock | null = null;
       const connection = founderStackStore.load(request.stackProfile);
       if (!connection) {
@@ -2981,7 +3200,6 @@ function createDefaultCliServicesInternal(options: DefaultCliServicesOptions): C
         registry: effectiveProviderRegistry,
         now,
       });
-      const ideaSource = loadFounderIdeaFile(request.idea, root);
       const workflowRefSha = resolveFounderWorkflowRefSha(root, options.founderWorkflowRefSha);
       const workflowRepository = resolveFounderWorkflowRepository(
         root,

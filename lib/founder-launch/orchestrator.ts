@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { isAbsolute, resolve } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import {
   compileLaunchDryRun,
   launchBuildAgentTaskCount,
@@ -281,15 +282,47 @@ function containedOutput(baseDir: string, requested: string | undefined, slug: s
 
 export function loadFounderIdeaFile(file: string, baseDir = process.cwd()): string {
   if (!file) throw new Error("Founder launch --idea requires a file path");
-  const boundary = new OwnerPathLock(resolve(baseDir), {
+  const explicitAbsolute = isAbsolute(file);
+  const absolute = resolve(explicitAbsolute ? file : resolve(baseDir, file));
+  const requestedRoot = explicitAbsolute ? dirname(absolute) : resolve(baseDir);
+  let boundaryRoot = requestedRoot;
+  if (explicitAbsolute) {
+    try {
+      const parentMetadata = lstatSync(requestedRoot);
+      if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink()) {
+        throw new Error(
+          "Founder launch --idea parent must be a real non-symlink directory for an absolute path",
+        );
+      }
+      boundaryRoot = realpathSync(requestedRoot);
+      if (boundaryRoot !== requestedRoot) {
+        throw new Error(
+          "Founder launch --idea parent must be a real non-symlink directory for an absolute path",
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          "Founder launch --idea parent must already exist as a real non-symlink directory",
+        );
+      }
+      throw error;
+    }
+  }
+  const boundary = new OwnerPathLock(boundaryRoot, {
     label: "Founder launch idea read",
     lockName: ".founder-launch-idea.lock",
   });
   try {
-    return boundary.readRegularFile(resolve(boundary.root.path, file), {
-      label: "Founder launch --idea",
-      maxBytes: MAX_IDEA_BYTES,
-    });
+    return boundary.readRegularFile(
+      explicitAbsolute
+        ? resolve(boundary.root.path, basename(absolute))
+        : resolve(boundary.root.path, file),
+      {
+        label: "Founder launch --idea",
+        maxBytes: MAX_IDEA_BYTES,
+      },
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes("escapes the locked")) {
       throw new Error("Founder launch --idea escapes the selected workspace", { cause: error });

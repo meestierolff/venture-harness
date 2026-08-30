@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "packageName": "venture-harness",
   "packageVersion": "0.2.0",
-  "coreSourceCommit": "e1a8b8a9641812f7b704e0f733b5be3544c1461b",
+  "coreSourceCommit": "7c1d580415a384aa5ec18384a0395f13ab2ff3a2",
   "coreRepository": "meestierolff/venture-harness",
-  "binSha256": "c1f3630d47d5a4cfc2dd1b4cbada1e341ccbbbea039e5e4e03b615dc6c8e4699"
+  "binSha256": "3aa6b93fb25105d94bc3519a2e1814ff3b8bff1d2fc60e7a79e280432178109b"
 }

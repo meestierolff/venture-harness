@@ -33,7 +33,12 @@ import {
   type LaunchGrant,
   type LaunchGrantInput,
 } from "@/lib/materialization";
-import { MockProviderTransport, type ProviderExecutionContext } from "@/lib/providers";
+import {
+  MockProviderTransport,
+  ProviderRegistry,
+  providerRegistry,
+  type ProviderExecutionContext,
+} from "@/lib/providers";
 import { CodexCliBuildAgentHost } from "@/lib/runtime";
 import { FileWorkflowStore } from "@/lib/workflow";
 
@@ -254,6 +259,48 @@ afterEach(() => {
 });
 
 describe("canonical founder launch safety preflight", () => {
+  it("rejects an invalid external idea before credential or provider doctor work", async () => {
+    const harness = await createHarness();
+    const aliasContainer = temporaryDirectory();
+    const externalDocuments = temporaryDirectory();
+    symlinkSync(externalDocuments, join(aliasContainer, "documents"), "dir");
+    const providerDoctor = vi.fn();
+    const registry = new ProviderRegistry(
+      providerRegistry.list().map((adapter) => ({
+        descriptor: adapter.descriptor,
+        doctor: async (request, context) => {
+          providerDoctor(adapter.descriptor.id);
+          return adapter.doctor(request, context);
+        },
+        plan: (request) => adapter.plan(request),
+        apply: (plan, context) => adapter.apply(plan, context),
+        readBack: (report, context) => adapter.readBack(report, context),
+        verify: (report, readBack) => adapter.verify(report, readBack),
+      })),
+    );
+    const inspectCredential = vi.spyOn(harness.broker, "inspect");
+    const registerCredential = vi.spyOn(harness.broker, "register");
+    const services = createDefaultCliServices({
+      ...commonOptions(harness),
+      rootDir: harness.root,
+      providerRegistry: registry,
+    });
+
+    await expect(
+      services.founderLaunch!({
+        ...founderRequest(),
+        mode: "dry-run",
+        idea: join(aliasContainer, "documents", "idea.md"),
+      }),
+    ).rejects.toThrow(/parent must be a real non-symlink directory/);
+
+    expect(providerDoctor).not.toHaveBeenCalled();
+    expect(inspectCredential).not.toHaveBeenCalled();
+    expect(registerCredential).not.toHaveBeenCalled();
+    expect(harness.cliTransport.calls).toEqual([]);
+    expect(harness.httpTransport.calls).toEqual([]);
+  });
+
   it.each([
     {
       provider: "github" as const,
