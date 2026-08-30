@@ -38,8 +38,32 @@ const bootstrapBlobOid = createHash("sha1")
 const bootstrapCommitOid = "1".repeat(40);
 const bootstrapTreeOid = "2".repeat(40);
 const sourceCommitOid = "3".repeat(40);
-const sourceTreeOid = "4".repeat(40);
-const sourceBlobOid = "5".repeat(40);
+const sourceContent = Buffer.from("# Verified venture\n", "utf8");
+
+function objectOid(kind: "blob" | "tree", content: Buffer): string {
+  return createHash("sha1")
+    .update(Buffer.from(`${kind} ${content.byteLength}\0`, "utf8"))
+    .update(content)
+    .digest("hex");
+}
+
+function singleBlobSnapshot(
+  path: string,
+  mode: "100644" | "100755" | "120000",
+  content: Buffer,
+): LocalSourceSnapshot {
+  if (path.includes("/")) throw new Error("singleBlobSnapshot expects one root path");
+  const oid = objectOid("blob", content);
+  const tree = Buffer.concat([Buffer.from(`${mode} ${path}\0`, "utf8"), Buffer.from(oid, "hex")]);
+  return {
+    treeOid: objectOid("tree", tree),
+    blobs: [{ path, mode, oid, content }],
+  };
+}
+
+const exactSourceSnapshot = singleBlobSnapshot("README.md", "100644", sourceContent);
+const sourceTreeOid = exactSourceSnapshot.treeOid;
+const sourceBlobOid = exactSourceSnapshot.blobs[0]!.oid;
 
 const snapshot: LocalSourceSnapshot = {
   treeOid: sourceTreeOid,
@@ -48,7 +72,7 @@ const snapshot: LocalSourceSnapshot = {
       path: "README.md",
       mode: "100644",
       oid: sourceBlobOid,
-      content: Buffer.from("# Verified venture\n", "utf8"),
+      content: sourceContent,
     },
   ],
 };
@@ -192,6 +216,8 @@ describe("GitHub local-source publication", () => {
     try {
       writeFileSync(join(root, "README.md"), "# Independent child\n", "utf8");
       writeFileSync(join(root, ".gitignore"), ".venture/\nreports/\n", "utf8");
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src", "index.ts"), "export const ready = true;\n", "utf8");
       mkdirSync(join(root, ".venture"));
       mkdirSync(join(root, "reports"));
       writeFileSync(join(root, ".venture", "state.json"), '{"private":true}\n', "utf8");
@@ -199,12 +225,24 @@ describe("GitHub local-source publication", () => {
 
       const source = await new GitLocalSourceSnapshotLoader().load(root);
 
-      expect(source.blobs.map(({ path }) => path)).toEqual([".gitignore", "README.md"]);
+      expect(source.blobs.map(({ path }) => path)).toEqual([
+        ".gitignore",
+        "README.md",
+        "src/index.ts",
+      ]);
       expect(source.blobs.map(({ path }) => path)).not.toEqual(
         expect.arrayContaining([expect.stringMatching(/^(?:\.venture|reports)(?:\/|$)/u)]),
       );
       expect(source.treeOid).toMatch(/^[0-9a-f]{40}$/u);
       expect(existsSync(join(root, ".git"))).toBe(false);
+
+      const gateway = existingGateway({ commitOid: sourceCommitOid, treeOid: source.treeOid });
+      await expect(
+        publishGitHubSource(
+          { repository, visibility, rootDir: root },
+          { gateway, snapshots: { load: async () => source } },
+        ),
+      ).resolves.toMatchObject({ verified: true, treeOid: source.treeOid });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -224,6 +262,177 @@ describe("GitHub local-source publication", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("rejects a symlink supplied as the local source root", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vh-source-root-"));
+    const link = join(
+      tmpdir(),
+      `vh-source-root-link-${createHash("sha256").update(root).digest("hex")}`,
+    );
+    try {
+      writeFileSync(join(root, "README.md"), "# Real root\n", "utf8");
+      symlinkSync(root, link, "dir");
+      await expect(new GitLocalSourceSnapshotLoader().load(link)).rejects.toThrow(
+        /root must be a real directory/u,
+      );
+    } finally {
+      rmSync(link, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    [".env.example", "100644"],
+    ["publish", "100755"],
+    ["source-link", "120000"],
+  ] as const)(
+    "scans exact %s bytes in mode %s before any GitHub call and never reveals the match",
+    async (path, mode) => {
+      const rawCanary = ["gh", "p_", "SYNTHETIC", "A".repeat(24)].join("");
+      const unsafeSnapshot = singleBlobSnapshot(path, mode, Buffer.from(rawCanary, "utf8"));
+      const gateway = new FakeGateway();
+      let failure: unknown;
+      try {
+        await publishGitHubSource(
+          { repository, visibility, rootDir: "/synthetic/repository" },
+          { gateway, snapshots: { load: async () => unsafeSnapshot } },
+        );
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(path);
+      expect((failure as Error).message).toContain("github-token");
+      expect((failure as Error).message).not.toContain(rawCanary);
+      expect(gateway.calls).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["modern API key", ["sk", "-proj-", "A".repeat(24)].join(""), "credential_pattern"],
+    [
+      "fine-grained GitHub token",
+      ["github", "_pat_", "B".repeat(24)].join(""),
+      "credential_pattern",
+    ],
+    ["email provider key", ["xkey", "sib-", "C".repeat(24)].join(""), "credential_pattern"],
+    [
+      "signed bearer value",
+      ["eyJ", "D".repeat(12), ".", "E".repeat(12), ".", "F".repeat(12)].join(""),
+      "credential_pattern",
+    ],
+    [
+      "labeled generic secret",
+      `API_KEY=${["generic", "secret", "value", "123456"].join("-")}`,
+      "credential_labeled_text",
+    ],
+  ])(
+    "rejects a %s with no gateway call or raw value in the error",
+    async (_label, raw, category) => {
+      const unsafeSnapshot = singleBlobSnapshot("configuration.txt", "100644", Buffer.from(raw));
+      const gateway = new FakeGateway();
+      let failure: unknown;
+      try {
+        await publishGitHubSource(
+          { repository, visibility, rootDir: "/synthetic/repository" },
+          { gateway, snapshots: { load: async () => unsafeSnapshot } },
+        );
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(category);
+      expect((failure as Error).message).not.toContain(raw);
+      expect(gateway.calls).toEqual([]);
+    },
+  );
+
+  it("allows credential references and benign placeholders in a scanned example file", async () => {
+    const reviewedSnapshot = singleBlobSnapshot(
+      ".env.example",
+      "100644",
+      Buffer.from(
+        [
+          "DATABASE_URL=REPLACE_WITH_NEON_DATABASE_URL",
+          "GITHUB_TOKEN_REF=cred://github/source-publication",
+          "password: z.string().min(12)",
+          "",
+        ].join("\n"),
+        "utf8",
+      ),
+    );
+    const gateway = existingGateway({
+      commitOid: sourceCommitOid,
+      treeOid: reviewedSnapshot.treeOid,
+    });
+
+    await expect(
+      publishGitHubSource(
+        { repository, visibility, rootDir: "/synthetic/repository" },
+        { gateway, snapshots: { load: async () => reviewedSnapshot } },
+      ),
+    ).resolves.toMatchObject({ verified: true, treeOid: reviewedSnapshot.treeOid });
+  });
+
+  it("rejects duplicate, ambiguous, and tree-mismatched snapshots before a GitHub call", async () => {
+    const gateway = new FakeGateway();
+    const duplicate: LocalSourceSnapshot = {
+      treeOid: snapshot.treeOid,
+      blobs: [snapshot.blobs[0]!, snapshot.blobs[0]!],
+    };
+    await expect(
+      publishGitHubSource(
+        { repository, visibility, rootDir: "/synthetic/repository" },
+        { gateway, snapshots: { load: async () => duplicate } },
+      ),
+    ).rejects.toThrow(/duplicate path/u);
+
+    const ambiguousSecond = singleBlobSnapshot("readme.md", "100644", sourceContent).blobs[0]!;
+    const ambiguous: LocalSourceSnapshot = {
+      treeOid: snapshot.treeOid,
+      blobs: [snapshot.blobs[0]!, ambiguousSecond],
+    };
+    await expect(
+      publishGitHubSource(
+        { repository, visibility, rootDir: "/synthetic/repository" },
+        { gateway, snapshots: { load: async () => ambiguous } },
+      ),
+    ).rejects.toThrow(/ambiguous path/u);
+
+    await expect(
+      publishGitHubSource(
+        { repository, visibility, rootDir: "/synthetic/repository" },
+        {
+          gateway,
+          snapshots: { load: async () => ({ ...snapshot, treeOid: "4".repeat(40) }) },
+        },
+      ),
+    ).rejects.toThrow(/tree id does not match/u);
+    expect(gateway.calls).toEqual([]);
+  });
+
+  it("rejects an opaque npm credential in a known credential-store path before scanning or calling GitHub", async () => {
+    const raw = ["//registry.npmjs.org/:_authToken=npm", "_", "G".repeat(36)].join("");
+    const unsafeSnapshot = singleBlobSnapshot(".npmrc", "100644", Buffer.from(raw));
+    const gateway = new FakeGateway();
+    let failure: unknown;
+    try {
+      await publishGitHubSource(
+        { repository, visibility, rootDir: "/synthetic/repository" },
+        { gateway, snapshots: { load: async () => unsafeSnapshot } },
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain(".npmrc");
+    expect((failure as Error).message).toContain("credential-store path");
+    expect((failure as Error).message).not.toContain(raw);
+    expect(gateway.calls).toEqual([]);
   });
 
   it("creates an empty repository, uploads the exact local Git tree, and reads it back", async () => {

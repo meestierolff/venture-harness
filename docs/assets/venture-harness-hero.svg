@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 960 620">
+  <title id="title">Venture Harness founder-alpha path from a reviewed Launch Contract to a bounded evidence plan</title>
+  <desc id="desc">A compact, locally and fixture-tested route from a reviewed Launch Contract through seed and provider planning. Live read-back remains pending until evidenced.</desc>
+  <rect width="960" height="620" rx="28" fill="#F4F0E6"/>
+  <path d="M0 118H960M0 500H960" stroke="#1A1D19" stroke-opacity=".12"/>
+
+  <text x="64" y="72" fill="#1E644C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="32" font-weight="700" letter-spacing="2">LOCAL + FIXTURE TESTED</text>
+  <text x="64" y="174" fill="#171A17" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="64" font-weight="800" letter-spacing="-3">CONTRACT</text>
+  <text x="410" y="174" fill="#D35F32" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="64" font-weight="500">→</text>
+  <text x="478" y="174" fill="#171A17" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="64" font-weight="800" letter-spacing="-3">EVIDENCE PLAN</text>
+  <text x="64" y="230" fill="#38413A" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30">A reviewable route toward independent launch evidence.</text>
+  <text x="64" y="272" fill="#38413A" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="30">Live proof requires provider read-back.</text>
+
+  <path d="M64 382H896" stroke="#1A1D19" stroke-width="4"/>
+  <path d="m876 368 20 14-20 14" fill="none" stroke="#1A1D19" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+  <g fill="#F4F0E6" stroke="#1A1D19" stroke-width="4">
+    <circle cx="64" cy="382" r="15"/>
+    <circle cx="260" cy="382" r="15"/>
+    <circle cx="456" cy="382" r="15"/>
+    <circle cx="676" cy="382" r="15"/>
+  </g>
+  <circle cx="876" cy="382" r="15" fill="#F4F0E6" stroke="#1E644C" stroke-width="4"/>
+  <text x="64" y="448" fill="#171A17" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="27" font-weight="700">CONTRACT · SEED · PLAN · READ-BACK · RECEIPT</text>
+
+  <text x="64" y="558" fill="#38413A" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26">Founder Alpha · live read-back pending until evidenced</text>
+  <text x="896" y="558" fill="#1E644C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700" text-anchor="end">OPEN SOURCE</text>
+</svg>

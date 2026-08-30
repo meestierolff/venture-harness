@@ -91,7 +91,7 @@ const ventureConfig = {
       secondary: [],
     },
     capabilities: {
-      active: ["public_website", "web_seo_aeo_geo"],
+      active: ["public_website"],
       open: [],
     },
     extensions: {},
@@ -494,7 +494,7 @@ Build the smallest trustworthy product described by \`config/launch-contract.yam
 
 Read \`PROJECT.md\`, \`config/launch-contract.yaml\` when present, \`docs/product/PRODUCT_CONSTITUTION.md\`, \`docs/product/PRODUCT_TRUTH.md\`, and the relevant typed config before changing product code.
 
-Use \`skills/design-director/SKILL.md\` for the first product/design pass. Implement only the Launch Contract's core journey and explicit capabilities. Missing non-critical detail becomes a labeled assumption; never invent users, provider state, demand, metrics, revenue, reviews, or evidence.
+Use \`skills/design-director/SKILL.md\` for the first product/design pass. Use \`skills/seo-aeo-engine/SKILL.md\` only when \`web_seo_aeo_geo\` is REQUIRED in the selected build context. Implement only the Launch Contract's core journey and explicit capabilities. Missing non-critical detail becomes a labeled assumption; never invent users, provider state, demand, queries, traffic, citations, metrics, revenue, reviews, or evidence.
 
 Keep credentials and private runtime state out of Git and model context. Product and design files are venture-owned; Core upgrades may not overwrite them. Run \`pnpm verify:fast\` for focused work and \`pnpm verify\` before completion.
 `,
@@ -561,6 +561,61 @@ Require a coherent design thesis, useful hierarchy, product-specific states, key
 `,
   ),
   file(
+    "skills/seo-aeo-engine/SKILL.md",
+    "core_owned",
+    `---
+name: seo-aeo-engine
+description: Implement truthful technical SEO/AEO only when the Launch Contract requires web_seo_aeo_geo.
+---
+
+# SEO/AEO engine
+
+Read \`config/launch-contract.yaml\`, \`config/seo.yaml\`, Product Truth, and \`references/technical-discovery.md\`. If the capability is not REQUIRED, do not add discovery infrastructure. If a required file is missing, stop.
+
+Keep one intentional canonical owner per user task. Put the direct answer and decisive limitation in raw HTML. Give every owner a unique accurate title, description, visible H1, self-canonical, and useful next step. Keep auth, account, edit, draft, API, private, user-generated, and noindex routes out of sitemaps. Structured data must parse and describe visible verified facts only. Never invent queries, traffic, citations, ratings, reviews, people, customers, outcomes, or provider state.
+
+Indexing remains disabled until a verified production origin, product-truth review, successful raw-HTML/crawl checks, and the explicit \`NEXT_PUBLIC_INDEXING_ENABLED=true\` opt-in. A sitemap, indexing request, or crawler receipt proves neither indexation nor demand.
+`,
+  ),
+  file(
+    "skills/seo-aeo-engine/references/technical-discovery.md",
+    "core_owned",
+    `# Technical discovery checklist
+
+For each intended public owner, verify a stable 200 response, raw HTML proposition and limitation, unique title and description, one H1, absolute self-canonical, useful internal link, mobile/accessibility baseline, and truthful parseable JSON-LD when present.
+
+The sitemap may contain only preferred public 200 owners. Exclude auth, account, edit, draft, API, search-result, private, user-generated, parameterized, redirected, and noindex routes. Robots, meta robots, canonical, sitemap, internal links, and structured-data identifiers must agree. Search crawling and model-training permission are separate policy choices.
+`,
+  ),
+  file(
+    "config/seo.yaml",
+    "venture_owned",
+    `schema_version: 1
+maturity: pre-launch
+indexing:
+  default: disabled
+  activation: verified_production_plus_explicit_environment_opt_in
+  environment_flag: NEXT_PUBLIC_INDEXING_ENABLED=true
+canonical_owners:
+  - route: /
+    user_task: venture-specific primary journey
+    state: candidate_until_product_review
+excluded_route_prefixes:
+  - /api
+  - /auth
+  - /account
+  - /edit
+  - /draft
+  - /private
+  - /user
+excluded_routes:
+  - /status
+structured_data: visible_verified_facts_only
+query_evidence: missing
+live_indexation: unknown
+`,
+  ),
+  file(
     "app/layout.tsx",
     "merge_managed",
     `import type { Metadata } from "next";
@@ -573,7 +628,6 @@ export const metadata: Metadata = {
   metadataBase: SITE_URL,
   title: { default: SITE.name, template: "%s | " + SITE.name },
   description: SITE.description,
-  alternates: { canonical: "/" },
   robots: { index: INDEXING_ENABLED, follow: INDEXING_ENABLED },
 };
 
@@ -589,7 +643,15 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   file(
     "app/page.tsx",
     "venture_owned",
-    `import Link from "next/link";
+    `import type { Metadata } from "next";
+import Link from "next/link";
+import { SITE } from "../src/config/site";
+
+export const metadata: Metadata = {
+  title: SITE.name,
+  description: SITE.description,
+  alternates: { canonical: "/" },
+};
 
 export default function Home() {
   return (
@@ -617,7 +679,16 @@ export default function Home() {
   file(
     "app/status/page.tsx",
     "venture_owned",
-    `import Link from "next/link";
+    `import type { Metadata } from "next";
+import Link from "next/link";
+import { SITE } from "../../src/config/site";
+
+export const metadata: Metadata = {
+  title: "Launch status",
+  description: "Current local verification boundary for " + SITE.name + ".",
+  alternates: { canonical: "/status" },
+  robots: { index: false, follow: false },
+};
 
 export default function StatusPage() {
   return (
@@ -666,12 +737,12 @@ export default function robots(): MetadataRoute.Robots {
     "app/sitemap.ts",
     "merge_managed",
     `import type { MetadataRoute } from "next";
-import { SITE_URL } from "../src/config/site";
+import { INDEXING_ENABLED, SITE_URL } from "../src/config/site";
 
 export default function sitemap(): MetadataRoute.Sitemap {
+  if (!INDEXING_ENABLED) return [];
   return [
     { url: new URL("/", SITE_URL).toString(), changeFrequency: "weekly", priority: 1 },
-    { url: new URL("/status", SITE_URL).toString(), changeFrequency: "monthly", priority: 0.2 },
   ];
 }
 `,
@@ -738,7 +809,8 @@ export const SITE_URL = new URL(configuredSiteUrl);
 export const INDEXING_ENABLED =
   verifiedProductionEnvironment &&
   Boolean(explicitSiteOrigin ?? vercelProductionOrigin) &&
-  process.env.NEXT_PUBLIC_INDEXING_ENABLED !== "false";
+  SITE_URL.protocol === "https:" &&
+  process.env.NEXT_PUBLIC_INDEXING_ENABLED === "true";
 export const SITE = Object.freeze({
   name: "{{ventureName}}",
   slug: "{{ventureSlug}}",
@@ -773,20 +845,60 @@ export function analyticsEvent(name: AnalyticsEventName, properties: SafeAnalyti
     "core_owned",
     String.raw`import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, realpathSync, renameSync, rmSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+  type Stats,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 const MAX_ENTRIES = 10_000;
 const MAX_BLOB_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
+const MAX_PATH_BYTES = 1_024;
+const MAX_PATH_COMPONENT_BYTES = 255;
 const COMMIT_MESSAGE = "chore: publish verified venture source";
 const BOOTSTRAP_PATH = ".venture-harness-bootstrap";
 const BOOTSTRAP_CONTENT = Buffer.from("venture-harness-source-bootstrap-v1\n", "utf8");
+const RUNTIME_ENVIRONMENT_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TERM",
+  "NO_COLOR",
+  "CI",
+  "SystemRoot",
+  "WINDIR",
+  "PATHEXT",
+] as const;
+const GIT_ENVIRONMENT_OVERRIDES = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]);
 
 type Visibility = "private" | "public" | "internal";
-type TreeMode = "100644" | "100755" | "120000";
+type TreeMode = "100644" | "100755";
 
 interface CommandResult {
   exitCode: number;
@@ -803,7 +915,7 @@ interface SourceEntry {
 
 interface SourceSnapshot {
   treeOid: string;
-  entries: SourceEntry[];
+  entries: readonly SourceEntry[];
 }
 
 interface RepositoryState {
@@ -817,6 +929,39 @@ interface BranchState {
   treeOid: string;
 }
 
+function commandEnvironment(command: string, overrides: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV ?? "production",
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_CONFIG_NOSYSTEM: "1",
+    NPM_CONFIG_GLOBALCONFIG: nullDevice,
+    NPM_CONFIG_USERCONFIG: nullDevice,
+    npm_config_globalconfig: nullDevice,
+    npm_config_userconfig: nullDevice,
+    GIT_TERMINAL_PROMPT: "0",
+    GH_PROMPT_DISABLED: "1",
+  };
+  for (const name of RUNTIME_ENVIRONMENT_KEYS) {
+    const value = process.env[name];
+    if (value !== undefined) environment[name] = value;
+  }
+  const executable = command.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  for (const [name, value] of Object.entries(overrides)) {
+    if (
+      executable !== "git" ||
+      !GIT_ENVIRONMENT_OVERRIDES.has(name) ||
+      !isAbsolute(value) ||
+      value.length > 4_096 ||
+      /[\u0000-\u001f\u007f]/u.test(value)
+    ) {
+      throw new Error("Refusing unsupported direct-command environment field " + name);
+    }
+    environment[name] = value;
+  }
+  return environment;
+}
+
 function run(
   command: string,
   args: string[],
@@ -827,7 +972,7 @@ function run(
   }
   const result = spawnSync(command, args, {
     cwd: options.cwd,
-    env: { ...process.env, ...options.env },
+    env: commandEnvironment(command, options.env ?? {}),
     input: options.input,
     encoding: null,
     shell: false,
@@ -907,19 +1052,69 @@ function assertOid(oid: string, label: string): void {
   if (!/^[0-9a-f]{40}$/.test(oid)) throw new Error(label + " is not an exact SHA-1 object id");
 }
 
+const CREDENTIAL_STORE_BASENAMES = new Set([
+  ".npmrc",
+  ".netrc",
+  "_netrc",
+  ".pypirc",
+  ".git-credentials",
+  ".terraformrc",
+  "terraform.rc",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+]);
+const CREDENTIAL_STORE_SUFFIXES = [
+  "/.docker/config.json",
+  "/.config/containers/auth.json",
+  "/.config/gcloud/application_default_credentials.json",
+  "/.aws/credentials",
+  "/.kube/config",
+  "/.cargo/credentials",
+  "/.cargo/credentials.toml",
+  "/.gem/credentials",
+] as const;
+
+function isCredentialStorePath(path: string): boolean {
+  const normalized = "/" + path.toLowerCase();
+  const name = normalized.split("/").at(-1) ?? "";
+  return (
+    CREDENTIAL_STORE_BASENAMES.has(name) ||
+    CREDENTIAL_STORE_SUFFIXES.some((suffix) => normalized.endsWith(suffix)) ||
+    /(?:^|[/_.-])service[-_]?account(?:[/_.-]|$).*\.json$/u.test(normalized) ||
+    /\.(?:pem|key|p12|pfx|jks|keystore)$/u.test(name)
+  );
+}
+
 function assertSourcePath(path: string): void {
+  const parts = path.split("/");
   if (
-    !path ||
+    path.length === 0 ||
     path.startsWith("/") ||
-    path.includes("\0") ||
-    path.split("/").some((part) => !part || part === "." || part === "..") ||
+    path.includes("\\") ||
+    /[\u0000-\u001f\u007f]/u.test(path) ||
+    Buffer.byteLength(path, "utf8") > MAX_PATH_BYTES ||
+    Buffer.from(path, "utf8").toString("utf8") !== path ||
+    parts.some(
+      (part) =>
+        part.length === 0 ||
+        part === "." ||
+        part === ".." ||
+        Buffer.byteLength(part, "utf8") > MAX_PATH_COMPONENT_BYTES ||
+        part.toLowerCase() === ".git",
+    )
+  ) {
+    throw new Error("Local source contains an unsafe path");
+  }
+  if (
     path === BOOTSTRAP_PATH ||
     path === ".venture" ||
     path.startsWith(".venture/") ||
     path === "reports" ||
     path.startsWith("reports/")
   ) {
-    throw new Error("Local source contains an unsafe or private runtime path");
+    throw new Error("Local source contains a reserved private runtime path");
   }
   const name = path.split("/").at(-1) ?? path;
   const environmentFile = /^\.env(?:\..+)?$/.test(name);
@@ -927,6 +1122,188 @@ function assertSourcePath(path: string): void {
   if (environmentFile && !reviewedExample) {
     throw new Error("Local source contains an unreviewed environment file");
   }
+  if (isCredentialStorePath(path)) {
+    throw new Error("Local source contains credential-store path " + JSON.stringify(path));
+  }
+}
+
+const CREDENTIAL_PATTERNS = [
+  new RegExp("\\bsk-" + "proj-[A-Za-z0-9_-]{16,}", "iu"),
+  new RegExp("\\bsk-" + "[A-Za-z0-9_-]{20,}", "iu"),
+  new RegExp("\\b(?:sk|rk|pk|atk)_" + "(?:live|test)?_?[A-Za-z0-9_-]{8,}", "iu"),
+  new RegExp("\\bwh" + "sec_[A-Za-z0-9_-]{8,}", "iu"),
+  new RegExp("\\bxkey" + "sib-[A-Za-z0-9_-]{12,}", "iu"),
+  new RegExp("\\b(?:gh" + "[pousr]_[A-Za-z0-9_]{20,}|github" + "_pat_[A-Za-z0-9_]{20,})\\b", "iu"),
+  new RegExp("\\bxox" + "[baprs]-[A-Za-z0-9-]{10,}", "iu"),
+  new RegExp("\\b(?:AKIA|ASIA)" + "[A-Z0-9]{16}\\b", "u"),
+  new RegExp("\\bbearer\\s+" + "[A-Za-z0-9._~+/=-]{8,}", "iu"),
+  new RegExp("-----BEGIN " + "[A-Z ]*PRIVATE KEY-----", "u"),
+  new RegExp("\\beyJ" + "[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b", "iu"),
+  new RegExp("[?&](?:access_token|api_key|token|secret)=" + "[^&\\s]{6,}", "iu"),
+  new RegExp("\\b[A-Za-z][A-Za-z0-9+.-]*://" + "[^\\s/:@]+:[^\\s/@]+@", "iu"),
+] as const;
+const CREDENTIAL_REFERENCE = /^cred:\/\/[A-Za-z0-9][A-Za-z0-9/_:.-]*$/u;
+const BENIGN_CREDENTIAL_PLACEHOLDER =
+  /^(?:REPLACE(?:_WITH)?_[A-Z0-9_]+|YOUR_[A-Z0-9_]+|<[^<>\r\n]{1,80}>|\[(?:REDACTED|MASKED)\])$/u;
+const CREDENTIAL_LABELED_LINE =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:[A-Za-z0-9][A-Za-z0-9 ._-]{0,40}\s+)?(?:access[ _-]?token|refresh[ _-]?token|id[ _-]?token|api[ _-]?key|client[ _-]?secret|private[ _-]?key|password|secret|credential(?:[ _-]?value)?|authorization(?:\s+header)?)\s*[:=]\s*\S+/iu;
+const CONFIG_LITERAL = /^[A-Za-z0-9._~+/=-]{12,}$/u;
+
+function containsCredentialLabeledLiteral(value: string): boolean {
+  for (const line of value.split(/\r?\n/u)) {
+    if (!CREDENTIAL_LABELED_LINE.test(line)) continue;
+    const separator = line.search(/[:=]/u);
+    if (separator < 0) continue;
+    let literal = line.slice(separator + 1).trim().replace(/,\s*$/u, "");
+    const quote = literal[0];
+    if ((quote === '"' || quote === "'") && literal.at(-1) === quote) {
+      literal = literal.slice(1, -1);
+    }
+    if (CREDENTIAL_REFERENCE.test(literal) || BENIGN_CREDENTIAL_PLACEHOLDER.test(literal)) {
+      continue;
+    }
+    if (CONFIG_LITERAL.test(literal) && /[0-9._~+/=-]/u.test(literal)) return true;
+  }
+  return false;
+}
+
+function assertCredentialFreeBuffer(path: string, content: Buffer): void {
+  const value = content.toString("utf8");
+  const pattern = CREDENTIAL_PATTERNS.some((candidate) => candidate.test(value));
+  const labeled = containsCredentialLabeledLiteral(value);
+  if (pattern || labeled) {
+    const category = labeled ? "credential_labeled_text" : "credential_pattern";
+    throw new Error(
+      "Local source blob " + JSON.stringify(path) + " contains credential-like content (" + category + ")",
+    );
+  }
+}
+
+interface SourceTreeDirectory {
+  readonly directories: Map<string, SourceTreeDirectory>;
+  readonly entries: Map<string, Pick<SourceEntry, "mode" | "oid">>;
+}
+
+function sourceTreeOid(entries: readonly SourceEntry[]): string {
+  const root = (): SourceTreeDirectory => ({ directories: new Map(), entries: new Map() });
+  const tree = root();
+  for (const entry of entries) {
+    const parts = entry.path.split("/");
+    let directory = tree;
+    for (const [index, part] of parts.entries()) {
+      const leaf = index === parts.length - 1;
+      if (leaf) {
+        if (directory.directories.has(part) || directory.entries.has(part)) {
+          throw new Error("Local source tree contains a conflicting path");
+        }
+        directory.entries.set(part, { mode: entry.mode, oid: entry.oid });
+      } else {
+        if (directory.entries.has(part)) throw new Error("Local source tree contains a conflicting path");
+        let child = directory.directories.get(part);
+        if (!child) {
+          child = root();
+          directory.directories.set(part, child);
+        }
+        directory = child;
+      }
+    }
+  }
+  const hash = (directory: SourceTreeDirectory): string => {
+    const children = [
+      ...[...directory.entries.entries()].map(([name, entry]) => ({
+        name,
+        sortName: Buffer.from(name, "utf8"),
+        mode: entry.mode,
+        oid: entry.oid,
+      })),
+      ...[...directory.directories.entries()].map(([name, child]) => ({
+        name,
+        sortName: Buffer.from(name + "/", "utf8"),
+        mode: "40000",
+        oid: hash(child),
+      })),
+    ].sort((left, right) => Buffer.compare(left.sortName, right.sortName));
+    const body = Buffer.concat(
+      children.map((child) =>
+        Buffer.concat([
+          Buffer.from(child.mode + " " + child.name + "\0", "utf8"),
+          Buffer.from(child.oid, "hex"),
+        ]),
+      ),
+    );
+    return createHash("sha1")
+      .update(Buffer.from("tree " + body.byteLength + "\0", "utf8"))
+      .update(body)
+      .digest("hex");
+  };
+  return hash(tree);
+}
+
+function validateSnapshot(snapshot: SourceSnapshot): SourceSnapshot {
+  assertOid(snapshot.treeOid, "Local source tree id");
+  if (snapshot.entries.length === 0) throw new Error("Refusing to publish an empty source tree");
+  if (snapshot.entries.length > MAX_ENTRIES) throw new Error("Local source exceeds the entry safety limit");
+  const exactPaths = new Set<string>();
+  const portablePaths = new Set<string>();
+  const entries: SourceEntry[] = [];
+  let totalBytes = 0;
+  for (const candidate of snapshot.entries) {
+    assertSourcePath(candidate.path);
+    if (exactPaths.has(candidate.path)) throw new Error("Local source tree contains a duplicate path");
+    exactPaths.add(candidate.path);
+    const portablePath = candidate.path.normalize("NFC").toLowerCase();
+    if (portablePaths.has(portablePath)) throw new Error("Local source tree contains an ambiguous path");
+    portablePaths.add(portablePath);
+    if (candidate.mode !== "100644" && candidate.mode !== "100755") {
+      throw new Error("Local source contains an unsupported tree entry");
+    }
+    assertOid(candidate.oid, "Local source blob id");
+    const content = Buffer.from(candidate.content);
+    if (content.byteLength > MAX_BLOB_BYTES) throw new Error("Local source blob exceeds the safety limit");
+    totalBytes += content.byteLength;
+    if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Local source exceeds the aggregate safety limit");
+    if (gitBlobOid(content) !== candidate.oid) {
+      throw new Error("Local source blob does not match its exact object id");
+    }
+    assertCredentialFreeBuffer(candidate.path, content);
+    entries.push(Object.freeze({ path: candidate.path, mode: candidate.mode, oid: candidate.oid, content }));
+  }
+  if (sourceTreeOid(entries) !== snapshot.treeOid) {
+    throw new Error("Local source tree id does not match its exact validated entries");
+  }
+  return Object.freeze({ treeOid: snapshot.treeOid, entries: Object.freeze(entries) });
+}
+
+const PREFLIGHT_IGNORED_ROOTS = new Set([
+  ".git",
+  ".next",
+  ".venture",
+  "coverage",
+  "dist",
+  "node_modules",
+  "reports",
+]);
+
+function assertPrivateRegularSourceTree(root: string): void {
+  const visit = (directory: string, relativeDirectory = ""): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = relativeDirectory ? relativeDirectory + "/" + entry.name : entry.name;
+      if (!relativeDirectory && PREFLIGHT_IGNORED_ROOTS.has(entry.name)) continue;
+      const absolute = join(directory, entry.name);
+      const metadata = lstatSync(absolute);
+      if (metadata.isSymbolicLink()) {
+        throw new Error("Local source contains a symbolic link at " + path);
+      }
+      if (metadata.isDirectory()) {
+        visit(absolute, path);
+        continue;
+      }
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new Error("Local source contains a non-private or non-regular entry at " + path);
+      }
+    }
+  };
+  visit(root);
 }
 
 function loadSnapshot(root: string): SourceSnapshot {
@@ -935,6 +1312,7 @@ function loadSnapshot(root: string): SourceSnapshot {
   const gitDirectory = join(temporaryRoot, "source.git");
   const gitEnvironment = { GIT_DIR: gitDirectory, GIT_WORK_TREE: sourceRoot };
   try {
+    assertPrivateRegularSourceTree(sourceRoot);
     success(
       run("git", ["init", "--bare", "--object-format=sha1", gitDirectory], { cwd: sourceRoot }),
       "Initialize isolated source index",
@@ -967,7 +1345,7 @@ function loadSnapshot(root: string): SourceSnapshot {
       if (separator < 0) throw new Error("Local source tree returned a malformed entry");
       const [mode, type, oid] = row.slice(0, separator).split(" ");
       const path = row.slice(separator + 1);
-      if (type !== "blob" || !["100644", "100755", "120000"].includes(mode ?? "")) {
+      if (type !== "blob" || !["100644", "100755"].includes(mode ?? "")) {
         throw new Error("Local source contains an unsupported tree entry");
       }
       assertSourcePath(path);
@@ -981,7 +1359,7 @@ function loadSnapshot(root: string): SourceSnapshot {
       if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Local source exceeds the aggregate safety limit");
       entries.push({ path, mode: mode as TreeMode, oid: oid!, content });
     }
-    return { treeOid, entries };
+    return validateSnapshot({ treeOid, entries });
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -1093,6 +1471,9 @@ function uploadSnapshot(
   const uploaded = new Set<string>();
   for (const entry of snapshot.entries) {
     if (uploaded.has(entry.oid)) continue;
+    if (gitBlobOid(entry.content) !== entry.oid) {
+      throw new Error("Validated local source blob changed before upload");
+    }
     const blobResult = gh("repos/" + repository + "/git/blobs", {
       method: "POST",
       body: { content: entry.content.toString("base64"), encoding: "base64" },
@@ -1102,6 +1483,9 @@ function uploadSnapshot(
       throw new Error("GitHub blob read-back did not match the local source blob");
     }
     uploaded.add(entry.oid);
+  }
+  if (sourceTreeOid(snapshot.entries) !== snapshot.treeOid) {
+    throw new Error("Validated local source tree changed before upload");
   }
   const treeResult = gh("repos/" + repository + "/git/trees", {
     method: "POST",
@@ -1165,6 +1549,317 @@ async function verify(
   throw new Error("GitHub exact source read-back remained unavailable");
 }
 
+interface ChildDirectoryIdentity {
+  path: string;
+  device: number;
+  inode: number;
+}
+
+interface ChildFileIdentity {
+  device: number;
+  inode: number;
+  size: number;
+  modifiedAtMs: number;
+  changedAtMs: number;
+}
+
+const NO_FOLLOW = "O_NOFOLLOW" in constants ? constants.O_NOFOLLOW : 0;
+
+function currentUid(): number | null {
+  return typeof process.getuid === "function" ? process.getuid() : null;
+}
+
+function pathEntryExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function fileIdentity(metadata: Stats): ChildFileIdentity {
+  return {
+    device: metadata.dev,
+    inode: metadata.ino,
+    size: metadata.size,
+    modifiedAtMs: metadata.mtimeMs,
+    changedAtMs: metadata.ctimeMs,
+  };
+}
+
+function sameFileIdentity(metadata: Stats, expected: ChildFileIdentity): boolean {
+  return (
+    metadata.dev === expected.device &&
+    metadata.ino === expected.inode &&
+    metadata.size === expected.size &&
+    metadata.mtimeMs === expected.modifiedAtMs &&
+    metadata.ctimeMs === expected.changedAtMs
+  );
+}
+
+function sameNodeIdentity(metadata: Stats, expected: ChildFileIdentity): boolean {
+  return metadata.dev === expected.device && metadata.ino === expected.inode;
+}
+
+function assertOwnerControlled(metadata: Stats, label: string): void {
+  const uid = currentUid();
+  if (uid !== null && metadata.uid !== uid) {
+    throw new Error(label + " must be owned by the current user");
+  }
+  if ((metadata.mode & 0o022) !== 0) {
+    throw new Error(label + " must not be writable by group or other users");
+  }
+}
+
+function assertDirectoryMetadata(metadata: Stats, label: string): void {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(label + " must be a real non-symlink directory");
+  }
+  assertOwnerControlled(metadata, label);
+}
+
+function assertBoundaryMetadata(metadata: Stats, label: string): void {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(label + " must be a real non-symlink directory");
+  }
+  try {
+    assertOwnerControlled(metadata, label);
+  } catch (error) {
+    const rootOwnedStickyDirectory =
+      currentUid() !== null &&
+      metadata.uid === 0 &&
+      (metadata.mode & 0o1000) !== 0 &&
+      (metadata.mode & 0o002) !== 0;
+    if (!rootOwnedStickyDirectory) throw error;
+  }
+}
+
+function assertRenameProtected(path: string, metadata: Stats, label: string): void {
+  const parent = dirname(path);
+  if (parent === path) return;
+  const parentMetadata = lstatSync(parent);
+  if (parentMetadata.isSymbolicLink() || !parentMetadata.isDirectory()) {
+    throw new Error(label + " parent must be a real non-symlink directory");
+  }
+  const writableByAnotherPrincipal = (parentMetadata.mode & 0o022) !== 0;
+  const stickyDirectory = (parentMetadata.mode & 0o1000) !== 0;
+  const uid = currentUid();
+  const stickyProtectsEntry = stickyDirectory && uid !== null && metadata.uid === uid;
+  if (writableByAnotherPrincipal && !stickyProtectsEntry) {
+    throw new Error(label + " parent permits another OS principal to rename the protected root");
+  }
+}
+
+function directoryIdentity(path: string, metadata: Stats): ChildDirectoryIdentity {
+  return { path, device: metadata.dev, inode: metadata.ino };
+}
+
+function sameDirectoryIdentity(metadata: Stats, expected: ChildDirectoryIdentity): boolean {
+  return metadata.dev === expected.device && metadata.ino === expected.inode;
+}
+
+/**
+ * A standalone cooperative filesystem boundary for installing child Git state.
+ * Node has no descriptor-relative renameat2 API, so this combines an exclusive
+ * owner-only lock with canonical containment and inode checks around every path
+ * mutation. A process running as the same OS user can ignore the cooperative
+ * lock; every mismatch therefore fails closed and leaves changed paths alone.
+ */
+class ChildGitPathLock {
+  readonly root: ChildDirectoryIdentity;
+  readonly lockPath: string;
+
+  private readonly label = "Verified child Git installation";
+  private readonly lockDescriptor: number;
+  private lockIdentity: ChildFileIdentity | null = null;
+  private released = false;
+
+  constructor(rootDir: string, lockName: string) {
+    const requested = resolve(rootDir);
+    const canonical = realpathSync(requested);
+    const rootMetadata = lstatSync(canonical);
+    assertBoundaryMetadata(rootMetadata, this.label + " root");
+    assertRenameProtected(canonical, rootMetadata, this.label + " root");
+    this.root = directoryIdentity(canonical, rootMetadata);
+    if (!/^\.[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.lock$/u.test(lockName)) {
+      throw new Error(this.label + " lock name is invalid");
+    }
+    this.lockPath = join(canonical, lockName);
+
+    try {
+      this.lockDescriptor = openSync(
+        this.lockPath,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW,
+        0o600,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(this.label + " is already locked; inspect " + this.lockPath + " before retrying");
+      }
+      throw error;
+    }
+
+    try {
+      fchmodSync(this.lockDescriptor, 0o600);
+      const metadata = fstatSync(this.lockDescriptor);
+      this.lockIdentity = fileIdentity(metadata);
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new Error(this.label + " lock is not one private regular file");
+      }
+      assertOwnerControlled(metadata, this.label + " lock");
+      writeFileSync(
+        this.lockDescriptor,
+        JSON.stringify({ schemaVersion: 1, pid: process.pid, operation: this.label }) + "\n",
+        "utf8",
+      );
+      fsyncSync(this.lockDescriptor);
+      this.lockIdentity = fileIdentity(fstatSync(this.lockDescriptor));
+      this.assertRoot();
+      if (!sameFileIdentity(lstatSync(this.lockPath), this.lockIdentity)) {
+        throw new Error(this.label + " lock path changed during acquisition");
+      }
+    } catch (error) {
+      closeSync(this.lockDescriptor);
+      try {
+        const current = lstatSync(this.lockPath);
+        if (this.lockIdentity && sameNodeIdentity(current, this.lockIdentity)) {
+          unlinkSync(this.lockPath);
+        }
+      } catch {
+        // Never unlink a changed lock path.
+      }
+      this.released = true;
+      throw error;
+    }
+  }
+
+  assertRoot(): void {
+    if (this.released) throw new Error(this.label + " lock has already been released");
+    const metadata = lstatSync(this.root.path);
+    assertBoundaryMetadata(metadata, this.label + " root");
+    if (!sameDirectoryIdentity(metadata, this.root) || realpathSync(this.root.path) !== this.root.path) {
+      throw new Error(this.label + " root changed while the lock was held");
+    }
+  }
+
+  private contained(path: string, label: string, allowRoot = false): string {
+    const absolute = resolve(path);
+    const child = relative(this.root.path, absolute);
+    if (
+      (!allowRoot && child === "") ||
+      child === ".." ||
+      child.startsWith(".." + sep) ||
+      isAbsolute(child)
+    ) {
+      throw new Error(label + " escapes the locked child Git boundary");
+    }
+    return absolute;
+  }
+
+  captureDirectory(path: string, label: string): ChildDirectoryIdentity {
+    const absolute = this.contained(path, label, true);
+    this.assertRoot();
+    if (absolute === this.root.path) return this.root;
+    const child = relative(this.root.path, absolute);
+    let cursor = this.root.path;
+    let metadata: Stats | null = null;
+    for (const part of child.split(sep)) {
+      cursor = join(cursor, part);
+      metadata = lstatSync(cursor);
+      assertDirectoryMetadata(metadata, label + " path " + cursor);
+      if (realpathSync(cursor) !== cursor) {
+        throw new Error(label + " must not traverse a symbolic-link alias");
+      }
+    }
+    this.assertRoot();
+    if (!metadata) throw new Error(label + " directory metadata is unavailable");
+    return directoryIdentity(absolute, metadata);
+  }
+
+  assertDirectory(path: string, expected: ChildDirectoryIdentity, label: string): void {
+    const absolute = this.contained(path, label, true);
+    if (absolute !== expected.path) throw new Error(label + " path changed unexpectedly");
+    const current = this.captureDirectory(absolute, label);
+    if (current.device !== expected.device || current.inode !== expected.inode) {
+      throw new Error(label + " changed while the child Git lock was held");
+    }
+  }
+
+  assertMissing(path: string, label: string): void {
+    const absolute = this.contained(path, label);
+    const parent = this.captureDirectory(dirname(absolute), label + " parent");
+    if (pathEntryExists(absolute)) throw new Error(label + " already exists");
+    this.assertDirectory(parent.path, parent, label + " parent");
+  }
+
+  renameDirectory(
+    source: string,
+    target: string,
+    expectedSource: ChildDirectoryIdentity,
+    label: string,
+  ): ChildDirectoryIdentity {
+    const absoluteSource = this.contained(source, label + " source");
+    const absoluteTarget = this.contained(target, label + " target");
+    this.assertDirectory(absoluteSource, expectedSource, label + " source");
+    const sourceParent = this.captureDirectory(dirname(absoluteSource), label + " source parent");
+    const targetParent = this.captureDirectory(dirname(absoluteTarget), label + " target parent");
+    this.assertMissing(absoluteTarget, label + " target");
+    this.assertDirectory(sourceParent.path, sourceParent, label + " source parent");
+    this.assertDirectory(targetParent.path, targetParent, label + " target parent");
+    renameSync(absoluteSource, absoluteTarget);
+    this.assertDirectory(sourceParent.path, sourceParent, label + " source parent");
+    this.assertDirectory(targetParent.path, targetParent, label + " target parent");
+    const installed = this.captureDirectory(absoluteTarget, label + " target");
+    if (
+      installed.device !== expectedSource.device ||
+      installed.inode !== expectedSource.inode ||
+      pathEntryExists(absoluteSource)
+    ) {
+      throw new Error(label + " directory identity changed during rename");
+    }
+    return installed;
+  }
+
+  removeDirectory(path: string, expected: ChildDirectoryIdentity, label: string): void {
+    const absolute = this.contained(path, label);
+    this.assertDirectory(absolute, expected, label);
+    const parent = this.captureDirectory(dirname(absolute), label + " parent");
+    this.assertDirectory(parent.path, parent, label + " parent");
+    rmSync(absolute, { recursive: true, force: false });
+    this.assertDirectory(parent.path, parent, label + " parent");
+    if (pathEntryExists(absolute)) throw new Error(label + " still exists after removal");
+  }
+
+  release(): void {
+    if (this.released) return;
+    let releaseError: unknown = null;
+    try {
+      this.assertRoot();
+      const pathMetadata = lstatSync(this.lockPath);
+      if (!this.lockIdentity || !sameFileIdentity(pathMetadata, this.lockIdentity)) {
+        throw new Error(this.label + " lock path changed before release");
+      }
+      closeSync(this.lockDescriptor);
+      if (!sameFileIdentity(lstatSync(this.lockPath), this.lockIdentity)) {
+        throw new Error(this.label + " lock path changed during release");
+      }
+      unlinkSync(this.lockPath);
+    } catch (error) {
+      releaseError = error;
+      try {
+        closeSync(this.lockDescriptor);
+      } catch {
+        // The descriptor may already be closed.
+      }
+    } finally {
+      this.released = true;
+    }
+    if (releaseError) throw releaseError;
+  }
+}
+
 function githubOriginMatches(origin: string, repository: string): boolean {
   const normalized = origin.trim().replace(/\/+$/u, "").replace(/\.git$/iu, "");
   const expected = repository.toLowerCase();
@@ -1186,16 +1881,42 @@ function ensureWorkingRepository(
   assertRepository(repository);
   assertBranch(branch);
   assertOid(commitOid, "Verified GitHub commit id");
-  const root = realpathSync(process.cwd());
-  if (lstatSync(root).isSymbolicLink() || !lstatSync(root).isDirectory()) {
+  const requestedRoot = resolve(process.cwd());
+  const requestedRootMetadata = lstatSync(requestedRoot);
+  if (requestedRootMetadata.isSymbolicLink() || !requestedRootMetadata.isDirectory()) {
     throw new Error("Child working repository root must be a real directory");
   }
+  const root = realpathSync(requestedRoot);
+  const boundary = new ChildGitPathLock(
+    dirname(root),
+    ".git-install-" + createHash("sha256").update(root).digest("hex").slice(0, 16) + ".lock",
+  );
+  const rootIdentity = boundary.captureDirectory(root, "Child working repository root");
   const gitPath = join(root, ".git");
   let installed = false;
+  let installedGitIdentity: ChildDirectoryIdentity | null = null;
+
+  const rootGitText = (args: string[], label: string): string => {
+    boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+    if (installedGitIdentity) {
+      boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+    }
+    const output = gitText(root, args, label);
+    boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+    if (installedGitIdentity) {
+      boundary.assertDirectory(gitPath, installedGitIdentity, "Child .git metadata");
+    }
+    return output;
+  };
+
   try {
-    if (!existsSync(gitPath)) {
-      const parent = realpathSync(dirname(root));
+    if (!pathEntryExists(gitPath)) {
+      const parent = boundary.root.path;
       const temporaryRoot = mkdtempSync(join(parent, "." + basename(root) + "-git-"));
+      const temporaryIdentity = boundary.captureDirectory(
+        temporaryRoot,
+        "Child Git staging directory",
+      );
       const cloneDirectory = join(temporaryRoot, "clone");
       try {
         success(
@@ -1216,51 +1937,116 @@ function ensureWorkingRepository(
           ),
           "Clone verified GitHub repository metadata",
         );
+        boundary.assertDirectory(
+          temporaryRoot,
+          temporaryIdentity,
+          "Child Git staging directory",
+        );
+        const cloneIdentity = boundary.captureDirectory(
+          cloneDirectory,
+          "Verified GitHub metadata clone",
+        );
         const stagedGit = join(cloneDirectory, ".git");
-        if (!existsSync(stagedGit) || !lstatSync(stagedGit).isDirectory()) {
+        if (!pathEntryExists(stagedGit)) {
           throw new Error("Verified GitHub metadata clone did not produce a normal .git directory");
         }
-        if (gitText(cloneDirectory, ["rev-parse", "HEAD"], "Read cloned GitHub HEAD") !== commitOid) {
+        const cloneGitIdentity = boundary.captureDirectory(
+          stagedGit,
+          "Verified GitHub metadata clone .git",
+        );
+        const cloneGitText = (args: string[], label: string): string => {
+          boundary.assertDirectory(
+            cloneDirectory,
+            cloneIdentity,
+            "Verified GitHub metadata clone",
+          );
+          boundary.assertDirectory(
+            stagedGit,
+            cloneGitIdentity,
+            "Verified GitHub metadata clone .git",
+          );
+          const output = gitText(cloneDirectory, args, label);
+          boundary.assertDirectory(
+            cloneDirectory,
+            cloneIdentity,
+            "Verified GitHub metadata clone",
+          );
+          boundary.assertDirectory(
+            stagedGit,
+            cloneGitIdentity,
+            "Verified GitHub metadata clone .git",
+          );
+          return output;
+        };
+        if (cloneGitText(["rev-parse", "HEAD"], "Read cloned GitHub HEAD") !== commitOid) {
           throw new Error("Cloned GitHub HEAD differs from verified remote HEAD");
         }
-        if (gitText(cloneDirectory, ["symbolic-ref", "--short", "HEAD"], "Read cloned GitHub branch") !== branch) {
+        if (cloneGitText(["symbolic-ref", "--short", "HEAD"], "Read cloned GitHub branch") !== branch) {
           throw new Error("Cloned GitHub branch differs from the verified default branch");
         }
-        if (!githubOriginMatches(gitText(cloneDirectory, ["remote", "get-url", "origin"], "Read cloned GitHub origin"), repository)) {
+        if (!githubOriginMatches(cloneGitText(["remote", "get-url", "origin"], "Read cloned GitHub origin"), repository)) {
           throw new Error("Cloned GitHub origin differs from the verified repository");
         }
-        if (existsSync(gitPath)) throw new Error("Child Git state appeared during metadata staging; refusing overwrite");
-        renameSync(stagedGit, gitPath);
+        boundary.assertMissing(
+          gitPath,
+          "Child Git state appeared during metadata staging; refusing overwrite",
+        );
+        boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+        installedGitIdentity = boundary.renameDirectory(
+          stagedGit,
+          gitPath,
+          cloneGitIdentity,
+          "Verified child Git metadata install",
+        );
         installed = true;
-        success(run("git", ["read-tree", commitOid], { cwd: root }), "Bind child Git index to verified remote tree");
+        rootGitText(["read-tree", commitOid], "Bind child Git index to verified remote tree");
       } finally {
-        rmSync(temporaryRoot, { recursive: true, force: true });
+        if (pathEntryExists(temporaryRoot)) {
+          boundary.removeDirectory(
+            temporaryRoot,
+            temporaryIdentity,
+            "Child Git staging directory",
+          );
+        }
       }
-    } else if (lstatSync(gitPath).isSymbolicLink() || !lstatSync(gitPath).isDirectory()) {
-      throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+    } else {
+      const gitMetadata = lstatSync(gitPath);
+      if (gitMetadata.isSymbolicLink() || !gitMetadata.isDirectory()) {
+        throw new Error("Existing child .git must be a normal directory; refusing to replace it");
+      }
+      installedGitIdentity = boundary.captureDirectory(gitPath, "Existing child .git");
     }
 
-    if (realpathSync(gitText(root, ["rev-parse", "--show-toplevel"], "Resolve child Git root")) !== root) {
+    if (realpathSync(rootGitText(["rev-parse", "--show-toplevel"], "Resolve child Git root")) !== root) {
       throw new Error("Child Git root differs from the venture root");
     }
-    const originUrl = gitText(root, ["remote", "get-url", "origin"], "Read child Git origin");
+    const originUrl = rootGitText(["remote", "get-url", "origin"], "Read child Git origin");
     if (!githubOriginMatches(originUrl, repository)) throw new Error("Child Git origin differs from the verified repository");
-    const localBranch = gitText(root, ["symbolic-ref", "--short", "HEAD"], "Read child Git branch");
+    const localBranch = rootGitText(["symbolic-ref", "--short", "HEAD"], "Read child Git branch");
     if (localBranch !== branch) throw new Error("Child Git branch differs from the verified default branch");
-    const head = gitText(root, ["rev-parse", "HEAD"], "Read child Git HEAD");
+    const head = rootGitText(["rev-parse", "HEAD"], "Read child Git HEAD");
     if (head !== commitOid) throw new Error("Child Git HEAD differs from verified remote HEAD");
-    const remoteHead = gitText(root, ["rev-parse", "refs/remotes/origin/" + branch], "Read child remote-tracking HEAD");
+    const remoteHead = rootGitText(["rev-parse", "refs/remotes/origin/" + branch], "Read child remote-tracking HEAD");
     if (remoteHead !== commitOid) throw new Error("Child remote-tracking HEAD differs from verified remote HEAD");
-    if (gitText(root, ["status", "--porcelain=v1", "--untracked-files=all"], "Read child Git status")) {
+    if (rootGitText(["status", "--porcelain=v1", "--untracked-files=all"], "Read child Git status")) {
       throw new Error("Child Git working tree is not clean after verified publication");
     }
-    if (gitText(root, ["ls-files", "--", ".venture", "reports"], "Check private runtime tracking")) {
+    if (rootGitText(["ls-files", "--", ".venture", "reports"], "Check private runtime tracking")) {
       throw new Error("Child Git repository tracks private runtime state or launch reports");
     }
     return { originUrl, branch: localBranch, head, clean: true };
   } catch (error) {
-    if (installed) rmSync(gitPath, { recursive: true, force: true });
+    if (installed && installedGitIdentity) {
+      try {
+        boundary.assertDirectory(root, rootIdentity, "Child working repository root");
+        boundary.removeDirectory(gitPath, installedGitIdentity, "Partially installed child .git");
+      } catch {
+        // Never chase a changed compensation path; leave it for inspection.
+      }
+    }
     throw error;
+  } finally {
+    boundary.release();
   }
 }
 
@@ -1676,7 +2462,8 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
   const rawHtml = await smoke.text();
   expect(rawHtml).toMatch(/<main(?:\s|>)/iu);
   expect(rawHtml).toMatch(/<h1(?:\s|>)/iu);
-  expect(rawHtml).toContain("{{ventureName}}");
+  expect(rawHtml).toMatch(/<title>[^<]+<\/title>/iu);
+  expect(rawHtml).toMatch(/<meta[^>]+name=["']description["'][^>]+content=["'][^"']+["']/iu);
   expect(rawHtml).toMatch(/<link[^>]+rel=["']canonical["'][^>]*>/iu);
 
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -1685,38 +2472,67 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
   await expect(page.locator("main")).toBeVisible();
   await expect(page.locator("main")).toHaveCount(1);
   await expect(page.locator("h1")).toHaveCount(1);
-  await expect(page.getByRole("heading", { level: 1, name: "{{ventureName}}" })).toBeVisible();
+  expect((await page.locator("h1").innerText()).trim().length).toBeGreaterThan(0);
+  expect((await page.title()).trim().length).toBeGreaterThan(0);
+  const description = await page.locator('meta[name="description"]').getAttribute("content");
+  expect(description?.trim().length ?? 0).toBeGreaterThan(0);
 
   const canonical = await page.locator('link[rel="canonical"]').getAttribute("href");
   expect(canonical).not.toBeNull();
-  const canonicalOrigin = new URL(canonical!).origin;
+  const canonicalUrl = new URL(canonical!);
+  const canonicalOrigin = canonicalUrl.origin;
   expect(canonicalOrigin).not.toMatch(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::|$)/u);
-  expect(new URL(canonical!).protocol).toBe("https:");
+  expect(canonicalUrl.protocol).toBe("https:");
+  expect(canonicalUrl.pathname).toBe("/");
+  expect(canonicalUrl.search).toBe("");
+  expect(canonicalUrl.hash).toBe("");
   if (process.env.EXPECTED_PUBLIC_ORIGIN) {
     expect(canonicalOrigin).toBe(new URL(process.env.EXPECTED_PUBLIC_ORIGIN).origin);
   }
-  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
-    "content",
-    expect.stringMatching(/index.*follow/i),
-  );
+  const robotsContent =
+    (await page.locator('meta[name="robots"]').getAttribute("content"))?.toLowerCase() ?? "";
+  const indexingEnabled = /(?:^|,)\s*index(?:\s*,|$)/u.test(robotsContent) &&
+    !/(?:^|,)\s*noindex(?:\s*,|$)/u.test(robotsContent);
 
   const robots = await request.get("/robots.txt", { failOnStatusCode: false });
   expect(robots.status()).toBe(200);
   const robotsText = await robots.text();
-  expect(robotsText).toContain("Allow: /");
-  expect(robotsText).not.toContain("Disallow: /");
   expect(robotsText).toContain("Sitemap: " + canonicalOrigin + "/sitemap.xml");
   const sitemap = await request.get("/sitemap.xml", { failOnStatusCode: false });
   expect(sitemap.status()).toBe(200);
   const sitemapText = await sitemap.text();
-  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
-  expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/status</loc>");
+  if (indexingEnabled) {
+    expect(robotsText).toContain("Allow: /");
+    expect(robotsText).not.toContain("Disallow: /");
+    expect(sitemapText).toContain("<loc>" + canonicalOrigin + "/</loc>");
+    expect(sitemapText).not.toMatch(/\/(?:api|auth|account|edit|draft|private|status|user)(?:\/|<)/u);
+    expect(sitemapText).not.toContain("?");
+    expect(await page.locator('a[href^="/"]').count()).toBeGreaterThan(0);
+  } else {
+    expect(robotsContent).toContain("noindex");
+    expect(robotsText).toContain("Disallow: /");
+    expect(sitemapText).not.toContain("<loc>");
+  }
 
-  const primaryAction = page.getByRole("link", { name: "Review launch status" });
-  await expect(primaryAction).toHaveAttribute("href", "/status");
-  await primaryAction.click();
-  await expect(page).toHaveURL(/\/status$/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("not launched yet");
+  const bodyText = await page.locator("body").innerText();
+  const structuredDataBlocks = await page.locator('script[type="application/ld+json"]').allTextContents();
+  const visibleFactKeys = new Set(["name", "description", "price"]);
+  const inspectStructuredData = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(inspectStructuredData);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === "@type" && ["AggregateRating", "Review"].includes(String(child))) {
+        throw new Error("Unverified rating/review structured data is forbidden");
+      }
+      if (visibleFactKeys.has(key) && typeof child === "string") expect(bodyText).toContain(child);
+      inspectStructuredData(child);
+    }
+  };
+  for (const block of structuredDataBlocks) inspectStructuredData(JSON.parse(block));
+
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
   const unnamedInteractiveControls = await page
@@ -1756,6 +2572,8 @@ test("deployed public surface has raw HTML and a responsive accessibility baseli
         accessibleNamesAndLandmarks: true,
         keyboardFocus: true,
         responsiveOverflow: true,
+        indexingEnabled,
+        structuredDataBlocks: structuredDataBlocks.length,
       }),
   );
 });
@@ -1824,7 +2642,7 @@ This register describes only the generated seed state.
 | Claim | Status | Evidence | Public boundary |
 | --- | --- | --- | --- |
 | The repository contains an independently buildable Next.js web scaffold. | local implementation | package.json, app/, next.config.mjs | Do not call it launched until production read-back and the primary journey pass. |
-  | Analytics starts disabled, with no universal provider or event assumptions. | local contract | config/analytics.yaml, src/analytics/events.ts | The product journey must justify each consented allowlisted event; no delivery is claimed. |
+| Analytics starts disabled, with no universal provider or event assumptions. | local contract | config/analytics.yaml, src/analytics/events.ts | The product journey must justify each consented allowlisted event; no delivery is claimed. |
 | Provider configuration is credential-reference-only. | local contract | config/providers.yaml, config/connectors.json | Every provider starts unconfigured. |
 
 No customer, revenue, outcome, provider connection, deployment, or market evidence is claimed.
@@ -1848,6 +2666,11 @@ import test from "node:test";
 const manifest = JSON.parse(readFileSync("venture.manifest.json", "utf8"));
 const connectors = readFileSync("config/connectors.json", "utf8");
 const providers = readFileSync("config/providers.yaml", "utf8");
+const seo = readFileSync("config/seo.yaml", "utf8");
+const site = readFileSync("src/config/site.ts", "utf8");
+const layout = readFileSync("app/layout.tsx", "utf8");
+const sitemap = readFileSync("app/sitemap.ts", "utf8");
+const statusPage = readFileSync("app/status/page.tsx", "utf8");
 
 test("ordinary web seed stays an ordinary app", () => {
   assert.equal(manifest.rail, "web");
@@ -1871,6 +2694,16 @@ test("tracked connector metadata is credential-free", () => {
     ),
     false,
   );
+});
+
+test("discovery stays explicit, owner-based, and noindex by default", () => {
+  assert.match(seo, /default: disabled/u);
+  assert.match(seo, /query_evidence: missing/u);
+  assert.match(site, /NEXT_PUBLIC_INDEXING_ENABLED === "true"/u);
+  assert.doesNotMatch(layout, /alternates:\\s*\\{\\s*canonical/u);
+  assert.match(sitemap, /if \\(!INDEXING_ENABLED\\) return \\[\\]/u);
+  assert.doesNotMatch(sitemap, /\\/status/u);
+  assert.match(statusPage, /robots:\\s*\\{ index: false, follow: false \\}/u);
 });
 `,
   ),

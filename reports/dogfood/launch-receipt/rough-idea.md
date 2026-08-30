@@ -1,13 +1,36 @@
 # Rough idea: Launch Receipt
 
-I want a very small product for indie hackers who are about to launch a SaaS.
-Launch requirements, proof and remaining actions are spread across notes,
-provider dashboards and messages.
+> **DOGFOOD INPUT — PLANNED AND UNVERIFIED.** This brief contains no customer,
+> model, provider, deployment, payment, or live-journey evidence.
 
-The product should help them complete the important launch items and publish a
-clean receipt showing what is actually ready.
+Build a very small web product for indie hackers who are preparing to launch a
+SaaS. Their launch requirements, proof, and remaining actions are scattered
+across notes, provider dashboards, and messages.
 
-It should be a web app. A small monthly subscription may make sense.
+The useful outcome is one focused launch checklist and a clean public read-only
+receipt that distinguishes what is ready, what has proof, and what still needs
+work. The primary journey is: sign in with an owner email, create one launch,
+complete the essential checklist, preview it, publish it, and open the public
+receipt. Persist the launch and publication state in Postgres.
 
-It must not become a project-management suite, generic startup dashboard or
-another Venture Harness control plane.
+Use a subscription hypothesis of exactly EUR 9.00 per month through Stripe for
+the web product. Founder-alpha verification must create and read back only
+Stripe test-mode product, recurring price, webhook, and portal resources. It
+must never create a real charge. Publishing the receipt—not checkout—is the
+primary success signal: `launch_receipt_published`.
+
+An optional founder-authorized transactional copy of the published receipt may
+use Brevo when that account is available, but email, Google/Bing setup, and a
+custom domain must remain explicit non-blocking actions. The verified Vercel
+production URL is enough for the first launch; DNS is manual.
+
+Make readiness feel like a calm evidence ledger, not a startup dashboard:
+strong hierarchy, explicit draft/published and ready/remaining states, a
+memorable publish-to-receipt transition, accessible contrast and focus, useful
+empty/error/loading states, responsive desktop/mobile composition, and reduced
+motion support. Label every sample.
+
+Do not build project management, teams, a generic startup dashboard, provider
+automation inside the product, custom checklist templates, file uploads, an
+agent API/CLI/MCP/SDK, mobile apps, a Venture Harness control plane, Winner
+Loop, Fleet, advertising, or automated outreach.

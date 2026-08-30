@@ -1,0 +1,84 @@
+# SYNTHETIC EXAMPLE — NOT LIVE CUSTOMER OR PROVIDER EVIDENCE
+schemaVersion: 1
+synthetic: true
+venture:
+  name: Handoff Note
+  slug: handoff-note
+  oneSentenceThesis: A focused handoff record for freelance web developers finishing small client projects.
+  targetUser: A solo freelance web developer completing a client website
+  painfulJob: Gather scattered access notes, maintenance guidance, and acceptance steps into one trustworthy handoff
+  desiredOutcome: Publish one clear read-only handoff that the client can review
+  proposition: Close a client website with one structured handoff that becomes a clear read-only client record
+  differentiation: A narrow project-closing record instead of an ongoing project-management workspace
+  founderAdvantage: First-hand experience delivering and closing small client web projects
+product:
+  oneCoreFeature: A structured handoff checklist that becomes a read-only client link
+  primaryJourney:
+    - The freelancer signs in and creates one handoff.
+    - The freelancer completes the required handoff sections and previews the client view.
+    - The freelancer publishes the handoff and opens its read-only link.
+  primaryCta: Create a handoff
+  explicitNotBuilding:
+    - Team workspaces
+    - Project management
+    - File storage
+    - A template marketplace
+    - Automated client outreach
+  designThesis: Treat the handoff like a well-made field manual with calm hierarchy, explicit completion states, and no dashboard clutter.
+  trustRequirements:
+    - authenticated owner access
+    - persisted handoff state
+    - unguessable read-only public links
+    - clear draft and published states
+business:
+  model: subscription
+  priceHypothesis: 9
+  currency: EUR
+  paymentProvider: stripe
+  commercialCommitmentEvent: The freelancer starts a EUR 9 monthly subscription in Stripe test mode for launch verification.
+distribution:
+  firstChannel: Direct outreach
+  firstUserHabitat: Freelance web developer communities where project handoff problems are discussed
+  initialMessage: Close a client website with one clear handoff instead of another folder of scattered notes.
+  firstValidationAction: Invite five solo web developers with an active project handoff to complete and critique the full journey.
+decision:
+  launchMode: thin_mvp
+  primarySuccessSignal: handoff_published
+  reviewDate: 2026-09-30
+  continueRule: Continue if invited freelancers publish a real handoff and say the client view replaces their current handoff document.
+  changeRule: Change the required sections if freelancers start a handoff but cannot finish it without returning to an external document.
+  stopRule: Stop if freelancers complete the journey but consistently prefer their existing handoff document and will not reuse the product.
+truth:
+  facts:
+    - This is a synthetic documentation example.
+    - The example is a web product for solo freelance web developers.
+  assumptions:
+    - A structured checklist and read-only link are sufficient for the first useful outcome.
+    - EUR 9 per month is only a price hypothesis.
+  inferences:
+    - Publishing a stable read-only link requires persisted state and owner authorization.
+  contradictions: []
+  unknowns:
+    - Which handoff sections clients actually consult after delivery
+    - Whether a recurring subscription matches an episodic handoff job
+  externalEvidence: []
+agentNative:
+  customerAgentSurfaceRequired: false
+  serviceBlueprintRequired: false
+  outcomeCommands: []
+capabilities:
+  frontend: REQUIRED
+  backend: REQUIRED
+  database: REQUIRED
+  authentication: REQUIRED
+  authorization: REQUIRED
+  payments: REQUIRED
+  entitlements: REQUIRED
+  transactionalEmail: DEFERRED
+  analytics: DEFERRED
+  privacyAndConsent: REQUIRED
+  seo: REQUIRED
+  aeo: REQUIRED
+  geo: REQUIRED
+  agentSurface: NOT_APPLICABLE
+  scheduledLearning: DEFERRED

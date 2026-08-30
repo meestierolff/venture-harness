@@ -4,5 +4,6 @@ export * from "./catalog";
 export * from "./cli-doctor";
 export * from "./cli-session";
 export * from "./node-runner";
+export * from "./provider-environment";
 export * from "./redaction";
 export * from "./types";

@@ -61,18 +61,26 @@ export function uniqueArray<T extends z.ZodTypeAny>(item: T) {
 const FORBIDDEN_CREDENTIAL_KEY =
   /^(access_token|refresh_token|id_token|api_key|secret|client_secret|private_key|password|credential_value)$/i;
 
+const CREDENTIAL_LABELED_TEXT =
+  /(?:^|\n)\s*(?:[-*]\s*)?(?:[A-Za-z0-9][A-Za-z0-9 ._-]{0,40}\s+)?(?:access[ _-]?token|refresh[ _-]?token|id[ _-]?token|api[ _-]?key|client[ _-]?secret|private[ _-]?key|password|secret|credential(?:[ _-]?value)?|authorization(?:\s+header)?)\s*[:=]\s*(?!\[(?:REDACTED|MASKED)\](?:\s|$))\S+/iu;
+
 export function looksLikeCredentialValue(value: string): boolean {
   return findCredentialMaterial(value) !== null;
+}
+
+export function looksLikeCredentialLabeledText(value: string): boolean {
+  return CREDENTIAL_LABELED_TEXT.test(value);
 }
 
 export function rejectCredentialMaterial(value: unknown, ctx: z.RefinementCtx): void {
   const visit = (candidate: unknown, path: (string | number)[]) => {
     if (typeof candidate === "string") {
-      if (looksLikeCredentialValue(candidate)) {
+      if (looksLikeCredentialValue(candidate) || looksLikeCredentialLabeledText(candidate)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path,
-          message: "credential values are forbidden; store only a credential_ref",
+          message:
+            "credential values are forbidden, including credential-labeled text; store only a credential_ref",
         });
       }
       return;

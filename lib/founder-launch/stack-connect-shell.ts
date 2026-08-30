@@ -118,6 +118,9 @@ interface StripeBalanceResponse {
   readonly livemode?: unknown;
 }
 
+const STRIPE_ACCOUNT_PROBE_ARGS = ["get", "/v1/account"] as const;
+const STRIPE_BALANCE_PROBE_ARGS = ["get", "/v1/balance"] as const;
+
 function parseJsonRecord(value: string | null): Readonly<Record<string, unknown>> | null {
   if (!value) return null;
   try {
@@ -147,11 +150,13 @@ export function detectStripeSession(
       detail: "Stripe CLI is not installed; use the official install command before login.",
     };
   }
+  // Stripe API commands emit JSON by default. The current official CLI rejects
+  // the older `--format json` arguments before attempting either bounded read.
   const accountResponse = parseJsonRecord(
-    tryCommand(runner, "stripe", ["get", "/v1/account", "--format", "json"]),
+    tryCommand(runner, "stripe", STRIPE_ACCOUNT_PROBE_ARGS),
   ) as StripeAccountResponse | null;
   const balanceResponse = parseJsonRecord(
-    tryCommand(runner, "stripe", ["get", "/v1/balance", "--format", "json"]),
+    tryCommand(runner, "stripe", STRIPE_BALANCE_PROBE_ARGS),
   ) as StripeBalanceResponse | null;
   const account = safeAccount(
     typeof accountResponse?.id === "string" ? accountResponse.id : undefined,

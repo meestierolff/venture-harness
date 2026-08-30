@@ -310,7 +310,7 @@ export function compileLaunchGraph(
       ? [
           workflowNode("finalize-dependencies", {
             purpose:
-              "Install and checkpoint the final exact child lockfile after repository and dependency planning; reject any later package or lock mutation.",
+              "Re-verify the Core-owned package execution policy and checkpoint the unchanged exact child lockfile after product work; reject any package, script, lifecycle-policy, or lock mutation.",
             capability: "dependencies.install",
             dependencies: ["prepare-repository"],
             handler: "launch.installDependencies",
@@ -334,7 +334,7 @@ export function compileLaunchGraph(
             },
             completion: {
               description:
-                "The final package manifest and lockfile are installed, read back, and frozen before product, provider, source publication, or deployment work proceeds.",
+                "The reviewed package scripts, dependencies, empty lifecycle-build allowlist, and exact lockfile are unchanged, installed, and read back before provider, source publication, or deployment work proceeds.",
             },
           }),
         ]

@@ -10,6 +10,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { track } from "@/lib/analytics/track";
 import { getVisitorId } from "@/lib/visitor";
+import { TruthClaim } from "@/components/TruthClaim";
 
 const FORM_ID = "qualification-application";
 
@@ -75,9 +76,7 @@ export function LeadForm() {
         );
       }
       setStatus("done");
-      setMessage(
-        "Application received. We reply to qualified applications within two business days.",
-      );
+      setMessage("Application saved by the configured prototype evidence store.");
       form.reset();
     } catch {
       setStatus("error");
@@ -138,7 +137,9 @@ export function LeadForm() {
         </select>
       </label>
       <label>
-        Work email (used only to reply — never sent to analytics)
+        <TruthClaim id="truth-007">
+          Work email (private prototype submission field; excluded from analytics)
+        </TruthClaim>
         <input name="contact" type="email" onFocus={onFirstFocus} maxLength={200} required />
       </label>
       <label>

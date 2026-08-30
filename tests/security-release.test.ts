@@ -7,7 +7,11 @@ import {
   validateReleaseScanAllowlist,
   type ReleaseScanAllowlist,
 } from "@/scripts/lib/release-security";
-import { isPinnedActionRef, workflowActionRefs } from "@/scripts/public-release-check";
+import {
+  isPinnedActionRef,
+  sampleHasSurfaceLocalSyntheticLabel,
+  workflowActionRefs,
+} from "@/scripts/public-release-check";
 import { productionServerCommand } from "@/scripts/run-quality-profile";
 import {
   claimEvidencePaths,
@@ -90,6 +94,25 @@ describe("credential fixture allowlisting", () => {
 });
 
 describe("release supply-chain configuration", () => {
+  it("requires a local synthetic label in text and every sample CSV row", () => {
+    expect(sampleHasSurfaceLocalSyntheticLabel("sample.txt", "SYNTHETIC EXAMPLE\nvalue")).toBe(
+      true,
+    );
+    expect(sampleHasSurfaceLocalSyntheticLabel("sample.txt", "value only")).toBe(false);
+    expect(
+      sampleHasSurfaceLocalSyntheticLabel(
+        "sample.csv",
+        "value,evidence_status\none,SYNTHETIC\ntwo,SYNTHETIC_EXAMPLE_NOT_LIVE\n",
+      ),
+    ).toBe(true);
+    expect(
+      sampleHasSurfaceLocalSyntheticLabel(
+        "sample.csv",
+        "value,evidence_status\none,SYNTHETIC\ntwo,LIVE\n",
+      ),
+    ).toBe(false);
+  });
+
   it("pins every third-party workflow action to a full commit SHA", () => {
     const workflows = [
       "agent-parity.yml",

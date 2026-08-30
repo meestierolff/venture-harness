@@ -4,6 +4,7 @@ import {
   compileFounderIdea,
   decimalPriceToMinorUnits,
   founderBriefFromLaunchContract,
+  LaunchCapabilityClassification,
   LaunchContractSourceError,
   launchContractSchema,
   launchDecisionFromContract,
@@ -51,6 +52,35 @@ describe("Launch Contract", () => {
     );
   });
 
+  it("fails closed for malformed front matter and contract-like YAML typos", () => {
+    expect(() => parseLaunchContractSource("---\nA rough idea that never closes")).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        invalidPath: "$frontMatter",
+        validationProblem: expect.stringContaining("not closed"),
+      }),
+    );
+
+    expect(() =>
+      parseLaunchContractSource("---\ntitle: [broken\n---\nA rough idea follows."),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        validationProblem: "invalid YAML syntax",
+      }),
+    );
+
+    expect(() =>
+      parseLaunchContractSource("schemaVerison: 1\ncapabilites:\n  frontend: REQUIRED\n"),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        schemaVersion: "missing",
+        invalidPath: "schemaVersion",
+      }),
+    );
+  });
+
   it("reports unsupported versions and missing required fields with exact repair context", () => {
     const valid = renderLaunchContractYaml(launchReceiptContract());
     const unsupported = valid.replace("schemaVersion: 1", "schemaVersion: 2");
@@ -80,6 +110,56 @@ describe("Launch Contract", () => {
     expect((caught as Error).message).toMatch(
       /schema version: 1; invalid path: business\.currency; validation problem: .+; expected v1 shape: .+; exact remediation: correct business\.currency/u,
     );
+
+    const missingProposition = valid.replace(/^  proposition:.*\n/mu, "");
+    expect(() => parseLaunchContractSource(missingProposition)).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        invalidPath: "venture.proposition",
+      }),
+    );
+  });
+
+  it("requires the complete capability map and only accepts the classification enum", () => {
+    const valid = renderLaunchContractYaml(launchReceiptContract());
+    const missingCapabilities = valid.replace(/^capabilities:\n(?: {2}[^\n]+\n){15}/mu, "");
+    expect(() => parseLaunchContractSource(missingCapabilities)).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        invalidPath: "capabilities",
+      }),
+    );
+
+    const invalidClassification = valid.replace("  database: REQUIRED", "  database: SOMETIMES");
+    expect(() => parseLaunchContractSource(invalidClassification)).toThrowError(
+      expect.objectContaining({
+        code: "LAUNCH_CONTRACT_SOURCE_INVALID",
+        invalidPath: "capabilities.database",
+      }),
+    );
+
+    expect(Object.keys(launchReceiptContract().capabilities)).toEqual([
+      "frontend",
+      "backend",
+      "database",
+      "authentication",
+      "authorization",
+      "payments",
+      "entitlements",
+      "transactionalEmail",
+      "analytics",
+      "privacyAndConsent",
+      "seo",
+      "aeo",
+      "geo",
+      "agentSurface",
+      "scheduledLearning",
+    ]);
+    expect(LaunchCapabilityClassification).toEqual({
+      REQUIRED: "REQUIRED",
+      DEFERRED: "DEFERRED",
+      NOT_APPLICABLE: "NOT_APPLICABLE",
+    });
   });
 
   it("rejects an invalid decimal price without losing the structured commercial terms", () => {
@@ -137,6 +217,9 @@ describe("Launch Contract", () => {
         scheduled_learning: false,
       },
     });
+    expect(brief.material_constraints).toEqual(
+      expect.arrayContaining([expect.stringContaining(contract.venture.proposition)]),
+    );
     expect(decision.mode.selectedMode).toBe("product_first");
     expect(decision.payment.provider).toBe("stripe");
     expect(decision.capabilities).toEqual(
@@ -147,9 +230,48 @@ describe("Launch Contract", () => {
         "stripe",
       ]),
     );
+    expect(brief.material_constraints).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("backend=REQUIRED"),
+        expect.stringContaining("privacyAndConsent=REQUIRED"),
+      ]),
+    );
   });
 
-  it("keeps small-bet infrastructure off unless the selected journey names it", () => {
+  it("rejects capability classifications that contradict their active dependencies", () => {
+    const base = launchReceiptContract();
+    expect(() =>
+      launchReceiptContract({
+        capabilities: { ...base.capabilities, backend: "DEFERRED" },
+      }),
+    ).toThrow(/backend must be REQUIRED/);
+    expect(() =>
+      launchReceiptContract({
+        capabilities: {
+          ...base.capabilities,
+          payments: "DEFERRED",
+        },
+      }),
+    ).toThrow(/entitlements must be DEFERRED/);
+    expect(() =>
+      launchReceiptContract({
+        capabilities: {
+          ...base.capabilities,
+          privacyAndConsent: "NOT_APPLICABLE",
+        },
+      }),
+    ).toThrow(/privacyAndConsent must be REQUIRED/);
+    expect(() =>
+      launchReceiptContract({
+        capabilities: {
+          ...base.capabilities,
+          frontend: "NOT_APPLICABLE",
+        },
+      }),
+    ).toThrow(/at least one REQUIRED delivery surface/);
+  });
+
+  it("routes explicit classifications instead of guessing infrastructure from prose", () => {
     const contract = launchReceiptContract({
       product: {
         ...launchReceiptContract().product,
@@ -163,6 +285,23 @@ describe("Launch Contract", () => {
         currency: "EUR",
         paymentProvider: "none",
         commercialCommitmentEvent: "Completed primary calculation",
+      },
+      capabilities: {
+        ...launchReceiptContract().capabilities,
+        backend: "NOT_APPLICABLE",
+        database: "NOT_APPLICABLE",
+        authentication: "NOT_APPLICABLE",
+        authorization: "NOT_APPLICABLE",
+        payments: "NOT_APPLICABLE",
+        entitlements: "NOT_APPLICABLE",
+        transactionalEmail: "NOT_APPLICABLE",
+        analytics: "NOT_APPLICABLE",
+        privacyAndConsent: "NOT_APPLICABLE",
+        seo: "NOT_APPLICABLE",
+        aeo: "NOT_APPLICABLE",
+        geo: "NOT_APPLICABLE",
+        agentSurface: "NOT_APPLICABLE",
+        scheduledLearning: "NOT_APPLICABLE",
       },
     });
     const brief = founderBriefFromLaunchContract(contract);
@@ -178,6 +317,48 @@ describe("Launch Contract", () => {
       search_discovery: false,
       scheduled_learning: false,
     });
+    expect(launchDecisionFromContract(contract).capabilities).toEqual(["public_website"]);
+  });
+
+  it("defers payment routing without losing the reviewed exact price or currency", () => {
+    const base = launchReceiptContract();
+    const contract = launchReceiptContract({
+      capabilities: {
+        ...base.capabilities,
+        payments: "DEFERRED",
+        entitlements: "DEFERRED",
+      },
+    });
+
+    expect(founderBriefFromLaunchContract(contract).monetization_model).toBe("none");
+    expect(launchDecisionFromContract(contract)).toMatchObject({
+      payment: { provider: "none", entitlementSource: "none" },
+    });
+    expect(launchDecisionFromContract(contract).capabilities).not.toContain("stripe");
+    expect(compileFounderIdea(renderFounderIdea(contract)).commercialTerms).toMatchObject({
+      currency: "EUR",
+      monthlyPrice: 9,
+    });
+
+    const deferredNativeCommerce = launchReceiptContract({
+      business: {
+        ...base.business,
+        paymentProvider: "revenuecat",
+      },
+      capabilities: {
+        ...base.capabilities,
+        payments: "DEFERRED",
+        entitlements: "DEFERRED",
+      },
+    });
+    expect(founderBriefFromLaunchContract(deferredNativeCommerce)).toMatchObject({
+      app_kind: "web",
+      native_digital_goods: false,
+    });
+    const deferredCapabilities = launchDecisionFromContract(deferredNativeCommerce).capabilities;
+    for (const capability of ["revenuecat", "app_store_connect", "ios_aso", "eas"]) {
+      expect(deferredCapabilities).not.toContain(capability);
+    }
   });
 
   it("keeps a reviewed web Agent Surface separate from the mobile rail", () => {
@@ -189,6 +370,10 @@ describe("Launch Contract", () => {
         serviceBlueprintRequired: true,
         outcomeCommands: ["publish_verified_receipt"],
       },
+      capabilities: {
+        ...contract.capabilities,
+        agentSurface: "REQUIRED",
+      },
     });
 
     expect(brief.app_kind).toBe("web");
@@ -199,6 +384,24 @@ describe("Launch Contract", () => {
           customerAgentSurfaceRequired: true,
           serviceBlueprintRequired: true,
           outcomeCommands: ["publish_verified_receipt"],
+        },
+        capabilities: {
+          ...contract.capabilities,
+          agentSurface: "REQUIRED",
+        },
+      }).capabilities,
+    ).toEqual(expect.arrayContaining(["public_website"]));
+    expect(
+      launchDecisionFromContract({
+        ...contract,
+        agentNative: {
+          customerAgentSurfaceRequired: true,
+          serviceBlueprintRequired: true,
+          outcomeCommands: ["publish_verified_receipt"],
+        },
+        capabilities: {
+          ...contract.capabilities,
+          agentSurface: "REQUIRED",
         },
       }).capabilities,
     ).not.toContain("app_store_connect");
@@ -214,6 +417,15 @@ describe("Launch Contract", () => {
         },
       }),
     ).toThrow(/credential values are forbidden/);
+    expect(() =>
+      launchContractSchema.parse({
+        ...launchReceiptContract(),
+        truth: {
+          ...launchReceiptContract().truth,
+          unknowns: ["password: hunter2"],
+        },
+      }),
+    ).toThrow(/credential-labeled text/);
     expect(() =>
       launchContractSchema.parse({
         ...launchReceiptContract(),
@@ -242,6 +454,16 @@ describe("Launch Contract", () => {
   });
 
   it("rejects deceptive intent, unsafe medical actions, and fundamental contradictions at the contract boundary", () => {
+    expect(() =>
+      launchContractSchema.parse({
+        ...launchReceiptContract(),
+        venture: {
+          ...launchReceiptContract().venture,
+          proposition: "Present fabricated customer results as verified proof",
+        },
+      }),
+    ).toThrow(/deceptive or fabricated/);
+
     expect(() =>
       launchContractSchema.parse({
         ...launchReceiptContract(),
@@ -359,6 +581,11 @@ describe("Launch Contract", () => {
                 ? "Founder agrees to test EUR 0.25 per processed receipt"
                 : "Founder agrees to test a 12 percent take rate per transaction",
           },
+          capabilities: {
+            ...launchReceiptContract().capabilities,
+            payments: "DEFERRED",
+            entitlements: "DEFERRED",
+          },
         }),
       ).toMatchObject({ business: { model } });
     }
@@ -427,6 +654,12 @@ describe("Launch Contract", () => {
     }
     expect(constitution).toContain("Project-management suite");
     expect(constitution).toContain("Models may not invent provider state");
+    expect(constitution).toContain(
+      `- Proposition hypothesis: ${launchReceiptContract().venture.proposition}`,
+    );
+    expect(constitution).toContain("## Capability scope");
+    expect(constitution).toContain("- database — REQUIRED");
+    expect(constitution).toContain("- seo — NOT_APPLICABLE");
 
     const unverifiedExternal = renderProductConstitution(
       launchReceiptContract({

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CredentialBroker,
   MemoryCredentialBackend,
@@ -726,6 +726,66 @@ describe("provider execution", () => {
       retryable: false,
     });
   });
+
+  it.each([
+    ["neonctl", "NODE_OPTIONS"],
+    ["node", "NEON_API_KEY"],
+    ["eas", "HTTP_PROXY"],
+  ])(
+    "rejects the %s/%s auth environment pair before broker access",
+    async (binary, environmentName) => {
+      const memory = new MemoryCredentialBackend();
+      const broker = new CredentialBroker([memory]);
+      await broker.store({
+        ref: "cred://neon/control-plane",
+        provider: "neon",
+        kind: "api_key",
+        backend: "memory",
+        value: "fixture-provider-auth-value",
+      });
+      const brokerRead = vi.spyOn(memory, "get");
+      const runner: CommandRunner = {
+        run: vi.fn(async () => ({ exitCode: 0, stdout: "{}", stderr: "" })),
+      };
+      const operation: ProviderOperation = {
+        id: "neon.fixture.environment-boundary",
+        provider: "neon",
+        capability: "project",
+        action: "project.create",
+        title: "Fixture provider environment boundary",
+        transport: "cli",
+        environment: "production",
+        riskClass: "critical",
+        effectClass: "reversible_external",
+        reversibility: "conditionally_reversible",
+        idempotencyKey: "neon:fixture:environment-boundary",
+        dependsOn: [],
+        credentialRef: "cred://neon/control-plane",
+        command: {
+          binary,
+          args: ["projects", "create"],
+          authEnvironment: {
+            name: environmentName,
+            credentialRef: "cred://neon/control-plane",
+          },
+        },
+        verification: { strategy: "read_back", description: "fixture only" },
+      };
+
+      await expect(
+        new CommandProviderTransport({ runner }).execute(operation, {
+          credentials: broker,
+          redactor: broker.redactor,
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        providerCode: "terminal_validation",
+        effectOutcome: "confirmed_no_write",
+      });
+      expect(brokerRead).not.toHaveBeenCalled();
+      expect(runner.run).not.toHaveBeenCalled();
+    },
+  );
 
   it("injects HTTP auth at the transport boundary and redacts echoed auth", async () => {
     const requests: HttpRequest[] = [];

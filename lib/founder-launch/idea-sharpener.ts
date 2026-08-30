@@ -1,8 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { findCredentialMaterial } from "../../packages/core/src/index";
-import { Redactor, type CommandRunner } from "../credentials";
+import { looksLikeCredentialLabeledText, looksLikeCredentialValue } from "../config/contracts";
+import type { Redactor } from "../credentials";
 import {
   assertLaunchContractSafe,
   launchContractSchema,
@@ -77,130 +75,23 @@ export interface SharpenIdeaOptions {
   signal?: AbortSignal;
 }
 
-const CODEX_IDEA_SHARPENER_ARGS = [
-  "exec",
-  "--sandbox",
-  "read-only",
-  "--ephemeral",
-  "--ignore-user-config",
-  "--skip-git-repo-check",
-  "--json",
-] as const;
-
-const SAFE_ENVIRONMENT_KEYS = [
-  "PATH",
-  "HOME",
-  "USERPROFILE",
-  "CODEX_HOME",
-  "XDG_CONFIG_HOME",
-  "TMPDIR",
-  "TMP",
-  "TEMP",
-  "LANG",
-  "LC_ALL",
-  "TERM",
-  "NO_COLOR",
-  "CI",
-  "SystemRoot",
-  "PATHEXT",
-] as const;
-
-export function ideaSharpenerEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return {
-    NODE_ENV: source.NODE_ENV ?? "production",
-    ...Object.fromEntries(
-      SAFE_ENVIRONMENT_KEYS.flatMap((key) =>
-        source[key] === undefined ? [] : [[key, source[key]]],
-      ),
-    ),
-  };
-}
-
-function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function assistantText(event: unknown): string | null {
-  const record = objectRecord(event);
-  if (!record) return null;
-  if (record.type === "item.completed") {
-    const item = objectRecord(record.item);
-    if (item?.type === "agent_message" && typeof item.text === "string") return item.text;
-  }
-  if (record.type === "turn.completed" && typeof record.final_output === "string") {
-    return record.final_output;
-  }
-  if (record.type === "result" && typeof record.result === "string") return record.result;
-  return null;
-}
-
-function eventUsage(event: unknown): IdeaSharpenerUsage | undefined {
-  const record = objectRecord(event);
-  if (record?.type !== "turn.completed") return undefined;
-  const usage = objectRecord(record.usage);
-  if (!usage) return undefined;
-  if (
-    typeof usage.input_tokens !== "number" ||
-    typeof usage.cached_input_tokens !== "number" ||
-    typeof usage.output_tokens !== "number"
-  ) {
-    return undefined;
-  }
-  return {
-    inputTokens: usage.input_tokens,
-    cachedInputTokens: usage.cached_input_tokens,
-    outputTokens: usage.output_tokens,
-    ...(typeof record.model === "string" && record.model.trim()
-      ? { model: record.model.trim() }
-      : {}),
-  };
-}
-
-function parseCodexJsonLines(stdout: string): IdeaSharpenerModelResult {
-  const finalTexts: string[] = [];
-  let usage: IdeaSharpenerUsage | undefined;
-  for (const [index, line] of stdout
-    .split(/\r?\n/u)
-    .filter((candidate) => candidate.trim().length > 0)
-    .entries()) {
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      throw new Error(`Codex sharpener JSONL line ${index + 1} was invalid`);
-    }
-    const text = assistantText(event);
-    if (text) finalTexts.push(text);
-    usage = eventUsage(event) ?? usage;
-  }
-  const finalText = finalTexts.at(-1);
-  if (!finalText) throw new Error("Codex sharpener returned no final Launch Contract");
-  return { finalText, usage };
-}
-
 export interface CodexCliIdeaSharpenerHostOptions {
-  runner: CommandRunner;
   binary?: string;
   redactor?: Redactor;
   /** Pins the same model identity used by a controlled benchmark. */
   model?: string;
 }
 
-/** A no-provider, read-only Codex host isolated from the Core and venture trees. */
+/** Inert public host until Core owns an audited, unforgeable isolation driver. */
 export class CodexCliIdeaSharpenerHost implements IdeaSharpenerHost {
   readonly id = "codex_cli";
-  private readonly runner: CommandRunner;
-  private readonly binary: string;
-  private readonly redactor: Redactor;
-  private readonly model: string | null;
 
-  constructor(options: CodexCliIdeaSharpenerHostOptions) {
-    this.runner = options.runner;
-    this.binary = options.binary ?? "codex";
-    this.redactor = options.redactor ?? new Redactor();
-    this.model = options.model?.trim() || process.env.VH_CODEX_MODEL?.trim() || null;
+  constructor(options: CodexCliIdeaSharpenerHostOptions = {}) {
+    // No caller-supplied runner or trust attestation is accepted. The shipped
+    // founder-alpha host stays inert until Core owns an audited driver factory.
+    void options.binary;
+    void options.redactor;
+    void options.model;
   }
 
   async run(input: {
@@ -208,42 +99,10 @@ export class CodexCliIdeaSharpenerHost implements IdeaSharpenerHost {
     phase: "primary" | "refinement";
     signal?: AbortSignal;
   }): Promise<IdeaSharpenerModelResult> {
-    const isolatedRoot = mkdtempSync(join(tmpdir(), "vh-idea-sharpen-"));
-    try {
-      const result = await this.runner.run({
-        command: this.binary,
-        args: [
-          ...CODEX_IDEA_SHARPENER_ARGS,
-          ...(this.model ? ["--model", this.model] : []),
-          "-C",
-          isolatedRoot,
-          "-",
-        ],
-        cwd: isolatedRoot,
-        stdin: input.prompt,
-        sensitiveStdin: true,
-        env: ideaSharpenerEnvironment(process.env),
-        signal: input.signal,
-      });
-      if (result.exitCode !== 0) {
-        const detail = this.redactor
-          .redactText(result.stderr || result.stdout)
-          .trim()
-          .slice(0, 2_000);
-        throw new Error(
-          `Codex idea ${input.phase} call exited ${result.exitCode}${detail ? `: ${detail}` : ""}`,
-        );
-      }
-      const parsed = parseCodexJsonLines(result.stdout);
-      return {
-        ...parsed,
-        usage: parsed.usage
-          ? { ...parsed.usage, ...(parsed.usage.model || !this.model ? {} : { model: this.model }) }
-          : undefined,
-      };
-    } finally {
-      rmSync(isolatedRoot, { force: true, recursive: true });
-    }
+    void input;
+    throw new Error(
+      "Codex idea sharpening is disabled before invocation because no audited outer read-isolation driver is available. Supply a valid Launch Contract for the zero-model path; model execution is not installed in founder alpha.",
+    );
   }
 }
 
@@ -258,6 +117,7 @@ function schemaSkeleton(): string {
         targetUser: "",
         painfulJob: "",
         desiredOutcome: "",
+        proposition: "",
         differentiation: "",
         founderAdvantage: "",
       },
@@ -303,6 +163,23 @@ function schemaSkeleton(): string {
         serviceBlueprintRequired: false,
         outcomeCommands: [],
       },
+      capabilities: {
+        frontend: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        backend: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        database: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        authentication: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        authorization: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        payments: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        entitlements: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        transactionalEmail: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        analytics: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        privacyAndConsent: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        seo: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        aeo: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        geo: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        agentSurface: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+        scheduledLearning: "REQUIRED | DEFERRED | NOT_APPLICABLE",
+      },
     },
     null,
     2,
@@ -314,11 +191,12 @@ function primaryPrompt(source: string, today: string): string {
     "Turn one rough founder idea into the smallest credible Launch Contract.",
     "This is one bounded judgement call. Do not browse, use tools, read files, plan provider operations, or write code.",
     "Return exactly one JSON object matching the skeleton below, with no Markdown fence or prose.",
-    "Use one user, one painful job, one useful outcome, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list.",
+    "Use one user, one painful job, one useful outcome, one concise reviewable proposition hypothesis, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list. Keep venture.proposition distinct from the one-sentence category thesis and do not present it as validated demand or a completed founder review.",
     "Do not invent demand, users, quotes, revenue, metrics, provider state, external evidence, founder credentials, market size, or pricing certainty. Put reversible uncertainty in truth.assumptions, truth.inferences, or truth.unknowns.",
     "Default to thin_mvp. Use product_first only when real usage is indispensable, validate_first only when risk or cost makes a smaller demand test necessary, and concierge_first only when honest manual delivery is materially better.",
     "Default business.model to free and paymentProvider to none unless the founder proposes present commerce. Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. priceHypothesis is one positive numeric amount or null. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
-    "Do not require auth, persistence, email, analytics, search, agents, or scheduled work unless the primary journey actually needs it. Put material implementation needs in product.trustRequirements using direct terms such as authentication, persisted state, transactional email, analytics, or SEO.",
+    "Classify every capabilities field explicitly. REQUIRED means indispensable to this launch and its acceptance criteria; DEFERRED means a reviewed later possibility excluded from the present build; NOT_APPLICABLE means it does not fit this venture. Do not install generic SaaS infrastructure by default.",
+    "Derive the classification from the primary journey, trust boundary, current commercial proof, and first channel. Authentication and authorization are separate decisions; authorization REQUIRED also requires authentication REQUIRED. Payments REQUIRED needs the supported selected provider. An agentNative customer surface, service blueprint, or outcome command requires agentSurface REQUIRED.",
     `Today is ${today}; choose a concrete reviewDate after today without claiming future evidence.`,
     "Schema skeleton (replace every placeholder and use only the listed keys/enums):",
     schemaSkeleton(),
@@ -348,6 +226,14 @@ function jsonCandidate(text: string): unknown {
     .replace(/\s*```$/u, "")
     .trim();
   return JSON.parse(withoutFence);
+}
+
+function assertSharpenerOutputCredentialFree(text: string): void {
+  if (looksLikeCredentialValue(text) || looksLikeCredentialLabeledText(text)) {
+    throw new Error(
+      "Idea sharpener returned credential-like material; the candidate was rejected before reuse",
+    );
+  }
 }
 
 function validateCandidate(
@@ -453,13 +339,6 @@ export async function sharpenIdea(
       `Rough idea contains forbidden credential-like material (${credential.kind}); remove it before sharpening`,
     );
   }
-  if (
-    /^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
-      source,
-    )
-  ) {
-    throw new Error("Rough idea contains a credential-labeled field; remove it before sharpening");
-  }
   const startedAt = (options.now ?? (() => new Date()))().getTime();
   const structured = parseLaunchContractSource(source);
   if (structured) {
@@ -481,6 +360,13 @@ export async function sharpenIdea(
       ),
     };
   }
+  if (
+    /^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
+      source,
+    )
+  ) {
+    throw new Error("Rough idea contains a credential-labeled field; remove it before sharpening");
+  }
   if (!options.host) {
     throw new Error("Unstructured ideas require the authenticated Codex CLI sharpener host");
   }
@@ -499,9 +385,11 @@ export async function sharpenIdea(
   };
   try {
     let finalText = await run(primaryPrompt(source, today), "primary");
+    assertSharpenerOutputCredentialFree(finalText);
     let parsed = validateCandidate(finalText);
     if (!parsed.success) {
       finalText = await run(refinementPrompt(finalText, parsed.issues, today), "refinement");
+      assertSharpenerOutputCredentialFree(finalText);
       parsed = validateCandidate(finalText);
     }
     if (!parsed.success) {

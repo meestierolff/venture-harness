@@ -62,6 +62,11 @@ explicit CLI approval reference. Switching profiles during renewal is rejected.
 | CI               | references/env mappings only; no committed secret or cross-venture reuse |
 | Upgrades         | ownership hashes, conflict stop, atomic writes and lock last             |
 
+The public-route limiter is a bounded, per-process abuse brake. Serverless
+instances do not share its buckets, so a generated venture that needs a
+distributed denial-of-service or account-abuse control must add a provider
+edge limit or shared store; the in-process limiter is not claimed as one.
+
 Founder venture creation, continuation, idea-sharpen output, and verified
 child `.git` installation additionally hold an exclusive `0600` operation
 lock in a current-user-owned root that is not group/world writable. Path

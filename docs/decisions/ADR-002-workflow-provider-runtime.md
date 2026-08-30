@@ -1,6 +1,6 @@
 # ADR-002: Lightweight durable workflow and provider runtime
 
-- Status: accepted
+- Status: accepted; executable Codex adapter superseded for founder alpha
 - Date: 2026-08-04
 - Deciders: founder `/goal`
 
@@ -20,11 +20,11 @@ and checkpoint/resume. Use deterministic code for graph validation, routing,
 state transitions, deduplication, and aggregation.
 
 Put repository-local product judgement behind an agent-neutral `BuildAgentHost`.
-The default Codex adapter uses one direct, ephemeral, workspace-write process,
-passes its bounded prompt through stdin, accepts only structured JSONL output,
-and persists only sanitized evidence. Keep quality profiles as direct code
-commands. An injected product binding may replace this host for tests or another
-agent implementation; unavailable hosts fail before a run is created.
+The original direct Codex adapter decision is superseded for founder alpha:
+the public host accepts no runner or caller-created trust capability and fails
+before invocation until Core owns an audited outer read-isolation driver.
+Fixture hosts remain test infrastructure, not a supported operator path. Keep
+quality profiles as direct code commands.
 
 Put provider behavior behind one capability adapter contract. Transport order
 is appropriate installed MCP, official CLI, official API, then a precise manual
@@ -45,7 +45,7 @@ success until read-back verification or an explicitly modeled manual result.
 
 The runtime and host contract stay inspectable and testable offline, but the
 repository owns a state machine and process boundary that need strong invariant
-tests. No live Codex execution is implied by fake-runner coverage. Provider-
+tests. No live Codex execution is available or implied by fixture coverage. Provider-
 specific gaps remain visible as manual actions. Reconsider a larger runtime only
 if measured graph scale, distributed execution, or durability requirements
 cannot be met without rebuilding commodity infrastructure.

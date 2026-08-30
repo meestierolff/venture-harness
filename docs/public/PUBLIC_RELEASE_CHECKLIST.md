@@ -97,8 +97,10 @@ advisories, or prove production security.
 - [ ] Prototype, fixture, synthetic, and concierge behavior is visibly labeled.
 - [ ] Legal/privacy/consent text was reviewed for the actual launch jurisdiction.
 - [ ] Security gaps in `docs/security/THREAT_MODEL.md` were evaluated. OAuth,
-      general provider-runtime SSRF, and webhook timestamp freshness remain
-      blockers for any production surface that needs them.
+      provider-runtime SSRF/DNS-rebinding controls, and signed webhook freshness
+      have local contract coverage; real provider exchange, deployed egress,
+      credential storage/revocation, and production ingress still require
+      live read-back before a corresponding production claim.
 - [ ] Package contents, executable behavior, license, version, changelog/release
       notes, and tag diff were reviewed directly.
 - [ ] Maintainer access, ownership, issue templates, contribution policy, code of

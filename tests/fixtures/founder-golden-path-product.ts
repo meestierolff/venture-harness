@@ -606,6 +606,7 @@ export class FounderGoldenPathBuildAgentFixture implements BuildAgentHost {
     return {
       host: this.id,
       status: "available",
+      readIsolation: "fixture_no_model_execution",
       version: "fixture-v1",
       billingMode: "fixture_no_model_execution",
       billingEvidence: "fixture_attestation",

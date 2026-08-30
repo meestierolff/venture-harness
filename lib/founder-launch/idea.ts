@@ -131,13 +131,20 @@ function structuredBrief(source: string): FounderBrief | undefined {
   return undefined;
 }
 
-function assertSafeIdea(source: string): void {
+function assertSafeIdeaPayload(source: string): void {
   const credential = findCredentialMaterial(source);
   if (credential) {
     throw new Error(
       `Founder idea contains forbidden credential-like material (${credential.kind}); use cred:// references only`,
     );
   }
+  if (source.trim().length < 12)
+    throw new Error("Founder idea must contain at least 12 non-whitespace characters");
+  if (source.length > 100_000)
+    throw new Error("Founder idea exceeds the 100000-character launch limit");
+}
+
+function assertNoCredentialLabeledField(source: string): void {
   if (
     /^\s*(?:[-*]\s*)?(?:[^:\n]{0,80}\b)?(?:api[ _-]?key|token|password|secret|credential|authorization(?:\s+header)?)\s*:/imu.test(
       source,
@@ -147,10 +154,6 @@ function assertSafeIdea(source: string): void {
       "Founder idea contains a credential-labeled field; remove the value and use a cred:// reference outside the idea",
     );
   }
-  if (source.trim().length < 12)
-    throw new Error("Founder idea must contain at least 12 non-whitespace characters");
-  if (source.length > 100_000)
-    throw new Error("Founder idea exceeds the 100000-character launch limit");
 }
 
 function markdownBrief(source: string): { brief: FounderBrief; assumptionsAdded: string[] } {
@@ -272,7 +275,7 @@ function markdownBrief(source: string): { brief: FounderBrief; assumptionsAdded:
 }
 
 export function compileFounderIdea(source: string): CompiledFounderIdea {
-  assertSafeIdea(source);
+  assertSafeIdeaPayload(source);
   const hash = createHash("sha256").update(source).digest("hex");
   const launchContract = parseLaunchContractSource(source);
   if (launchContract) {
@@ -299,6 +302,7 @@ export function compileFounderIdea(source: string): CompiledFounderIdea {
       }),
     });
   }
+  assertNoCredentialLabeledField(source);
   const structured = structuredBrief(source);
   if (structured) {
     return Object.freeze({

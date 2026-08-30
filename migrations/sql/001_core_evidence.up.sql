@@ -48,6 +48,8 @@ create table if not exists submissions (
   id bigint generated always as identity primary key,
   occurred_at timestamptz not null default now(),
   form_id text not null,
+  -- Compatibility name only: stores a server-generated submission-private
+  -- nonce and must never contain the analytics visitor ID.
   visitor_id text not null,
   payload jsonb not null,
   qualified boolean not null,
@@ -142,4 +144,3 @@ values ('001_core_evidence')
 on conflict (version) do nothing;
 
 commit;
-

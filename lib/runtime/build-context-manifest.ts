@@ -42,6 +42,13 @@ const ALWAYS_SELECTED: Readonly<Record<string, string>> = {
     "Selected anti-template and originality review contract.",
 };
 
+const DISCOVERY_SELECTED: Readonly<Record<string, string>> = {
+  "config/seo.yaml": "Selected crawlability, ownership, indexing, and structured-data contract.",
+  "skills/seo-aeo-engine/SKILL.md": "Selected truthful web-discovery implementation method.",
+  "skills/seo-aeo-engine/references/technical-discovery.md":
+    "Selected raw-HTML, canonical, sitemap, robots, and structured-data checks.",
+};
+
 export const DEFAULT_BUILD_CONTEXT_TOKEN_CAP = 32_000 as const;
 
 const PRODUCT_ROOTS = ["app", "src", "tests/e2e"] as const;
@@ -127,20 +134,26 @@ export function createBuildContextManifest(input: {
   };
 }): BuildContextManifest {
   const root = realpathSync(resolve(input.rootDir));
-  const reasons = {
+  const discoveryRequired =
+    input.brief.needs.search_discovery ||
+    input.capabilitiesRequired?.includes("web_seo_aeo_geo") === true;
+  const reasons: Record<string, string> = {
     ...ALWAYS_SELECTED,
     ...selectedProviderContracts(input.brief, input.paymentProvider),
+    ...(discoveryRequired ? DISCOVERY_SELECTED : {}),
   };
   const requiredPaths = new Set(Object.keys(reasons));
+  const canonicalRequiredPaths = [
+    "config/launch-contract.yaml",
+    "docs/product/PRODUCT_CONSTITUTION.md",
+    "PROJECT.md",
+    "AGENTS.md",
+    "skills/design-director/SKILL.md",
+    "skills/design-director/references/originality-audit.md",
+    ...(discoveryRequired ? Object.keys(DISCOVERY_SELECTED) : []),
+  ];
   if (input.requireCanonicalContract) {
-    const missing = [
-      "config/launch-contract.yaml",
-      "docs/product/PRODUCT_CONSTITUTION.md",
-      "PROJECT.md",
-      "AGENTS.md",
-      "skills/design-director/SKILL.md",
-      "skills/design-director/references/originality-audit.md",
-    ].filter((path) => !regularFileWithinRoot(root, path));
+    const missing = canonicalRequiredPaths.filter((path) => !regularFileWithinRoot(root, path));
     if (missing.length > 0) {
       throw new Error(`Required Launch Contract build context is missing: ${missing.join(", ")}`);
     }
@@ -186,16 +199,8 @@ export function createBuildContextManifest(input: {
     estimatedTotalTokens += estimate;
   }
   if (input.requireCanonicalContract) {
-    const unselected = [...requiredPaths].filter(
-      (path) =>
-        [
-          "config/launch-contract.yaml",
-          "docs/product/PRODUCT_CONSTITUTION.md",
-          "PROJECT.md",
-          "AGENTS.md",
-          "skills/design-director/SKILL.md",
-          "skills/design-director/references/originality-audit.md",
-        ].includes(path) && !selectedFiles.some((selected) => selected.path === path),
+    const unselected = canonicalRequiredPaths.filter(
+      (path) => !selectedFiles.some((selected) => selected.path === path),
     );
     if (unselected.length > 0) {
       throw new Error(

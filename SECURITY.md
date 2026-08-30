@@ -48,12 +48,15 @@ template updates are deliberate rather than automatic.
 ## Known limits
 
 Local tests and scanners are not a production security certification. OAuth
-callback state/PKCE/redirect validation and general provider-runtime SSRF/DNS
-rebinding protection are currently `MISSING_RUNTIME`. The RevenueCat ingestion
-library verifies an exact-body HMAC and deduplicates provider event IDs, but a
-signed timestamp freshness window is also `MISSING_RUNTIME`. Do not expose those
-surfaces as production endpoints until the missing contracts are implemented
-and reviewed.
+state, PKCE, exact redirects, single-use callbacks, expiry, and negative cases
+are implemented as local contracts; the real provider exchange and credential
+storage read-back remain unverified. Provider HTTP uses exact HTTPS allowlists,
+all-address validation, DNS-pinned native TLS, manual redirects, cross-host auth
+stripping, and bounded I/O in local tests; live egress remains unverified. The
+RevenueCat ingestion boundary verifies exact-body HMAC, signature freshness,
+project/app/environment binding, and durable deduplication in local tests. Do
+not describe any of these boundaries as production security certification or
+live provider verification.
 
 See [the threat model](docs/security/THREAT_MODEL.md), [provider auth
 boundaries](docs/security/PROVIDER_AUTH_BOUNDARIES.md), and [public release

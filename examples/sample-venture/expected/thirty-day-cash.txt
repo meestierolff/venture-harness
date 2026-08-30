@@ -1,3 +1,5 @@
+SYNTHETIC EXAMPLE — invented MeterMate assumptions; no real customer or result.
+
 thirty-day-cash — deterministic calculator
 
 Assumptions (state them; do not trust silently):
