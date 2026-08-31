@@ -230,6 +230,9 @@ describe("bounded idea sharpening", () => {
       "Include indispensable authentication or sign-in, create/edit persistence, and public read-back steps whenever REQUIRED capabilities or the promised artifact imply them",
     );
     expect(request?.prompt).toContain(
+      `set product.primaryJourney to exactly this JSON array and do not paraphrase, combine, or append clauses: ${JSON.stringify(launchReceiptContract().product.primaryJourney)}`,
+    );
+    expect(request?.prompt).toContain(
       "Record the subscription model and exact displayed monthly price in truth.assumptions, and record willingness to pay separately in truth.unknowns",
     );
     expect(request?.prompt).toContain(
@@ -258,6 +261,9 @@ describe("bounded idea sharpening", () => {
     expect(host.run.mock.calls[1]?.[0].prompt).toContain(
       "rough-idea sharpening cannot put checkout, customer creation, payment-method collection, subscription activation, purchases, or charges in the executed primary journey",
     );
+    expect(host.run.mock.calls[1]?.[0].prompt).toContain(
+      `set product.primaryJourney to exactly this JSON array and do not paraphrase, combine, or append clauses: ${JSON.stringify(launchReceiptContract().product.primaryJourney)}`,
+    );
     expect(result.launchContract.product.primaryJourney).toEqual([
       "Sign in with email",
       "Create one launch checklist",
@@ -279,6 +285,29 @@ describe("bounded idea sharpening", () => {
       entitlements: "REQUIRED",
     });
   });
+
+  it.each([
+    "A small web SaaS for founders to create a launch checklist.",
+    "A web SaaS may create a launch checklist and complete its items, but it must not publish a read-only receipt.",
+    "The app should let a founder create no launch checklist, complete no items, and never publish a read-only receipt.",
+    "The app should not let a founder create one focused launch checklist, complete its items, or publish a clean read-only receipt.",
+    'A competitor says, "The app should let a founder create one focused launch checklist, complete its items and publish a clean read-only receipt showing what is actually ready."',
+  ])(
+    "does not inject the canonical Launch Receipt journey for a covered non-promise source form",
+    async (source) => {
+      const host = fakeHost([JSON.stringify(launchReceiptContract())]);
+
+      await sharpenIdea(source, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      });
+
+      expect(host.run).toHaveBeenCalledTimes(1);
+      expect(host.run.mock.calls[0]?.[0].prompt).not.toContain(
+        "launch-checklist/read-only-receipt source",
+      );
+    },
+  );
 
   it("keeps explicitly requested checkout as future non-executed context outside the journey", async () => {
     const source = `${launchReceiptRoughIdea}\n\nA future price test may explicitly open Stripe checkout, but it is not the product outcome.`;
@@ -726,11 +755,21 @@ describe("bounded idea sharpening", () => {
     ],
     ["receipt-image saving substituted for persistence", 2, "Save the receipt image"],
     [
+      "Vercel configuration appended to editing",
+      2,
+      "Edit checklist items and persist their state, then configure Vercel",
+    ],
+    [
       "checklist publication substituted for receipt publication",
       3,
       "Publish the launch checklist",
     ],
     ["public settings substituted for receipt read-back", 4, "View the public settings"],
+    [
+      "Brevo sending appended to public read-back",
+      4,
+      "Open the public read-only receipt and send it through Brevo",
+    ],
   ] as const)("rejects %s", async (_label, stepIndex, replacement) => {
     const primaryJourney = [...launchReceiptContract().product.primaryJourney];
     primaryJourney[stepIndex] = replacement;
