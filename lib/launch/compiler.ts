@@ -25,7 +25,7 @@ const capabilityProviders: Record<string, { provider: string; resource: string }
   lifecycle_email: { provider: "brevo", resource: "lifecycle policy and templates" },
   stripe: {
     provider: "stripe",
-    resource: "test-mode product, exact monthly EUR price, billing portal, and webhook",
+    resource: "test-mode product, price configuration, billing portal, and webhook",
   },
   revenuecat: {
     provider: "revenuecat",

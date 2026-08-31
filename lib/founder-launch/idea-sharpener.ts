@@ -341,14 +341,16 @@ function commercePolicyPrompt(): string {
   ].join(" ");
 }
 
-const SHARPENER_TRANSACTIONAL_JOURNEY_PATTERNS = [
-  /\b(?:billing|check[ -]?out|stripe)\b/iu,
+const SHARPENER_TRANSACTIONAL_PRODUCT_PATTERNS = [
+  /\b(?:autopay|billing|check[ -]?out|entitlements?|iban|paddle|revenuecat|stripe)\b/iu,
   /\b(?:bought|buy|charge|charged|charges|charging|invoice|invoices|membership|memberships|paid|pay|paying|payment|payments|premium|purchase|purchased|purchases|purchasing|recurring|sepa|subscribe|subscribed|subscribes|subscribing|subscription|subscriptions|trial|trials)\b/iu,
   /\b(?:direct\s+debit|sepa\s+mandate)\b/iu,
   /\b(?:bank|card|credit|debit|payment)\s+(?:account|card|details?|method)\b/iu,
-  /\b(?:add|attach|collect|enter|provide|save|store)\w*\b.{0,30}\b(?:bank|card|cvv|payment)\b/iu,
-  /\b(?:create|creating|open|opening|provision|provisioning|register|registering|set(?:ting)? up)\b.{0,40}\b(?:stripe\s+)?customer\b/iu,
-  /\bcustomer\b.{0,30}\b(?:creation|registration|provisioning)\b/iu,
+  /\b(?:add|attach|collect|enter|provide|save|store)\w*\b.{0,30}\b(?:bank|card|cvv|iban|payment)\b/iu,
+  /\bactivat(?:e|es|ed|ing|ion)\b.{0,40}(?:\beur\b|€).{0,30}\bplans?\b|(?:\beur\b|€).{0,30}\bplans?\b.{0,40}\bactivat(?:e|es|ed|ing|ion)\b/iu,
+  /\b(?:collect|collects|collected|collecting)\b.{0,30}\bfunds?\b|\bfunds?\b.{0,30}\b(?:collect|collects|collected|collecting)\b/iu,
+  /\b(?:creat(?:e|es|ed|ing)|open(?:s|ed|ing)?|provision(?:s|ed|ing)?|register(?:s|ed|ing)?|set(?:s|ting)? up)\b.{0,40}\b(?:stripe\s+)?customers?\b/iu,
+  /\bcustomers?\b.{0,30}\b(?:creat(?:e|es|ed|ing)|creation|provision(?:s|ed|ing)?|provisioning|register(?:s|ed|ing)?|registration)\b/iu,
   /\b(?:confirm|place|submit)\w*\b.{0,30}\border\b/iu,
 ] as const;
 
@@ -356,13 +358,35 @@ function normalizedSharpenerText(value: string): string {
   return value.normalize("NFKC").replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
-function sharpenerTransactionalJourneyIssues(contract: LaunchContract): string[] {
-  return contract.product.primaryJourney.flatMap((step, index) =>
-    SHARPENER_TRANSACTIONAL_JOURNEY_PATTERNS.some((pattern) =>
-      pattern.test(normalizedSharpenerText(step)),
+function sharpenerTransactionalProductIssues(contract: LaunchContract): string[] {
+  const surfaces: ReadonlyArray<{ path: string; surface: string; value: string }> = [
+    {
+      path: "product.oneCoreFeature",
+      surface: "core feature",
+      value: contract.product.oneCoreFeature,
+    },
+    ...contract.product.primaryJourney.map((value, index) => ({
+      path: `product.primaryJourney.${index}`,
+      surface: "executed primary journey",
+      value,
+    })),
+    {
+      path: "product.primaryCta",
+      surface: "primary CTA",
+      value: contract.product.primaryCta,
+    },
+    {
+      path: "decision.primarySuccessSignal",
+      surface: "primary success signal",
+      value: contract.decision.primarySuccessSignal,
+    },
+  ];
+  return surfaces.flatMap(({ path, surface, value }) =>
+    SHARPENER_TRANSACTIONAL_PRODUCT_PATTERNS.some((pattern) =>
+      pattern.test(normalizedSharpenerText(value)),
     )
       ? [
-          `product.primaryJourney.${index}: rough-idea sharpening cannot put checkout, customer creation, payment-method collection, subscription activation, purchases, or charges in the executed primary journey; preserve reviewed commerce configuration in business and restore the core product outcome journey`,
+          `${path}: rough-idea sharpening cannot put checkout, customer creation, payment-method collection, subscription activation, purchases, or charges in the ${surface}; preserve reviewed commerce configuration in business and keep the product outcome non-transactional`,
         ]
       : [],
   );
@@ -602,7 +626,7 @@ function validateCandidate(
   if (parsed.success) {
     const contract = assertLaunchContractSafe(parsed.data);
     const issues = [
-      ...sharpenerTransactionalJourneyIssues(contract),
+      ...sharpenerTransactionalProductIssues(contract),
       ...sharpenerRequiredJourneyIssues(source, contract),
     ];
     return issues.length > 0 ? { success: false, issues } : { success: true, contract };

@@ -178,7 +178,7 @@ describe("launch graph compiler", () => {
     expect(dryRun.resources).toContainEqual(
       expect.objectContaining({
         provider: "stripe",
-        resource: "test-mode product, exact monthly EUR price, billing portal, and webhook",
+        resource: "test-mode product, price configuration, billing portal, and webhook",
         environment: "test",
       }),
     );
@@ -271,6 +271,27 @@ describe("launch graph compiler", () => {
     );
     expect(dryRun.parallelLayers.some((layer) => layer.length > 1)).toBe(true);
   });
+
+  it.each(["subscription", "one_time", "services"] as const)(
+    "describes Stripe price configuration without inventing a populated price or recurrence for %s",
+    (monetizationModel) => {
+      const dryRun = compileLaunchDryRun({
+        ...fixture("web-saas"),
+        monetization_model: monetizationModel,
+      });
+
+      expect(dryRun.resources).toContainEqual(
+        expect.objectContaining({
+          provider: "stripe",
+          resource: "test-mode product, price configuration, billing portal, and webhook",
+          environment: "test",
+        }),
+      );
+      expect(dryRun.resources.find(({ provider }) => provider === "stripe")?.resource).not.toMatch(
+        /exact|monthly|populated|recurring|reviewed/iu,
+      );
+    },
+  );
 
   it("keeps the consolidated DNS rail behind an explicit later custom-domain compilation", () => {
     const dryRun = compileLaunchDryRun(

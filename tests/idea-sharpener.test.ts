@@ -51,6 +51,25 @@ function launchReceiptWithJourney(primaryJourney: string[]) {
   return launchReceiptContract({ product: { ...contract.product, primaryJourney } });
 }
 
+type TransactionalProductSurface =
+  "product.oneCoreFeature" | "product.primaryCta" | "decision.primarySuccessSignal";
+
+function launchReceiptWithTransactionalSurface(path: TransactionalProductSurface, value: string) {
+  const contract = launchReceiptContract();
+  switch (path) {
+    case "product.oneCoreFeature":
+      return launchReceiptContract({
+        product: { ...contract.product, oneCoreFeature: value },
+      });
+    case "product.primaryCta":
+      return launchReceiptContract({ product: { ...contract.product, primaryCta: value } });
+    case "decision.primarySuccessSignal":
+      return launchReceiptContract({
+        decision: { ...contract.decision, primarySuccessSignal: value },
+      });
+  }
+}
+
 describe("bounded idea sharpening", () => {
   it("runs Codex in a disposable non-repository with the private idea only on stdin", async () => {
     const invocations: CommandInvocation[] = [];
@@ -299,6 +318,69 @@ describe("bounded idea sharpening", () => {
   });
 
   it.each([
+    ["product.oneCoreFeature", "core feature", "A checklist that creates a Stripe customer"],
+    ["product.primaryCta", "primary CTA", "Start checkout"],
+    ["decision.primarySuccessSignal", "primary success signal", "stripe_subscription_activated"],
+    ["decision.primarySuccessSignal", "primary success signal", "eur_9_plan_activated"],
+  ] as const)(
+    "fails closed when %s makes commerce part of the %s",
+    async (path, _surface, transactionalValue) => {
+      const invalid = launchReceiptWithTransactionalSurface(path, transactionalValue);
+      const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+      await expect(
+        sharpenIdea(launchReceiptRoughIdea, {
+          host,
+          now: () => new Date("2026-08-12T12:00:00.000Z"),
+        }),
+      ).rejects.toMatchObject({
+        name: "IdeaSharpenError",
+        message: expect.stringMatching(
+          new RegExp(
+            `${path.replaceAll(".", "\\.")}: rough-idea sharpening cannot put .*keep the product outcome non-transactional`,
+            "u",
+          ),
+        ),
+        accounting: { modelCalls: 2 },
+      });
+      expect(host.run).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(
+    [
+      ["plan activation", "Activate EUR 9 plan", "activate_eur_9_plan"],
+      ["autopay", "Enable autopay", "autopay_enabled"],
+      ["Paddle", "Connect Paddle", "paddle_connected"],
+      ["entitlement", "Provision entitlement", "entitlement_provisioned"],
+      ["IBAN", "Enter IBAN", "iban_entered"],
+      ["fund collection", "Collect funds", "funds_collected"],
+      ["plural customer creation", "Create customers", "customers_created"],
+    ].flatMap(([label, proseValue, signalValue]) => [
+      [`${label} in the core feature`, "product.oneCoreFeature", proseValue],
+      [`${label} in the primary CTA`, "product.primaryCta", proseValue],
+      [`${label} in the primary success signal`, "decision.primarySuccessSignal", signalValue],
+    ]) as Array<[string, TransactionalProductSurface, string]>,
+  )("rejects %s", async (_label, path, transactionalValue) => {
+    const invalid = launchReceiptWithTransactionalSurface(path, transactionalValue);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(
+        new RegExp(`${path.replaceAll(".", "\\.")}: rough-idea sharpening cannot put`, "u"),
+      ),
+      accounting: { modelCalls: 2 },
+    });
+    expect(host.run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
     "Subscribe for EUR 9 per month",
     "Complete payment for EUR 9 per month",
     "Upgrade to the paid plan",
@@ -316,6 +398,13 @@ describe("bounded idea sharpening", () => {
     "Start direct debit",
     "Create a SEPA mandate",
     "Mark premium plan active",
+    "Activate EUR 9 plan",
+    "Enable autopay",
+    "Connect Paddle",
+    "Provision entitlement",
+    "Enter IBAN",
+    "Collect funds",
+    "Create customers",
   ])("rejects the transactional journey paraphrase %j", async (step) => {
     const invalid = launchReceiptWithTransactionalJourney(step);
     const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
