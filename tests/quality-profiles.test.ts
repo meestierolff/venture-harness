@@ -440,12 +440,16 @@ describe("capability-aware quality profiles", () => {
       step.run ? [step.run] : [],
     );
     const fastWorkspacePreparation = fastCommands.indexOf("pnpm workspace:prepare");
+    const fastBrowserPreparation = fastCommands.indexOf(
+      "pnpm exec playwright install --with-deps chromium",
+    );
     const fastSeedPreparation = fastCommands.indexOf("pnpm seed:ensure agentic-web-saas");
     const fastVerification = fastCommands.findIndex((command) =>
       command.startsWith("pnpm verify:fast"),
     );
     expect(fastWorkspacePreparation).toBeGreaterThanOrEqual(0);
-    expect(fastSeedPreparation).toBeGreaterThan(fastWorkspacePreparation);
+    expect(fastBrowserPreparation).toBeGreaterThan(fastWorkspacePreparation);
+    expect(fastSeedPreparation).toBeGreaterThan(fastBrowserPreparation);
     expect(fastVerification).toBeGreaterThan(fastSeedPreparation);
     expect(workflow.jobs.release?.if).toBeUndefined();
     expect(workflow.jobs.release?.needs).toBe("mvp");

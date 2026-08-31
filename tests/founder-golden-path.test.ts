@@ -63,6 +63,10 @@ describe("synthetic founder Golden Path", () => {
     expect(result.proof.productCommands).toEqual(
       expect.arrayContaining([
         [...CHILD_DEPENDENCY_INSTALL_ARGS],
+        ["typecheck"],
+        ["build"],
+        ["test:e2e:readonly"],
+        ["test"],
         ["verify:fast"],
         ["verify:mvp"],
         ["exec", "playwright", "test", "tests/e2e/post-deploy-readonly.spec.ts", "--retries=0"],

@@ -80,6 +80,10 @@ const PRIMARY_JOURNEY_OBSERVER_INSTRUCTIONS =
   " The journey contract production block must also declare readBack={method:'GET',path:'/api/<venture-specific-path>',protocol:'venture_harness_primary_journey_v1'}. Implement that read-only endpoint so the locked harness observer can independently query the exact runId, nonce, journeyId, and test-identity label after the journey and after cleanup. Journey read-back must return the exact ordered completedSteps and at least one labeled reversible write with a stable ID and verified/published state; cleanup read-back must return zero writes plus the exact removed write IDs. Wrap every immutable Launch Contract step in test.step(step) in order and perform a real browser navigation/input/control action and assertion for it; a visit plus a trivial assertion or stdout markers alone is not evidence.";
 
 const QUALITY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
+  "launch.verifySeedTypecheck": ["typecheck"],
+  "launch.verifySeedBuild": ["build"],
+  "launch.verifySeedReadonly": ["test:e2e:readonly"],
+  "launch.verifySeedTests": ["test"],
   "launch.verifyLocal": ["verify:fast"],
   "launch.verifyMvp": ["verify:mvp"],
 };

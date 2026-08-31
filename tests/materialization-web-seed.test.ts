@@ -408,6 +408,8 @@ describe("ordinary web venture seed", () => {
     expect(journey?.content).not.toMatch(/\.(?:post|put|patch|delete)\s*\(/i);
     const site = compiled.files.find(({ path }) => path === "src/config/site.ts");
     expect(site?.content).toContain("VERCEL_PROJECT_PRODUCTION_URL");
+    expect(site?.content).toContain('"https://local-e2e.example.invalid"');
+    expect(site?.content).not.toContain('?? "http://localhost:3000"');
     expect(site?.content).toContain('process.env.VERCEL_ENV === "production"');
     expect(site?.content).toContain('process.env.VERCEL === "1"');
     expect(site?.content).toContain('process.env.NEXT_PUBLIC_INDEXING_ENABLED === "true"');

@@ -801,7 +801,7 @@ h2 { font-size: clamp(1.5rem, 4vw, 2.25rem); }
 const explicitSiteOrigin = exactHttpOrigin(process.env.NEXT_PUBLIC_SITE_URL);
 const vercelProductionOrigin = exactHttpOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL);
 const configuredSiteUrl =
-  explicitSiteOrigin ?? vercelProductionOrigin ?? "http://localhost:3000";
+  explicitSiteOrigin ?? vercelProductionOrigin ?? "https://local-e2e.example.invalid";
 const verifiedProductionEnvironment =
   process.env.VERCEL === "1" && process.env.VERCEL_ENV === "production";
 

@@ -111,6 +111,16 @@ describe("launch graph compiler", () => {
       "code",
     );
     expect(
+      productGraph.graph.nodes.some(({ id }) =>
+        [
+          "verify-seed-typecheck",
+          "verify-seed-build",
+          "verify-seed-readonly",
+          "verify-seed-tests",
+        ].includes(id),
+      ),
+    ).toBe(false);
+    expect(
       productGraph.graph.nodes.filter(({ kind }) => kind === "model").map(({ id }) => id),
     ).toEqual(["review-product"]);
   });
@@ -136,8 +146,22 @@ describe("launch graph compiler", () => {
       dependencies: [],
       effect: "local_write",
     });
+    const seedPreflight = [
+      ["verify-seed-typecheck", "launch.verifySeedTypecheck", "install-dependencies"],
+      ["verify-seed-build", "launch.verifySeedBuild", "verify-seed-typecheck"],
+      ["verify-seed-readonly", "launch.verifySeedReadonly", "verify-seed-build"],
+      ["verify-seed-tests", "launch.verifySeedTests", "verify-seed-readonly"],
+    ] as const;
+    for (const [id, handler, dependency] of seedPreflight) {
+      expect(dryRun.graph.nodes.find((node) => node.id === id)).toMatchObject({
+        kind: "code",
+        handler,
+        dependencies: [dependency],
+        timeoutMs: 300_000,
+      });
+    }
     expect(dryRun.graph.nodes.find(({ id }) => id === "prepare-repository")?.dependencies).toEqual([
-      "install-dependencies",
+      "verify-seed-tests",
     ]);
     expect(dryRun.graph.metadata?.initialOrigin).toBe("provider_url");
     expect(dryRun.manualActions).toEqual([]);
@@ -204,8 +228,16 @@ describe("launch graph compiler", () => {
       visit(nodeId);
       return found;
     };
-    expect(ancestors("github-repository")).toContain("install-dependencies");
-    expect(ancestors("production-deploy")).toContain("install-dependencies");
+    for (const prerequisite of [
+      "install-dependencies",
+      "verify-seed-typecheck",
+      "verify-seed-build",
+      "verify-seed-readonly",
+      "verify-seed-tests",
+    ]) {
+      expect(ancestors("github-repository")).toContain(prerequisite);
+      expect(ancestors("production-deploy")).toContain(prerequisite);
+    }
     for (const node of dryRun.graph.nodes.filter(
       ({ effect }) => effect === "external_reversible" || effect === "external_irreversible",
     )) {

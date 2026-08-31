@@ -17584,6 +17584,64 @@ function compileLaunchGraph(briefInput, decisionInput, options = {}) {
       }
     })
   ] : [];
+  const seedVerificationNodes = decision.rail.appKind === "web" ? [
+    workflowNode("verify-seed-typecheck", {
+      purpose: "Typecheck the unchanged deterministic web seed before any model-authored product work starts.",
+      kind: "code",
+      capability: "quality.seed_typecheck",
+      dependencies: ["install-dependencies"],
+      handler: "launch.verifySeedTypecheck",
+      idempotencyKey: `launch:${brief.id}:verify-seed-typecheck`,
+      timeoutMs: 3e5,
+      concurrencyGroup: "quality",
+      evidence: {
+        required: true,
+        artifact: "reports/quality/seed-typecheck.json"
+      }
+    }),
+    workflowNode("verify-seed-build", {
+      purpose: "Build the unchanged deterministic web seed before any model-authored product work starts.",
+      kind: "code",
+      capability: "quality.seed_build",
+      dependencies: ["verify-seed-typecheck"],
+      handler: "launch.verifySeedBuild",
+      idempotencyKey: `launch:${brief.id}:verify-seed-build`,
+      timeoutMs: 3e5,
+      concurrencyGroup: "quality",
+      evidence: {
+        required: true,
+        artifact: "reports/quality/seed-build.json"
+      }
+    }),
+    workflowNode("verify-seed-readonly", {
+      purpose: "Run the unchanged deterministic web seed's read-only end-to-end check before any model-authored product work starts.",
+      kind: "code",
+      capability: "quality.seed_readonly",
+      dependencies: ["verify-seed-build"],
+      handler: "launch.verifySeedReadonly",
+      idempotencyKey: `launch:${brief.id}:verify-seed-readonly`,
+      timeoutMs: 3e5,
+      concurrencyGroup: "quality",
+      evidence: {
+        required: true,
+        artifact: "reports/quality/seed-readonly.json"
+      }
+    }),
+    workflowNode("verify-seed-tests", {
+      purpose: "Run the unchanged deterministic web seed's full test suite before any model-authored product work starts.",
+      kind: "code",
+      capability: "quality.seed_tests",
+      dependencies: ["verify-seed-readonly"],
+      handler: "launch.verifySeedTests",
+      idempotencyKey: `launch:${brief.id}:verify-seed-tests`,
+      timeoutMs: 3e5,
+      concurrencyGroup: "quality",
+      evidence: {
+        required: true,
+        artifact: "reports/quality/seed-tests.json"
+      }
+    })
+  ] : [];
   const dependencyFinalizationNodes = decision.rail.appKind === "web" ? [
     workflowNode("finalize-dependencies", {
       purpose: "Re-verify the Core-owned package execution policy and checkpoint the unchanged exact child lockfile after product work; reject any package, script, lifecycle-policy, or lock mutation.",
@@ -17616,11 +17674,12 @@ function compileLaunchGraph(briefInput, decisionInput, options = {}) {
   const repositoryReadyNodeId = decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
   const nodes = [
     ...dependencyBootstrapNodes,
+    ...seedVerificationNodes,
     workflowNode("prepare-repository", {
       purpose: decision.rail.appKind === "web" ? `In one bounded build call, refine the proposition, create the venture-specific design, and implement and test the smallest useful journey: ${brief.smallest_core_journey}` : "Create the venture-owned native scaffold and managed-file manifest before product review.",
       kind: decision.rail.appKind === "web" ? "model" : "code",
       capability: decision.rail.appKind === "web" ? "product.web" : decision.rail.mobileStack === "swiftui" ? "product.swiftui" : "product.expo",
-      dependencies: dependencyBootstrapNodes.map(({ id }) => id),
+      dependencies: decision.rail.appKind === "web" ? ["verify-seed-tests"] : dependencyBootstrapNodes.map(({ id }) => id),
       transport: decision.rail.appKind === "web" ? "model" : "code",
       effect: "local_write",
       handler: "launch.prepareRepository",
@@ -22269,7 +22328,7 @@ h2 { font-size: clamp(1.5rem, 4vw, 2.25rem); }
 const explicitSiteOrigin = exactHttpOrigin(process.env.NEXT_PUBLIC_SITE_URL);
 const vercelProductionOrigin = exactHttpOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL);
 const configuredSiteUrl =
-  explicitSiteOrigin ?? vercelProductionOrigin ?? "http://localhost:3000";
+  explicitSiteOrigin ?? vercelProductionOrigin ?? "https://local-e2e.example.invalid";
 const verifiedProductionEnvironment =
   process.env.VERCEL === "1" && process.env.VERCEL_ENV === "production";
 
@@ -29929,6 +29988,10 @@ var AGENT_TASKS = {
 };
 var PRIMARY_JOURNEY_OBSERVER_INSTRUCTIONS = " The journey contract production block must also declare readBack={method:'GET',path:'/api/<venture-specific-path>',protocol:'venture_harness_primary_journey_v1'}. Implement that read-only endpoint so the locked harness observer can independently query the exact runId, nonce, journeyId, and test-identity label after the journey and after cleanup. Journey read-back must return the exact ordered completedSteps and at least one labeled reversible write with a stable ID and verified/published state; cleanup read-back must return zero writes plus the exact removed write IDs. Wrap every immutable Launch Contract step in test.step(step) in order and perform a real browser navigation/input/control action and assertion for it; a visit plus a trivial assertion or stdout markers alone is not evidence.";
 var QUALITY_COMMANDS = {
+  "launch.verifySeedTypecheck": ["typecheck"],
+  "launch.verifySeedBuild": ["build"],
+  "launch.verifySeedReadonly": ["test:e2e:readonly"],
+  "launch.verifySeedTests": ["test"],
   "launch.verifyLocal": ["verify:fast"],
   "launch.verifyMvp": ["verify:mvp"]
 };
@@ -46104,7 +46167,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "9289d57d7e61ce6cfa540fa080bafe9a398f850b" : void 0;
+  const workflowRefSha = true ? "2139c6c9481a24d09266cc3649b9a7d790e71bbe" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {

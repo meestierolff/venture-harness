@@ -305,6 +305,71 @@ export function compileLaunchGraph(
           }),
         ]
       : [];
+  const seedVerificationNodes: WorkflowNodeDefinition[] =
+    decision.rail.appKind === "web"
+      ? [
+          workflowNode("verify-seed-typecheck", {
+            purpose:
+              "Typecheck the unchanged deterministic web seed before any model-authored product work starts.",
+            kind: "code",
+            capability: "quality.seed_typecheck",
+            dependencies: ["install-dependencies"],
+            handler: "launch.verifySeedTypecheck",
+            idempotencyKey: `launch:${brief.id}:verify-seed-typecheck`,
+            timeoutMs: 300_000,
+            concurrencyGroup: "quality",
+            evidence: {
+              required: true,
+              artifact: "reports/quality/seed-typecheck.json",
+            },
+          }),
+          workflowNode("verify-seed-build", {
+            purpose:
+              "Build the unchanged deterministic web seed before any model-authored product work starts.",
+            kind: "code",
+            capability: "quality.seed_build",
+            dependencies: ["verify-seed-typecheck"],
+            handler: "launch.verifySeedBuild",
+            idempotencyKey: `launch:${brief.id}:verify-seed-build`,
+            timeoutMs: 300_000,
+            concurrencyGroup: "quality",
+            evidence: {
+              required: true,
+              artifact: "reports/quality/seed-build.json",
+            },
+          }),
+          workflowNode("verify-seed-readonly", {
+            purpose:
+              "Run the unchanged deterministic web seed's read-only end-to-end check before any model-authored product work starts.",
+            kind: "code",
+            capability: "quality.seed_readonly",
+            dependencies: ["verify-seed-build"],
+            handler: "launch.verifySeedReadonly",
+            idempotencyKey: `launch:${brief.id}:verify-seed-readonly`,
+            timeoutMs: 300_000,
+            concurrencyGroup: "quality",
+            evidence: {
+              required: true,
+              artifact: "reports/quality/seed-readonly.json",
+            },
+          }),
+          workflowNode("verify-seed-tests", {
+            purpose:
+              "Run the unchanged deterministic web seed's full test suite before any model-authored product work starts.",
+            kind: "code",
+            capability: "quality.seed_tests",
+            dependencies: ["verify-seed-readonly"],
+            handler: "launch.verifySeedTests",
+            idempotencyKey: `launch:${brief.id}:verify-seed-tests`,
+            timeoutMs: 300_000,
+            concurrencyGroup: "quality",
+            evidence: {
+              required: true,
+              artifact: "reports/quality/seed-tests.json",
+            },
+          }),
+        ]
+      : [];
   const dependencyFinalizationNodes: WorkflowNodeDefinition[] =
     decision.rail.appKind === "web"
       ? [
@@ -343,6 +408,7 @@ export function compileLaunchGraph(
     decision.rail.appKind === "web" ? "finalize-dependencies" : "prepare-repository";
   const nodes: WorkflowNodeDefinition[] = [
     ...dependencyBootstrapNodes,
+    ...seedVerificationNodes,
     workflowNode("prepare-repository", {
       purpose:
         decision.rail.appKind === "web"
@@ -355,7 +421,10 @@ export function compileLaunchGraph(
           : decision.rail.mobileStack === "swiftui"
             ? "product.swiftui"
             : "product.expo",
-      dependencies: dependencyBootstrapNodes.map(({ id }) => id),
+      dependencies:
+        decision.rail.appKind === "web"
+          ? ["verify-seed-tests"]
+          : dependencyBootstrapNodes.map(({ id }) => id),
       transport: decision.rail.appKind === "web" ? "model" : "code",
       effect: "local_write",
       handler: "launch.prepareRepository",
