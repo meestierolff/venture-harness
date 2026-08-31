@@ -17356,7 +17356,10 @@ var capabilityProviders = {
   },
   transactional_email: { provider: "brevo", resource: "sender, domain, and templates" },
   lifecycle_email: { provider: "brevo", resource: "lifecycle policy and templates" },
-  stripe: { provider: "stripe", resource: "product, exact prices, checkout, portal, and webhook" },
+  stripe: {
+    provider: "stripe",
+    resource: "test-mode product, exact monthly EUR price, billing portal, and webhook"
+  },
   revenuecat: {
     provider: "revenuecat",
     resource: "app, products, entitlement, offering, packages, and webhook"
@@ -19704,12 +19707,151 @@ function schemaSkeleton() {
 function commercePolicyPrompt() {
   return [
     "Default business.model to free, paymentProvider to none, priceHypothesis to null, and capabilities.payments and capabilities.entitlements to NOT_APPLICABLE when generic founder prose does not propose commerce.",
-    "For founder alpha, only when the founder describes the product itself as an unqualified web SaaS and supplies no conflicting commercial model, treat that wording as a narrow, reversible present subscription hypothesis even when no price is stated: set business.model to subscription, paymentProvider to stripe, priceHypothesis to one positive numeric monthly EUR amount, capabilities.backend, capabilities.payments, and capabilities.entitlements to REQUIRED, and commercialCommitmentEvent to starting a Stripe test-mode monthly subscription checkout for the displayed EUR amount per month rather than a completed payment or charge.",
+    "For founder alpha, only when the founder describes the product itself as an unqualified web SaaS and supplies no conflicting commercial model, treat that wording as a narrow, reversible present subscription hypothesis even when no price is stated: set business.model to subscription, paymentProvider to stripe, priceHypothesis to one positive numeric monthly EUR amount, capabilities.backend, capabilities.payments, and capabilities.entitlements to REQUIRED, and commercialCommitmentEvent to a non-transactional willingness-to-pay or displayed-price-interest signal for that exact EUR amount per month.",
+    "The inferred Stripe scope is test-mode product, exact monthly EUR price, billing portal, and webhook configuration only. The commercial commitment event records interest only: it must not create a customer, collect or attach a payment method, open checkout, activate a subscription, or charge anyone.",
+    "For every rough-idea candidate, keep customer creation, payment-method collection, checkout, subscription activation, purchases, and charges out of product.oneCoreFeature, product.primaryJourney, product.primaryCta, and decision.primarySuccessSignal, even when the rough prose explicitly mentions commerce; keep such transactional work as future, non-executed commercial context instead. The primary journey remains the core product outcome. Include indispensable authentication or sign-in, create/edit persistence, and public read-back steps whenever REQUIRED capabilities or the promised artifact imply them; commerce configuration is not a substitute for those steps.",
+    "For an owned web artifact that the founder creates, edits, persists, publishes, and reads publicly, use separate ordered journey steps equivalent to: sign in with email; create the artifact; edit its items and persist their state; publish it; then open the public read-only artifact. Do not append a provider, entitlement, billing, plan, payment, or other commercial action to any of those product steps.",
     "Record the subscription model and exact displayed monthly price in truth.assumptions, and record willingness to pay separately in truth.unknowns; never present the model, amount, demand, or provider state as truth.facts or external evidence.",
     "An explicit statement that the whole product is free or needs no payments overrides the web-SaaS hypothesis: preserve business.model free, paymentProvider none, and priceHypothesis null, and classify capabilities.payments and capabilities.entitlements as NOT_APPLICABLE. Explicitly deferred payments or monetization also override it and make both capabilities DEFERRED.",
     "An explicit one-time, service, usage, take-rate, native-commerce, advertising, sponsorship, or donation model takes precedence over the web-SaaS default. A SaaS mention only in the audience, a competitor, a negation, or an explicit not-building boundary does not describe the product itself. A free trial, free tier, freemium offer, or the phrase not free does not by itself make the whole product free.",
     "Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there."
   ].join(" ");
+}
+var SHARPENER_TRANSACTIONAL_JOURNEY_PATTERNS = [
+  /\b(?:billing|check[ -]?out|stripe)\b/iu,
+  /\b(?:bought|buy|charge|charged|charges|charging|invoice|invoices|membership|memberships|paid|pay|paying|payment|payments|premium|purchase|purchased|purchases|purchasing|recurring|sepa|subscribe|subscribed|subscribes|subscribing|subscription|subscriptions|trial|trials)\b/iu,
+  /\b(?:direct\s+debit|sepa\s+mandate)\b/iu,
+  /\b(?:bank|card|credit|debit|payment)\s+(?:account|card|details?|method)\b/iu,
+  /\b(?:add|attach|collect|enter|provide|save|store)\w*\b.{0,30}\b(?:bank|card|cvv|payment)\b/iu,
+  /\b(?:create|creating|open|opening|provision|provisioning|register|registering|set(?:ting)? up)\b.{0,40}\b(?:stripe\s+)?customer\b/iu,
+  /\bcustomer\b.{0,30}\b(?:creation|registration|provisioning)\b/iu,
+  /\b(?:confirm|place|submit)\w*\b.{0,30}\border\b/iu
+];
+function normalizedSharpenerText(value) {
+  return value.normalize("NFKC").replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
+}
+function sharpenerTransactionalJourneyIssues(contract) {
+  return contract.product.primaryJourney.flatMap(
+    (step, index) => SHARPENER_TRANSACTIONAL_JOURNEY_PATTERNS.some(
+      (pattern) => pattern.test(normalizedSharpenerText(step))
+    ) ? [
+      `product.primaryJourney.${index}: rough-idea sharpening cannot put checkout, customer creation, payment-method collection, subscription activation, purchases, or charges in the executed primary journey; preserve reviewed commerce configuration in business and restore the core product outcome journey`
+    ] : []
+  );
+}
+var OWNED_AUTHENTICATION_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:signs?\s+(?:in(?:\s+(?:to\s+(?:the\s+)?app|(?:with|using)\s+(?:an?\s+)?(?:email|(?:email|magic)\s+link)))?|into(?:\s+(?:the\s+)?app)?(?:\s+(?:with|using)\s+(?:an?\s+)?(?:email|(?:email|magic)\s+link))?)|logs?\s+(?:in(?:\s+(?:to\s+(?:the\s+)?app|(?:with|using)\s+(?:an?\s+)?(?:email|(?:email|magic)\s+link)))?|into(?:\s+(?:the\s+)?app)?(?:\s+(?:with|using)\s+(?:an?\s+)?(?:email|(?:email|magic)\s+link))?)|authenticates?\s+(?:(?:the\s+)?(?:founder|user)(?:\s+(?:with|using)\s+(?:an?\s+)?(?:email|(?:email|magic)\s+link))?|(?:with|using)\s+(?:an?\s+)?(?:email|(?:email|magic)\s+link))|access(?:es)?\s+(?:the\s+)?app\s+(?:with|using|via)\s+(?:an?\s+)?(?:email|magic)\s+link)[.!]?$/iu;
+var OWNED_CREATE_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:creates?|drafts?|makes?|starts?)\s+(?:(?:a|one|new|the|their|its)\s+){0,2}(?:(?:focused|launch)\s+){0,2}(?:checklist|launch)[.!]?$/iu;
+var OWNED_PROGRESS_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:checks?\s+off|completes?|edits?|finish(?:es)?|marks?|toggles?|updates?)\s+(?:(?:all|each|every|one|the|their|its)\s+)?(?:launch\s+)?(?:checklist\s+)?(?:items?|requirements?)(?:\s+(?:as\s+)?complete)?(?:(?:\s*,?\s+and\s+)(?:(?:adds?|attach(?:es)?|records?|uploads?)\s+(?:(?:concise|supporting|the|their)\s+){0,3}evidence|(?:keeps?|persists?|remembers?|retains?|saves?|stores?)\s+(?:(?:the|their|its)\s+)?(?:changes?|checklist\s+state|state)(?:\s+across\s+sessions?)?)){0,2}[.!]?$/iu;
+var OWNED_PERSISTENCE_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:(?:keeps?|persists?|remembers?|retains?|saves?|stores?)\s+(?:(?:all|each|every|one|the|their|its)\s+)?(?:changes?|checklist\s+state|checklist|draft|items?|launch|state)(?:\s+across\s+sessions?)?|(?:checklist\s+)?(?:changes?|state)\s+(?:is|are)\s+(?:persisted|retained|saved|stored))[.!]?$/iu;
+var OWNED_PERSISTENCE_ACTION_PATTERN = /\b(?:keeps?|persists?|remembers?|retains?|saves?|stores?)\s+(?:(?:the|their|its)\s+)?(?:changes?|state)\b|\b(?:changes?|state)\s+(?:is|are)\s+(?:persisted|retained|saved|stored)\b/iu;
+var OWNED_EVIDENCE_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:adds?|attach(?:es)?|records?|uploads?)\s+(?:(?:concise|supporting|the|their)\s+){0,3}evidence(?:\s+to\s+(?:(?:the|their)\s+)?(?:checklist|items?|requirements?))?[.!]?$/iu;
+var OWNED_PUBLISH_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:publish(?:es)?\s+(?:(?:a|one|the|their|its)\s+)?(?:(?:clean|finished|launch|public|read\s+only|shareable)\s+){0,3}receipt(?:\s*,?\s+and\s+cop(?:y|ies)\s+(?:(?:a|the|its)\s+)?(?:public|shareable)\s+link)?|shares?\s+(?:(?:a|one|the|their|its)\s+)?(?:(?:clean|finished|published|read\s+only|shareable)\s+){0,2}receipt\s+publicly|makes?\s+(?:(?:a|one|the|their|its)\s+)?(?:(?:clean|finished|read\s+only|shareable)\s+){0,2}receipt\s+public)[.!]?$/iu;
+var OWNED_PUBLIC_READ_STEP_PATTERN = /^(?:(?:the\s+)?(?:founder|user)\s+)?(?:(?:inspects?|loads?|opens?|reads?|visits?|views?)\s+(?:(?:a|one|the|their|its)\s+)?(?:(?:clean|resulting)\s+)?(?:(?:public|published|read\s+only|shared)\s+){1,2}receipt(?:\s+(?:link|url))?|follows?\s+(?:(?:a|one|the|their|its)\s+)?(?:public|shareable|shared)\s+link\s+to\s+(?:inspect|load|open|read|visit|view)\s+(?:(?:a|one|the)\s+)?(?:(?:clean|resulting)\s+)?(?:(?:public|published|read\s+only|shared)\s+){1,2}receipt)[.!]?$/iu;
+function ownedPublishedJourneyCategories(step) {
+  if (OWNED_AUTHENTICATION_STEP_PATTERN.test(step)) return ["authentication"];
+  if (OWNED_CREATE_STEP_PATTERN.test(step)) return ["create"];
+  if (OWNED_PROGRESS_STEP_PATTERN.test(step)) {
+    return OWNED_PERSISTENCE_ACTION_PATTERN.test(step) ? ["progress", "persistence"] : ["progress"];
+  }
+  if (OWNED_PERSISTENCE_STEP_PATTERN.test(step)) return ["persistence"];
+  if (OWNED_EVIDENCE_STEP_PATTERN.test(step)) return ["evidence"];
+  if (OWNED_PUBLISH_STEP_PATTERN.test(step)) return ["publish"];
+  if (OWNED_PUBLIC_READ_STEP_PATTERN.test(step)) return ["publicRead"];
+  return [];
+}
+function sharpenerRequiredJourneyIssues(source, contract) {
+  const normalizedSource = normalizedSharpenerText(source);
+  const steps = contract.product.primaryJourney.map(normalizedSharpenerText);
+  const sourcePromisesCreate = /\bcreat(?:e|es|ed|ing)\b/iu.test(normalizedSource);
+  const sourcePromisesProgress = /\b(?:complete|edit|mark|update)\w*\b/iu.test(normalizedSource);
+  const sourcePromisesPublish = /\bpublish\w*\b/iu.test(normalizedSource);
+  const sourcePromisesReadableArtifact = /\b(?:public|read only|shareable)\b/iu.test(
+    normalizedSource
+  );
+  const ownedPublishedWebArtifact = /\bweb\s+saas\b/iu.test(normalizedSource) && sourcePromisesCreate && sourcePromisesPublish && sourcePromisesReadableArtifact;
+  const needsAuthentication = ownedPublishedWebArtifact || contract.capabilities.authentication === "REQUIRED" || contract.capabilities.authorization === "REQUIRED";
+  const needsPersistence = ownedPublishedWebArtifact || contract.capabilities.database === "REQUIRED" && (sourcePromisesCreate || sourcePromisesProgress);
+  const issues = [];
+  const categoriesByStep = steps.map(ownedPublishedJourneyCategories);
+  const firstCategory = (category) => categoriesByStep.findIndex((categories) => categories.includes(category));
+  if (ownedPublishedWebArtifact) {
+    for (const [index, categories] of categoriesByStep.entries()) {
+      if (categories.length === 0) {
+        issues.push(
+          `product.primaryJourney.${index}: the complete step is not one allowed source-promised owned publishing action`
+        );
+      }
+    }
+    for (const capability of ["backend", "database", "authentication", "authorization"]) {
+      if (contract.capabilities[capability] !== "REQUIRED") {
+        issues.push(
+          `capabilities.${capability}: an owned published web artifact requires ${capability} to be REQUIRED`
+        );
+      }
+    }
+  }
+  const genericAuthenticationPattern = /\b(?:authenticat(?:e|es|ed|ing)|log\s*in|sign\s*in)\b|\baccess\w*\b.{0,30}\b(?:email|magic)\s+link\b/iu;
+  const genericCreatePattern = /\b(?:creat|draft|make|start)\w*\b/iu;
+  const genericProgressPattern = /\b(?:check\s+off|complete|edit|mark|toggle|update)\w*\b/iu;
+  const genericPersistencePattern = /\b(?:keep|persist|remember|retain|save|store)\w*\b/iu;
+  const genericPublishPattern = /\bpublish\w*\b/iu;
+  const genericPublicReadPattern = /\b(?:inspect|load|open|read|visit|view)\w*\b/iu;
+  const indexes = {
+    authentication: needsAuthentication ? ownedPublishedWebArtifact ? firstCategory("authentication") : steps.findIndex((step) => genericAuthenticationPattern.test(step)) : -1,
+    create: sourcePromisesCreate ? ownedPublishedWebArtifact ? firstCategory("create") : steps.findIndex((step) => genericCreatePattern.test(step)) : -1,
+    progress: sourcePromisesProgress ? ownedPublishedWebArtifact ? firstCategory("progress") : steps.findIndex((step) => genericProgressPattern.test(step)) : -1,
+    persistence: needsPersistence ? ownedPublishedWebArtifact ? firstCategory("persistence") : steps.findIndex((step) => genericPersistencePattern.test(step)) : -1,
+    publish: sourcePromisesPublish ? ownedPublishedWebArtifact ? firstCategory("publish") : steps.findIndex((step) => genericPublishPattern.test(step)) : -1,
+    publicRead: sourcePromisesPublish && sourcePromisesReadableArtifact ? ownedPublishedWebArtifact ? firstCategory("publicRead") : steps.findIndex((step) => genericPublicReadPattern.test(step)) : -1
+  };
+  const required = [
+    ["authentication", needsAuthentication, "an authentication or sign-in step"],
+    ["create", sourcePromisesCreate, "the source-promised create step"],
+    ["progress", sourcePromisesProgress, "the source-promised edit or completion step"],
+    ["persistence", needsPersistence, "an explicit save or persistence step"],
+    ["publish", sourcePromisesPublish, "the source-promised publish step"],
+    [
+      "publicRead",
+      sourcePromisesPublish && sourcePromisesReadableArtifact,
+      "a distinct open, view, read, or visit step for the published artifact"
+    ]
+  ];
+  for (const [key, isRequired, description] of required) {
+    if (isRequired && indexes[key] < 0) {
+      issues.push(`product.primaryJourney: rough-idea sharpening requires ${description}`);
+    }
+  }
+  if (indexes.authentication >= 0 && indexes.create >= 0 && indexes.authentication >= indexes.create) {
+    issues.push("product.primaryJourney: authentication must precede the create step");
+  }
+  if (indexes.create >= 0 && indexes.progress >= 0 && indexes.create >= indexes.progress) {
+    issues.push("product.primaryJourney: creation must precede editing or completion");
+  }
+  if (indexes.progress >= 0 && indexes.persistence >= 0 && indexes.progress > indexes.persistence) {
+    issues.push(
+      "product.primaryJourney: persistence must accompany or follow editing or completion"
+    );
+  }
+  if (indexes.persistence >= 0 && indexes.publish >= 0 && indexes.persistence >= indexes.publish) {
+    issues.push("product.primaryJourney: persistence must precede publication");
+  }
+  if (indexes.publish >= 0 && indexes.publicRead >= 0 && indexes.publish >= indexes.publicRead) {
+    issues.push(
+      "product.primaryJourney: the published artifact must be opened or read in a later step"
+    );
+  }
+  if (ownedPublishedWebArtifact) {
+    for (const [index, categories] of categoriesByStep.entries()) {
+      if (!categories.includes("evidence")) continue;
+      if (indexes.create < 0 || index <= indexes.create) {
+        issues.push("product.primaryJourney: evidence must follow launch or checklist creation");
+      }
+      if (indexes.publish < 0 || index >= indexes.publish) {
+        issues.push("product.primaryJourney: evidence must precede receipt publication");
+      }
+    }
+  }
+  return issues;
 }
 function primaryPrompt(source, today) {
   return [
@@ -19755,7 +19897,7 @@ function assertSharpenerOutputCredentialFree(text2) {
     );
   }
 }
-function validateCandidate(text2) {
+function validateCandidate(text2, source) {
   let candidate;
   try {
     candidate = jsonCandidate(text2);
@@ -19764,7 +19906,12 @@ function validateCandidate(text2) {
   }
   const parsed = launchContractSchema.safeParse(candidate);
   if (parsed.success) {
-    return { success: true, contract: assertLaunchContractSafe(parsed.data) };
+    const contract = assertLaunchContractSafe(parsed.data);
+    const issues = [
+      ...sharpenerTransactionalJourneyIssues(contract),
+      ...sharpenerRequiredJourneyIssues(source, contract)
+    ];
+    return issues.length > 0 ? { success: false, issues } : { success: true, contract };
   }
   return {
     success: false,
@@ -19871,11 +20018,11 @@ async function sharpenIdea(source, options = {}) {
   try {
     let finalText = await run(primaryPrompt(source, today), "primary");
     assertSharpenerOutputCredentialFree(finalText);
-    let parsed = validateCandidate(finalText);
+    let parsed = validateCandidate(finalText, source);
     if (!parsed.success) {
       finalText = await run(refinementPrompt(finalText, parsed.issues, today), "refinement");
       assertSharpenerOutputCredentialFree(finalText);
-      parsed = validateCandidate(finalText);
+      parsed = validateCandidate(finalText, source);
     }
     if (!parsed.success) {
       throw new Error(
@@ -46172,7 +46319,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "bf6c36ad4dab7e8d68d4dd5d99dab06afb85de5b" : void 0;
+  const workflowRefSha = true ? "0bdf93cce5d8c0fe67c1f17f8ec9cfec7c492622" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
