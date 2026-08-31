@@ -18,13 +18,13 @@ export function launchReceiptContract(overrides: Partial<LaunchContract> = {}): 
     },
     product: {
       oneCoreFeature:
-        "An authenticated persisted launch checklist with one public read-only receipt and transactional receipt email",
+        "An authenticated persisted launch checklist with one public read-only receipt",
       primaryJourney: [
-        "Sign in with minimal authentication",
-        "Create a launch and save persisted checklist state",
-        "Update the checklist",
-        "Publish and view a public read-only receipt",
-        "Send one authorized transactional receipt email",
+        "Sign in with email",
+        "Create one launch checklist",
+        "Edit checklist items and persist their state",
+        "Publish the launch receipt",
+        "Open the public read-only receipt",
       ],
       primaryCta: "Publish receipt",
       explicitNotBuilding: [
@@ -38,7 +38,6 @@ export function launchReceiptContract(overrides: Partial<LaunchContract> = {}): 
       trustRequirements: [
         "Authentication",
         "Persisted state",
-        "Transactional email",
         "Analytics for the success signal without private checklist content",
         "Accessible mobile layout",
       ],
@@ -48,7 +47,8 @@ export function launchReceiptContract(overrides: Partial<LaunchContract> = {}): 
       priceHypothesis: 9,
       currency: "EUR",
       paymentProvider: "stripe",
-      commercialCommitmentEvent: "Stripe test-mode subscription checkout started",
+      commercialCommitmentEvent:
+        "Non-transactional price interest recorded for the displayed EUR 9 monthly amount",
     },
     distribution: {
       firstChannel: "Warm founder outreach",
@@ -85,7 +85,7 @@ export function launchReceiptContract(overrides: Partial<LaunchContract> = {}): 
       authorization: "REQUIRED",
       payments: "REQUIRED",
       entitlements: "REQUIRED",
-      transactionalEmail: "REQUIRED",
+      transactionalEmail: "NOT_APPLICABLE",
       analytics: "REQUIRED",
       privacyAndConsent: "REQUIRED",
       seo: "NOT_APPLICABLE",

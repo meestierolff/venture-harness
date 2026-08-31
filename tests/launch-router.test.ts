@@ -175,6 +175,13 @@ describe("launch graph compiler", () => {
       ]),
     );
     expect(dryRun.graph.nodes.filter((node) => node.id === "stripe-commerce")).toHaveLength(1);
+    expect(dryRun.resources).toContainEqual(
+      expect.objectContaining({
+        provider: "stripe",
+        resource: "test-mode product, exact monthly EUR price, billing portal, and webhook",
+        environment: "test",
+      }),
+    );
     expect(dryRun.graph.nodes.find(({ id }) => id === "github-repository")?.dependencies).toEqual([
       "verify-launch",
     ]);

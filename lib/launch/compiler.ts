@@ -23,7 +23,10 @@ const capabilityProviders: Record<string, { provider: string; resource: string }
   },
   transactional_email: { provider: "brevo", resource: "sender, domain, and templates" },
   lifecycle_email: { provider: "brevo", resource: "lifecycle policy and templates" },
-  stripe: { provider: "stripe", resource: "product, exact prices, checkout, portal, and webhook" },
+  stripe: {
+    provider: "stripe",
+    resource: "test-mode product, exact monthly EUR price, billing portal, and webhook",
+  },
   revenuecat: {
     provider: "revenuecat",
     resource: "app, products, entitlement, offering, packages, and webhook",
