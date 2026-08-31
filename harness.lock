@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: 5714c6541746309ef77f36319f89bf80494d50ec
-  tree_digest: 3380aa9c1fab8619da18732a89672af5b346b980c63fe578c5c739b0422ffeee
+  ref: 2139c6c9481a24d09266cc3649b9a7d790e71bbe
+  tree_digest: 0e91b91351ca7f4d520c681d4782c213e1b3773a184baf18cefe1e6642f9d072
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -290,7 +290,7 @@ managed_files:
     sha256: 18e63763e064f1e98e0808021f3b8b9062a3164f84b4a59fcb18ef0f64c40ca0
   - path: .github/workflows/quality.yml
     ownership: harness
-    sha256: a8dbaa8158fef7dddda4c1033b4864e3349cdeecbc4e003be167ecba108e662c
+    sha256: 20c266e55cca450bb70cf0a04966b964b651d3738fb2e072cff0384e1e1a114f
   - path: .github/workflows/security.yml
     ownership: harness
     sha256: fb56f9b1db0e771b66efe0ec2ab9c5ba43671d9b0ba4f267591f280ef6d960ab
@@ -305,10 +305,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: e03fd1bb6122dd894cec6ecd912d1c43839e6bf193e6147aaa4105c6a90498ac
+    sha256: 5d0920b1583f1a160406cc176616eda446288434872ea1a1fdf8797884b44eb5
   - path: bin/vh.mjs
     ownership: harness
-    sha256: 737e154c87f433a08750b9c3ecf7c5f3d19f0166e8431353c3a615df62292857
+    sha256: 6d5762a459ea6aa15159b977490674bde4c9355cc91f66509a748e2a4c182da9
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -1493,7 +1493,7 @@ managed_files:
     sha256: 4503a71fc7698e35b02459abcdd6652c38935bfe121a847e2836ad4461ad7a2a
   - path: tests/quality-profiles.test.ts
     ownership: harness
-    sha256: 269c791d9f69f8a384fc32a66d8979c2df6456a78a518987eaaf6e8b53db4c21
+    sha256: 340973c8ce90baf73a71bd1c3d59702be78b6aec0769d6d0bd634f8b189368a3
   - path: tests/rate-limit.test.ts
     ownership: harness
     sha256: 2470523151537ba3d590474ce1d15e2f7784289193cc1541471fab10b57f7910
