@@ -3,8 +3,8 @@ harness_version: 0.2.0
 config_contract_version: 2
 source:
   kind: local
-  ref: af7565fdb990b5800e069c9217b8537e6640b958
-  tree_digest: 34ca43ba40ca537f3f1c4a9bd4ea272f71bd8cda988f27443525bddc783f2071
+  ref: bbac9ba74eee1dfb6ea4c39abfbcc9c9bb70042f
+  tree_digest: 08e4baaa0f904e444222631f23e0899286192e7336af7f8f1ec0c33055129eeb
 managed_files:
   - path: .agents/skills/design-director/agents/openai.yaml
     ownership: generated
@@ -305,10 +305,10 @@ managed_files:
     sha256: d1ce7df4e7d6d28fd7ed7827379e1afc2b779ba29cdef416f86ce802aa05247d
   - path: bin/vh-build-provenance.json
     ownership: harness
-    sha256: fcb48a65ad4dcd27d54542f78c875731ed0c3d7cd88e3610d8f9fefe76534782
+    sha256: dc82e44655dc15211a2acd8b1cb8e1c2385dbeed4aee60d21d15598b65502633
   - path: bin/vh.mjs
     ownership: harness
-    sha256: b753aa17e1ab4d40cf0ac0139e03602eac64c4e5dc6bf0a3b60622314f0ff231
+    sha256: 86d473cc633f516aa85e07d0f625c5006a3c617cee76c3d482273ce474d21f1a
   - path: config/framework.yaml
     ownership: harness
     sha256: de46ce89845100d5b1bf81f9d02742af73f939561d0db13a67ea0d14034854b8
@@ -515,7 +515,7 @@ managed_files:
     sha256: 3a4b1df09180db957a1dede873783daceee0609e596840ab3fbd6c1f04242a50
   - path: lib/founder-launch/idea-sharpener.ts
     ownership: harness
-    sha256: 23f370e77156af77b171a65ec51e5082beb2b13886a147d8675e3148e498e6b3
+    sha256: 070ef7f4eaf167c1ef9bd12165fe0ef126a162c01e5908c9bfb53b197c3f046d
   - path: lib/founder-launch/idea.ts
     ownership: harness
     sha256: c631f0c608f059eb083e4727f4d93f687fdfe002ff08056a2ed3179238c97faf
@@ -1403,7 +1403,7 @@ managed_files:
     sha256: aebde9c1df4fdcf984a30817782c89337a6f1e3fe96ffe7773eb942fcf5471a1
   - path: tests/idea-sharpener.test.ts
     ownership: harness
-    sha256: c4b131a826b7d7d455abbfbaa81379f098c360b4d89f45608af2d4f762e692dd
+    sha256: 09bd7bd9634f499911ca9d57bd7fea7efeeeb03e5d34f89e3dd98584cd20f9cf
   - path: tests/launch-authorization-scope.test.ts
     ownership: harness
     sha256: e626c3ac664a6aff49fd1cab556162dfba63b2442ab3ce7b7d50b507b86c42de

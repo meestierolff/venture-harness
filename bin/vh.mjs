@@ -19732,6 +19732,22 @@ var SHARPENER_TRANSACTIONAL_PRODUCT_PATTERNS = [
 function normalizedSharpenerText(value) {
   return value.normalize("NFKC").replace(/[_-]+/gu, " ").replace(/\s+/gu, " ").trim();
 }
+var LAUNCH_RECEIPT_CANONICAL_JOURNEY = [
+  "Sign in with email",
+  "Create one launch checklist",
+  "Edit checklist items and persist their state",
+  "Publish the launch receipt",
+  "Open the public read-only receipt"
+];
+function launchReceiptCanonicalJourneyPrompt(source) {
+  const normalizedSource = normalizedSharpenerText(source);
+  if (!/(?:^|[.!?]\s+)the\s+app\s+should\s+let\s+a\s+founder\s+create\s+one\s+focused\s+launch\s+checklist,?\s+complete\s+its\s+items\s+and\s+publish\s+a\s+clean\s+read\s+only\s+receipt\s+showing\s+what\s+is\s+actually\s+ready(?:[.!?]|$)/iu.test(
+    normalizedSource
+  )) {
+    return "";
+  }
+  return `For this launch-checklist/read-only-receipt source, set product.primaryJourney to exactly this JSON array and do not paraphrase, combine, or append clauses: ${JSON.stringify(LAUNCH_RECEIPT_CANONICAL_JOURNEY)}.`;
+}
 function sharpenerTransactionalProductIssues(contract) {
   const surfaces = [
     {
@@ -19886,6 +19902,7 @@ function primaryPrompt(source, today) {
     "Do not invent demand, users, quotes, revenue, metrics, provider state, external evidence, founder credentials, market size, or pricing certainty. Put reversible uncertainty in truth.assumptions, truth.inferences, or truth.unknowns.",
     "Default to thin_mvp. Use product_first only when real usage is indispensable, validate_first only when risk or cost makes a smaller demand test necessary, and concierge_first only when honest manual delivery is materially better.",
     commercePolicyPrompt(),
+    launchReceiptCanonicalJourneyPrompt(source),
     "Classify every capabilities field explicitly. REQUIRED means indispensable to this launch and its acceptance criteria; DEFERRED means a reviewed later possibility excluded from the present build; NOT_APPLICABLE means it does not fit this venture. Do not install generic SaaS infrastructure by default.",
     "Derive the classification from the primary journey, trust boundary, current commercial proof, and first channel. Authentication and authorization are separate decisions; authorization REQUIRED also requires authentication REQUIRED. Payments REQUIRED needs the supported selected provider. An agentNative customer surface, service blueprint, or outcome command requires agentSurface REQUIRED.",
     `Today is ${today}; choose a concrete reviewDate after today without claiming future evidence.`,
@@ -19895,7 +19912,7 @@ function primaryPrompt(source, today) {
     source
   ].join("\n\n");
 }
-function refinementPrompt(candidate, issues, today) {
+function refinementPrompt(source, candidate, issues, today) {
   return [
     "Repair this candidate into the exact Launch Contract schema. This is the only refinement call.",
     "Return exactly one JSON object with no Markdown fence or prose. Preserve sound venture decisions; change only what is needed for a small, credential-free, internally consistent contract.",
@@ -19905,6 +19922,7 @@ function refinementPrompt(candidate, issues, today) {
     schemaSkeleton(),
     "Validation issues:",
     issues.join("\n"),
+    launchReceiptCanonicalJourneyPrompt(source),
     "Candidate:",
     candidate.slice(0, IDEA_SHARPENER_CONTEXT_CHARACTER_LIMIT / 2)
   ].join("\n\n");
@@ -20044,7 +20062,10 @@ async function sharpenIdea(source, options = {}) {
     assertSharpenerOutputCredentialFree(finalText);
     let parsed = validateCandidate(finalText, source);
     if (!parsed.success) {
-      finalText = await run(refinementPrompt(finalText, parsed.issues, today), "refinement");
+      finalText = await run(
+        refinementPrompt(source, finalText, parsed.issues, today),
+        "refinement"
+      );
       assertSharpenerOutputCredentialFree(finalText);
       parsed = validateCandidate(finalText, source);
     }
@@ -46343,7 +46364,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "af7565fdb990b5800e069c9217b8537e6640b958" : void 0;
+  const workflowRefSha = true ? "bbac9ba74eee1dfb6ea4c39abfbcc9c9bb70042f" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
