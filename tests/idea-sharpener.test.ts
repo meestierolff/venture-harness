@@ -36,6 +36,40 @@ items and publish a clean read-only receipt showing what is actually ready.
 It must not become a project-management suite, a generic startup dashboard,
 a team collaboration product or another Venture Harness control plane.`;
 
+function launchReceiptWithTransactionalJourney(step: string) {
+  const contract = launchReceiptContract();
+  return launchReceiptContract({
+    product: {
+      ...contract.product,
+      primaryJourney: [...contract.product.primaryJourney, step],
+    },
+  });
+}
+
+function launchReceiptWithJourney(primaryJourney: string[]) {
+  const contract = launchReceiptContract();
+  return launchReceiptContract({ product: { ...contract.product, primaryJourney } });
+}
+
+type TransactionalProductSurface =
+  "product.oneCoreFeature" | "product.primaryCta" | "decision.primarySuccessSignal";
+
+function launchReceiptWithTransactionalSurface(path: TransactionalProductSurface, value: string) {
+  const contract = launchReceiptContract();
+  switch (path) {
+    case "product.oneCoreFeature":
+      return launchReceiptContract({
+        product: { ...contract.product, oneCoreFeature: value },
+      });
+    case "product.primaryCta":
+      return launchReceiptContract({ product: { ...contract.product, primaryCta: value } });
+    case "decision.primarySuccessSignal":
+      return launchReceiptContract({
+        decision: { ...contract.decision, primarySuccessSignal: value },
+      });
+  }
+}
+
 describe("bounded idea sharpening", () => {
   it("runs Codex in a disposable non-repository with the private idea only on stdin", async () => {
     const invocations: CommandInvocation[] = [];
@@ -186,7 +220,14 @@ describe("bounded idea sharpening", () => {
       "set business.model to subscription, paymentProvider to stripe, priceHypothesis to one positive numeric monthly EUR amount, capabilities.backend, capabilities.payments, and capabilities.entitlements to REQUIRED",
     );
     expect(request?.prompt).toContain(
-      "commercialCommitmentEvent to starting a Stripe test-mode monthly subscription checkout for the displayed EUR amount per month rather than a completed payment or charge",
+      "commercialCommitmentEvent to a non-transactional willingness-to-pay or displayed-price-interest signal for that exact EUR amount per month",
+    );
+    expect(request?.prompt).toContain(
+      "must not create a customer, collect or attach a payment method, open checkout, activate a subscription, or charge anyone",
+    );
+    expect(request?.prompt).toContain("The primary journey remains the core product outcome");
+    expect(request?.prompt).toContain(
+      "Include indispensable authentication or sign-in, create/edit persistence, and public read-back steps whenever REQUIRED capabilities or the promised artifact imply them",
     );
     expect(request?.prompt).toContain(
       "Record the subscription model and exact displayed monthly price in truth.assumptions, and record willingness to pay separately in truth.unknowns",
@@ -194,6 +235,544 @@ describe("bounded idea sharpening", () => {
     expect(request?.prompt).toContain(
       "never present the model, amount, demand, or provider state as truth.facts or external evidence",
     );
+  });
+
+  it("refines invented checkout out of the exact Launch Receipt journey while preserving commerce", async () => {
+    const inventedCheckout = launchReceiptWithTransactionalJourney(
+      "Start Stripe test-mode subscription checkout for EUR 9 per month",
+    );
+    const host = fakeHost([
+      JSON.stringify(inventedCheckout),
+      JSON.stringify(launchReceiptContract()),
+    ]);
+
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(host.run.mock.calls.map(([request]) => request.phase)).toEqual([
+      "primary",
+      "refinement",
+    ]);
+    expect(host.run.mock.calls[1]?.[0].prompt).toContain(
+      "rough-idea sharpening cannot put checkout, customer creation, payment-method collection, subscription activation, purchases, or charges in the executed primary journey",
+    );
+    expect(result.launchContract.product.primaryJourney).toEqual([
+      "Sign in with email",
+      "Create one launch checklist",
+      "Edit checklist items and persist their state",
+      "Publish the launch receipt",
+      "Open the public read-only receipt",
+    ]);
+    expect(result.launchContract.business).toEqual({
+      model: "subscription",
+      priceHypothesis: 9,
+      currency: "EUR",
+      paymentProvider: "stripe",
+      commercialCommitmentEvent:
+        "Non-transactional price interest recorded for the displayed EUR 9 monthly amount",
+    });
+    expect(result.launchContract.capabilities).toMatchObject({
+      backend: "REQUIRED",
+      payments: "REQUIRED",
+      entitlements: "REQUIRED",
+    });
+  });
+
+  it("keeps explicitly requested checkout as future non-executed context outside the journey", async () => {
+    const source = `${launchReceiptRoughIdea}\n\nA future price test may explicitly open Stripe checkout, but it is not the product outcome.`;
+    const host = fakeHost([
+      JSON.stringify(launchReceiptWithTransactionalJourney("Open Stripe checkout")),
+      JSON.stringify(launchReceiptContract()),
+    ]);
+
+    const result = await sharpenIdea(source, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(host.run).toHaveBeenCalledTimes(2);
+    expect(result.launchContract.product.primaryJourney).toEqual(
+      launchReceiptContract().product.primaryJourney,
+    );
+    expect(result.launchContract.business).toEqual(launchReceiptContract().business);
+  });
+
+  it("treats negated checkout as forbidden journey text and fails closed after refinement", async () => {
+    const source = `${launchReceiptRoughIdea}\n\nThe primary journey must not include checkout or charge anyone.`;
+    const invalid = launchReceiptWithTransactionalJourney("Do not open checkout or charge anyone");
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    const attempt = sharpenIdea(source, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    await expect(attempt).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(/exhausted its 2-call limit.*executed primary journey/u),
+      accounting: { modelCalls: 2 },
+    });
+    expect(host.run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["product.oneCoreFeature", "core feature", "A checklist that creates a Stripe customer"],
+    ["product.primaryCta", "primary CTA", "Start checkout"],
+    ["decision.primarySuccessSignal", "primary success signal", "stripe_subscription_activated"],
+    ["decision.primarySuccessSignal", "primary success signal", "eur_9_plan_activated"],
+  ] as const)(
+    "fails closed when %s makes commerce part of the %s",
+    async (path, _surface, transactionalValue) => {
+      const invalid = launchReceiptWithTransactionalSurface(path, transactionalValue);
+      const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+      await expect(
+        sharpenIdea(launchReceiptRoughIdea, {
+          host,
+          now: () => new Date("2026-08-12T12:00:00.000Z"),
+        }),
+      ).rejects.toMatchObject({
+        name: "IdeaSharpenError",
+        message: expect.stringMatching(
+          new RegExp(
+            `${path.replaceAll(".", "\\.")}: rough-idea sharpening cannot put .*keep the product outcome non-transactional`,
+            "u",
+          ),
+        ),
+        accounting: { modelCalls: 2 },
+      });
+      expect(host.run).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(
+    [
+      ["plan activation", "Activate EUR 9 plan", "activate_eur_9_plan"],
+      ["autopay", "Enable autopay", "autopay_enabled"],
+      ["Paddle", "Connect Paddle", "paddle_connected"],
+      ["entitlement", "Provision entitlement", "entitlement_provisioned"],
+      ["IBAN", "Enter IBAN", "iban_entered"],
+      ["fund collection", "Collect funds", "funds_collected"],
+      ["plural customer creation", "Create customers", "customers_created"],
+    ].flatMap(([label, proseValue, signalValue]) => [
+      [`${label} in the core feature`, "product.oneCoreFeature", proseValue],
+      [`${label} in the primary CTA`, "product.primaryCta", proseValue],
+      [`${label} in the primary success signal`, "decision.primarySuccessSignal", signalValue],
+    ]) as Array<[string, TransactionalProductSurface, string]>,
+  )("rejects %s", async (_label, path, transactionalValue) => {
+    const invalid = launchReceiptWithTransactionalSurface(path, transactionalValue);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(
+        new RegExp(`${path.replaceAll(".", "\\.")}: rough-idea sharpening cannot put`, "u"),
+      ),
+      accounting: { modelCalls: 2 },
+    });
+    expect(host.run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "Subscribe for EUR 9 per month",
+    "Complete payment for EUR 9 per month",
+    "Upgrade to the paid plan",
+    "Pay EUR 9 per month",
+    "Buy the EUR 9 monthly plan",
+    "Subscribe now",
+    "Provide card details",
+    "Set up recurring billing",
+    "Confirm the order",
+    "Create a Stripe customer",
+    "Start a free trial",
+    "Start premium access",
+    "Update to premium tier",
+    "Complete enrollment in monthly membership",
+    "Start direct debit",
+    "Create a SEPA mandate",
+    "Mark premium plan active",
+    "Activate EUR 9 plan",
+    "Enable autopay",
+    "Connect Paddle",
+    "Provision entitlement",
+    "Enter IBAN",
+    "Collect funds",
+    "Create customers",
+  ])("rejects the transactional journey paraphrase %j", async (step) => {
+    const invalid = launchReceiptWithTransactionalJourney(step);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(/exhausted its 2-call limit.*executed primary journey/u),
+      accounting: { modelCalls: 2 },
+    });
+    expect(host.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("refines a journey that omits required authentication and persistence", async () => {
+    const incomplete = launchReceiptWithJourney([
+      "Create one launch checklist",
+      "Edit checklist items",
+      "Publish the launch receipt",
+      "Open the public read-only receipt",
+    ]);
+    const host = fakeHost([JSON.stringify(incomplete), JSON.stringify(launchReceiptContract())]);
+
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(result.launchContract.product.primaryJourney).toEqual(
+      launchReceiptContract().product.primaryJourney,
+    );
+    expect(host.run.mock.calls[1]?.[0].prompt).toContain(
+      "rough-idea sharpening requires an authentication or sign-in step",
+    );
+    expect(host.run.mock.calls[1]?.[0].prompt).toContain(
+      "rough-idea sharpening requires an explicit save or persistence step",
+    );
+  });
+
+  it("accepts grounded journey paraphrases without forcing literal fixture wording", async () => {
+    const paraphrased = launchReceiptWithJourney([
+      "Access the app using an email link",
+      "Make a new launch checklist",
+      "Check off checklist items and save their state",
+      "Share the finished receipt publicly",
+      "Inspect the public receipt",
+    ]);
+    const host = fakeHost([JSON.stringify(paraphrased)]);
+
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(result.launchContract.product.primaryJourney).toEqual(
+      paraphrased.product.primaryJourney,
+    );
+    expect(result.accounting.modelCalls).toBe(1);
+  });
+
+  it("accepts a six-step journey with explicit evidence and persistence", async () => {
+    const paraphrased = launchReceiptWithJourney([
+      "The founder signs in with a magic link",
+      "The founder creates one focused launch checklist",
+      "The founder completes each requirement and attaches concise evidence",
+      "The founder saves the checklist state",
+      "The founder publishes a clean read-only receipt and copies its shareable link",
+      "The founder opens the public read-only receipt",
+    ]);
+    const host = fakeHost([JSON.stringify(paraphrased)]);
+
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(result.launchContract.product.primaryJourney).toEqual(
+      paraphrased.product.primaryJourney,
+    );
+    expect(result.accounting.modelCalls).toBe(1);
+  });
+
+  it("accepts concise journey synonyms and the task's create-a-launch wording", async () => {
+    const paraphrased = launchReceiptWithJourney([
+      "Sign into the app with email",
+      "Create one launch",
+      "Finish checklist items and save their state",
+      "Add supporting evidence",
+      "Publish a shareable receipt",
+      "Visit the public receipt URL",
+    ]);
+    const host = fakeHost([JSON.stringify(paraphrased)]);
+
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(result.launchContract.product.primaryJourney).toEqual(
+      paraphrased.product.primaryJourney,
+    );
+    expect(result.accounting.modelCalls).toBe(1);
+  });
+
+  it("rejects an ungrounded commerce paraphrase even without a listed payment term", async () => {
+    const invalid = launchReceiptWithTransactionalJourney("Enroll in the premium tier");
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(/complete step is not one allowed/u),
+      accounting: { modelCalls: 2 },
+    });
+  });
+
+  it("refines away capability downgrades for an owned published web artifact", async () => {
+    const contract = launchReceiptContract();
+    const incomplete = launchReceiptContract({
+      capabilities: {
+        ...contract.capabilities,
+        database: "NOT_APPLICABLE",
+        authentication: "NOT_APPLICABLE",
+        authorization: "NOT_APPLICABLE",
+      },
+    });
+    const host = fakeHost([JSON.stringify(incomplete), JSON.stringify(contract)]);
+
+    const result = await sharpenIdea(launchReceiptRoughIdea, {
+      host,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+    });
+
+    expect(result.launchContract.capabilities).toEqual(contract.capabilities);
+    expect(host.run.mock.calls[1]?.[0].prompt).toContain(
+      "an owned published web artifact requires database to be REQUIRED",
+    );
+    expect(host.run.mock.calls[1]?.[0].prompt).toContain(
+      "an owned published web artifact requires authentication to be REQUIRED",
+    );
+  });
+
+  it("fails closed when publication never receives a distinct public read-back", async () => {
+    const incomplete = launchReceiptWithJourney([
+      "Sign in with email",
+      "Create one launch checklist",
+      "Edit checklist items and persist their state",
+      "Publish the launch receipt and copy its shareable link",
+    ]);
+    const host = fakeHost([JSON.stringify(incomplete), JSON.stringify(incomplete)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(/distinct open, view, read, or visit step/u),
+      accounting: { modelCalls: 2 },
+    });
+    expect(host.run).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [
+      "creation before authentication",
+      [
+        "Create one launch checklist",
+        "Sign in with email",
+        "Edit checklist items and persist their state",
+        "Publish the launch receipt",
+        "Open the public read-only receipt",
+      ],
+      /authentication must precede the create step/u,
+    ],
+    [
+      "publication before persistence",
+      [
+        "Sign in with email",
+        "Create one launch checklist",
+        "Publish the launch receipt",
+        "Edit checklist items and persist their state",
+        "Open the public read-only receipt",
+      ],
+      /persistence must precede publication/u,
+    ],
+    [
+      "public read before publication",
+      [
+        "Sign in with email",
+        "Create one launch checklist",
+        "Edit checklist items and persist their state",
+        "Open the public read-only receipt",
+        "Publish the launch receipt",
+      ],
+      /published artifact must be opened or read in a later step/u,
+    ],
+  ] as const)("fails closed on %s", async (_label, primaryJourney, message) => {
+    const invalid = launchReceiptWithJourney([...primaryJourney]);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(message),
+      accounting: { modelCalls: 2 },
+    });
+  });
+
+  it.each([
+    [
+      "authentication noun without sign-in",
+      [
+        "Review authentication requirements",
+        "Create one launch checklist",
+        "Edit checklist items and persist their state",
+        "Publish the launch receipt",
+        "Open the public read-only receipt",
+      ],
+      /authentication or sign-in step/u,
+    ],
+    [
+      "start verb without artifact creation",
+      [
+        "Sign in with email",
+        "Start from the launch overview",
+        "Edit checklist items and persist their state",
+        "Publish the launch receipt",
+        "Open the public read-only receipt",
+      ],
+      /source-promised create step/u,
+    ],
+    [
+      "unrelated completion before saving state",
+      [
+        "Sign in with email",
+        "Create one launch checklist",
+        "Complete onboarding and save checklist state",
+        "Publish the launch receipt",
+        "Open the public read-only receipt",
+      ],
+      /source-promised edit or completion step/u,
+    ],
+    [
+      "opening an editor instead of the public artifact",
+      [
+        "Sign in with email",
+        "Create one launch checklist",
+        "Edit checklist items and persist their state",
+        "Publish the launch receipt",
+        "Open the receipt editor",
+      ],
+      /distinct open, view, read, or visit step/u,
+    ],
+  ] as const)("rejects %s", async (_label, primaryJourney, message) => {
+    const invalid = launchReceiptWithJourney([...primaryJourney]);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(message),
+      accounting: { modelCalls: 2 },
+    });
+  });
+
+  it.each([
+    [
+      "plan activation appended to creation",
+      1,
+      "Create one launch checklist and activate the EUR 9 monthly plan",
+    ],
+    [
+      "IBAN collection appended to editing",
+      2,
+      "Edit checklist items, enter an IBAN, and save their state",
+    ],
+    [
+      "plan enrollment appended to publication",
+      3,
+      "Publish the launch receipt and enroll in the EUR 9 monthly plan",
+    ],
+    [
+      "plan enrollment appended to public read",
+      4,
+      "Open the public read-only receipt after joining the EUR 9 monthly plan",
+    ],
+    ["autopay appended to creation", 1, "Create one launch checklist and set up autopay"],
+    ["Paddle appended to publication", 3, "Publish the launch receipt and configure Paddle"],
+    ["RevenueCat appended to creation", 1, "Create one launch checklist and connect RevenueCat"],
+    ["entitlement appended to sign-in", 0, "Sign in with email and provision an entitlement"],
+    [
+      "fund collection appended to editing",
+      2,
+      "Edit checklist items, collect funds, and save their state",
+    ],
+    ["signature authentication substituted for sign-in", 0, "Authenticate the receipt signature"],
+    ["receipt-link creation substituted for checklist creation", 1, "Create a receipt link"],
+    [
+      "state marking substituted for item progress",
+      2,
+      "Mark the state complete and save their state",
+    ],
+    ["receipt-image saving substituted for persistence", 2, "Save the receipt image"],
+    [
+      "checklist publication substituted for receipt publication",
+      3,
+      "Publish the launch checklist",
+    ],
+    ["public settings substituted for receipt read-back", 4, "View the public settings"],
+  ] as const)("rejects %s", async (_label, stepIndex, replacement) => {
+    const primaryJourney = [...launchReceiptContract().product.primaryJourney];
+    primaryJourney[stepIndex] = replacement;
+    const invalid = launchReceiptWithJourney(primaryJourney);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(/complete step is not one allowed/u),
+      accounting: { modelCalls: 2 },
+    });
+  });
+
+  it.each([
+    ["before authentication", 0, /evidence must follow launch or checklist creation/u],
+    [
+      "between authentication and creation",
+      1,
+      /evidence must follow launch or checklist creation/u,
+    ],
+    ["after publication", 4, /evidence must precede receipt publication/u],
+  ] as const)("rejects a separate evidence step %s", async (_label, insertion, message) => {
+    const primaryJourney = [...launchReceiptContract().product.primaryJourney];
+    primaryJourney.splice(insertion, 0, "Add supporting evidence");
+    const invalid = launchReceiptWithJourney(primaryJourney);
+    const host = fakeHost([JSON.stringify(invalid), JSON.stringify(invalid)]);
+
+    await expect(
+      sharpenIdea(launchReceiptRoughIdea, {
+        host,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      name: "IdeaSharpenError",
+      message: expect.stringMatching(message),
+      accounting: { modelCalls: 2 },
+    });
   });
 
   it("documents free, deferred, alternative-model, and non-product SaaS precedence in the prompt contract", async () => {

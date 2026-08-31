@@ -46,7 +46,7 @@
     {
       "path": "tests/idea-sharpener.test.ts",
       "rule": "database-url-with-credentials",
-      "line": 114,
+      "line": 148,
       "sha256": "d0e97f83aea30a20cad64964db73b8afbef08b28f75e2c1c59ca81e88aab8841",
       "reason": "Synthetic idea-sharpener environment isolation canary."
     },

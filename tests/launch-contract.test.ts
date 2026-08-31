@@ -212,7 +212,7 @@ describe("Launch Contract", () => {
       needs: {
         authenticated_product: true,
         database: true,
-        transactional_email: true,
+        transactional_email: false,
         analytics: true,
         scheduled_learning: false,
       },
@@ -223,12 +223,7 @@ describe("Launch Contract", () => {
     expect(decision.mode.selectedMode).toBe("product_first");
     expect(decision.payment.provider).toBe("stripe");
     expect(decision.capabilities).toEqual(
-      expect.arrayContaining([
-        "authenticated_product",
-        "database",
-        "transactional_email",
-        "stripe",
-      ]),
+      expect.arrayContaining(["authenticated_product", "database", "stripe"]),
     );
     expect(brief.material_constraints).toEqual(
       expect.arrayContaining([
