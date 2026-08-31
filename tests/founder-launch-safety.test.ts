@@ -613,6 +613,9 @@ describe("canonical founder launch safety preflight", () => {
     );
     expect(continuationReached).toHaveBeenCalledTimes(1);
     expect(continuedContexts[0]?.authorization).toMatchObject({
+      profile: "live_commerce_launch",
+      live_products_and_prices_allowed: false,
+      actual_charges_allowed: false,
       issued_at: renewedAt.toISOString(),
       approval_ref: expect.stringMatching(
         new RegExp(`^launch-grant-pre-run-renewal:${harness.grant.grantId}:`),

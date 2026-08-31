@@ -114,6 +114,20 @@ describe("synthetic founder Golden Path", () => {
     expect(readFileSync(result.launchReport.markdown, "utf8")).toContain(
       "reviewed direct-operation ceiling 0 EUR; ongoing account-plan usage excluded",
     );
+    const persistedLaunch = JSON.parse(
+      readFileSync(join(result.childRoot, `.venture/launches/${result.runId}.json`), "utf8"),
+    ) as {
+      authorization: {
+        profile: string;
+        live_products_and_prices_allowed: boolean;
+        actual_charges_allowed: boolean;
+      };
+    };
+    expect(persistedLaunch.authorization).toMatchObject({
+      profile: "live_commerce_launch",
+      live_products_and_prices_allowed: false,
+      actual_charges_allowed: false,
+    });
   }, 120_000);
 
   it("persists a GitHub auth wait and resumes idempotently through the exact same founder command", async () => {
