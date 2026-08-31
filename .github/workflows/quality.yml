@@ -28,6 +28,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Prepare workspace packages
         run: pnpm workspace:prepare
+      - name: Install Chromium for selected child browser tests
+        run: pnpm exec playwright install --with-deps chromium
       # The fast changed-test router can select child materialization and
       # Golden Path tests. Those children install their own frozen lockfile
       # offline with --ignore-workspace, so prepare that distinct closure too.
