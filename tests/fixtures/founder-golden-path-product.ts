@@ -755,7 +755,9 @@ export class FounderGoldenPathProductCommandFixture implements CommandRunner {
     if (
       invocation.args.join("\u0000") === CHILD_DEPENDENCY_INSTALL_ARGS.join("\u0000") ||
       (invocation.args.length === 1 &&
-        (invocation.args[0] === "verify:fast" || invocation.args[0] === "build"))
+        ["typecheck", "build", "test:e2e:readonly", "test", "verify:fast"].includes(
+          invocation.args[0] ?? "",
+        ))
     ) {
       return runChildPnpm(invocation, this.#root);
     }

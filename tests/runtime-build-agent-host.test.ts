@@ -757,6 +757,119 @@ describe("default launch product bindings", () => {
     });
   });
 
+  it("runs every generic seed preflight command in the compiled dependency order", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    installTooling(root);
+    const runner = new FakeRunner([
+      { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" },
+      { exitCode: 0, stdout: "typecheck passed\n", stderr: "" },
+      { exitCode: 0, stdout: "build passed\n", stderr: "" },
+      { exitCode: 0, stdout: "readonly journey passed\n", stderr: "" },
+      { exitCode: 0, stdout: "tests passed\n", stderr: "" },
+    ]);
+    const bindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: new FakeBuildAgentHost({
+        status: "completed",
+        summary: "unused",
+        changedFiles: [],
+        checks: [],
+        limitations: [],
+        eventTypes: [],
+        completion: null,
+      }),
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+
+    await bindings.handlers!["launch.installDependencies"](
+      handlerContext("seed-preflight-order", "install-dependencies", "launch.installDependencies"),
+    );
+    for (const [nodeId, handler] of [
+      ["verify-seed-typecheck", "launch.verifySeedTypecheck"],
+      ["verify-seed-build", "launch.verifySeedBuild"],
+      ["verify-seed-readonly", "launch.verifySeedReadonly"],
+      ["verify-seed-tests", "launch.verifySeedTests"],
+    ] as const) {
+      const result = await bindings.handlers![handler](
+        handlerContext("seed-preflight-order", nodeId, handler, "none"),
+      );
+      expect(result).toMatchObject({
+        output: { command: expect.arrayContaining(["pnpm"]), exitCode: 0 },
+        evidenceArtifact: `reports/launch/seed-preflight-order/product/${nodeId}.json`,
+      });
+    }
+
+    expect(runner.calls.map(({ command, args }) => [command, ...args])).toEqual([
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      ["pnpm", "typecheck"],
+      ["pnpm", "build"],
+      ["pnpm", "test:e2e:readonly"],
+      ["pnpm", "test"],
+    ]);
+  });
+
+  it("stops a failing generic seed before any Codex request or provider effect", async () => {
+    const root = temporaryRoot();
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    const calls: string[][] = [];
+    const runner: CommandRunner = {
+      async run(invocation) {
+        calls.push([invocation.command, ...invocation.args]);
+        if (invocation.args.join("\u0000") === CHILD_DEPENDENCY_INSTALL_ARGS.join("\u0000")) {
+          installTooling(root);
+          return { exitCode: 0, stdout: "frozen dependencies installed\n", stderr: "" };
+        }
+        expect(invocation.args).toEqual(["typecheck"]);
+        return { exitCode: 1, stdout: "", stderr: "seed type error\n" };
+      },
+    };
+    const host = new FakeBuildAgentHost({
+      status: "completed",
+      summary: "must remain unused",
+      changedFiles: [],
+      checks: [],
+      limitations: [],
+      eventTypes: [],
+      completion: null,
+    });
+    const productBindings = createLaunchProductBindings({
+      rootDir: root,
+      brief: webBrief,
+      agentHost: host,
+      commandRunner: runner,
+      now: () => new Date("2026-08-04T12:00:00.000Z"),
+    });
+    const providerEffect = vi.fn(async () => ({ output: { applied: true }, effectVerified: true }));
+    const definition = compileLaunchGraph(webBrief);
+    const handlers = { ...productBindings.handlers };
+    for (const node of definition.nodes.filter(({ kind }) => kind === "provider")) {
+      if (node.handler) handlers[node.handler] = providerEffect;
+    }
+    const executor = new WorkflowExecutor({
+      store: new FileWorkflowStore({ rootDir: join(root, "runs") }),
+      bindings: { ...productBindings, handlers },
+    });
+
+    const state = await executor.start(definition, { runId: "seed-preflight-failure" });
+
+    expect(state.status).toBe("failed");
+    expect(state.nodes["verify-seed-typecheck"].error).toMatchObject({
+      code: "QUALITY_CHECK_FAILED",
+    });
+    expect(state.nodes["prepare-repository"].state).toBe("skipped");
+    expect(host.requests).toHaveLength(0);
+    expect(providerEffect).not.toHaveBeenCalled();
+    expect(calls).toEqual([
+      ["pnpm", ...CHILD_DEPENDENCY_INSTALL_ARGS],
+      ["pnpm", "typecheck"],
+    ]);
+  });
+
   it("persists a failed frozen dependency install before any quality command can run", async () => {
     const root = temporaryRoot();
     writeFileSync(join(root, "package.json"), "{}\n");

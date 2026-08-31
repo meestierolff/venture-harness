@@ -25,6 +25,14 @@ describe("authorization-scoped launch graphs", () => {
     expect(scoped.nodes.find(({ id }) => id === "launch-report")?.dependencies).toEqual([
       "verify-local",
     ]);
+    expect(scoped.nodes.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([
+        "verify-seed-typecheck",
+        "verify-seed-build",
+        "verify-seed-readonly",
+        "verify-seed-tests",
+      ]),
+    );
     expect(requiredEnvironmentsForLaunch(scoped)).toEqual(["local"]);
   });
 
