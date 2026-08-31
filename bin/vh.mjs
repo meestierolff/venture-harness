@@ -46343,7 +46343,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "1c405100fa7289978725f6e4582b23dc61fa1666" : void 0;
+  const workflowRefSha = true ? "af7565fdb990b5800e069c9217b8537e6640b958" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {
