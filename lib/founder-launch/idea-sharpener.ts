@@ -327,6 +327,17 @@ function schemaSkeleton(): string {
   );
 }
 
+function commercePolicyPrompt(): string {
+  return [
+    "Default business.model to free, paymentProvider to none, priceHypothesis to null, and capabilities.payments and capabilities.entitlements to NOT_APPLICABLE when generic founder prose does not propose commerce.",
+    "For founder alpha, only when the founder describes the product itself as an unqualified web SaaS and supplies no conflicting commercial model, treat that wording as a narrow, reversible present subscription hypothesis even when no price is stated: set business.model to subscription, paymentProvider to stripe, priceHypothesis to one positive numeric monthly EUR amount, capabilities.backend, capabilities.payments, and capabilities.entitlements to REQUIRED, and commercialCommitmentEvent to starting a Stripe test-mode monthly subscription checkout for the displayed EUR amount per month rather than a completed payment or charge.",
+    "Record the subscription model and exact displayed monthly price in truth.assumptions, and record willingness to pay separately in truth.unknowns; never present the model, amount, demand, or provider state as truth.facts or external evidence.",
+    "An explicit statement that the whole product is free or needs no payments overrides the web-SaaS hypothesis: preserve business.model free, paymentProvider none, and priceHypothesis null, and classify capabilities.payments and capabilities.entitlements as NOT_APPLICABLE. Explicitly deferred payments or monetization also override it and make both capabilities DEFERRED.",
+    "An explicit one-time, service, usage, take-rate, native-commerce, advertising, sponsorship, or donation model takes precedence over the web-SaaS default. A SaaS mention only in the audience, a competitor, a negation, or an explicit not-building boundary does not describe the product itself. A free trial, free tier, freemium offer, or the phrase not free does not by itself make the whole product free.",
+    "Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
+  ].join(" ");
+}
+
 function primaryPrompt(source: string, today: string): string {
   return [
     "Turn one rough founder idea into the smallest credible Launch Contract.",
@@ -335,7 +346,7 @@ function primaryPrompt(source: string, today: string): string {
     "Use one user, one painful job, one useful outcome, one concise reviewable proposition hypothesis, one core feature, one journey, one CTA, one commitment, one channel, one success signal, one review date, and an explicit not-building list. Keep venture.proposition distinct from the one-sentence category thesis and do not present it as validated demand or a completed founder review.",
     "Do not invent demand, users, quotes, revenue, metrics, provider state, external evidence, founder credentials, market size, or pricing certainty. Put reversible uncertainty in truth.assumptions, truth.inferences, or truth.unknowns.",
     "Default to thin_mvp. Use product_first only when real usage is indispensable, validate_first only when risk or cost makes a smaller demand test necessary, and concierge_first only when honest manual delivery is materially better.",
-    "Default business.model to free and paymentProvider to none unless the founder proposes present commerce. Use Stripe for supported web subscription, one-time, or service commerce and RevenueCat only for native subscription or one-time digital commerce. Preserve usage and take_rate models with paymentProvider none until their automatic rails are implemented. priceHypothesis is one positive numeric amount or null. For usage, record the exact per-unit meter in commercialCommitmentEvent, truth.facts, or truth.assumptions. For take_rate, record the exact percentage-of-transaction basis there.",
+    commercePolicyPrompt(),
     "Classify every capabilities field explicitly. REQUIRED means indispensable to this launch and its acceptance criteria; DEFERRED means a reviewed later possibility excluded from the present build; NOT_APPLICABLE means it does not fit this venture. Do not install generic SaaS infrastructure by default.",
     "Derive the classification from the primary journey, trust boundary, current commercial proof, and first channel. Authentication and authorization are separate decisions; authorization REQUIRED also requires authentication REQUIRED. Payments REQUIRED needs the supported selected provider. An agentNative customer surface, service blueprint, or outcome command requires agentSurface REQUIRED.",
     `Today is ${today}; choose a concrete reviewDate after today without claiming future evidence.`,
@@ -350,6 +361,7 @@ function refinementPrompt(candidate: string, issues: string[], today: string): s
   return [
     "Repair this candidate into the exact Launch Contract schema. This is the only refinement call.",
     "Return exactly one JSON object with no Markdown fence or prose. Preserve sound venture decisions; change only what is needed for a small, credential-free, internally consistent contract.",
+    commercePolicyPrompt(),
     `Today is ${today}; reviewDate must be a real date after today.`,
     "Schema skeleton:",
     schemaSkeleton(),
