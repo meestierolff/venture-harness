@@ -38923,7 +38923,12 @@ function authorizationForLaunchGrant(envelope, grant) {
       amount,
       currency: operationBudget.currency
     },
-    unknown_external_costs_allowed: false
+    unknown_external_costs_allowed: false,
+    // Canonical founder launches configure paid offers only in provider test
+    // mode. The broader named profile remains available for separately
+    // authorized live-commerce work, but a Launch Grant never inherits it.
+    live_products_and_prices_allowed: false,
+    actual_charges_allowed: false
   });
 }
 function bindWorkflowBudgetsToLaunchGrant(definition2, grant) {
@@ -46167,7 +46172,7 @@ if (isDirectGeneratedCliEntry()) {
 // scripts/vh-bundle.ts
 var IMMUTABLE_GIT_SHA = /^[a-f0-9]{40}$/u;
 function founderCoreBuildProvenance() {
-  const workflowRefSha = true ? "2139c6c9481a24d09266cc3649b9a7d790e71bbe" : void 0;
+  const workflowRefSha = true ? "bf6c36ad4dab7e8d68d4dd5d99dab06afb85de5b" : void 0;
   const packageVersion = true ? "0.2.0" : void 0;
   const workflowRepository = true ? "meestierolff/venture-harness" : void 0;
   if (!workflowRefSha || !IMMUTABLE_GIT_SHA.test(workflowRefSha) || !packageVersion || !workflowRepository) {

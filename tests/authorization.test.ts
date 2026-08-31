@@ -686,4 +686,37 @@ describe("session authorization", () => {
       }
     }
   });
+
+  it("allows Stripe sandbox setup when live commerce and charges are explicitly disabled", () => {
+    const issued = issueAuthorizationEnvelope({
+      runId: "launch-stripe-test-only",
+      profile: "live-commerce-launch",
+      providers: ["stripe"],
+      environments: ["test"],
+      policies,
+      approvalRef: "test:stripe-test-only",
+      now,
+    });
+    const envelope = {
+      ...issued,
+      live_products_and_prices_allowed: false,
+      actual_charges_allowed: false,
+    };
+    const plan = getProviderAdapter("stripe").plan(providerPlanFixtures.stripe);
+
+    expect(plan.operations.map(({ action }) => action)).toEqual(
+      expect.arrayContaining([
+        "product.create",
+        "price.create",
+        "webhook_endpoint.create",
+        "billing_portal.configuration.create",
+      ]),
+    );
+    for (const plannedOperation of plan.operations) {
+      expect(plannedOperation.environment).toBe("sandbox");
+      expect(() =>
+        assertOperationAuthorized(envelope, plannedOperation, policies, now),
+      ).not.toThrow();
+    }
+  });
 });

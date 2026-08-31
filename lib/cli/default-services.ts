@@ -2209,6 +2209,11 @@ function authorizationForLaunchGrant(
       currency: operationBudget.currency,
     },
     unknown_external_costs_allowed: false,
+    // Canonical founder launches configure paid offers only in provider test
+    // mode. The broader named profile remains available for separately
+    // authorized live-commerce work, but a Launch Grant never inherits it.
+    live_products_and_prices_allowed: false,
+    actual_charges_allowed: false,
   });
 }
 
